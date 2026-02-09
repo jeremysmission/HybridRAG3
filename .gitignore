@@ -34,7 +34,7 @@ embeddings_meta.json
 logs/
 
 # Model caches (downloaded at setup, not committed)
-.model_cache/
+
 .hf_cache/
 .torch_cache/
 
