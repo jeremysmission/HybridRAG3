@@ -1,335 +1,239 @@
-# ============================================================================
-# HybridRAG — Default Configuration
-# ============================================================================
-# Machine-specific paths come from environment variables (set in
-# start_hybridrag.ps1), NOT from this file. Leave paths empty here
-# so the env vars take priority.
-#
-# This file only defines settings that are the SAME across all machines.
-#
-# CHANGES:
-#   2026-02-07: SEC-001 FIX — api.endpoint changed to empty string.
-#               Online mode now requires explicit endpoint configuration.
-#   2026-02-07: Reranker enabled by default for technical document accuracy.
-#   2026-02-07: Cleaned up duplicate retrieval sections.
-# ============================================================================
-
-# "offline" = Ollama (local), "online" = OpenAI-compatible API
-mode: "offline"
-
-# Paths are empty on purpose — they come from env vars:
-#   HYBRIDRAG_DATA_DIR     -> database + embeddings_cache
-#   HYBRIDRAG_INDEX_FOLDER -> source_folder
-paths:
-  database: ""
-  embeddings_cache: ""
-  source_folder: ""
-
-embedding:
-  model_name: "all-MiniLM-L6-v2"
-  dimension: 384
-  batch_size: 16
-  device: "cpu"
-
+api:
+  endpoint: ''
+  max_tokens: 2048
+  model: gpt-3.5-turbo
+  temperature: 0.1
+  timeout_seconds: 30
 chunking:
   chunk_size: 1200
-  overlap: 200
   max_heading_len: 160
-
-retrieval:
-  top_k: 5
-  min_score: 0.20
-  block_rows: 25000
-  lex_boost: 0.06
-
-  # --- Hybrid search (BM25 + vector fusion) ---
-  # When true, every query runs BOTH vector similarity AND keyword search,
-  # then merges results using Reciprocal Rank Fusion (RRF).
-  # This catches exact terms, part numbers, and acronyms that vector
-  # search alone misses. Recommended: true for technical manuals.
-  hybrid_search: true
-  rrf_k: 60                    # RRF constant (higher = gentler merging)
-
-  # --- Cross-encoder reranker ---
-  # When enabled, retrieves reranker_top_n candidates, then a cross-encoder
-  # model re-reads each query+chunk pair for more accurate scoring.
-  # Adds 1-2 seconds per query. Toggle on for accuracy, off for speed.
-  # Can be toggled via GUI engineering mode in the future.
-  reranker_enabled: true
-  reranker_model: "cross-encoder/ms-marco-MiniLM-L-6-v2"
-  reranker_top_n: 20           # Candidates to retrieve before reranking
-
-  # --- Retrieval gate (source-bounded generation) ---
-  min_chunks: 1                # Minimum chunks needed before calling LLM
-
-indexing:
-  max_chars_per_file: 2000000
-  block_chars: 200000
-
-  # ---- Supported File Extensions ----
-  # Organized by category so you can see what's covered at a glance.
-  # To add a new format: just add the extension here AND register a
-  # parser in src/parsers/registry.py.
-  #
-  # Extensions without a registered parser will fall back to plain-text
-  # reading (which works for text-based formats but returns garbage for
-  # binary formats like DWG).
-  supported_extensions:
-    # --- Text / Markup ---
-    - ".txt"
-    - ".md"
-    - ".csv"
-    - ".json"
-    - ".xml"
-    - ".log"
-    - ".yaml"
-    - ".yml"
-    - ".ini"
-    - ".html"
-    - ".htm"
-
-    # --- Office Documents ---
-    - ".pdf"
-    - ".docx"
-    - ".pptx"
-    - ".xlsx"
-
-    # --- Email ---
-    - ".eml"
-    - ".msg"
-
-    # --- MCAD (Mechanical CAD) ---
-    - ".dwg"
-    - ".dxf"
-    - ".dwf"
-    - ".dwfx"
-    - ".catpart"
-    - ".catproduct"
-    - ".catdrawing"
-    - ".3dxml"
-    - ".prt"
-    - ".asm"
-    - ".drw"
-    - ".sldprt"
-    - ".sldasm"
-    - ".slddrw"
-    - ".dgn"
-
-    # 3D Interchange formats (TEXT-BASED — parseable today!)
-    - ".step"
-    - ".stp"
-    - ".iges"
-    - ".igs"
-    - ".stl"
-    - ".jt"
-    - ".x_t"
-    - ".x_b"
-    - ".sat"
-    - ".idf"
-    - ".idx"
-    - ".emn"
-
-    # --- ECAD (Electronic CAD) ---
-    - ".brd"
-    - ".dsn"
-    - ".sch"
-    - ".pcb"
-    - ".asc"
-    - ".schdoc"
-    - ".pcbdoc"
-    - ".prjpcb"
-    - ".kicad_sch"
-    - ".kicad_pcb"
-    - ".kicad_pro"
-    - ".bxl"
-    - ".edif"
-    - ".cir"
-    - ".net"
-    - ".lib"
-    - ".bom"
-    - ".odb"
-    - ".gbr"
-    - ".ger"
-    - ".drl"
-    - ".gbl"
-    - ".gtl"
-
-    # --- PLM / Data Exchange ---
-    - ".plmxml"
-    - ".xmi"
-
-    # --- Simulation / Analysis ---
-    - ".nas"
-    - ".bdf"
-    - ".inp"
-    - ".rst"
-    - ".vsdx"
-    - ".vsd"
-
-    # --- Requirements / Systems Engineering ---
-    - ".reqif"
-
-    # --- Ionospheric / RF Propagation Data ---
-    - ".sao"
-    - ".rsf"
-    - ".dvl"
-    - ".skd"
-    - ".iono"
-
-    # --- Satellite Tracking / Space Domain Awareness ---
-    - ".tle"
-    - ".3le"
-    - ".oem"
-    - ".omm"
-    - ".aem"
-    - ".cdm"
-    - ".tdm"
-    - ".rdm"
-    - ".kvn"
-    - ".e"
-    - ".a"
-    - ".sc"
-    - ".sa"
-    - ".tf"
-    - ".sp3"
-    - ".rnx"
-    - ".obs"
-    - ".nav"
-    - ".clk"
-    - ".bsp"
-    - ".tpc"
-    - ".eph"
-
-    # --- SDR / Software-Defined Radio / Signal Processing ---
-    - ".grc"
-    - ".py"
-    - ".cpp"
-    - ".hpp"
-    - ".c"
-    - ".h"
-    - ".cfg"
-    - ".uhd"
-    - ".sigmf-meta"
-    - ".sigmf"
-    - ".m"
-    - ".mlx"
-    - ".ipynb"
-
-    # --- HDL / FPGA ---
-    - ".vhd"
-    - ".vhdl"
-    - ".v"
-    - ".sv"
-    - ".xdc"
-    - ".qsf"
-    - ".tcl"
-
-    # --- Spectrum / RF analysis ---
-    - ".s1p"
-    - ".s2p"
-    - ".s3p"
-    - ".s4p"
-    - ".snp"
-    - ".citi"
-
-    # --- Scanned Images (OCR candidates) ---
-    - ".png"
-    - ".jpg"
-    - ".jpeg"
-    - ".tif"
-    - ".tiff"
-    - ".bmp"
-    - ".gif"
-    - ".webp"
-
-  # Folders to skip during recursive scanning
-  excluded_dirs:
-    - ".venv"
-    - "venv"
-    - "__pycache__"
-    - ".git"
-    - ".idea"
-    - ".vscode"
-    - "node_modules"
-    - ".pytest_cache"
-    - ".mypy_cache"
-    - "Thumbs.db"
-
-  # ---- OCR settings (for scanned PDFs and images) ----
-  ocr_fallback: false
-  ocr_max_pages: 200
-  ocr_dpi: 200
-  ocr_timeout_per_page: 20
-  ocr_lang: "eng"
-
-# ---- Document Classification (MBSE prep) ----
+  overlap: 200
 classification:
   enabled: false
   rules:
-    - pattern: "(?i)(schematic|sch|wiring|circuit|diagram)"
-      tag: "schematic"
-    - pattern: "(?i)(dwg|drawing|drw|blueprint)"
-      tag: "drawing"
-    - pattern: "(?i)(manual|handbook|guide|instruction)"
-      tag: "manual"
-    - pattern: "(?i)(spec|specification|requirement)"
-      tag: "specification"
-    - pattern: "(?i)(test|procedure|protocol|verification)"
-      tag: "test_procedure"
-    - pattern: "(?i)(bom|bill.of.material|parts.list)"
-      tag: "bill_of_materials"
-    - pattern: "(?i)(ionogram|ionosonde|digisonde|sao|ionospheric)"
-      tag: "ionogram"
-    - pattern: "(?i)(propagation|hf.pred|voacap|freq.assign)"
-      tag: "rf_propagation"
-    - pattern: "(?i)(satellite|orbit|tle|ephemer|conjunction|cdm|space.track)"
-      tag: "satellite_tracking"
-    - pattern: "(?i)(stk|scenario|coverage|link.budget|access.report)"
-      tag: "mission_analysis"
-    - pattern: "(?i)(rinex|gnss|gps|sp3|navigation)"
-      tag: "gnss_data"
-    - pattern: "(?i)(sdr|usrp|gnu.radio|uhd|ettus|software.defined)"
-      tag: "sdr"
-    - pattern: "(?i)(flowgraph|grc|signal.process|dsp|filter.design)"
-      tag: "signal_processing"
-    - pattern: "(?i)(spectrum|rf.anal|s.parameter|touchstone|network.anal)"
-      tag: "rf_analysis"
-    - pattern: "(?i)(fpga|vhdl|verilog|xilinx|vivado|quartus)"
-      tag: "fpga_design"
-    - pattern: "(?i)(sigint|elint|comint|electronic.warfare|ew)"
-      tag: "electronic_warfare"
-
-ollama:
-  base_url: "http://localhost:11434"
-  model: "llama3"
-  timeout_seconds: 180
-  context_window: 8192
-
-# --- SEC-001 FIX (2026-02-07) ---
-# Endpoint is now EMPTY by default. Online mode will refuse to start
-# unless you explicitly set this to your organization's API URL.
-#
-# HOW TO CONFIGURE FOR ONLINE MODE:
-#   Option 1 — Set it here:
-#     endpoint: "https://your-company-api.internal/v1/chat/completions"
-#
-#   Option 2 — Environment variable (in start_hybridrag.ps1):
-#     $env:HYBRIDRAG_API_ENDPOINT = "https://your-company-api.internal/v1/chat/completions"
-#
-# NEVER set this to the public OpenAI URL in a restricted environment.
-api:
-  endpoint: ""
-  model: "gpt-3.5-turbo"
-  max_tokens: 2048
-  temperature: 0.1
-  timeout_seconds: 30
-
+  - pattern: (?i)(schematic|sch|wiring|circuit|diagram)
+    tag: schematic
+  - pattern: (?i)(dwg|drawing|drw|blueprint)
+    tag: drawing
+  - pattern: (?i)(manual|handbook|guide|instruction)
+    tag: manual
+  - pattern: (?i)(spec|specification|requirement)
+    tag: specification
+  - pattern: (?i)(test|procedure|protocol|verification)
+    tag: test_procedure
+  - pattern: (?i)(bom|bill.of.material|parts.list)
+    tag: bill_of_materials
+  - pattern: (?i)(ionogram|ionosonde|digisonde|sao|ionospheric)
+    tag: ionogram
+  - pattern: (?i)(propagation|hf.pred|voacap|freq.assign)
+    tag: rf_propagation
+  - pattern: (?i)(satellite|orbit|tle|ephemer|conjunction|cdm|space.track)
+    tag: satellite_tracking
+  - pattern: (?i)(stk|scenario|coverage|link.budget|access.report)
+    tag: mission_analysis
+  - pattern: (?i)(rinex|gnss|gps|sp3|navigation)
+    tag: gnss_data
+  - pattern: (?i)(sdr|usrp|gnu.radio|uhd|ettus|software.defined)
+    tag: sdr
+  - pattern: (?i)(flowgraph|grc|signal.process|dsp|filter.design)
+    tag: signal_processing
+  - pattern: (?i)(spectrum|rf.anal|s.parameter|touchstone|network.anal)
+    tag: rf_analysis
+  - pattern: (?i)(fpga|vhdl|verilog|xilinx|vivado|quartus)
+    tag: fpga_design
+  - pattern: (?i)(sigint|elint|comint|electronic.warfare|ew)
+    tag: electronic_warfare
 cost:
-  track_enabled: true
+  daily_budget_usd: 5.0
   input_cost_per_1k: 0.0015
   output_cost_per_1k: 0.002
-  daily_budget_usd: 5.0
-
+  track_enabled: true
+embedding:
+  batch_size: 16
+  device: cpu
+  dimension: 384
+  model_name: all-MiniLM-L6-v2
+indexing:
+  block_chars: 200000
+  excluded_dirs:
+  - .venv
+  - venv
+  - __pycache__
+  - .git
+  - .idea
+  - .vscode
+  - node_modules
+  - .pytest_cache
+  - .mypy_cache
+  - Thumbs.db
+  max_chars_per_file: 2000000
+  max_concurrent_files: 1
+  ocr_dpi: 200
+  ocr_fallback: false
+  ocr_lang: eng
+  ocr_max_pages: 200
+  ocr_timeout_per_page: 20
+  supported_extensions:
+  - .txt
+  - .md
+  - .csv
+  - .json
+  - .xml
+  - .log
+  - .yaml
+  - .yml
+  - .ini
+  - .html
+  - .htm
+  - .pdf
+  - .docx
+  - .pptx
+  - .xlsx
+  - .eml
+  - .msg
+  - .dwg
+  - .dxf
+  - .dwf
+  - .dwfx
+  - .catpart
+  - .catproduct
+  - .catdrawing
+  - .3dxml
+  - .prt
+  - .asm
+  - .drw
+  - .sldprt
+  - .sldasm
+  - .slddrw
+  - .dgn
+  - .step
+  - .stp
+  - .iges
+  - .igs
+  - .stl
+  - .jt
+  - .x_t
+  - .x_b
+  - .sat
+  - .idf
+  - .idx
+  - .emn
+  - .brd
+  - .dsn
+  - .sch
+  - .pcb
+  - .asc
+  - .schdoc
+  - .pcbdoc
+  - .prjpcb
+  - .kicad_sch
+  - .kicad_pcb
+  - .kicad_pro
+  - .bxl
+  - .edif
+  - .cir
+  - .net
+  - .lib
+  - .bom
+  - .odb
+  - .gbr
+  - .ger
+  - .drl
+  - .gbl
+  - .gtl
+  - .plmxml
+  - .xmi
+  - .nas
+  - .bdf
+  - .inp
+  - .rst
+  - .vsdx
+  - .vsd
+  - .reqif
+  - .sao
+  - .rsf
+  - .dvl
+  - .skd
+  - .iono
+  - .tle
+  - .3le
+  - .oem
+  - .omm
+  - .aem
+  - .cdm
+  - .tdm
+  - .rdm
+  - .kvn
+  - .e
+  - .a
+  - .sc
+  - .sa
+  - .tf
+  - .sp3
+  - .rnx
+  - .obs
+  - .nav
+  - .clk
+  - .bsp
+  - .tpc
+  - .eph
+  - .grc
+  - .py
+  - .cpp
+  - .hpp
+  - .c
+  - .h
+  - .cfg
+  - .uhd
+  - .sigmf-meta
+  - .sigmf
+  - .m
+  - .mlx
+  - .ipynb
+  - .vhd
+  - .vhdl
+  - .v
+  - .sv
+  - .xdc
+  - .qsf
+  - .tcl
+  - .s1p
+  - .s2p
+  - .s3p
+  - .s4p
+  - .snp
+  - .citi
+  - .png
+  - .jpg
+  - .jpeg
+  - .tif
+  - .tiff
+  - .bmp
+  - .gif
+  - .webp
+mode: offline
+ollama:
+  base_url: http://localhost:11434
+  context_window: 8192
+  model: llama3
+  timeout_seconds: 180
+paths:
+  database: ''
+  embeddings_cache: ''
+  source_folder: ''
+retrieval:
+  block_rows: 25000
+  hybrid_search: true
+  lex_boost: 0.06
+  min_chunks: 1
+  min_score: 0.2
+  reranker_enabled: true
+  reranker_model: cross-encoder/ms-marco-MiniLM-L-6-v2
+  reranker_top_n: 20
+  rrf_k: 60
+  top_k: 5
 security:
   audit_logging: true
   pii_sanitization: false
+vector_search:
+  top_k: 5

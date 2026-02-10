@@ -16,7 +16,7 @@
 # --- Core ML / Embedding ---
 # These power the semantic search pipeline
 sentence-transformers==2.7.0       # Text → 384-dim vector embeddings (all-MiniLM-L6-v2)
-torch==2.5.1+cpu                   # PyTorch CPU-only (required by sentence-transformers)
+torch==2.10                        # PyTorch CPU-only (required by sentence-transformers)
 transformers==4.57.6               # Hugging Face model loading
 tokenizers==0.22.2                 # Fast tokenization (used by transformers)
 safetensors==0.7.0                 # Safe model weight loading (replaces pickle)
@@ -75,7 +75,7 @@ pycparser==3.0                     # C parser (used by cffi)
 
 # --- Math / Graph (transitive dependencies) ---
 # These are pulled in by torch/transformers but pinned for reproducibility
-sympy==1.13.1                      # Symbolic math
+sympy==1.13.3                      # Symbolic math
 mpmath==1.3.0                      # Arbitrary precision math
 networkx==3.6.1                    # Graph algorithms
 joblib==1.5.3                      # Parallel processing (used by scikit-learn)
