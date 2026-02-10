@@ -1,34 +1,41 @@
 # ============================================================================
-# HybridRAG v3 — LLM Router (src/core/llm_router.py)
+# HybridRAG v3 — LLM Router (llm_router.py)
 # ============================================================================
 #
 # WHAT THIS FILE DOES:
-#   Routes AI queries to the correct backend based on the "mode" setting:
-#     - "offline" → Ollama (runs locally on your machine, FREE, no internet)
-#     - "online"  → GPT-3.5 Turbo API (cloud, costs ~$0.002/query)
+#   Routes AI queries to the right backend:
+#     - OFFLINE mode → Ollama (local AI on your machine, free, no internet)
+#     - ONLINE mode  → Azure OpenAI API (company's cloud AI, costs money)
 #
-#   This is the ONLY file in the entire system that makes network calls
-#   to an LLM. Every other file works 100% locally.
+#   Think of it like a phone switchboard operator:
+#     "You want offline? I'll connect you to Ollama on localhost."
+#     "You want online? I'll connect you to the company's Azure GPT API."
 #
 # HOW IT WORKS:
-#   1. The QueryEngine calls LLMRouter.query(prompt)
+#   1. You call LLMRouter.query("your question here")
 #   2. LLMRouter checks config.mode ("offline" or "online")
-#   3. It routes the prompt to the right backend (Ollama or GPT API)
-#   4. The backend sends back the AI-generated answer + token counts
+#   3. It forwards to the right backend (OllamaRouter or APIRouter)
+#   4. The backend sends the prompt, gets an answer, returns it
 #   5. LLMRouter wraps the answer in an LLMResponse object and returns it
 #
 # API KEY RESOLUTION (for online mode):
 #   The API key is resolved from these sources, in order of priority:
 #     1. Explicit api_key parameter (if the caller passes one)
 #     2. Windows Credential Manager via keyring (most secure)
-#     3. OPENAI_API_KEY environment variable (fallback)
+#     3. AZURE_OPENAI_API_KEY or OPENAI_API_KEY environment variable
 #     4. None → online mode disabled, offline still works
 #
 # CUSTOM ENDPOINT RESOLUTION:
 #   The API endpoint is resolved from these sources, in order:
 #     1. Windows Credential Manager via keyring
-#     2. OPENAI_API_ENDPOINT environment variable
+#     2. AZURE_OPENAI_ENDPOINT or OPENAI_API_ENDPOINT environment variable
 #     3. config.api.endpoint from default_config.yaml (default)
+#
+# AZURE vs STANDARD OPENAI — AUTO-DETECTED:
+#   The router looks at your endpoint URL to decide which format to use:
+#     - URL contains "azure" or "aoai" → Azure format (api-key header)
+#     - Otherwise → Standard OpenAI format (Bearer token)
+#   You do NOT need to configure this manually. Just store your URL.
 #
 # INTERNET ACCESS:
 #   - OllamaRouter: Connects to localhost only (127.0.0.1) — NO internet
@@ -37,7 +44,7 @@
 #   - HuggingFace is ALWAYS blocked regardless of mode (Layer 1 lockdown)
 #
 # DEPENDENCIES:
-#   - httpx: Modern HTTP client library (like "requests" but cleaner)
+#   - httpx: HTTP client library for making web requests
 #   - config.py: Provides all settings (URLs, model names, timeouts)
 #   - logger.py: Structured logging for audit trail
 #   - credentials.py: Secure API key retrieval from Windows Credential Mgr
@@ -70,7 +77,7 @@ class LLMResponse:
         text:       The actual AI-generated answer text
         tokens_in:  How many tokens the prompt consumed (input cost)
         tokens_out: How many tokens the answer used (output cost)
-        model:      Which model generated the answer (e.g., "llama3", "gpt-3.5-turbo")
+        model:      Which model generated the answer (e.g., "llama3", "gpt-35-turbo")
         latency_ms: How long the round-trip took in milliseconds
     """
     text: str
@@ -96,42 +103,26 @@ class OllamaRouter:
         self.config = config
         self.logger = get_app_logger("ollama_router")
         # Remove trailing slash from URL to prevent double-slash issues
-        # Example: "http://localhost:11434/" becomes "http://localhost:11434"
         self.base_url = config.ollama.base_url.rstrip("/")
 
     def is_available(self) -> bool:
         """
         Check if Ollama is currently running on this machine.
 
-        How it works:
-            Sends a quick request to Ollama's /api/tags endpoint.
-            If Ollama is running, it responds with a list of available models.
-            If it's not running, the connection fails and we return False.
-
         Returns:
             True if Ollama is running and responding, False otherwise
         """
         try:
-            # timeout=5 means give up after 5 seconds if no response
             with httpx.Client(timeout=5) as client:
                 resp = client.get(f"{self.base_url}/api/tags")
-                # HTTP 200 means "OK, everything worked"
                 return resp.status_code == 200
         except Exception as e:
-            # Any error (connection refused, timeout, etc.) means Ollama isn't available
             self.logger.warn("ollama_unavailable", error=str(e))
             return False
 
     def query(self, prompt: str) -> Optional[LLMResponse]:
         """
         Send a prompt to Ollama and get the AI-generated answer back.
-
-        How it works:
-            1. Packages the prompt into a JSON payload with model settings
-            2. Sends it to Ollama's /api/generate endpoint via HTTP POST
-            3. Ollama runs the model and returns the generated text
-            4. We extract the answer and token counts from the response
-            5. Wrap everything in an LLMResponse object and return it
 
         Args:
             prompt: The complete prompt (context + user question)
@@ -141,40 +132,34 @@ class OllamaRouter:
         """
         start_time = time.time()
 
-        # Build the request payload for Ollama's /api/generate endpoint
         payload = {
-            "model": self.config.ollama.model,    # e.g., "llama3"
-            "prompt": prompt,                      # The full prompt text
-            "stream": False,                       # Get complete response at once
-            "num_predict": self.config.ollama.context_window,  # Max tokens to generate
+            "model": self.config.ollama.model,
+            "prompt": prompt,
+            "stream": False,
         }
 
         try:
-            # Create an HTTP client with the configured timeout
             with httpx.Client(timeout=self.config.ollama.timeout_seconds) as client:
                 resp = client.post(
                     f"{self.base_url}/api/generate",
                     json=payload,
                 )
-                resp.raise_for_status()  # Throw error if HTTP status != 200
+                resp.raise_for_status()
 
-            # Parse the JSON response from Ollama
             data = resp.json()
             response_text = data.get("response", "")
             prompt_eval_count = data.get("prompt_eval_count", 0)
             eval_count = data.get("eval_count", 0)
             latency_ms = (time.time() - start_time) * 1000
 
-            # Log success for audit trail
             self.logger.info(
                 "ollama_query_success",
                 model=self.config.ollama.model,
                 tokens_in=prompt_eval_count,
                 tokens_out=eval_count,
-                latency_ms=round(latency_ms, 1),
+                latency_ms=latency_ms,
             )
 
-            # Return the standardized response object
             return LLMResponse(
                 text=response_text,
                 tokens_in=prompt_eval_count,
@@ -184,46 +169,98 @@ class OllamaRouter:
             )
 
         except httpx.HTTPError as e:
-            # HTTP-level errors (connection refused, timeout, bad status code)
             self.logger.error("ollama_http_error", error=str(e))
             return None
         except Exception as e:
-            # Any other unexpected error
             self.logger.error("ollama_error", error=str(e))
             return None
 
 
 # ============================================================================
-# APIRouter — Talks to GPT-3.5 Turbo API (or any OpenAI-compatible endpoint)
+# APIRouter — Talks to Azure OpenAI (or standard OpenAI) API
 # ============================================================================
-# This router sends prompts to the cloud-based GPT API.
-# It REQUIRES internet access and a valid API key.
 #
-# COST: Every call costs money based on token usage.
-#   - Input tokens (your prompt): ~$0.0005 per 1K tokens
-#   - Output tokens (the answer): ~$0.0015 per 1K tokens
-#   - The QueryEngine calculates and logs costs automatically
+# YOUR COMPANY SETUP (Azure OpenAI):
+#   Your company hosts GPT-3.5 Turbo through Microsoft Azure. This is NOT
+#   the public api.openai.com — it's your company's private instance.
 #
-# INTERNET ACCESS: YES — connects to the configured API endpoint
+#   Two key differences from standard OpenAI:
+#
+#   1. AUTHENTICATION HEADER:
+#      - Standard OpenAI:  "Authorization: Bearer sk-abc123..."
+#      - Azure OpenAI:     "api-key: your-company-key-here"
+#
+#   2. URL STRUCTURE:
+#      - Standard OpenAI:  https://api.openai.com/v1/chat/completions
+#      - Azure OpenAI:     https://your-company.openai.azure.com/openai/
+#                           deployments/gpt-35-turbo/chat/completions
+#                           ?api-version=2024-02-01
+#
+#   The router auto-detects which format to use based on the URL.
+#
+# INTERNET ACCESS: YES — connects to your company's intranet API endpoint
 # ============================================================================
 class APIRouter:
-    """Route queries to GPT-3.5 Turbo API (online mode)."""
+    """Route queries to Azure OpenAI or standard OpenAI API (online mode)."""
 
-    def __init__(self, config: Config, api_key: str):
+    # ── Azure OpenAI settings ──
+    # AZURE_API_VERSION: Which Azure API version to use.
+    #   Your company supports "2024-02-01" per the IT email.
+    # AZURE_DEPLOYMENT: The deployment name for GPT-3.5 in Azure.
+    #   Azure names it "gpt-35-turbo" (dash, not dot).
+    AZURE_API_VERSION = "2024-02-01"
+    AZURE_DEPLOYMENT = "gpt-35-turbo"
+
+    def __init__(self, config: Config, api_key: str, endpoint: str = ""):
+        """
+        Set up the API router.
+
+        Args:
+            config:   The HybridRAG configuration object
+            api_key:  Your API key (from Credential Manager or env var)
+            endpoint: Your company's API base URL
+        """
         self.config = config
-        self.api_key = api_key     # Your API key (from Credential Manager or env var)
+        self.api_key = api_key
         self.logger = get_app_logger("api_router")
+
+        # ── Determine the endpoint URL ──
+        self.base_endpoint = endpoint.rstrip("/") if endpoint else config.api.endpoint.rstrip("/")
+
+        # ── Auto-detect Azure vs standard OpenAI ──
+        # If the URL contains "azure" or "aoai" anywhere, it's Azure.
+        self.is_azure = (
+            "azure" in self.base_endpoint.lower()
+            or "aoai" in self.base_endpoint.lower()
+        )
+
+        # ── Build the full request URL ──
+        if self.is_azure:
+            # AZURE URL FORMAT:
+            # {base}/openai/deployments/{deployment}/chat/completions?api-version={ver}
+            self.request_url = (
+                f"{self.base_endpoint}/openai/deployments/"
+                f"{self.AZURE_DEPLOYMENT}/chat/completions"
+                f"?api-version={self.AZURE_API_VERSION}"
+            )
+            self.logger.info(
+                "api_router_init",
+                provider="azure_openai",
+                deployment=self.AZURE_DEPLOYMENT,
+                api_version=self.AZURE_API_VERSION,
+            )
+        else:
+            # STANDARD OPENAI URL FORMAT:
+            # {base}/v1/chat/completions
+            if "/v1/chat/completions" in self.base_endpoint:
+                self.request_url = self.base_endpoint
+            else:
+                self.request_url = f"{self.base_endpoint}/v1/chat/completions"
+            self.logger.info("api_router_init", provider="openai")
 
     def query(self, prompt: str) -> Optional[LLMResponse]:
         """
-        Send a prompt to GPT-3.5 Turbo and get the AI-generated answer back.
-
-        How it works:
-            1. Builds an HTTP request with your API key in the Authorization header
-            2. Sends the prompt as a "chat message" to the API's messages endpoint
-            3. The API processes the prompt and returns the generated answer
-            4. We extract the answer text and token usage from the response
-            5. Wrap everything in an LLMResponse and return it
+        Send a prompt to the API and get the AI-generated answer back.
 
         Args:
             prompt: The complete prompt (context + user question)
@@ -234,244 +271,261 @@ class APIRouter:
         start_time = time.time()
 
         # ── Build HTTP headers ──
-        # The Authorization header uses "Bearer" token authentication.
-        # This is the industry standard for API authentication.
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
+        # Azure:    "api-key: your-key-here"
+        # Standard: "Authorization: Bearer your-key-here"
+        if self.is_azure:
+            headers = {
+                "api-key": self.api_key,
+                "Content-Type": "application/json",
+            }
+        else:
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            }
 
         # ── Build the request payload ──
-        # This follows the OpenAI Chat Completions API format.
-        # Most LLM APIs (including company-hosted ones) use this same format.
+        # Both Azure and standard OpenAI use the same chat message format.
+        # NOTE: For Azure, we do NOT include "model" in the payload because
+        # the model is already specified in the URL via the deployment name.
         payload = {
-            "model": self.config.api.model,          # e.g., "gpt-3.5-turbo"
             "messages": [
-                {"role": "user", "content": prompt}  # The prompt as a user message
+                {"role": "user", "content": prompt}
             ],
-            "max_tokens": self.config.api.max_tokens,       # Max response length
-            "temperature": self.config.api.temperature,     # Creativity (0.1 = focused)
+            "max_tokens": self.config.api.max_tokens,
+            "temperature": self.config.api.temperature,
         }
 
+        # Only include model name for standard OpenAI (not Azure)
+        if not self.is_azure:
+            payload["model"] = self.config.api.model
+
         try:
-            # ── Send the request ──
             with httpx.Client(timeout=self.config.api.timeout_seconds) as client:
+                self.logger.info(
+                    "api_query_sending",
+                    url=self.request_url,
+                    is_azure=self.is_azure,
+                )
                 resp = client.post(
-                    self.config.api.endpoint,  # The API URL (from config or env var)
+                    self.request_url,
                     headers=headers,
                     json=payload,
                 )
-                resp.raise_for_status()  # Throw error if HTTP status != 200
+                resp.raise_for_status()
 
             # ── Parse the response ──
+            # Both Azure and standard OpenAI return the same JSON structure
             data = resp.json()
             response_text = data["choices"][0]["message"]["content"]
+
             usage = data.get("usage", {})
             tokens_in = usage.get("prompt_tokens", 0)
             tokens_out = usage.get("completion_tokens", 0)
+
             latency_ms = (time.time() - start_time) * 1000
 
-            # Log success (but NEVER log the API key!)
+            model_name = data.get(
+                "model",
+                self.AZURE_DEPLOYMENT if self.is_azure else self.config.api.model
+            )
+
             self.logger.info(
                 "api_query_success",
-                model=self.config.api.model,
-                endpoint=self.config.api.endpoint,
+                model=model_name,
                 tokens_in=tokens_in,
                 tokens_out=tokens_out,
-                latency_ms=round(latency_ms, 1),
+                latency_ms=latency_ms,
+                is_azure=self.is_azure,
             )
 
             return LLMResponse(
                 text=response_text,
                 tokens_in=tokens_in,
                 tokens_out=tokens_out,
-                model=self.config.api.model,
+                model=model_name,
                 latency_ms=latency_ms,
             )
 
         except httpx.HTTPStatusError as e:
-            # HTTP error with a response (400, 401, 403, 429, 500, etc.)
-            # Log the status code but NOT the response body (may contain key)
-            self.logger.error("api_http_error",
-                              status_code=e.response.status_code,
-                              error=str(e))
+            # ── HTTP error with a status code (401, 404, 429, 500, etc.) ──
+            error_body = ""
+            try:
+                error_body = e.response.text[:500]
+            except Exception:
+                pass
+            self.logger.error(
+                "api_http_error",
+                status_code=e.response.status_code,
+                error=str(e),
+                response_body=error_body,
+                url=self.request_url,
+                is_azure=self.is_azure,
+            )
             return None
-        except httpx.HTTPError as e:
-            # Connection-level errors (timeout, DNS failure, etc.)
-            self.logger.error("api_connection_error", error=str(e))
+
+        except httpx.ConnectError as e:
+            # ── Can't reach the server ──
+            self.logger.error(
+                "api_connection_error",
+                error=str(e),
+                url=self.request_url,
+                hint="Check VPN connection and firewall rules",
+            )
             return None
+
+        except httpx.TimeoutException as e:
+            # ── Request timed out ──
+            self.logger.error(
+                "api_timeout",
+                error=str(e),
+                timeout_seconds=self.config.api.timeout_seconds,
+            )
+            return None
+
         except (KeyError, json.JSONDecodeError) as e:
-            # Response parsing errors: API returned unexpected format
-            self.logger.error("api_response_error", error=str(e))
+            # ── Response format unexpected ──
+            self.logger.error("api_response_parse_error", error=str(e))
             return None
+
         except Exception as e:
-            # Catch-all for anything else
+            # ── Catch-all ──
             self.logger.error("api_error", error=str(e))
             return None
+
+    def get_status(self) -> Dict[str, Any]:
+        """
+        Return current API router status for diagnostics.
+        """
+        status = {
+            "provider": "azure_openai" if self.is_azure else "openai",
+            "endpoint": self.base_endpoint,
+            "request_url": self.request_url,
+            "api_configured": True,
+        }
+        if self.is_azure:
+            status["deployment"] = self.AZURE_DEPLOYMENT
+            status["api_version"] = self.AZURE_API_VERSION
+        return status
 
 
 # ============================================================================
 # LLMRouter — The main switchboard
 # ============================================================================
-# This is what the rest of the code calls. It decides which backend to use
-# based on the "mode" setting in config.yaml:
-#   mode: "offline"  →  uses OllamaRouter (local, no internet)
-#   mode: "online"   →  uses APIRouter (cloud, requires internet + API key)
-#
-# API KEY RESOLUTION (this is the critical fix for BUG 1 and BUG 2):
-#   The constructor resolves the API key from multiple sources:
-#     1. Explicit parameter (if the diagnostic script passes one)
-#     2. Windows Credential Manager via keyring (most secure)
-#     3. OPENAI_API_KEY environment variable (fallback)
-#
-# ENDPOINT RESOLUTION (fix for BUG 2):
-#   If OPENAI_API_ENDPOINT is set in env vars or keyring, it overrides
-#   the endpoint in default_config.yaml. This lets you use your company's
-#   internal API without editing the YAML.
+# This is the class that the rest of HybridRAG talks to.
+# It decides whether to use Ollama (offline) or the API (online)
+# based on the mode setting in your config.
 # ============================================================================
 class LLMRouter:
     """
-    Main LLM routing switchboard.
-
-    Decides which AI backend handles each query based on the mode
-    setting in config.yaml. The rest of the code just calls
-    router.query(prompt) and gets an answer back — it doesn't need
-    to know whether Ollama or GPT is doing the work.
+    Route queries to the appropriate LLM backend.
 
     Mode selection:
-        "offline" → Ollama (local, no internet)
-        "online"  → GPT-3.5 API (cloud, costs money)
+        "offline" → Ollama (local, free, no internet)
+        "online"  → Azure OpenAI API (company cloud, costs money)
     """
 
     def __init__(self, config: Config, api_key: Optional[str] = None):
         """
-        Initialize the LLM router.
+        Initialize the router and set up both backends.
 
         Args:
-            config: The loaded configuration object
-            api_key: Optional explicit API key. If not provided, the router
-                     will try to find one from keyring or environment variables.
+            config:  The HybridRAG configuration object
+            api_key: Optional explicit API key (overrides all other sources)
         """
         self.config = config
         self.logger = get_app_logger("llm_router")
 
-        # ── Always create the Ollama router (it's local, free to init) ──
+        # ── Always create the Ollama router (offline mode) ──
         self.ollama = OllamaRouter(config)
 
-        # ── Resolve API key from multiple sources ──────────────────────
-        # Priority: explicit param → keyring → env var → None
-        #
-        # This is the fix for BUG 1: Previously, if no api_key parameter
-        # was passed, the APIRouter was never created and online mode
-        # silently failed with "API key not configured."
-        # ───────────────────────────────────────────────────────────────
-        resolved_key = api_key  # Start with explicit parameter (may be None)
+        # ── Resolve API key from the priority chain ──
+        resolved_key = api_key
 
         if not resolved_key:
-            # Try Windows Credential Manager (most secure)
             try:
                 from ..security.credentials import get_api_key
                 resolved_key = get_api_key()
             except ImportError:
-                # credentials.py not yet deployed — fall through to env var
                 pass
 
         if not resolved_key:
-            # Try environment variable (less secure but functional)
+            resolved_key = os.environ.get("AZURE_OPENAI_API_KEY", "")
+        if not resolved_key:
             resolved_key = os.environ.get("OPENAI_API_KEY", "")
 
-        # ── Resolve custom API endpoint ────────────────────────────────
-        # Priority: keyring → env var → config.yaml
-        #
-        # This is the fix for BUG 2: Your company's internal API endpoint
-        # can now be set via keyring or env var without editing the YAML.
-        # ───────────────────────────────────────────────────────────────
-        custom_endpoint = ""
+        # ── Resolve API endpoint from the priority chain ──
+        resolved_endpoint = ""
+
         try:
             from ..security.credentials import get_api_endpoint
-            custom_endpoint = get_api_endpoint()
+            resolved_endpoint = get_api_endpoint()
         except ImportError:
             pass
 
-        if not custom_endpoint:
-            custom_endpoint = os.environ.get("OPENAI_API_ENDPOINT", "")
+        if not resolved_endpoint:
+            resolved_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+        if not resolved_endpoint:
+            resolved_endpoint = os.environ.get("OPENAI_API_ENDPOINT", "")
 
-        if custom_endpoint:
-            self.config.api.endpoint = custom_endpoint
-            self.logger.info("api_endpoint_override",
-                             endpoint=custom_endpoint)
+        # ── Override config endpoint if we found a custom one ──
+        if resolved_endpoint:
+            self.config.api.endpoint = resolved_endpoint
 
-        # ── Create APIRouter only if we found a key ────────────────────
+        # ── Create the API router (only if we have a key) ──
         if resolved_key:
-            self.api = APIRouter(config, resolved_key)
-            # Log that we found a key (but NEVER log the key itself!)
-            source = "parameter"
-            if not api_key:
-                source = "keyring_or_env"
-            self.logger.info("api_key_resolved", source=source)
+            self.api = APIRouter(config, resolved_key, resolved_endpoint)
+            self.logger.info("llm_router_init", api_mode="enabled")
         else:
             self.api = None
-            self.logger.info("api_key_not_found",
-                             message="Online mode disabled. Offline mode available.")
+            self.logger.info("llm_router_init", api_mode="disabled_no_key")
 
     def query(self, prompt: str) -> Optional[LLMResponse]:
         """
-        Route a prompt to the appropriate AI backend and return the answer.
-
-        This is the main entry point. The QueryEngine calls this method
-        with a fully-built prompt (context + user question) and gets
-        back an LLMResponse with the generated answer.
+        Route a query to the appropriate backend based on config.mode.
 
         Args:
-            prompt: The complete prompt to send to the AI model
+            prompt: The complete prompt (context + user question)
 
         Returns:
             LLMResponse with the answer, or None if the call failed
         """
-        # Check which mode is configured and route accordingly
-        if self.config.mode == "offline":
-            # OFFLINE: Send to Ollama (local, no internet needed)
-            self.logger.info("query_mode", mode="offline")
-            return self.ollama.query(prompt)
+        mode = self.config.mode
 
-        elif self.config.mode == "online":
-            # ONLINE: Send to GPT API (requires internet + API key)
-            if not self.api:
-                # This happens if mode is "online" but no API key was found
-                # anywhere (not in keyring, not in env var, not passed in)
-                self.logger.error("query_error", error="API key not configured. "
-                                  "Run: python -m src.security.credentials store")
-                print("\n❌ API key not configured for online mode.")
-                print("   Run: python -m src.security.credentials store")
-                print("   Or set OPENAI_API_KEY environment variable.\n")
+        self.logger.info("query_mode", mode=mode)
+
+        if mode == "online":
+            if self.api is None:
+                self.logger.error(
+                    "api_not_configured",
+                    hint="Run rag-store-key and rag-store-endpoint first",
+                )
                 return None
-            self.logger.info("query_mode", mode="online",
-                             endpoint=self.config.api.endpoint)
             return self.api.query(prompt)
 
         else:
-            # Unknown mode — this should never happen with a valid config
-            self.logger.error("query_error", error=f"Unknown mode: {self.config.mode}")
-            return None
+            return self.ollama.query(prompt)
 
-    def get_status(self) -> dict:
+    def get_status(self) -> Dict[str, Any]:
         """
-        Get the current status of both LLM backends.
-
-        Useful for diagnostics, health checks, and the future GUI.
-
-        Returns:
-            Dictionary with status of each backend:
-            {
-                "mode": "offline" | "online",
-                "ollama_available": True | False,
-                "api_configured": True | False,
-                "api_endpoint": "https://..." | None,
-            }
+        Get the current status of all LLM backends.
+        Used by rag-cred-status, rag-test-api, and diagnostics.
         """
-        return {
+        status = {
             "mode": self.config.mode,
             "ollama_available": self.ollama.is_available(),
             "api_configured": self.api is not None,
-            "api_endpoint": self.config.api.endpoint if self.api else None,
         }
+
+        if self.api:
+            api_status = self.api.get_status()
+            status.update({
+                "api_provider": api_status["provider"],
+                "api_endpoint": api_status["endpoint"],
+                "api_request_url": api_status["request_url"],
+            })
+            if api_status.get("deployment"):
+                status["api_deployment"] = api_status["deployment"]
+                status["api_version"] = api_status["api_version"]
+
+        return status
