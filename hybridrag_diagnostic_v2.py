@@ -914,7 +914,7 @@ def test_ollama_health(root: Path) -> TestResult:
     # Step 2: Can we reach the API?
     try:
         import httpx
-        with httpx.Client(timeout=5) as client:
+        with httpx.Client(timeout=5, proxy=None) as client:
             resp = client.get(f"http://127.0.0.1:{port}/api/tags")
             if resp.status_code == 200:
                 data = resp.json()
