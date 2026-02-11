@@ -24,6 +24,8 @@ huggingface_hub==0.36.1            # Model download from Hugging Face
 numpy==1.26.4                      # Numerical arrays (embeddings, dot products)
 scikit-learn==1.8.0                # Cosine similarity, cross-encoder utilities
 scipy==1.17.0                      # Sparse matrix ops (used by scikit-learn)
+keyring>=24.0.0
+pip-system-certs>=4.0
 
 # --- Document Parsers ---
 # Each one handles a specific file format
