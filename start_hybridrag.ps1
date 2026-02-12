@@ -320,4 +320,5 @@ Write-Host ""
 Write-Host "TIP: If commands don't work, make sure you ran:" -ForegroundColor Yellow
 Write-Host '  . .\start_hybridrag.ps1    (with the dot-space at the start)' -ForegroundColor Yellow
 Write-Host ""
-. "$PROJECT_ROOT\api_mode_commands.ps1"
+. "$PROJECT_ROOT\tools\api_mode_commands.ps1"
+
