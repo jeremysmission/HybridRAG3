@@ -1,8 +1,3 @@
-notepad D:\HybridRAG3\test_azure.py
-```
-
-Paste this into Notepad:
-```
 from openai import AzureOpenAI
 import keyring
 c = AzureOpenAI(
