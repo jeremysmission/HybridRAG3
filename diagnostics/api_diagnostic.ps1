@@ -149,7 +149,7 @@ function Invoke-Probe {
   return $result
 }
 
-function Score-Status([int]$s) {
+function Get-StatusScore([int]$s) {
   if ($s -ge 200 -and $s -lt 300) { return 100 }
   if ($s -eq 401 -or $s -eq 403) { return 90 }   # route exists; auth needed/wrong
   if ($s -eq 429) { return 80 }
@@ -187,26 +187,30 @@ foreach ($auth in $AuthStrategies) {
 
   foreach ($p in $ModelPaths) {
     $url = "$BaseHost$p"
+    Write-Host ("  Probing: GET $url") -ForegroundColor Gray
     $Results += (Invoke-Probe -Method "GET" -Url $url -Headers $hdrs -BodyJson $null)
   }
 
   foreach ($p in $ChatPaths) {
     $url = "$BaseHost$p"
+    Write-Host ("  Probing: OPTIONS $url") -ForegroundColor Gray
     $Results += (Invoke-Probe -Method "OPTIONS" -Url $url -Headers $hdrs -BodyJson $null)
+    Write-Host ("  Probing: POST $url") -ForegroundColor Gray
     $Results += (Invoke-Probe -Method "POST" -Url $url -Headers $hdrs -BodyJson $ChatBody)
   }
 
   foreach ($p in $AzureChatPaths) {
     $url = "$BaseHost$p"
+    Write-Host ("  Probing: POST $url") -ForegroundColor Gray
     $Results += (Invoke-Probe -Method "POST" -Url $url -Headers $hdrs -BodyJson $ChatBody)
   }
 }
 
 # Rank results
 $Ranked = $Results |
-  Where-Object { $_.status -ne $null } |
+  Where-Object { $null -ne $_.status } |
   Select-Object method, url, status, statusText, activityId, snippet, error,
-    @{n="score"; e={ Score-Status $_.status }} |
+    @{n="score"; e={ Get-StatusScore $_.status }} |
   Sort-Object score -Descending, status -Ascending
 
 $Top = $Ranked | Select-Object -First 25
@@ -246,16 +250,16 @@ if (-not $best) {
   $null = $sb.AppendLine(("Best signal: {0} {1} => {2} {3}" -f $best.method, $best.url, $best.status, $best.statusText))
 
   if ($best.status -ge 200 -and $best.status -lt 300) {
-    $null = $sb.AppendLine("✅ Working route found with the tested auth scheme.")
+    $null = $sb.AppendLine("[OK] Working route found with the tested auth scheme.")
     $null = $sb.AppendLine("Next: configure RAG to use this PATH (not hardcoded /v1/chat/completions).")
   } elseif ($best.status -eq 401 -or $best.status -eq 403) {
-    $null = $sb.AppendLine("✅ Route likely exists. Auth missing or incorrect for this gateway.")
+    $null = $sb.AppendLine("[OK] Route likely exists. Auth missing or incorrect for this gateway.")
     $null = $sb.AppendLine("Next: align RAG outbound header scheme with what produced 401/403 here (Bearer vs api-key vs subscription-key).")
   } elseif ($best.status -eq 404) {
-    $null = $sb.AppendLine("❌ 404 means the path does not exist on this host.")
+    $null = $sb.AppendLine("[FAIL] 404 means the path does not exist on this host.")
     $null = $sb.AppendLine("Next: choose a non-404 endpoint from the Top list and make it your configured chat_path.")
   } elseif ($best.status -ge 500 -and $best.status -lt 600) {
-    $null = $sb.AppendLine("⚠️ 5xx from gateway (ActivityId may be present). Often means route exists but gateway errors without proper auth/routing.")
+    $null = $sb.AppendLine("[WARN] 5xx from gateway (ActivityId may be present). Often means route exists but gateway errors without proper auth/routing.")
     $null = $sb.AppendLine("Next: try the same URL with correct auth; if still 5xx, give ActivityId to gateway team.")
   } else {
     $null = $sb.AppendLine("Signal suggests route exists but request shape/headers are wrong.")
@@ -272,7 +276,7 @@ $sb.ToString() | Out-File -FilePath $txtPath -Encoding UTF8
 $Results | ConvertTo-Json -Depth 6 | Out-File -FilePath $jsonPath -Encoding UTF8
 
 Write-Host ""
-Write-Host "DONE."
+Write-Host "DONE." -ForegroundColor Green
 Write-Host ("Report: " + $txtPath)
 Write-Host ("JSON  : " + $jsonPath)
 Write-Host ""

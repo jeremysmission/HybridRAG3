@@ -20,7 +20,7 @@
 
 ## WHAT'S IN THIS KIT
 
-Three new scripts in the tools\ folder:
+Four scripts in the tools\ folder:
 
 ### 1. fix_azure_detection.ps1
    - Patches llm_router_fix.py to recognize "aoai" as Azure
@@ -41,6 +41,16 @@ Three new scripts in the tools\ folder:
    - Uses temp Python files instead of inline code — QUOTING SAFE
    - Also adds: rag-env-vars (shows all API env variables)
 
+### 4. master_toolkit.ps1 (THE BIG ONE — 40+ commands)
+   - Every command you'll ever need, all in one file
+   - Replaces rebuilt_rag_commands.ps1 and all individual scripts
+   - Type rag-help to see the full list
+   - Categories: Credentials, API Testing, Ollama, Indexing, Querying,
+     File Tools, Network, Project Info, Git, Housekeeping, Logs
+   - All Python calls use temp files — zero quoting issues
+   - Load with: . .\tools\master_toolkit.ps1
+   - Make permanent: add that line to end of start_hybridrag.ps1
+
 ## TOMORROW'S SEQUENCE
 
 ```powershell
@@ -48,26 +58,31 @@ Three new scripts in the tools\ folder:
 cd "C:\Users\randaje\OneDrive - NGC\Desktop\HybridRAG3"
 .\.venv\Scripts\Activate
 
-# Step 2: Copy the 3 new scripts into tools\ folder
+# Step 2: Copy the 4 new scripts into tools\ folder
 # (download from GitHub or this zip)
 
-# Step 3: Load the rebuilt commands
-. .\tools\rebuilt_rag_commands.ps1
+# Step 3: Load the master toolkit (40+ commands)
+. .\tools\master_toolkit.ps1
 
-# Step 4: Check env vars for deployment name and API version
+# Step 4: Type rag-help to see all available commands
+
+# Step 5: Check env vars for deployment name and API version
 rag-env-vars
 
-# Step 5: Fix Azure detection in llm_router_fix.py
+# Step 6: If no deployment name, set it
+rag-store-deployment
+
+# Step 7: Fix Azure detection in llm_router_fix.py
 . .\tools\fix_azure_detection.ps1
 
-# Step 6: Run the pre-flight check (should now say AZURE)
+# Step 8: Run the pre-flight check (should now say AZURE)
 rag-debug-url
 
-# Step 7: If Step 6 looks correct, run the live test
+# Step 9: If Step 8 looks correct, run the live test
 rag-test-api-verbose
 
-# Step 8: If that works, run the full 4-stage diagnostic
-. .\tools\azure_api_test.ps1
+# Step 10: If that works, try a real query
+rag-query-api "What is a digisonde?"
 ```
 
 ## IF THE DEPLOYMENT NAME IS WRONG

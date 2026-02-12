@@ -1,348 +1,508 @@
-# ============================================================================
-# HybridRAG v3 — Secure Credential Manager (src/security/credentials.py)
-# ============================================================================
+# ===========================================================================
+# HybridRAG v3 -- CANONICAL CREDENTIALS MODULE
+# ===========================================================================
+# FILE: src/security/credentials.py
 #
-# WHAT THIS FILE DOES:
-#   Stores and retrieves your API key securely using Windows Credential
-#   Manager — the same system Chrome and Edge use for passwords.
-#   Your API key is encrypted with Windows DPAPI, tied to YOUR Windows
-#   login. No one else on the machine can read it. Nothing on disk.
+# WHAT THIS IS:
+#   The ONE AND ONLY place that reads API credentials. No other module
+#   should ever read env vars or keyring directly. Everything goes
+#   through this module.
 #
 # WHY THIS MATTERS:
-#   Common rookie mistakes with API keys:
-#     ❌ Hardcoding in Python: api_key = "sk-abc123"
-#     ❌ Storing in config.yaml (gets committed to git)
-#     ❌ Storing in .env file (can be read by anyone with file access)
-#     ✅ Windows Credential Manager (encrypted, tied to your login)
+#   Before this redesign, credentials were read in multiple places:
+#     - config.py checked HYBRIDRAG_API_ENDPOINT
+#     - llm_router.py checked AZURE_OPENAI_ENDPOINT then OPENAI_API_ENDPOINT
+#     - start_hybridrag.ps1 set yet another variable name
+#   This meant you could set the right variable in one place and the
+#   wrong one in another, leading to "it works sometimes" bugs.
 #
-# HOW IT WORKS:
-#   1. You run: rag-store-key  (enters your API key once)
-#   2. keyring.set_password() calls Windows DPAPI to encrypt the key
-#   3. The encrypted key is stored in Windows Credential Manager
-#   4. When HybridRAG needs the key, it calls keyring.get_password()
-#   5. Windows decrypts it using YOUR login credentials
-#   6. Different Windows user = can't decrypt = key is safe
+#   Now there's ONE resolution order, ONE set of aliases, ONE place
+#   to debug credential problems.
 #
-# VERIFICATION:
-#   You can see the stored credential in Windows:
-#   Start Menu → search "Credential Manager" → Windows Credentials
-#   Look for "HybridRAG_v3" — that's your encrypted API key
+# RESOLUTION ORDER (first match wins):
+#   1. Windows Credential Manager (via keyring) -- most secure
+#   2. Environment variables -- useful for CI/CD or session overrides
+#   3. Config file -- least preferred for secrets, but OK for endpoints
 #
-# FALLBACK CHAIN (in order of priority):
-#   1. keyring (Windows Credential Manager) — most secure
-#   2. OPENAI_API_KEY environment variable — less secure but functional
-#   3. None — online mode disabled, offline mode still works
+# ACCEPTED ENVIRONMENT VARIABLE ALIASES:
+#   API Key:
+#     - HYBRIDRAG_API_KEY (canonical)
+#     - AZURE_OPENAI_API_KEY
+#     - OPENAI_API_KEY
 #
-# DEPENDENCIES:
-#   - keyring: Already in requirements.txt. Uses Windows Credential
-#     Manager on Windows, macOS Keychain on Mac, SecretService on Linux.
+#   Endpoint:
+#     - HYBRIDRAG_API_ENDPOINT (canonical)
+#     - AZURE_OPENAI_ENDPOINT
+#     - OPENAI_API_ENDPOINT
+#     - AZURE_OPENAI_BASE_URL
+#     - OPENAI_BASE_URL
 #
-# INTERNET ACCESS: NONE. This file never touches the network.
-# ============================================================================
+#   Deployment Name:
+#     - AZURE_OPENAI_DEPLOYMENT (canonical)
+#     - AZURE_DEPLOYMENT
+#     - OPENAI_DEPLOYMENT
+#     - AZURE_OPENAI_DEPLOYMENT_NAME
+#     - DEPLOYMENT_NAME
+#     - AZURE_CHAT_DEPLOYMENT
+#
+#   API Version:
+#     - AZURE_OPENAI_API_VERSION (canonical)
+#     - AZURE_API_VERSION
+#     - OPENAI_API_VERSION
+#     - API_VERSION
+#
+# DESIGN DECISIONS:
+#   - Returns a dataclass (ApiCredentials) not a dict, so you get
+#     autocomplete and type checking in your editor
+#   - Records WHERE each credential came from (keyring, env, config)
+#     so diagnostic tools can show "Key loaded from: keyring" in logs
+#   - Never logs or prints the actual key value -- only masked previews
+#   - Validates endpoint URL format before returning it
+# ===========================================================================
+
+from __future__ import annotations
 
 import os
-import sys
-import getpass  # For secure password input (hides what you type)
+import re
+import logging
+from dataclasses import dataclass, field
+from typing import Optional
 
-# ── Try to import keyring ───────────────────────────────────────────────────
-# keyring should already be installed (it's in requirements.txt), but if
-# it's not, we handle it gracefully and fall back to environment variables.
-# ────────────────────────────────────────────────────────────────────────────
-try:
-    import keyring
-    KEYRING_AVAILABLE = True
-except ImportError:
-    KEYRING_AVAILABLE = False
-
-# ── Constants ───────────────────────────────────────────────────────────────
-# SERVICE_NAME: The "account name" Windows Credential Manager uses to
-#   organize credentials. Like a folder name for our app's secrets.
-# KEY_NAME_API: The specific credential name for the API key.
-# KEY_NAME_ENDPOINT: The specific credential name for the API endpoint URL.
-# ────────────────────────────────────────────────────────────────────────────
-SERVICE_NAME = "HybridRAG_v3"
-KEY_NAME_API = "api_key"
-KEY_NAME_ENDPOINT = "api_endpoint"
+logger = logging.getLogger(__name__)
 
 
-def store_api_key(api_key: str) -> bool:
+# ---------------------------------------------------------------------------
+# DATA CLASS: Structured container for resolved credentials
+# ---------------------------------------------------------------------------
+# WHY A DATACLASS:
+#   A dict would work but gives no autocomplete and no type hints.
+#   A dataclass gives you creds.endpoint, creds.api_key, etc. with
+#   full editor support. It's also immutable-friendly (frozen=False
+#   here because we build it incrementally).
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ApiCredentials:
     """
-    Securely store an API key in Windows Credential Manager.
+    Container for resolved API credentials.
 
-    Args:
-        api_key: The API key string (e.g., "sk-abc123...")
-
-    Returns:
-        True if stored successfully, False if keyring unavailable
-
-    What happens under the hood:
-        1. keyring calls Windows DPAPI (Data Protection API)
-        2. DPAPI encrypts the key using your Windows login credentials
-        3. The encrypted blob is stored in Windows Credential Manager
-        4. It appears as "HybridRAG_v3" → "api_key" in Credential Manager
+    Attributes:
+        api_key: The API key string, or None if not found.
+        endpoint: The API endpoint URL, or None if not found.
+        deployment: Azure deployment name, or None.
+        api_version: Azure API version, or None.
+        source_key: Where the key came from ("keyring", "env:VAR_NAME", "config").
+        source_endpoint: Where the endpoint came from.
+        source_deployment: Where deployment came from.
+        source_api_version: Where api_version came from.
     """
-    if not KEYRING_AVAILABLE:
-        print("WARNING: keyring not installed. Cannot store securely.")
-        print("  Install with: pip install keyring")
-        print("  Falling back to environment variable OPENAI_API_KEY")
-        return False
+    api_key: Optional[str] = None
+    endpoint: Optional[str] = None
+    deployment: Optional[str] = None
+    api_version: Optional[str] = None
+    source_key: Optional[str] = None
+    source_endpoint: Optional[str] = None
+    source_deployment: Optional[str] = None
+    source_api_version: Optional[str] = None
 
-    try:
-        keyring.set_password(SERVICE_NAME, KEY_NAME_API, api_key)
-        return True
-    except Exception as e:
-        print(f"WARNING: Could not store in Credential Manager: {e}")
-        return False
+    @property
+    def has_key(self) -> bool:
+        """True if an API key was found."""
+        return bool(self.api_key)
 
+    @property
+    def has_endpoint(self) -> bool:
+        """True if an endpoint URL was found."""
+        return bool(self.endpoint)
 
-def store_api_endpoint(endpoint: str) -> bool:
-    """
-    Securely store a custom API endpoint URL in Windows Credential Manager.
+    @property
+    def is_online_ready(self) -> bool:
+        """True if both key and endpoint are present -- minimum for online mode."""
+        return self.has_key and self.has_endpoint
 
-    Args:
-        endpoint: The API endpoint URL (e.g., "https://your-company.com/v1/chat/completions")
+    @property
+    def key_preview(self) -> str:
+        """
+        Masked preview of the API key for logging/display.
+        Shows first 4 and last 4 characters only.
+        NEVER log the full key.
+        """
+        if not self.api_key:
+            return "(not set)"
+        if len(self.api_key) <= 8:
+            return "****"
+        return self.api_key[:4] + "..." + self.api_key[-4:]
 
-    Returns:
-        True if stored successfully, False if keyring unavailable
-
-    Why store this securely?
-        Your company's internal API endpoint URL might be considered
-        sensitive information. Storing it in Credential Manager keeps it
-        out of config files and git repos.
-    """
-    if not KEYRING_AVAILABLE:
-        print("WARNING: keyring not installed. Cannot store endpoint securely.")
-        return False
-
-    try:
-        keyring.set_password(SERVICE_NAME, KEY_NAME_ENDPOINT, endpoint)
-        return True
-    except Exception as e:
-        print(f"WARNING: Could not store endpoint: {e}")
-        return False
-
-
-def get_api_key() -> str:
-    """
-    Retrieve the API key using the secure fallback chain.
-
-    Priority order:
-        1. Windows Credential Manager (via keyring) — most secure
-        2. OPENAI_API_KEY environment variable — less secure but works
-        3. Returns empty string — online mode will be disabled
-
-    Returns:
-        The API key string, or empty string if not found anywhere
-
-    Note: This function NEVER prints the key. It only returns it to
-    the calling code (LLMRouter) which uses it in the Authorization
-    header. The key never appears in logs or console output.
-    """
-    # ── Try keyring first (most secure) ──
-    if KEYRING_AVAILABLE:
-        try:
-            key = keyring.get_password(SERVICE_NAME, KEY_NAME_API)
-            if key:
-                return key
-        except Exception:
-            pass  # Fall through to env var
-
-    # ── Try environment variable (less secure but functional) ──
-    key = os.environ.get("OPENAI_API_KEY", "")
-    return key
-
-
-def get_api_endpoint() -> str:
-    """
-    Retrieve the custom API endpoint using the fallback chain.
-
-    Priority order:
-        1. Windows Credential Manager (via keyring)
-        2. OPENAI_API_ENDPOINT environment variable
-        3. Returns empty string — will use default from config.yaml
-
-    Returns:
-        The endpoint URL string, or empty string if not found
-    """
-    # ── Try keyring first ──
-    if KEYRING_AVAILABLE:
-        try:
-            endpoint = keyring.get_password(SERVICE_NAME, KEY_NAME_ENDPOINT)
-            if endpoint:
-                return endpoint
-        except Exception:
-            pass
-
-    # ── Try environment variable ──
-    return os.environ.get("OPENAI_API_ENDPOINT", "")
-
-
-def delete_api_key() -> bool:
-    """
-    Remove the stored API key from Windows Credential Manager.
-
-    Use this if you need to rotate your key or remove it for security.
-
-    Returns:
-        True if deleted successfully, False otherwise
-    """
-    if not KEYRING_AVAILABLE:
-        return False
-
-    try:
-        keyring.delete_password(SERVICE_NAME, KEY_NAME_API)
-        return True
-    except keyring.errors.PasswordDeleteError:
-        # Key wasn't stored — that's fine
-        return True
-    except Exception as e:
-        print(f"WARNING: Could not delete credential: {e}")
-        return False
-
-
-def delete_api_endpoint() -> bool:
-    """Remove the stored API endpoint from Windows Credential Manager."""
-    if not KEYRING_AVAILABLE:
-        return False
-
-    try:
-        keyring.delete_password(SERVICE_NAME, KEY_NAME_ENDPOINT)
-        return True
-    except keyring.errors.PasswordDeleteError:
-        return True
-    except Exception:
-        return False
-
-
-def credential_status() -> dict:
-    """
-    Check what credentials are currently available.
-
-    Returns a dictionary showing where each credential was found.
-    Useful for diagnostics and the self-test system.
-
-    Returns:
-        {
-            "api_key_source": "keyring" | "env_var" | "none",
-            "api_key_set": True | False,
-            "api_endpoint_source": "keyring" | "env_var" | "config" | "none",
-            "api_endpoint_set": True | False,
-            "keyring_available": True | False,
+    def to_diagnostic_dict(self) -> dict:
+        """
+        Safe-to-log dictionary for diagnostic output.
+        API key is always masked.
+        """
+        return {
+            "endpoint": self.endpoint or "(not set)",
+            "api_key": self.key_preview,
+            "deployment": self.deployment or "(not set)",
+            "api_version": self.api_version or "(not set)",
+            "source_key": self.source_key or "(not found)",
+            "source_endpoint": self.source_endpoint or "(not found)",
+            "source_deployment": self.source_deployment or "(not found)",
+            "source_api_version": self.source_api_version or "(not found)",
+            "online_ready": self.is_online_ready,
         }
+
+
+# ---------------------------------------------------------------------------
+# ENV VAR ALIASES: All accepted names for each credential
+# ---------------------------------------------------------------------------
+# WHY ALIASES:
+#   Different tools and docs use different names. Azure docs say
+#   AZURE_OPENAI_API_KEY, OpenAI docs say OPENAI_API_KEY, and we
+#   defined HYBRIDRAG_API_KEY. Instead of forcing users to remember
+#   one name, we accept all of them and resolve in priority order.
+# ---------------------------------------------------------------------------
+
+_KEY_ENV_ALIASES = [
+    "HYBRIDRAG_API_KEY",
+    "AZURE_OPENAI_API_KEY",
+    "OPENAI_API_KEY",
+]
+
+_ENDPOINT_ENV_ALIASES = [
+    "HYBRIDRAG_API_ENDPOINT",
+    "AZURE_OPENAI_ENDPOINT",
+    "OPENAI_API_ENDPOINT",
+    "AZURE_OPENAI_BASE_URL",
+    "OPENAI_BASE_URL",
+]
+
+_DEPLOYMENT_ENV_ALIASES = [
+    "AZURE_OPENAI_DEPLOYMENT",
+    "AZURE_DEPLOYMENT",
+    "OPENAI_DEPLOYMENT",
+    "AZURE_OPENAI_DEPLOYMENT_NAME",
+    "DEPLOYMENT_NAME",
+    "AZURE_CHAT_DEPLOYMENT",
+]
+
+_API_VERSION_ENV_ALIASES = [
+    "AZURE_OPENAI_API_VERSION",
+    "AZURE_API_VERSION",
+    "OPENAI_API_VERSION",
+    "API_VERSION",
+]
+
+# Keyring service and key names
+_KEYRING_SERVICE = "hybridrag"
+_KEYRING_KEY_NAME = "azure_api_key"
+_KEYRING_ENDPOINT_NAME = "azure_endpoint"
+
+
+# ---------------------------------------------------------------------------
+# HELPER: Read first matching env var from a list of aliases
+# ---------------------------------------------------------------------------
+
+def _resolve_env_var(aliases):
     """
-    status = {
-        "keyring_available": KEYRING_AVAILABLE,
-        "api_key_source": "none",
-        "api_key_set": False,
-        "api_endpoint_source": "none",
-        "api_endpoint_set": False,
-    }
-
-    # Check API key
-    if KEYRING_AVAILABLE:
-        try:
-            if keyring.get_password(SERVICE_NAME, KEY_NAME_API):
-                status["api_key_source"] = "keyring"
-                status["api_key_set"] = True
-        except Exception:
-            pass
-
-    if not status["api_key_set"] and os.environ.get("OPENAI_API_KEY"):
-        status["api_key_source"] = "env_var"
-        status["api_key_set"] = True
-
-    # Check API endpoint
-    if KEYRING_AVAILABLE:
-        try:
-            if keyring.get_password(SERVICE_NAME, KEY_NAME_ENDPOINT):
-                status["api_endpoint_source"] = "keyring"
-                status["api_endpoint_set"] = True
-        except Exception:
-            pass
-
-    if not status["api_endpoint_set"] and os.environ.get("OPENAI_API_ENDPOINT"):
-        status["api_endpoint_source"] = "env_var"
-        status["api_endpoint_set"] = True
-
-    return status
+    Check each alias in order, return (value, var_name) for the first
+    one that is set and non-empty. Returns (None, None) if none found.
+    """
+    for var_name in aliases:
+        value = os.environ.get(var_name, "").strip()
+        if value:
+            return value, var_name
+    return None, None
 
 
-# ============================================================================
-# CLI ENTRY POINT — Run this file directly to manage credentials
-# ============================================================================
-# Usage:
-#   python -m src.security.credentials store     # Store API key
-#   python -m src.security.credentials status    # Check what's stored
-#   python -m src.security.credentials delete    # Remove stored key
-#   python -m src.security.credentials endpoint  # Store custom endpoint
-# ============================================================================
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python -m src.security.credentials [store|status|delete|endpoint]")
-        sys.exit(1)
+# ---------------------------------------------------------------------------
+# HELPER: Read from keyring safely
+# ---------------------------------------------------------------------------
 
-    command = sys.argv[1].lower()
+def _read_keyring(key_name):
+    """
+    Read a value from Windows Credential Manager via keyring.
+    Returns None if keyring is not available or key not found.
 
-    if command == "store":
-        print("=" * 50)
-        print("HybridRAG v3 — Store API Key")
-        print("=" * 50)
-        print()
-        print("Your key will be encrypted in Windows Credential Manager.")
-        print("It will NOT appear in any file, log, or config.")
-        print()
-        # getpass.getpass() hides input — no one can shoulder-surf
-        api_key = getpass.getpass("Paste your API key (input is hidden): ")
-        if not api_key.strip():
-            print("No key entered. Aborted.")
-            sys.exit(1)
+    WHY TRY/EXCEPT:
+      keyring may not be installed (ImportError),
+      or the backend may not be available on this OS (keyring.errors.*),
+      or the credential simply doesn't exist (returns None).
+      We handle all cases gracefully.
+    """
+    try:
+        import keyring
+        value = keyring.get_password(_KEYRING_SERVICE, key_name)
+        if value and value.strip():
+            return value.strip()
+    except ImportError:
+        logger.debug("keyring module not installed -- skipping keyring lookup")
+    except Exception as e:
+        logger.debug("keyring read failed for '%s': %s", key_name, e)
+    return None
 
-        if store_api_key(api_key.strip()):
-            print("\n✅ API key stored securely in Windows Credential Manager.")
-            print("   Verify: Start Menu → Credential Manager → Windows Credentials")
-            print(f"   Look for: {SERVICE_NAME}")
-        else:
-            print("\n❌ Could not store in Credential Manager.")
-            print("   Set OPENAI_API_KEY environment variable as fallback.")
 
-    elif command == "endpoint":
-        print("=" * 50)
-        print("HybridRAG v3 — Store Custom API Endpoint")
-        print("=" * 50)
-        print()
-        endpoint = input("Enter your API endpoint URL: ").strip()
-        if not endpoint:
-            print("No endpoint entered. Aborted.")
-            sys.exit(1)
+# ---------------------------------------------------------------------------
+# ENDPOINT VALIDATION
+# ---------------------------------------------------------------------------
 
-        if store_api_endpoint(endpoint):
-            print(f"\n✅ Endpoint stored: {endpoint}")
-        else:
-            print("\n❌ Could not store endpoint.")
-            print("   Set OPENAI_API_ENDPOINT environment variable as fallback.")
+# Characters that should NEVER appear in a URL -- these are common
+# copy-paste artifacts from Word, Outlook, Teams, etc.
+_BAD_URL_CHARS = re.compile(r'[\u201c\u201d\u2018\u2019\u2013\u2014\u00a0\ufeff]')
 
-    elif command == "status":
-        print("=" * 50)
-        print("HybridRAG v3 — Credential Status")
-        print("=" * 50)
-        s = credential_status()
-        print(f"\n  keyring available:  {'YES' if s['keyring_available'] else 'NO'}")
-        print(f"  API key found:      {'YES' if s['api_key_set'] else 'NO'} (source: {s['api_key_source']})")
-        print(f"  API endpoint found: {'YES' if s['api_endpoint_set'] else 'NO'} (source: {s['api_endpoint_source']})")
 
-        if s["api_key_set"]:
-            # Show first 8 chars only for verification (never the full key)
-            key = get_api_key()
-            masked = key[:8] + "..." + key[-4:] if len(key) > 12 else "***"
-            print(f"  API key preview:    {masked}")
+def validate_endpoint(url):
+    """
+    Validate and clean an endpoint URL.
 
-    elif command == "delete":
-        print("Deleting stored credentials...")
-        delete_api_key()
-        delete_api_endpoint()
-        print("✅ Credentials removed from Windows Credential Manager.")
+    Checks:
+      - Not empty
+      - Starts with https:// (or http:// if explicitly allowed)
+      - No smart quotes or hidden Unicode characters
+      - No spaces
+      - No double slashes in the path (after scheme)
+      - Strips trailing slashes for consistency
 
+    Args:
+        url: The endpoint URL string to validate.
+
+    Returns:
+        Cleaned URL string.
+
+    Raises:
+        InvalidEndpointError: If the URL is malformed.
+    """
+    # Import here to avoid circular import
+    from src.core.exceptions import InvalidEndpointError
+
+    if not url or not url.strip():
+        raise InvalidEndpointError("Endpoint URL is empty.", url=url)
+
+    url = url.strip()
+
+    # Check for smart quotes and other bad characters
+    bad_chars = _BAD_URL_CHARS.findall(url)
+    if bad_chars:
+        chars_display = ", ".join(repr(c) for c in bad_chars)
+        raise InvalidEndpointError(
+            f"Endpoint URL contains invalid characters: {chars_display}. "
+            "This usually happens from copy-pasting from Word or a chat app.",
+            url=url,
+        )
+
+    # Check for spaces
+    if " " in url:
+        raise InvalidEndpointError(
+            "Endpoint URL contains spaces.",
+            url=url,
+        )
+
+    # Check scheme
+    if not url.startswith("https://") and not url.startswith("http://"):
+        raise InvalidEndpointError(
+            f"Endpoint URL must start with https:// -- got: '{url[:30]}...'",
+            url=url,
+        )
+
+    # Check for double slashes in path (after scheme)
+    scheme_end = url.index("://") + 3
+    path_part = url[scheme_end:]
+    if "//" in path_part:
+        raise InvalidEndpointError(
+            "Endpoint URL has double slashes in the path. "
+            "This usually means a URL was concatenated incorrectly.",
+            url=url,
+        )
+
+    # Strip trailing slash for consistency
+    url = url.rstrip("/")
+
+    return url
+
+
+# ---------------------------------------------------------------------------
+# MAIN FUNCTION: Resolve all credentials
+# ---------------------------------------------------------------------------
+
+def resolve_credentials(config_dict=None):
+    """
+    Resolve API credentials from all sources.
+
+    Resolution order (first match wins):
+      1. Windows Credential Manager (keyring)
+      2. Environment variables (checks all aliases)
+      3. Config dictionary (if provided)
+
+    Args:
+        config_dict: Optional dict from config.yaml with keys like
+            api.key, api.endpoint, api.deployment, api.api_version
+
+    Returns:
+        ApiCredentials dataclass with all resolved values.
+
+    NOTE: This function does NOT raise exceptions for missing credentials.
+    It returns whatever it finds and lets the caller (ApiClientFactory)
+    decide whether that's enough to proceed.
+    """
+    creds = ApiCredentials()
+
+    # --- Resolve API Key ---
+    # Priority 1: Keyring
+    key_from_keyring = _read_keyring(_KEYRING_KEY_NAME)
+    if key_from_keyring:
+        creds.api_key = key_from_keyring
+        creds.source_key = "keyring"
+        logger.debug("API key loaded from keyring")
     else:
-        print(f"Unknown command: {command}")
-        print("Usage: python -m src.security.credentials [store|status|delete|endpoint]")
-        sys.exit(1)
+        # Priority 2: Environment variables
+        key_val, key_var = _resolve_env_var(_KEY_ENV_ALIASES)
+        if key_val:
+            creds.api_key = key_val
+            creds.source_key = f"env:{key_var}"
+            logger.debug("API key loaded from env: %s", key_var)
+        elif config_dict:
+            # Priority 3: Config file
+            cfg_key = _nested_get(config_dict, "api", "key")
+            if cfg_key:
+                creds.api_key = cfg_key
+                creds.source_key = "config"
+                logger.debug("API key loaded from config file")
+
+    # --- Resolve Endpoint ---
+    # Priority 1: Keyring
+    endpoint_from_keyring = _read_keyring(_KEYRING_ENDPOINT_NAME)
+    if endpoint_from_keyring:
+        creds.endpoint = endpoint_from_keyring
+        creds.source_endpoint = "keyring"
+        logger.debug("Endpoint loaded from keyring")
+    else:
+        # Priority 2: Environment variables
+        ep_val, ep_var = _resolve_env_var(_ENDPOINT_ENV_ALIASES)
+        if ep_val:
+            creds.endpoint = ep_val
+            creds.source_endpoint = f"env:{ep_var}"
+            logger.debug("Endpoint loaded from env: %s", ep_var)
+        elif config_dict:
+            # Priority 3: Config file
+            cfg_ep = _nested_get(config_dict, "api", "endpoint")
+            if cfg_ep:
+                creds.endpoint = cfg_ep
+                creds.source_endpoint = "config"
+                logger.debug("Endpoint loaded from config file")
+
+    # --- Resolve Deployment Name ---
+    # Check URL first (may contain /deployments/name)
+    if creds.endpoint and "/deployments/" in creds.endpoint:
+        match = re.search(r"/deployments/([^/?]+)", creds.endpoint)
+        if match:
+            creds.deployment = match.group(1)
+            creds.source_deployment = "extracted_from_url"
+            logger.debug("Deployment extracted from URL: %s", creds.deployment)
+
+    # If not in URL, check env vars
+    if not creds.deployment:
+        dep_val, dep_var = _resolve_env_var(_DEPLOYMENT_ENV_ALIASES)
+        if dep_val:
+            creds.deployment = dep_val
+            creds.source_deployment = f"env:{dep_var}"
+            logger.debug("Deployment loaded from env: %s", dep_var)
+        elif config_dict:
+            cfg_dep = _nested_get(config_dict, "api", "deployment")
+            if cfg_dep:
+                creds.deployment = cfg_dep
+                creds.source_deployment = "config"
+
+    # --- Resolve API Version ---
+    # Check URL first (may contain ?api-version=xxx)
+    if creds.endpoint and "api-version=" in creds.endpoint:
+        match = re.search(r"api-version=([^&]+)", creds.endpoint)
+        if match:
+            creds.api_version = match.group(1)
+            creds.source_api_version = "extracted_from_url"
+
+    if not creds.api_version:
+        ver_val, ver_var = _resolve_env_var(_API_VERSION_ENV_ALIASES)
+        if ver_val:
+            creds.api_version = ver_val
+            creds.source_api_version = f"env:{ver_var}"
+        elif config_dict:
+            cfg_ver = _nested_get(config_dict, "api", "api_version")
+            if cfg_ver:
+                creds.api_version = cfg_ver
+                creds.source_api_version = "config"
+
+    # --- Validate endpoint if present ---
+    if creds.endpoint:
+        try:
+            creds.endpoint = validate_endpoint(creds.endpoint)
+        except Exception as e:
+            logger.warning("Endpoint validation failed: %s", e)
+            # Don't clear endpoint -- let the caller decide what to do
+            # The factory will re-validate and raise if needed
+
+    return creds
+
+
+# ---------------------------------------------------------------------------
+# STORE FUNCTIONS: Write credentials to keyring
+# ---------------------------------------------------------------------------
+
+def store_api_key(key):
+    """Store API key in Windows Credential Manager."""
+    import keyring
+    keyring.set_password(_KEYRING_SERVICE, _KEYRING_KEY_NAME, key)
+    logger.info("API key stored in keyring")
+
+
+def store_endpoint(endpoint):
+    """Store API endpoint in Windows Credential Manager."""
+    import keyring
+    keyring.set_password(_KEYRING_SERVICE, _KEYRING_ENDPOINT_NAME, endpoint)
+    logger.info("Endpoint stored in keyring")
+
+
+def clear_credentials():
+    """Remove all stored credentials from keyring."""
+    import keyring
+    for name in [_KEYRING_KEY_NAME, _KEYRING_ENDPOINT_NAME]:
+        try:
+            keyring.delete_password(_KEYRING_SERVICE, name)
+        except Exception:
+            pass
+    logger.info("All credentials cleared from keyring")
+
+
+# ---------------------------------------------------------------------------
+# HELPER: Safe nested dict access
+# ---------------------------------------------------------------------------
+
+def _nested_get(d, *keys):
+    """
+    Safely get a nested value from a dictionary.
+    _nested_get({"api": {"key": "abc"}}, "api", "key") returns "abc"
+    _nested_get({"api": {}}, "api", "key") returns None
+    """
+    for key in keys:
+        if isinstance(d, dict):
+            d = d.get(key)
+        else:
+            return None
+    return d if d else None
+
+
+# ---------------------------------------------------------------------------
+# CONVENIENCE: Quick access functions (backward compatible)
+# ---------------------------------------------------------------------------
+# These exist so existing code that calls get_api_key() still works
+# without needing to switch to the full resolve_credentials() pattern.
+# New code should use resolve_credentials() instead.
+# ---------------------------------------------------------------------------
+
+def get_api_key():
+    """Get API key from keyring or env vars. Returns None if not found."""
+    creds = resolve_credentials()
+    return creds.api_key
+
+
+def get_api_endpoint():
+    """Get API endpoint from keyring or env vars. Returns None if not found."""
+    creds = resolve_credentials()
+    return creds.endpoint
