@@ -55,3 +55,6 @@ Eval Guides*
 
 # One-time utility scripts
 cleanup_root.ps1
+# Diagnostics outputs
+api_diag_report.txt
+api_diag_results.json
