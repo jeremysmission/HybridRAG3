@@ -144,10 +144,7 @@ class OllamaRouter:
             "model": self.config.ollama.model,
             "prompt": prompt,
             "stream": False,    # Get the full response at once, not word-by-word
-            "options": {
-                "num_ctx": self.config.ollama.context_length,
-                "temperature": self.config.ollama.temperature,
-            },
+            
         }
 
         try:
@@ -711,6 +708,8 @@ class LLMRouter:
                 status["api_clean_endpoint"] = api_status.get("clean_endpoint", "")
 
         return status
+
+
 
 
 
