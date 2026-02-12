@@ -56,8 +56,8 @@ except ImportError:
     OPENAI_SDK_AVAILABLE = False
 
 # -- Import HybridRAG internals ---------------------------------------------
-from ..core.config import Config
-from ..core.logging_setup import get_app_logger
+from .config import Config
+from ..monitoring.logger import get_app_logger
 
 
 # ============================================================================
@@ -711,3 +711,7 @@ class LLMRouter:
                 status["api_clean_endpoint"] = api_status.get("clean_endpoint", "")
 
         return status
+
+
+
+
