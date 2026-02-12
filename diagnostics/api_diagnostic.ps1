@@ -211,7 +211,7 @@ $Ranked = $Results |
   Where-Object { $null -ne $_.status } |
   Select-Object method, url, status, statusText, activityId, snippet, error,
     @{n="score"; e={ Get-StatusScore $_.status }} |
-  Sort-Object score -Descending, status -Ascending
+  Sort-Object @{Expression="score";Descending=$true}, @{Expression="status";Ascending=$true}
 
 $Top = $Ranked | Select-Object -First 25
 $best = $Ranked | Select-Object -First 1
