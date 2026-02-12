@@ -48,7 +48,7 @@ config/system_profile.json
 # Binary documents (not source code)
 *.docx
 *.xlsx
-*.zip
+*.zip`n!releases/*.zip
 
 # Evaluation guides (local reference only)
 Eval Guides*
