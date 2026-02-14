@@ -1,167 +1,99 @@
-# ===========================================================================
-# HybridRAG v3 -- DEFAULT CONFIGURATION
-# ===========================================================================
+# ============================================================================
+# HybridRAG v3 -- Master Configuration
+# ============================================================================
 #
-# HOW THIS WORKS:
-#   This file contains ALL settings for HybridRAG. When HybridRAG starts,
-#   it reads this file and uses these values. You can override any value
-#   by setting an environment variable or storing credentials in keyring.
+# This file controls every tunable setting in HybridRAG.
+# Each key MUST match the Python dataclass field name in config.py exactly.
+# If a key doesn't match, it will be silently ignored and you'll see a
+# [WARN] at startup (safety net added 2026-02-14).
 #
-# EDIT GUIDE:
-#   - Values after the colon are the defaults
-#   - Lines starting with # are comments (ignored)
-#   - Indentation matters -- use spaces, not tabs
-#   - Strings with special characters should be in quotes
+# Priority: Environment variables > This YAML file > Hardcoded defaults
 #
-# SECURITY:
-#   NEVER put API keys or passwords in this file. Use keyring:
-#     rag-store-key       → stores API key securely
-#     rag-store-endpoint  → stores endpoint securely
-# ===========================================================================
+# UPDATED: 2026-02-14 -- Fixed 13 mismatched keys found by diagnostic suite.
+# ============================================================================
 
 
-# --- API CONFIGURATION ---
-# Controls how HybridRAG connects to the cloud LLM (Azure GPT-3.5, etc.)
-
-api:
-  # PROVIDER: Which API format to use for requests.
-  #   "azure"   -- Azure OpenAI Service (uses api-key header, deployment URLs)
-  #   "openai"  -- Standard OpenAI API (uses Bearer token, model in body)
-  #   "auto"    -- Detect from URL patterns (LESS RELIABLE -- prefer explicit)
-  #
-  # RECOMMENDATION: Set this explicitly to avoid URL detection failures.
-  # Your company uses Azure, so set this to "azure".
-  provider: "azure"
-
-  # AUTH SCHEME: How to authenticate with the API.
-  #   "api_key"  -- Send key in "api-key" header (Azure standard)
-  #   "bearer"   -- Send key as "Authorization: Bearer {key}" (OpenAI standard)
-  #   "auto"     -- Infer from provider setting
-  auth_scheme: "api_key"
-
-  # DEPLOYMENT: The name of your model deployment in Azure.
-  # Find this in Azure Portal > Azure OpenAI > Deployments.
-  # Leave empty to use AZURE_OPENAI_DEPLOYMENT environment variable.
-  deployment: ""
-
-  # API VERSION: Azure API version string.
-  # Common values: "2024-02-01", "2024-06-01", "2024-08-01-preview"
-  api_version: "2024-02-01"
-
-  # MODEL: Which model to request (OpenAI only -- Azure uses deployment name).
-  model: "gpt-3.5-turbo"
-
-  # ENDPOINT: Leave empty -- stored securely in keyring via rag-store-endpoint.
-  # Only set here for testing or if keyring is not available.
-  endpoint: ""
-
-  # KEY: NEVER put your API key here. Use rag-store-key.
-  key: ""
+# --- Operating Mode ---
+# "offline" = Ollama (local, free, no internet)
+# "online"  = API (OpenRouter/Azure, costs money, needs internet)
+mode: offline
 
 
-# --- HTTP CLIENT ---
-# Controls how all HTTP requests are made (timeouts, retries, SSL).
-
-http:
-  # TIMEOUT: Max seconds to wait for a response from the API.
-  # 30s is reasonable for chat completions. Increase if you get timeouts.
-  timeout: 30
-
-  # MAX RETRIES: How many times to retry on transient failures (5xx, 429).
-  # 2 means: try once, then retry up to 2 more times = 3 total attempts.
-  max_retries: 2
-
-  # RETRY DELAY: Seconds to wait before first retry. Doubles each retry.
-  # 1.0 → first retry after 1s, second after 2s.
-  retry_delay: 1.0
-
-  # CA BUNDLE: Path to custom CA certificate file for corporate proxies.
-  # Leave empty to use the system trust store (works for most setups).
-  # If you get SSL errors, ask IT for the corporate CA cert and set path here.
-  ca_bundle: ""
-
-  # VERIFY SSL: Whether to verify SSL certificates.
-  # ALWAYS true in production. Only set false for local debugging.
-  verify_ssl: true
-
-
-# --- OLLAMA (LOCAL LLM) ---
-
-ollama:
-  # HOST: Where Ollama is running. Localhost for local machine.
-  host: "http://localhost:11434"
-
-  # MODEL: Which Ollama model to use for generation.
-  model: "llama3"
-
-  # TIMEOUT: Max seconds to wait for Ollama response.
-  # CPU inference is slow -- 180s allows for complex queries on 8GB RAM.
-  timeout: 180
-
-
-# --- EMBEDDING ---
-
-embedding:
-  # MODEL: Sentence transformer model for converting text to vectors.
-  model: "all-MiniLM-L6-v2"
-
-  # CACHE DIR: Where to store the downloaded model files.
-  # Relative to project root.
-  cache_dir: ".model_cache"
-
-
-# --- CHUNKING ---
-
-chunking:
-  # CHUNK SIZE: Number of characters per text chunk.
-  # 1200 is a good balance between context and precision.
-  chunk_size: 1200
-
-  # OVERLAP: Characters of overlap between consecutive chunks.
-  # Prevents information from being split across chunk boundaries.
-  overlap: 200
-
-
-# --- RETRIEVAL ---
-
-retrieval:
-  # TOP K: Number of chunks to retrieve per query.
-  top_k: 5
-
-  # MIN SCORE: Minimum similarity score to include a chunk (0.0 to 1.0).
-  # Higher = more relevant but fewer results.
-  min_score: 0.3
-
-  # HYBRID: Use both vector search AND BM25 keyword search.
-  hybrid: true
-
-  # RERANKER: Apply reranking to improve result quality.
-  reranker: false
-
-
-# --- PATHS ---
-# Adjust these for your machine. Supports both absolute and relative paths.
-
+# --- Paths ---
+# NOTE: These are usually overridden by environment variables set in
+# start_hybridrag.ps1 (HYBRIDRAG_DATA_DIR, HYBRIDRAG_INDEX_FOLDER).
+# Only set these if you are NOT using the startup script.
 paths:
-  # SOURCE DOCUMENTS: Folder containing files to index.
-  source_dir: "source"
-
-  # INDEX DATA: Where the SQLite database and embeddings are stored.
-  index_dir: "index"
-
-  # LOGS: Where log files are written.
-  log_dir: "logs"
+  database: ""           # Full path to hybridrag.sqlite3
+  embeddings_cache: ""   # Folder where memmap files live
+  source_folder: ""      # Folder containing documents to index
 
 
-# --- SECURITY ---
+# --- Embedding Model ---
+embedding:
+  model_name: all-MiniLM-L6-v2    # Was "model" -- must be "model_name"
+  dimension: 384                    # Must match model output
+  batch_size: 16                    # Chunks embedded at once
+  device: cpu                       # "cpu" or "cuda" (GPU)
 
+
+# --- Text Chunking ---
+chunking:
+  chunk_size: 1200       # Characters per chunk
+  overlap: 200           # Character overlap between chunks
+  max_heading_len: 160   # Max heading prefix on chunks
+
+
+# --- Ollama (Offline LLM) ---
+ollama:
+  base_url: http://localhost:11434   # Was "host" -- must be "base_url"
+  model: llama3
+  timeout_seconds: 600               # Was "timeout" -- must be "timeout_seconds"
+  context_window: 8192               # Max tokens the model can see
+
+
+# --- API (Online LLM) ---
+# Removed ghost keys that had no Python field:
+#   api_version, auth_scheme, deployment, key, provider
+# Those were being silently ignored. Credentials are stored
+# securely via rag-store-key and rag-store-endpoint instead.
+api:
+  endpoint: https://openrouter.ai/api/v1
+  model: gpt-3.5-turbo
+  max_tokens: 2048
+  temperature: 0.1
+  timeout_seconds: 30
+
+
+# --- Cost Tracking (Online Mode Only) ---
+cost:
+  track_enabled: true
+  input_cost_per_1k: 0.0015
+  output_cost_per_1k: 0.002
+  daily_budget_usd: 5.0
+
+
+# --- Retrieval / Search ---
+retrieval:
+  top_k: 5                    # Chunks sent to LLM
+  min_score: 0.3              # Minimum similarity (0-1)
+  hybrid_search: true          # Was "hybrid" -- must be "hybrid_search"
+  rrf_k: 60                   # Reciprocal Rank Fusion constant
+  reranker_enabled: false      # Was "reranker" -- must be "reranker_enabled"
+  reranker_model: cross-encoder/ms-marco-MiniLM-L-6-v2
+  reranker_top_n: 20          # Candidates before reranking
+  min_chunks: 1               # Min chunks before calling LLM
+
+
+# --- Indexing ---
+indexing:
+  max_chars_per_file: 2000000
+  block_chars: 200000
+
+
+# --- Security ---
+# Removed "offline_mode" -- not a valid field.
+# Network lockdown is handled by start_hybridrag.ps1 env vars.
 security:
-  # PII SANITIZATION: Scrub personally identifiable information from queries.
-  pii_sanitization: true
-
-  # AUDIT LOGGING: Log all queries and results for compliance.
   audit_logging: true
-
-  # NETWORK KILL SWITCH: Set to true to block ALL outbound HTTP.
-  # Can also be set via HYBRIDRAG_OFFLINE=1 environment variable.
-  offline_mode: false
+  pii_sanitization: true

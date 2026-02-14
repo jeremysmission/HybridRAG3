@@ -1,5 +1,5 @@
 # ============================================================================
-# HybridRAG — Configuration (src/core/config.py)
+# HybridRAG -- Configuration (src/core/config.py)
 # ============================================================================
 #
 # WHAT THIS FILE DOES:
@@ -33,15 +33,20 @@
 #   print(config.embedding.batch_size)             # IDE shows all options
 #
 # CHANGES:
-#   2026-02-07: SEC-001 FIX — API endpoint default changed from public
+#   2026-02-07: SEC-001 FIX -- API endpoint default changed from public
 #               OpenAI URL to empty string. Online mode now requires
 #               explicit endpoint configuration. Added endpoint validation.
 #   2026-02-07: Reranker enabled by default for technical document accuracy.
+#   2026-02-14: SAFETY NET -- _dict_to_dataclass now warns on YAML key
+#               mismatches instead of silently dropping them. Catches the
+#               class of bug where YAML says "timeout" but Python expects
+#               "timeout_seconds", and the default wins without warning.
 # ============================================================================
 
 from __future__ import annotations
 
 import os
+import sys
 import yaml
 import dataclasses
 from dataclasses import dataclass, field
@@ -151,7 +156,7 @@ class OllamaConfig:
     """
     Local LLM (Ollama) settings for offline mode.
 
-    Ollama runs on your machine — no internet needed, no API costs.
+    Ollama runs on your machine -- no internet needed, no API costs.
     """
     base_url: str = "http://localhost:11434"
     model: str = "llama3"
@@ -175,17 +180,17 @@ class APIConfig:
       The default is now an empty string. Online mode will refuse to start
       unless the endpoint is explicitly set in the YAML config or via the
       HYBRIDRAG_API_ENDPOINT environment variable. This is a "fail closed"
-      design — if you forget to configure it, nothing leaks.
+      design -- if you forget to configure it, nothing leaks.
 
     HOW TO CONFIGURE FOR ONLINE MODE:
-      Option 1 — YAML (config/default_config.yaml):
+      Option 1 -- YAML (config/default_config.yaml):
         api:
           endpoint: "https://your-company-api.internal/v1/chat/completions"
 
-      Option 2 — Environment variable (start_hybridrag.ps1):
+      Option 2 -- Environment variable (start_hybridrag.ps1):
         $env:HYBRIDRAG_API_ENDPOINT = "https://your-company-api.internal/v1/chat/completions"
     """
-    endpoint: str = ""             # EMPTY BY DEFAULT — must be explicitly configured
+    endpoint: str = ""             # EMPTY BY DEFAULT -- must be explicitly configured
     model: str = "gpt-3.5-turbo"
     max_tokens: int = 2048
     temperature: float = 0.1       # Low = more focused/deterministic answers
@@ -316,7 +321,7 @@ class SecurityConfig:
 
 
 # -------------------------------------------------------------------
-# Master Config — the one object that holds everything
+# Master Config -- the one object that holds everything
 # -------------------------------------------------------------------
 
 @dataclass
@@ -347,7 +352,7 @@ class Config:
 
 
 # -------------------------------------------------------------------
-# Helper functions used by load_config()
+# Helper: YAML dict -> dataclass (with safety net)
 # -------------------------------------------------------------------
 
 def _dict_to_dataclass(cls, data: dict):
@@ -358,9 +363,52 @@ def _dict_to_dataclass(cls, data: dict):
       If someone adds a new field to their YAML that we haven't defined
       yet in code, we don't want the whole system to crash. We just
       skip that key and use the default value instead.
+
+    SAFETY NET (2026-02-14):
+      If a YAML key does NOT match any dataclass field name, print a
+      loud warning to stderr. This catches typos and name mismatches
+      like "timeout" vs "timeout_seconds" that previously caused
+      silent fallback to defaults -- which led to the Ollama 120s
+      timeout bug where the YAML said 180 but Python used 120.
+
+      We also try to suggest the closest matching field name so the
+      user knows what to change. This uses simple substring matching
+      (not a full fuzzy library) to keep dependencies at zero.
+
+    How it works step by step:
+      1. Get the set of valid field names from the dataclass definition
+      2. Walk through every key in the YAML dictionary
+      3. If the key matches a field name, include it
+      4. If NOT, print a [WARN] and try to suggest the right name
+      5. Build the dataclass with only the matched keys
+      6. Any unmatched fields get their hardcoded default values
     """
+    # Step 1: Get valid field names from the dataclass
     known_fields = {f.name for f in dataclasses.fields(cls)}
-    filtered = {k: v for k, v in data.items() if k in known_fields}
+
+    # Step 2-4: Sort YAML keys into matched vs unmatched
+    filtered = {}
+    for k, v in data.items():
+        if k in known_fields:
+            # This YAML key matches a Python field -- use it
+            filtered[k] = v
+        else:
+            # This YAML key does NOT match anything -- warn loudly
+            # Try to suggest a similar field name (catches timeout/timeout_seconds)
+            suggestion = ""
+            for field_name in known_fields:
+                # Check if one string contains the other
+                if k in field_name or field_name in k:
+                    suggestion = " Did you mean '" + field_name + "'?"
+                    break
+            print(
+                "  [WARN] config/" + cls.__name__ + ": YAML key '"
+                + k + "' is not a recognized setting"
+                + " -- IGNORED (using default)." + suggestion,
+                file=sys.stderr,
+            )
+
+    # Step 5-6: Build dataclass with matched keys; unmatched get defaults
     return cls(**filtered)
 
 
@@ -435,7 +483,9 @@ def validate_config(config: Config) -> List[str]:
     errors: List[str] = []
 
     if config.mode not in ("offline", "online"):
-        errors.append(f"Invalid mode: '{config.mode}'. Must be 'offline' or 'online'.")
+        errors.append(
+            "Invalid mode: '" + config.mode + "'. Must be 'offline' or 'online'."
+        )
 
     if not config.paths.database:
         errors.append(
@@ -444,10 +494,15 @@ def validate_config(config: Config) -> List[str]:
         )
 
     if config.embedding.dimension < 1:
-        errors.append(f"Invalid embedding dimension: {config.embedding.dimension}")
+        errors.append(
+            "Invalid embedding dimension: " + str(config.embedding.dimension)
+        )
 
     if config.chunking.chunk_size < 100:
-        errors.append(f"chunk_size too small: {config.chunking.chunk_size}. Minimum 100.")
+        errors.append(
+            "chunk_size too small: " + str(config.chunking.chunk_size)
+            + ". Minimum 100."
+        )
 
     if config.chunking.overlap >= config.chunking.chunk_size:
         errors.append("chunking.overlap must be less than chunking.chunk_size")
@@ -460,7 +515,7 @@ def validate_config(config: Config) -> List[str]:
             errors.append(
                 "SEC-001: API endpoint is empty but mode is 'online'. "
                 "Set api.endpoint in YAML or HYBRIDRAG_API_ENDPOINT env var. "
-                "This is a security requirement — the system will not send "
+                "This is a security requirement -- the system will not send "
                 "queries without an explicitly configured endpoint."
             )
         elif config.api.endpoint == "https://api.openai.com/v1/chat/completions":
@@ -472,12 +527,13 @@ def validate_config(config: Config) -> List[str]:
 
         # If an allowlist is configured, validate the endpoint against it
         if config.api.allowed_endpoint_prefixes and config.api.endpoint:
-            if not any(config.api.endpoint.startswith(p)
-                       for p in config.api.allowed_endpoint_prefixes):
+            allowed = config.api.allowed_endpoint_prefixes
+            if not any(config.api.endpoint.startswith(p) for p in allowed):
                 errors.append(
-                    f"SEC-001: API endpoint '{config.api.endpoint}' does not match "
-                    f"any allowed prefix: {config.api.allowed_endpoint_prefixes}. "
-                    f"Update allowed_endpoint_prefixes in YAML or fix the endpoint."
+                    "SEC-001: API endpoint '" + config.api.endpoint
+                    + "' does not match any allowed prefix: "
+                    + str(allowed)
+                    + ". Update allowed_endpoint_prefixes in YAML or fix the endpoint."
                 )
 
     return errors
