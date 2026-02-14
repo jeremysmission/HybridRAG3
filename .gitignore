@@ -74,3 +74,6 @@ _test*.yaml
 !releases/*.zip
 
 master_resource_guide.md
+
+*.bak
+_temp_*
