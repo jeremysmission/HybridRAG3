@@ -72,3 +72,5 @@ api_diag_results.json
 _test*.yaml
 *Copy*
 !releases/*.zip
+
+master_resource_guide.md
