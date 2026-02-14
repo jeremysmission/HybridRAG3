@@ -1077,42 +1077,34 @@ def test_security_network_lockdown(root: Path) -> TestResult:
 
 
 def test_change_detection(root: Path) -> TestResult:
-    """Inspect indexer code to verify _file_changed() is actually called.
-    THIS TEST CATCHES: BUG-002 — hash methods exist but never wired in."""
+    """Verify hash-based change detection is active in index_folder().
+    BUG-002 RESOLVED 2026-02-14: Logic is inlined using _compute_file_hash()
+    + get_file_hash(), not via a separate _file_changed() method."""
     try:
         from src.core.indexer import Indexer
-        
-        has_file_changed = hasattr(Indexer, "_file_changed")
         has_compute_hash = hasattr(Indexer, "_compute_file_hash")
-        
-        details = {
-            "has_file_changed": has_file_changed,
-            "has_compute_hash": has_compute_hash,
-        }
-        
-        if not has_file_changed:
-            return TestResult("change_detection", "Indexer", 3, "WARN",
-                "No _file_changed() method — change detection not implemented",
-                details=details)
-        
-        # Inspect index_folder to see if _file_changed is called
         source = inspect.getsource(Indexer.index_folder)
-        calls_it = "_file_changed" in source
-        details["index_folder_calls_file_changed"] = calls_it
-        
-        if not calls_it:
+        has_hash_in_loop = "_compute_file_hash" in source and "get_file_hash" in source
+        details = {
+            "has_compute_hash": has_compute_hash,
+            "hash_detection_in_loop": has_hash_in_loop,
+        }
+        if not has_compute_hash:
             return TestResult("change_detection", "Indexer", 3, "FAIL",
-                "BUG-002: _file_changed() exists but NEVER CALLED in index_folder()",
-                fix_hint="Wire _file_changed() into skip logic: if indexed AND not changed → skip",
+                "No _compute_file_hash() method -- change detection not implemented",
+                fix_hint="Add hash-based change detection to Indexer",
                 details=details)
-        
+        if not has_hash_in_loop:
+            return TestResult("change_detection", "Indexer", 3, "FAIL",
+                "BUG-002: Hash methods exist but not used in index_folder()",
+                fix_hint="Add _compute_file_hash + get_file_hash to index_folder loop",
+                details=details)
         return TestResult("change_detection", "Indexer", 3, "PASS",
-            "Change detection wired in — _file_changed() is called during indexing",
+            "Change detection active -- hash-based skip logic in index_folder()",
             details=details)
     except Exception as e:
         return TestResult("change_detection", "Indexer", 3, "ERROR",
             f"Code inspection failed: {e}", details={"error": str(e)})
-
 
 def test_resource_cleanup(root: Path) -> TestResult:
     """Check if VectorStore and Embedder have close()/cleanup methods."""
@@ -1415,12 +1407,12 @@ def detect_known_bugs(report: DiagnosticReport) -> None:
             "file_hash column not in chunks table. Change detection can't track modifications.",
             "ALTER TABLE chunks ADD COLUMN file_hash TEXT", "HIGH"))
     
-    # BUG-002: Change detection not wired
+    # BUG-002: Change detection (RESOLVED 2026-02-14)
     r = _find("change_detection")
-    if r and r.status in ("FAIL", "WARN"):
-        report.bugs.append(BugReport("BUG-002", "_file_changed() never called",
-            "Edited files keep stale chunks forever. index_folder() only checks existence.",
-            "Wire _file_changed() into skip logic", "HIGH"))
+    if r and r.status == "FAIL":
+        report.bugs.append(BugReport("BUG-002", "No hash-based change detection",
+            "Edited files keep stale chunks forever. No hash comparison in index loop.",
+            "Add _compute_file_hash + get_file_hash to index_folder loop", "HIGH"))
     
     # BUG-003: No resource cleanup
     r = _find("resource_cleanup")

@@ -34,9 +34,11 @@
 #      to file #3,001. You can review failures in the log after.
 #
 # BUGS FIXED (2026-02-08):
-#   BUG-001: _file_changed() now uses vector_store.get_file_hash() instead
+#   BUG-001: Hash detection uses vector_store.get_file_hash() in index_folder()
 #            of raw SQL against a column that didn't exist.
-#   BUG-002: _file_changed() is now actually CALLED in the skip logic.
+#   BUG-002: Change detection logic inlined in index_folder() using
+#            _compute_file_hash() + get_file_hash(). Dead _file_changed()
+#            method removed 2026-02-14.
 #            Previously only _file_already_indexed() was called, which just
 #            checked "do chunks exist?" without checking if the file changed.
 #   BUG-003: Added close() method to release the embedder model from RAM.
@@ -415,35 +417,6 @@ class Indexer:
         stat = file_path.stat()
         fast_key = f"{stat.st_size}:{stat.st_mtime_ns}"
         return fast_key
-
-    # =================================================================
-    # BUG-001/002 FIX: _file_changed now uses get_file_hash() helper
-    # =================================================================
-    def _file_changed(self, file_path):
-        """
-        Check if a file has been modified since it was last indexed.
-
-        BUG-001 FIX: Previously this method did a raw SQL query for a
-        file_hash column that didn't exist in the database schema. The
-        query always crashed, the except block returned True, and the
-        method was effectively dead code. Now uses the proper
-        vector_store.get_file_hash() helper method.
-
-        BUG-002 FIX: This method is now actually CALLED by the skip
-        logic in index_folder(). Previously only _file_already_indexed()
-        was called, which didn't check for modifications.
-
-        Returns True if the file has changed (or was never indexed).
-        Returns False if the file is unchanged (safe to skip).
-        """
-        try:
-            current_hash = self._compute_file_hash(file_path)
-            stored_hash = self.vector_store.get_file_hash(str(file_path))
-            if not stored_hash:
-                return True   # Never indexed — treat as "changed"
-            return stored_hash != current_hash
-        except Exception:
-            return True  # Can't determine — safer to re-index
 
     def _parse_file(self, file_path: Path) -> str:
         """
