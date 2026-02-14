@@ -62,3 +62,13 @@ api_diag_results.json
 *.onnx
 *.bin
 *.safetensors
+
+# SAFETY: Block bulk files
+*.zip
+*.7z
+*.pdf
+*.rar
+*.tar.gz
+_test*.yaml
+*Copy*
+!releases/*.zip
