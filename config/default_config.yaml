@@ -4,6 +4,12 @@ api:
   model: gpt-3.5-turbo
   temperature: 0.1
   timeout_seconds: 30
+  # Azure-specific (ignored for non-Azure providers like OpenRouter)
+  # Set these when using Azure OpenAI on a different machine:
+  #   deployment: "your-deployment-name"   # e.g., gpt-35-turbo, gpt-4o
+  #   api_version: "2024-02-02"
+  deployment: ""
+  api_version: ""
 chunking:
   chunk_size: 1200
   max_heading_len: 160
