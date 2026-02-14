@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
-HybridRAG v3 — System Diagnostic & Benchmarking Tool
+HybridRAG v3 -- System Diagnostic & Benchmarking Tool
 Location: src/tools/system_diagnostic.py
 
 THREE-TIER DIAGNOSTIC:
@@ -20,7 +20,7 @@ USAGE:
   python -m src.tools.system_diagnostic --tier 3          # All tiers
   python -m src.tools.system_diagnostic --hardware-only   # Fingerprint only
 
-INTERNET ACCESS: NONE — this script makes zero network calls.
+INTERNET ACCESS: NONE -- this script makes zero network calls.
 """
 
 import argparse, gc, json, os, platform, sqlite3, subprocess, sys
@@ -131,7 +131,7 @@ def collect_hardware_fingerprint():
     print(f"  Clock:  {c['max_clock_mhz']} MHz")
     print(f"  RAM:    {hw['ram_gb']} GB")
     for d in hw["disk"]:
-        print(f"  Disk:   {d['model']} — {d['size_gb']} GB ({d['type']})")
+        print(f"  Disk:   {d['model']} -- {d['size_gb']} GB ({d['type']})")
     print(f"  GPU:    {hw['gpu']}")
     print(f"  OS:     {hw['os']['system']} {hw['os']['release']}")
     print(f"  Python: {hw['python']['version']} ({hw['python']['architecture']})")
@@ -154,21 +154,21 @@ def recommend_profile(hw):
 
     profiles = {
         "laptop_safe": {
-            "description": "Conservative — stability on 8-16GB laptops",
+            "description": "Conservative -- stability on 8-16GB laptops",
             "embedding_batch_size": 16, "chunk_size": 1200, "chunk_overlap": 200,
             "retrieval_top_k": 5, "reranker_top_n": 20,
             "indexing_block_chars": 200000, "max_concurrent_files": 1,
             "gc_between_files": True,
         },
         "desktop_power": {
-            "description": "Aggressive — throughput on 32-64GB desktops",
+            "description": "Aggressive -- throughput on 32-64GB desktops",
             "embedding_batch_size": 64, "chunk_size": 1200, "chunk_overlap": 200,
             "retrieval_top_k": 10, "reranker_top_n": 40,
             "indexing_block_chars": 500000, "max_concurrent_files": 2,
             "gc_between_files": False,
         },
         "server_max": {
-            "description": "Maximum — for 64GB+ workstations",
+            "description": "Maximum -- for 64GB+ workstations",
             "embedding_batch_size": 128, "chunk_size": 1200, "chunk_overlap": 200,
             "retrieval_top_k": 15, "reranker_top_n": 60,
             "indexing_block_chars": 1000000, "max_concurrent_files": 4,
@@ -231,7 +231,7 @@ def run_security_audit():
             print("  [PASS] API endpoint: empty (SEC-001 OK)")
         elif "api.openai.com" in ep:
             results.append({"test": "SEC-001", "passed": False, "detail": f"PUBLIC: {ep}"})
-            print(f"  [FAIL] API endpoint: PUBLIC INTERNET — {ep}")
+            print(f"  [FAIL] API endpoint: PUBLIC INTERNET -- {ep}")
         else:
             results.append({"test": "SEC-001", "passed": True, "detail": f"Custom: {ep}"})
             print(f"  [PASS] API endpoint: {ep}")
@@ -246,7 +246,7 @@ def run_security_audit():
         results.append({"test": "DEFENSE-IN-DEPTH: embedder.py", "passed": has,
                         "detail": "Present" if has else "MISSING"})
         print(f"  [{'PASS' if has else 'FAIL'}] Python offline lockdown: "
-              f"{'present' if has else 'MISSING — only PowerShell protects you'}")
+              f"{'present' if has else 'MISSING -- only PowerShell protects you'}")
     else:
         results.append({"test": "DEFENSE-IN-DEPTH", "passed": False, "detail": "Not found"})
         print("  [FAIL] embedder.py not found")
@@ -256,7 +256,7 @@ def run_security_audit():
     return results
 
 
-# ===== SECTION 4: TIER 1 — SCHEMA & LOGIC ==================================
+# ===== SECTION 4: TIER 1 -- SCHEMA & LOGIC ==================================
 
 def run_tier1_tests():
     """Instant tests: imports, schema, hash, garbage, close, config, FTS5, migration."""
@@ -312,7 +312,7 @@ def run_tier1_tests():
     # Tests that the system can distinguish normal text from binary
     # junk. Uses bytes 0x00-0x08 and 0x0E-0x1F which are control
     # characters with NO printable representation. The previous test
-    # used "\x89PNG" which contains 'P','N','G' — actual letters that
+    # used "\x89PNG" which contains 'P','N','G' -- actual letters that
     # inflated the printable ratio to 56%. This version uses pure
     # non-printable control bytes for an accurate test.
     # ---------------------------------------------------------------
@@ -424,7 +424,7 @@ def run_tier1_tests():
     return results
 
 
-# ===== SECTION 5: TIER 2 — PIPELINE ========================================
+# ===== SECTION 5: TIER 2 -- PIPELINE ========================================
 
 def run_tier2_tests():
     """Load model, embed, index, search with synthetic data."""
@@ -503,7 +503,7 @@ def run_tier2_tests():
     return results
 
 
-# ===== SECTION 6: TIER 3 — STRESS TEST =====================================
+# ===== SECTION 6: TIER 3 -- STRESS TEST =====================================
 
 def run_tier3_tests():
     """Production stress test with real corpus. Measures throughput + RAM."""
@@ -589,7 +589,7 @@ def main():
     args = ap.parse_args()
 
     print("=" * 60)
-    print(f"  HybridRAG v3 — System Diagnostic")
+    print(f"  HybridRAG v3 -- System Diagnostic")
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
 
@@ -617,9 +617,9 @@ def main():
     print(f"  Security:{sp}/{len(sec)} passed")
     print(f"  Tests:   {tp}/{len(all_t)} passed")
     print(f"  Saved:   {path}")
-    if tp == len(all_t) and sp == len(sec): print("\n  ALL PASSED — system ready")
-    elif tp == len(all_t): print("\n  Tests OK, security issues — review above")
-    else: print("\n  FAILURES — review above")
+    if tp == len(all_t) and sp == len(sec): print("\n  ALL PASSED -- system ready")
+    elif tp == len(all_t): print("\n  Tests OK, security issues -- review above")
+    else: print("\n  FAILURES -- review above")
     print("=" * 60)
     return 0 if tp == len(all_t) else 1
 

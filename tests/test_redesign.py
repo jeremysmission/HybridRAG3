@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # ===========================================================================
 # HybridRAG v3 REDESIGN -- COMPREHENSIVE TEST SUITE
 # ===========================================================================
@@ -13,6 +13,7 @@
 
 import os
 import sys
+from pathlib import Path
 import json
 import traceback
 import time
@@ -1088,7 +1089,7 @@ def _():
 
 @test("load_config loads the test config file")
 def _():
-    config = load_config("/home/claude/hybridrag_redesign/config/default_config.yaml")
+    config = load_config(str(Path(__file__).resolve().parent.parent / "config" / "default_config.yaml"))
     assert "api" in config
     assert config["api"]["provider"] == "azure"
 
@@ -1098,7 +1099,7 @@ def _():
         for a in _KEY_ENV_ALIASES + _ENDPOINT_ENV_ALIASES:
             os.environ.pop(a, None)
         result = boot_hybridrag(
-            config_path="/home/claude/hybridrag_redesign/config/default_config.yaml"
+            config_path=str(Path(__file__).resolve().parent.parent / "config" / "default_config.yaml")
         )
         assert isinstance(result, BootResult)
         # Should not crash, just report not ready
@@ -1113,7 +1114,7 @@ def _():
         }.get(name)
         with patch.dict(os.environ, {"AZURE_OPENAI_DEPLOYMENT": "gpt-35-turbo"}):
             result = boot_hybridrag(
-                config_path="/home/claude/hybridrag_redesign/config/default_config.yaml"
+                config_path=str(Path(__file__).resolve().parent.parent / "config" / "default_config.yaml")
             )
             assert result.online_available is True
             assert result.api_client is not None
@@ -1123,7 +1124,7 @@ def _():
 def _():
     with patch("src.security.credentials._read_keyring", return_value=None):
         result = boot_hybridrag(
-            config_path="/home/claude/hybridrag_redesign/config/default_config.yaml"
+            config_path=str(Path(__file__).resolve().parent.parent / "config" / "default_config.yaml")
         )
         # Ollama isn't running in this test environment
         ollama_warnings = [w for w in result.warnings if "ollama" in w.lower() or "offline" in w.lower()]
@@ -1152,7 +1153,7 @@ def _():
             assert creds.is_online_ready
 
             # Step 2: Create factory with config
-            config = load_config("/home/claude/hybridrag_redesign/config/default_config.yaml")
+            config = load_config(str(Path(__file__).resolve().parent.parent / "config" / "default_config.yaml"))
             factory = ApiClientFactory(config)
 
             # Step 3: Run diagnostics first
@@ -1185,7 +1186,7 @@ def _():
         }.get(name)
         with patch.dict(os.environ, {"AZURE_OPENAI_DEPLOYMENT": "my-gpt"}):
             result = boot_hybridrag(
-                config_path="/home/claude/hybridrag_redesign/config/default_config.yaml"
+                config_path=str(Path(__file__).resolve().parent.parent / "config" / "default_config.yaml")
             )
             assert result.online_available is True
             assert result.api_client is not None
@@ -1316,3 +1317,4 @@ print("=" * 60)
 print()
 
 sys.exit(0 if FAIL == 0 else 1)
+

@@ -1,5 +1,5 @@
-# ============================================================================
-# HybridRAG v3 — Diagnostic: Fault Analysis Engine
+﻿# ============================================================================
+# HybridRAG v3 -- Diagnostic: Fault Analysis Engine
 # ============================================================================
 # FILE: src/diagnostic/fault_analysis.py
 #
@@ -15,7 +15,7 @@
 #      weighted scoring system based on which tests failed and how they
 #      relate to each other
 #
-#   3. RECOMMENDS the next diagnostic step for each ranked cause —
+#   3. RECOMMENDS the next diagnostic step for each ranked cause --
 #      the single most useful action to isolate the problem further
 #
 # WHY THIS MATTERS:
@@ -51,7 +51,7 @@ from . import DiagnosticReport, TestResult, PerfMetric, PROJ_ROOT
 
 
 # ============================================================================
-# Fault Hypothesis — one possible root cause
+# Fault Hypothesis -- one possible root cause
 # ============================================================================
 # Think of each hypothesis as a "theory" about what's wrong.
 # Evidence from test results either supports or contradicts each theory.
@@ -68,7 +68,7 @@ class FaultHypothesis:
         title:          Short human-readable name
         description:    What this fault means in plain English
         subsystem:      Which part of the pipeline is affected
-        evidence_score: Running total — higher = more likely this is the cause
+        evidence_score: Running total -- higher = more likely this is the cause
         evidence_items: List of reasons this hypothesis was scored up or down
         severity:       How bad is this if it IS the cause (CRITICAL/HIGH/MEDIUM/LOW)
         next_step:      The ONE thing to do next to confirm or rule out this cause
@@ -112,7 +112,7 @@ class FaultHypothesis:
 
 
 # ============================================================================
-# Fault Analysis Result — the final output
+# Fault Analysis Result -- the final output
 # ============================================================================
 
 @dataclass
@@ -140,7 +140,7 @@ class FaultAnalysisResult:
 
 
 # ============================================================================
-# The Fault Analyzer — the "smart mechanic"
+# The Fault Analyzer -- the "smart mechanic"
 # ============================================================================
 
 class FaultAnalyzer:
@@ -211,7 +211,7 @@ class FaultAnalyzer:
                 # Only assign confidence to hypotheses with positive evidence
                 if h.evidence_score > 0:
                     h.confidence = h.evidence_score / (max_score * 1.2)
-                    # Cap at 0.95 — never claim 100% certainty
+                    # Cap at 0.95 -- never claim 100% certainty
                     h.confidence = min(h.confidence, 0.95)
 
         # Filter to only hypotheses with positive evidence (actual problems)
@@ -243,7 +243,7 @@ class FaultAnalyzer:
     # ADDING NEW HYPOTHESES:
     #   1. Add a new FaultHypothesis in _build_hypotheses()
     #   2. Add scoring logic in _score_hypothesis()
-    #   3. That's it — the ranking and reporting handles the rest
+    #   3. That's it -- the ranking and reporting handles the rest
     # ====================================================================
 
     def _build_hypotheses(self) -> List[FaultHypothesis]:
@@ -344,7 +344,7 @@ class FaultAnalyzer:
                 severity="HIGH",
                 next_step=(
                     "Rebuild the FTS5 index from existing chunks. This is "
-                    "non-destructive — it rebuilds the keyword index without "
+                    "non-destructive -- it rebuilds the keyword index without "
                     "touching your source data or embeddings."
                 ),
                 next_step_cmd=(
@@ -494,7 +494,7 @@ class FaultAnalyzer:
                 ),
                 next_step_cmd=(
                     'curl http://localhost:11434/api/tags 2>$null || '
-                    'echo "Ollama not running — start it with: ollama serve"'
+                    'echo "Ollama not running -- start it with: ollama serve"'
                 ),
             ),
             FaultHypothesis(
@@ -601,7 +601,7 @@ class FaultAnalyzer:
         elif h.fault_id == "FAULT-ENV-002":
             s = self._status("config_load")
             if s in ("FAIL", "ERROR"):
-                h.add_evidence(4.0, "Config load failed — nothing works without config")
+                h.add_evidence(4.0, "Config load failed -- nothing works without config")
             elif s == "PASS":
                 h.add_evidence(-2.0, "Config loads successfully")
 
@@ -617,7 +617,7 @@ class FaultAnalyzer:
         elif h.fault_id == "FAULT-ENV-003":
             s = self._status("embedder")
             if s == "ERROR":
-                h.add_evidence(3.0, "Embedder failed — likely can't load cached model")
+                h.add_evidence(3.0, "Embedder failed -- likely can't load cached model")
             elif s == "FAIL":
                 h.add_evidence(2.0, "Embedder test failed")
             elif s == "PASS":
@@ -625,7 +625,7 @@ class FaultAnalyzer:
 
             # If config loads but embedder fails, cache is the prime suspect
             if self._status("config_load") == "PASS" and self._status("embedder") in ("ERROR", "FAIL"):
-                h.add_evidence(2.0, "Config OK but embedder broken — cache problem")
+                h.add_evidence(2.0, "Config OK but embedder broken -- cache problem")
 
             # Check if the security lockdown is active (increases likelihood)
             r = self._get("security_net")
@@ -669,16 +669,16 @@ class FaultAnalyzer:
         elif h.fault_id == "FAULT-EMB-001":
             s = self._status("embedder")
             if s == "ERROR":
-                h.add_evidence(4.0, "Embedder test crashed — model load failure")
+                h.add_evidence(4.0, "Embedder test crashed -- model load failure")
             elif s == "FAIL":
                 h.add_evidence(3.0, "Embedder test failed (dimension mismatch?)")
             elif s == "PASS":
                 h.add_evidence(-3.0, "Embedder loads and produces correct dimensions")
 
-            # Corroborate with memmap — if both are bad, embedding is root cause
+            # Corroborate with memmap -- if both are bad, embedding is root cause
             if self._status("memmap") in ("FAIL", "SKIP"):
                 if s in ("ERROR", "FAIL"):
-                    h.add_evidence(1.0, "Memmap also bad — embedding failure is upstream cause")
+                    h.add_evidence(1.0, "Memmap also bad -- embedding failure is upstream cause")
 
         # ---- FAULT-EMB-002: Memmap file damaged ----
         elif h.fault_id == "FAULT-EMB-002":
@@ -694,7 +694,7 @@ class FaultAnalyzer:
 
             # If embedder is fine but memmap is bad, it's a storage issue
             if self._status("embedder") == "PASS" and s in ("FAIL", "WARN"):
-                h.add_evidence(2.0, "Embedder OK but memmap broken — file corruption")
+                h.add_evidence(2.0, "Embedder OK but memmap broken -- file corruption")
 
         # ---- FAULT-PARSE-001: Parser import failures ----
         elif h.fault_id == "FAULT-PARSE-001":
@@ -710,9 +710,9 @@ class FaultAnalyzer:
 
         # ---- FAULT-PARSE-002: Binary garbage ----
         elif h.fault_id == "FAULT-PARSE-002":
-            # This is always a possibility — BUG-004 means no validation exists
+            # This is always a possibility -- BUG-004 means no validation exists
             if "BUG-004" in self._bug_ids:
-                h.add_evidence(1.5, "BUG-004 active — no garbage detection in pipeline")
+                h.add_evidence(1.5, "BUG-004 active -- no garbage detection in pipeline")
             # If a specific file test showed garbage
             r = self._get("parse_file")
             if r and r.status == "WARN" and r.details.get("garbage_ratio", 0) > 0.10:
@@ -749,7 +749,7 @@ class FaultAnalyzer:
                 else:
                     h.add_evidence(1.0, "Query failed (may not be Ollama)")
             elif r and r.status == "PASS":
-                h.add_evidence(-3.0, "E2E query succeeded — Ollama is working")
+                h.add_evidence(-3.0, "E2E query succeeded -- Ollama is working")
 
             # If no e2e test, check config mode
             r = self._get("config_load")
@@ -771,20 +771,20 @@ class FaultAnalyzer:
 
             r = self._get("config_load")
             if r and r.details.get("mode") == "online":
-                # Online mode selected — API config matters more
-                h.add_evidence(1.0, "Online mode selected — API config is critical")
+                # Online mode selected -- API config matters more
+                h.add_evidence(1.0, "Online mode selected -- API config is critical")
 
         # ---- FAULT-SEC-001: Offline mode blocking models ----
         elif h.fault_id == "FAULT-SEC-001":
             s = self._status("embedder")
             if s in ("ERROR", "FAIL"):
-                h.add_evidence(2.0, "Embedder failing — could be offline blocking")
+                h.add_evidence(2.0, "Embedder failing -- could be offline blocking")
                 # If security shows kill switch is active, this is very likely
                 r = self._get("security_net")
                 if r and r.details.get("kill_switch"):
                     h.add_evidence(2.0, "Kill switch active + embedder failing")
             elif s == "PASS":
-                h.add_evidence(-3.0, "Embedder loads fine — offline mode not a problem")
+                h.add_evidence(-3.0, "Embedder loads fine -- offline mode not a problem")
 
         # ---- FAULT-PERF-001: Slow queries ----
         elif h.fault_id == "FAULT-PERF-001":
@@ -834,13 +834,13 @@ def print_fault_analysis(result: FaultAnalysisResult, verbose: bool = False):
     from . import GREEN, RED, YELLOW, CYAN, BOLD, DIM, RESET
 
     W = 72
-    sep = "─" * W
+    sep = "-" * W
 
-    print(f"\n  {BOLD}{CYAN}FAULT ANALYSIS — TOP PROBABLE CAUSES{RESET}")
+    print(f"\n  {BOLD}{CYAN}FAULT ANALYSIS -- TOP PROBABLE CAUSES{RESET}")
     print(f"  {sep}")
 
     if result.system_healthy:
-        print(f"  {GREEN}{BOLD}  ✓ No faults detected — system healthy{RESET}")
+        print(f"  {GREEN}{BOLD}  [OK] No faults detected -- system healthy{RESET}")
         print(f"  {DIM}  {result.all_clear_message}{RESET}")
         print(f"  {sep}")
         return
@@ -848,10 +848,10 @@ def print_fault_analysis(result: FaultAnalysisResult, verbose: bool = False):
     for rank, fault in enumerate(result.ranked_faults, 1):
         # Color by severity
         sc = RED if fault.severity in ("CRITICAL", "HIGH") else YELLOW
-        # Confidence bar: ████░░░░ 65%
+        # Confidence bar: ####.... 65%
         bar_len = 20
         filled = int(fault.confidence * bar_len)
-        bar = "█" * filled + "░" * (bar_len - filled)
+        bar = "#" * filled + "." * (bar_len - filled)
 
         print(f"\n  {sc}{BOLD}  #{rank}  {fault.title}{RESET}")
         print(f"  {DIM}  Fault ID: {fault.fault_id} | Subsystem: {fault.subsystem} | "
@@ -873,8 +873,8 @@ def print_fault_analysis(result: FaultAnalysisResult, verbose: bool = False):
         if fault.related_bugs:
             print(f"  {YELLOW}  Related: {', '.join(fault.related_bugs)}{RESET}")
 
-        # NEXT STEP — the most important part
-        print(f"  {GREEN}{BOLD}  → NEXT STEP:{RESET} {fault.next_step}")
+        # NEXT STEP -- the most important part
+        print(f"  {GREEN}{BOLD}  -> NEXT STEP:{RESET} {fault.next_step}")
         if fault.next_step_cmd:
             # Show command on separate line, indented for copy-paste
             cmd_display = fault.next_step_cmd

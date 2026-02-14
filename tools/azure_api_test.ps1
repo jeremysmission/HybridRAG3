@@ -1,5 +1,5 @@
-# ===========================================================================
-# AZURE API TEST TOOL — COMPLETE DIAGNOSTIC + LIVE TEST
+﻿# ===========================================================================
+# AZURE API TEST TOOL â€” COMPLETE DIAGNOSTIC + LIVE TEST
 # ===========================================================================
 #
 # WHAT THIS DOES:
@@ -589,3 +589,4 @@ if ($testResult -eq "SUCCESS") {
 Write-Host ""
 Remove-Item $tempDir -Recurse -Force
 Write-Host "  (Temp files cleaned up)" -ForegroundColor Gray
+

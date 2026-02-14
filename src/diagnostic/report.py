@@ -1,16 +1,16 @@
-# ============================================================================
-# HybridRAG v3 — Diagnostic: Bug Detection & Report Printer
+﻿# ============================================================================
+# HybridRAG v3 -- Diagnostic: Bug Detection & Report Printer
 # ============================================================================
 # FILE: src/diagnostic/report.py
 #
 # WHAT THIS FILE DOES:
-#   1. detect_known_bugs() — scans test results and flags known issues
-#   2. print_report()      — color-coded terminal output
-#   3. save_json_report()  — JSON file for automated trend tracking
+#   1. detect_known_bugs() -- scans test results and flags known issues
+#   2. print_report()      -- color-coded terminal output
+#   3. save_json_report()  -- JSON file for automated trend tracking
 #
 # WHY IT'S SEPARATE:
 #   Presentation logic shouldn't be mixed with test logic. This file
-#   only reads from DiagnosticReport — it never modifies test behavior.
+#   only reads from DiagnosticReport -- it never modifies test behavior.
 # ============================================================================
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ def detect_known_bugs(report: DiagnosticReport) -> None:
     if r and not r.details.get("has_file_hash", True):
         report.add_bug("BUG-001", "Missing file_hash column in chunks table",
             "_file_changed() queries file_hash but column doesn't exist.\n"
-            "Bare except swallows the error — method always returns True.",
+            "Bare except swallows the error -- method always returns True.",
             "1. ALTER TABLE chunks ADD COLUMN file_hash TEXT;\n"
             "2. Store hash during indexing\n"
             "3. Wire _file_changed() into skip logic", "HIGH")
@@ -63,7 +63,7 @@ def detect_known_bugs(report: DiagnosticReport) -> None:
             "Open connections and loaded models leak across long runs.",
             "Add close() methods. Call in finally block.", "MEDIUM")
 
-    # BUG-004: Always flag — no binary garbage detection
+    # BUG-004: Always flag -- no binary garbage detection
     report.add_bug("BUG-004", "No post-parse binary garbage validation",
         "If a parser returns binary data, it gets chunked and embedded\n"
         "without validation, polluting search results.",
@@ -88,12 +88,12 @@ def detect_known_bugs(report: DiagnosticReport) -> None:
 def print_report(report: DiagnosticReport, verbose: bool = False) -> None:
     """Print formatted diagnostic report to terminal."""
     W = 72
-    sep = "─" * W
+    sep = "-" * W
 
-    print(f"\n  {BOLD}{'═' * W}{RESET}")
+    print(f"\n  {BOLD}{'=' * W}{RESET}")
     print(f"  {BOLD}  HybridRAG Diagnostic & Performance Report{RESET}")
     print(f"  {DIM}  {report.timestamp} | Python {report.python_version} | {report.platform}{RESET}")
-    print(f"  {BOLD}{'═' * W}{RESET}")
+    print(f"  {BOLD}{'=' * W}{RESET}")
 
     # --- Health checks ---
     if report.results:
@@ -103,7 +103,7 @@ def print_report(report: DiagnosticReport, verbose: bool = False) -> None:
         for r in report.results:
             if r.category != cat:
                 cat = r.category
-                print(f"\n  {DIM}── {cat} ──{RESET}")
+                print(f"\n  {DIM}-- {cat} --{RESET}")
             c = status_color(r.status)
             ic = status_icon(r.status)
             t = f" {DIM}({r.elapsed_ms:.0f}ms){RESET}" if r.elapsed_ms > 0 else ""
@@ -114,7 +114,7 @@ def print_report(report: DiagnosticReport, verbose: bool = False) -> None:
                     print(f"  {DIM}       {k}: {vs[:100]}{RESET}")
             if r.fix_hint and r.status in ("FAIL", "WARN", "ERROR"):
                 for ln in textwrap.wrap(r.fix_hint, width=W - 10)[:3]:
-                    print(f"  {YELLOW}       → {ln}{RESET}")
+                    print(f"  {YELLOW}       -> {ln}{RESET}")
 
     # --- Performance ---
     if report.perf_metrics:
@@ -164,7 +164,7 @@ def print_report(report: DiagnosticReport, verbose: bool = False) -> None:
                 print()
 
     # --- Summary ---
-    print(f"\n  {BOLD}{'═' * W}{RESET}")
+    print(f"\n  {BOLD}{'=' * W}{RESET}")
     pc = GREEN if report.passed == report.total_tests else ""
     fc = RED if report.failed > 0 else GREEN
     wc = YELLOW if report.warnings > 0 else GREEN
@@ -182,10 +182,10 @@ def print_report(report: DiagnosticReport, verbose: bool = False) -> None:
         print(f"  {BOLD}MEMORY:{RESET} {mem:.0f} MB RSS at end of diagnostic")
 
     if report.failed == 0 and not any(b["severity"] == "CRITICAL" for b in report.known_bugs):
-        print(f"\n  {GREEN}{BOLD}  ✓ SYSTEM GO — safe to proceed{RESET}")
+        print(f"\n  {GREEN}{BOLD}  [OK] SYSTEM GO -- safe to proceed{RESET}")
     else:
-        print(f"\n  {RED}{BOLD}  ✗ SYSTEM NO-GO — fix critical issues first{RESET}")
-    print(f"  {BOLD}{'═' * W}{RESET}\n")
+        print(f"\n  {RED}{BOLD}  [FAIL] SYSTEM NO-GO -- fix critical issues first{RESET}")
+    print(f"  {BOLD}{'=' * W}{RESET}\n")
 
 
 # ============================================================================

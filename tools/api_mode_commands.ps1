@@ -1,4 +1,4 @@
-# ============================================================================
+﻿# ============================================================================
 # HybridRAG v3 - API Mode and Profile Commands (api_mode_commands.ps1)
 # ============================================================================
 #
@@ -204,3 +204,4 @@ Write-Host "  rag-mode-offline    Switch to Ollama mode" -ForegroundColor DarkGr
 Write-Host "  rag-test-api        Test API connectivity" -ForegroundColor DarkGray
 Write-Host "  rag-profile         View/switch performance profile" -ForegroundColor DarkGray
 Write-Host ""
+

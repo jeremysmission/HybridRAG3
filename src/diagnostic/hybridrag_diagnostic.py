@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # ============================================================================
-# HybridRAG v3 — Diagnostic Tool (Entry Point)
+# HybridRAG v3 -- Diagnostic Tool (Entry Point)
 # ============================================================================
 # FILE: src/diagnostic/hybridrag_diagnostic.py
 #
@@ -66,7 +66,7 @@ from src.diagnostic.fault_analysis import (
 
 def main():
     ap = argparse.ArgumentParser(
-        description="HybridRAG v3 — Diagnostic, Pipeline Test & Performance Benchmark",
+        description="HybridRAG v3 -- Diagnostic, Pipeline Test & Performance Benchmark",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""\
         EXAMPLES:
@@ -106,10 +106,10 @@ def main():
     report.cwd = str(Path.cwd())
     iters = args.benchmark_iters
 
-    # ── HEALTH CHECKS ──
+    # -- HEALTH CHECKS --
     if not args.perf_only:
-        # Tests run in dependency order: config → database → indexer →
-        # parsers → embedding → storage → security
+        # Tests run in dependency order: config -> database -> indexer ->
+        # parsers -> embedding -> storage -> security
         # This order matters because later tests depend on earlier ones.
         health_tests = [
             ("Config Load",        test_config_load),
@@ -145,9 +145,9 @@ def main():
             report.add_result(run_test(func))
 
         elapsed_h = time.time() - h_start
-        print(f"\r  {GREEN}✓ {total_h} health checks done in {elapsed_h:.1f}s{' ' * 30}{RESET}")
+        print(f"\r  {GREEN}[OK] {total_h} health checks done in {elapsed_h:.1f}s{' ' * 30}{RESET}")
 
-    # ── PERFORMANCE BENCHMARKS ──
+    # -- PERFORMANCE BENCHMARKS --
     perf_tests = [
         ("Config Load",    perf_config_load),
         ("SQLite Query",   perf_sqlite_query),
@@ -173,17 +173,17 @@ def main():
         _safe_perf(report, func, iters)
 
     elapsed_p = time.time() - p_start
-    print(f"\r  {GREEN}✓ {total_p} benchmarks done in {elapsed_p:.1f}s{' ' * 30}{RESET}")
+    print(f"\r  {GREEN}[OK] {total_p} benchmarks done in {elapsed_p:.1f}s{' ' * 30}{RESET}")
 
-    # ── END-TO-END QUERY TEST ──
+    # -- END-TO-END QUERY TEST --
     if args.test_query:
         _run_e2e_query(report, args.test_query)
 
-    # ── KNOWN BUG DETECTION ──
+    # -- KNOWN BUG DETECTION --
     if not args.perf_only:
         detect_known_bugs(report)
 
-    # ── OUTPUT: STANDARD REPORT ──
+    # -- OUTPUT: STANDARD REPORT --
     if args.json:
         data = {"timestamp": report.timestamp,
                 "summary": {"total": report.total_tests, "passed": report.passed,
@@ -195,7 +195,7 @@ def main():
     else:
         print_report(report, verbose=args.verbose or args.fix_preview)
 
-    # ── FAULT ANALYSIS ENGINE ──
+    # -- FAULT ANALYSIS ENGINE --
     # The "smart mechanic": examines ALL results together, correlates
     # failures across subsystems, ranks the 3 most likely root causes,
     # and tells you exactly what to check next for each one.

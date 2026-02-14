@@ -1,5 +1,5 @@
-# ===========================================================================
-# REBUILT RAG COMMANDS — QUOTING-SAFE VERSION
+﻿# ===========================================================================
+# REBUILT RAG COMMANDS â€” QUOTING-SAFE VERSION
 # ===========================================================================
 #
 # WHAT THIS IS:
@@ -398,7 +398,7 @@ function rag-env-vars {
 
 
 # ===========================================================================
-# COMMAND: rag-fix-quotes (UNCHANGED — this one worked fine)
+# COMMAND: rag-fix-quotes (UNCHANGED â€” this one worked fine)
 # ===========================================================================
 function rag-fix-quotes {
     Write-Host "Scanning and fixing smart quotes in project files..." -ForegroundColor Cyan
@@ -452,7 +452,7 @@ function rag-fix-quotes {
 
 
 # ===========================================================================
-# COMMAND: rag-detect-bad-chars (UNCHANGED — this one worked fine)
+# COMMAND: rag-detect-bad-chars (UNCHANGED â€” this one worked fine)
 # ===========================================================================
 function rag-detect-bad-chars {
     Write-Host "Scanning for non-ASCII characters in code files..." -ForegroundColor Cyan
@@ -499,3 +499,4 @@ Write-Host "  rag-env-vars         - Show API-related env variables" -Foreground
 Write-Host "  rag-fix-quotes       - Fix smart quotes in project files" -ForegroundColor White
 Write-Host "  rag-detect-bad-chars - Scan for bad characters" -ForegroundColor White
 Write-Host ""
+

@@ -1,4 +1,4 @@
-# ===========================================================================
+﻿# ===========================================================================
 # FIX AZURE DETECTION IN llm_router_fix.py
 # ===========================================================================
 #
@@ -133,3 +133,4 @@ Write-Host "  PATCH COMPLETE" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Now run:  . .\tools\azure_api_test.ps1" -ForegroundColor White
 Write-Host ""
+

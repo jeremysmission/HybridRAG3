@@ -1,12 +1,12 @@
-# ============================================================================
-# HybridRAG v3 — Diagnostic: Pipeline Health Tests
+﻿# ============================================================================
+# HybridRAG v3 -- Diagnostic: Pipeline Health Tests
 # ============================================================================
 # FILE: src/diagnostic/health_tests.py
 #
 # WHAT THIS FILE DOES:
 #   Contains every pipeline health check, organized by subsystem:
-#     Config → Database → Indexer → Parsers → Chunker → Embedder →
-#     Storage → Security
+#     Config -> Database -> Indexer -> Parsers -> Chunker -> Embedder ->
+#     Storage -> Security
 #
 #   Each function is self-contained, takes no complex arguments, and
 #   returns a TestResult. If it crashes, the safe wrapper in __init__
@@ -15,7 +15,7 @@
 # HOW TO ADD A NEW TEST:
 #   1. Write a function that returns TestResult(name, category, status, message)
 #   2. Register it in the run list inside hybridrag_diagnostic.py main()
-#   That's it — the reporting and JSON export handle everything else.
+#   That's it -- the reporting and JSON export handle everything else.
 # ============================================================================
 
 from __future__ import annotations
@@ -147,7 +147,7 @@ def test_schema_chunks_table() -> TestResult:
              "indexes": idxs, "missing": missing}
         if "file_hash" not in cols:
             return TestResult("schema_chunks", "Database", "FAIL",
-                "BUG-001: MISSING file_hash column — _file_changed() silently fails", d,
+                "BUG-001: MISSING file_hash column -- _file_changed() silently fails", d,
                 fix_hint="ALTER TABLE chunks ADD COLUMN file_hash TEXT;")
         if missing:
             return TestResult("schema_chunks", "Database", "FAIL",
@@ -170,7 +170,7 @@ def test_schema_fts5() -> TestResult:
         if "chunks_fts" not in tables:
             conn.close()
             return TestResult("schema_fts5", "Database", "FAIL",
-                "FTS5 table missing — keyword search broken",
+                "FTS5 table missing -- keyword search broken",
                 fix_hint="Rebuild: INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')")
         cc = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
         fc = conn.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()[0]
@@ -254,7 +254,7 @@ def test_indexer_change_detection() -> TestResult:
                 fix_hint="Wire _file_changed() into skip logic.")
         if calls_ai and not calls_fc:
             return TestResult("change_detection", "Indexer", "WARN",
-                "Skip only checks existence — edited files won't re-index", d,
+                "Skip only checks existence -- edited files won't re-index", d,
                 fix_hint="Add: if indexed AND NOT changed: skip; else re-index.")
         return TestResult("change_detection", "Indexer", "PASS",
             "Change detection wired in", d)

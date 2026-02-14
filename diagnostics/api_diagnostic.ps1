@@ -1,4 +1,4 @@
-# HybridRAG Upstream API Path/Auth Diagnostic (PowerShell 5.1 compatible)
+﻿# HybridRAG Upstream API Path/Auth Diagnostic (PowerShell 5.1 compatible)
 # Save as: diagnostics\api_diagnostic.ps1
 # Run: powershell.exe -ExecutionPolicy Bypass -File ".\diagnostics\api_diagnostic.ps1"
 #
@@ -281,3 +281,4 @@ Write-Host ("Report: " + $txtPath)
 Write-Host ("JSON  : " + $jsonPath)
 Write-Host ""
 Write-Host "Open api_diag_report.txt and read the 'Top candidate endpoints' and 'Best signal' lines."
+

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # ===========================================================================
 # QUALITY & SECURITY AUDIT
 # ===========================================================================
@@ -17,6 +17,7 @@
 
 import os
 import sys
+from pathlib import Path
 import re
 import ast
 import importlib
@@ -46,7 +47,7 @@ def check(name):
     return decorator
 
 
-PROJECT_ROOT = "/home/claude/hybridrag_redesign"
+PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 SRC_FILES = []
 for root, dirs, files in os.walk(os.path.join(PROJECT_ROOT, "src")):
     for f in files:
@@ -481,3 +482,4 @@ print("=" * 60)
 print()
 
 sys.exit(0 if FAIL == 0 else 1)
+

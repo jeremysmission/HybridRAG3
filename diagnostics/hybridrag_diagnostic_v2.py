@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # ============================================================================
-# HybridRAG v3 — Diagnostic Suite v2.0
+# HybridRAG v3 -- Diagnostic Suite v2.0
 # ============================================================================
 #
 # PURPOSE:
@@ -13,7 +13,7 @@
 #      a user-visible failure. Like pre-flight checks on an aircraft.
 #   2. ISOLATE FAST: Each test targets ONE subsystem. When something fails,
 #      you know exactly which box to open.
-#   3. RECOMMEND ACTION: Every failure includes what to do next — not just
+#   3. RECOMMEND ACTION: Every failure includes what to do next -- not just
 #      "FAIL" but "FAIL because X, fix by doing Y."
 #   4. NO FALSE CONFIDENCE: If we can't verify something, we say UNKNOWN,
 #      not PASS. Untested is not the same as working.
@@ -21,10 +21,10 @@
 #      No external dependencies beyond what HybridRAG already requires.
 #
 # TEST CATEGORIES (modeled after electronics BIT levels):
-#   Level 1 — POWER-ON BIT: Environment, paths, Python, venv
-#   Level 2 — INITIATED BIT: Config, database, schema, credentials
-#   Level 3 — CONTINUOUS BIT: Pipeline components, models, connectivity
-#   Level 4 — MAINTENANCE BIT: Performance benchmarks, known bugs, integrity
+#   Level 1 -- POWER-ON BIT: Environment, paths, Python, venv
+#   Level 2 -- INITIATED BIT: Config, database, schema, credentials
+#   Level 3 -- CONTINUOUS BIT: Pipeline components, models, connectivity
+#   Level 4 -- MAINTENANCE BIT: Performance benchmarks, known bugs, integrity
 #
 # USAGE:
 #   python hybridrag_diagnostic_v2.py                # Full diagnostic
@@ -34,8 +34,8 @@
 #   python hybridrag_diagnostic_v2.py --verbose      # Show evidence for every test
 #
 # HISTORY:
-#   v1.0 (2026-02-08): 15 tests — config, DB, schema, parsers, security
-#   v2.0 (2026-02-11): 35+ tests — added credential, network, environment,
+#   v1.0 (2026-02-08): 15 tests -- config, DB, schema, parsers, security
+#   v2.0 (2026-02-11): 35+ tests -- added credential, network, environment,
 #        model cache, API reachability, Ollama health, venv integrity,
 #        disk/RAM checks, config portability, log health, requirements
 #        completeness, FTS5 sync, PowerShell profile, git status.
@@ -109,7 +109,7 @@ class BugReport:
 
 @dataclass
 class DiagnosticReport:
-    """The complete diagnostic report — all tests, all findings."""
+    """The complete diagnostic report -- all tests, all findings."""
     timestamp: str = ""
     hostname: str = ""
     python_version: str = ""
@@ -153,7 +153,7 @@ BOLD = _c("1"); DIM = _c("2"); RESET = _c("0"); WHITE = _c("37")
 BLUE = _c("34"); MAGENTA = _c("35")
 
 STATUS_COLORS = {"PASS": GREEN, "FAIL": RED, "WARN": YELLOW, "SKIP": DIM, "ERROR": RED+BOLD}
-STATUS_ICONS  = {"PASS": "✓", "FAIL": "✗", "WARN": "⚠", "SKIP": "○", "ERROR": "✗✗"}
+STATUS_ICONS  = {"PASS": "[OK]", "FAIL": "[FAIL]", "WARN": "[WARN]", "SKIP": "[SKIP]", "ERROR": "[FAIL][FAIL]"}
 
 
 # ============================================================================
@@ -223,7 +223,7 @@ def _get_disk_free_gb(path: str) -> float:
 
 
 # ============================================================================
-# SECTION 4: LEVEL 1 TESTS — POWER-ON BIT (Environment)
+# SECTION 4: LEVEL 1 TESTS -- POWER-ON BIT (Environment)
 # ============================================================================
 # These are the most basic checks. If these fail, nothing else will work.
 # Like checking if the aircraft has power and hydraulics before anything else.
@@ -236,7 +236,7 @@ def test_python_version(root: Path) -> TestResult:
         return TestResult("python_version", "Environment", 1, "PASS",
             f"Python {version_str}", details={"version": version_str})
     return TestResult("python_version", "Environment", 1, "FAIL",
-        f"Python {version_str} — need 3.10+",
+        f"Python {version_str} -- need 3.10+",
         fix_hint="Install Python 3.10 or newer from python.org",
         details={"version": version_str})
 
@@ -256,7 +256,7 @@ def test_venv_integrity(root: Path) -> TestResult:
     
     if not details["in_venv"]:
         return TestResult("venv_integrity", "Environment", 1, "WARN",
-            "Not running in a virtual environment — using system Python",
+            "Not running in a virtual environment -- using system Python",
             fix_hint=f"Activate venv: . .\\start_hybridrag.ps1  OR  & \"{venv_dir}\\Scripts\\Activate.ps1\"",
             details=details)
     
@@ -358,7 +358,7 @@ def test_project_structure(root: Path) -> TestResult:
             fix_hint="Create empty __init__.py: " + "; ".join(f"echo.>{f}" for f in missing_inits),
             details=details)
     return TestResult("project_structure", "Environment", 1, "PASS",
-        "Project structure intact — all directories and __init__.py present",
+        "Project structure intact -- all directories and __init__.py present",
         details=details)
 
 
@@ -373,12 +373,12 @@ def test_disk_space(root: Path) -> TestResult:
             "Could not determine disk space", details=details)
     if free_gb < 2.0:
         return TestResult("disk_space", "Environment", 1, "FAIL",
-            f"Only {free_gb:.1f} GB free — risk of corruption during indexing",
+            f"Only {free_gb:.1f} GB free -- risk of corruption during indexing",
             fix_hint="Free up disk space. Index database needs ~12 GB for 500 GB source data.",
             details=details)
     if free_gb < 10.0:
         return TestResult("disk_space", "Environment", 1, "WARN",
-            f"{free_gb:.1f} GB free — adequate but monitor during indexing",
+            f"{free_gb:.1f} GB free -- adequate but monitor during indexing",
             details=details)
     return TestResult("disk_space", "Environment", 1, "PASS",
         f"{free_gb:.1f} GB free", details=details)
@@ -415,7 +415,7 @@ def test_log_directory(root: Path) -> TestResult:
 
 
 # ============================================================================
-# SECTION 5: LEVEL 2 TESTS — INITIATED BIT (Configuration & Data)
+# SECTION 5: LEVEL 2 TESTS -- INITIATED BIT (Configuration & Data)
 # ============================================================================
 # Verify that configuration is valid, database exists and has correct schema,
 # and credentials are available. Like checking instruments are calibrated.
@@ -434,7 +434,7 @@ def test_config_load(root: Path) -> TestResult:
             "dimension": config.embedding.dimension,
         }
         return TestResult("config_load", "Configuration", 2, "PASS",
-            f"Config loaded — mode: {config.mode}, chunk: {config.chunking.chunk_size}",
+            f"Config loaded -- mode: {config.mode}, chunk: {config.chunking.chunk_size}",
             details=details)
     except Exception as e:
         return TestResult("config_load", "Configuration", 2, "FAIL",
@@ -469,7 +469,7 @@ def test_config_paths(root: Path) -> TestResult:
     src_folder = config.paths.source_folder
     details["source_folder"] = src_folder
     if not src_folder:
-        issues.append("source_folder is empty — indexing will have no target")
+        issues.append("source_folder is empty -- indexing will have no target")
     elif not Path(src_folder).exists():
         issues.append(f"source_folder doesn't exist: {src_folder}")
     
@@ -514,7 +514,7 @@ def test_database_connection(root: Path) -> TestResult:
         conn.close()
         details = {"db_path": db_path, "tables": table_count, "size_mb": round(db_size_mb, 2)}
         return TestResult("database_connection", "Database", 2, "PASS",
-            f"Database OK — {table_count} tables, {db_size_mb:.1f} MB",
+            f"Database OK -- {table_count} tables, {db_size_mb:.1f} MB",
             details=details)
     except sqlite3.OperationalError as e:
         if "locked" in str(e).lower():
@@ -556,11 +556,11 @@ def test_schema_chunks(root: Path) -> TestResult:
                 details=details)
         if not has_file_hash:
             return TestResult("schema_chunks", "Database", 2, "WARN",
-                "Missing file_hash column — change detection won't work (BUG-001)",
+                "Missing file_hash column -- change detection won't work (BUG-001)",
                 fix_hint="ALTER TABLE chunks ADD COLUMN file_hash TEXT",
                 details=details)
         return TestResult("schema_chunks", "Database", 2, "PASS",
-            f"Schema OK — {len(columns)} columns, file_hash present", details=details)
+            f"Schema OK -- {len(columns)} columns, file_hash present", details=details)
     except Exception as e:
         return TestResult("schema_chunks", "Database", 2, "ERROR", f"Schema check failed: {e}")
 
@@ -592,12 +592,12 @@ def test_schema_fts5(root: Path) -> TestResult:
             except:
                 details["fts5_available"] = False
                 return TestResult("schema_fts5", "Database", 2, "WARN",
-                    "FTS5 extension not available — keyword search disabled",
+                    "FTS5 extension not available -- keyword search disabled",
                     fix_hint="Rebuild Python with FTS5 or install a binary with FTS5",
                     details=details)
             
             return TestResult("schema_fts5", "Database", 2, "WARN",
-                "No FTS5 tables found — keyword search not indexed yet",
+                "No FTS5 tables found -- keyword search not indexed yet",
                 fix_hint="Re-index to create FTS5 tables", details=details)
         
         # Check row count matches chunks
@@ -618,7 +618,7 @@ def test_schema_fts5(root: Path) -> TestResult:
         
         conn.close()
         return TestResult("schema_fts5", "Database", 2, "PASS",
-            f"FTS5 OK — {len(fts_tables)} table(s)", details=details)
+            f"FTS5 OK -- {len(fts_tables)} table(s)", details=details)
     except Exception as e:
         return TestResult("schema_fts5", "Database", 2, "ERROR", f"FTS5 check failed: {e}")
 
@@ -643,7 +643,7 @@ def test_data_integrity(root: Path) -> TestResult:
         if total == 0:
             conn.close()
             return TestResult("data_integrity", "Database", 2, "WARN",
-                "Database is empty — no chunks indexed yet",
+                "Database is empty -- no chunks indexed yet",
                 fix_hint="Run indexing to populate the database", details=details)
         
         # Null text check
@@ -685,7 +685,7 @@ def test_data_integrity(root: Path) -> TestResult:
             return TestResult("data_integrity", "Database", 2, "WARN",
                 f"Integrity issues: {'; '.join(issues)}", details=details)
         return TestResult("data_integrity", "Database", 2, "PASS",
-            f"Data OK — {total:,} chunks from {details.get('unique_source_files', '?')} files",
+            f"Data OK -- {total:,} chunks from {details.get('unique_source_files', '?')} files",
             details=details)
     except Exception as e:
         return TestResult("data_integrity", "Database", 2, "ERROR", f"Integrity check failed: {e}")
@@ -702,7 +702,7 @@ def test_credentials(root: Path) -> TestResult:
         details["keyring_installed"] = True
     except ImportError:
         return TestResult("credentials", "Security", 2, "WARN",
-            "keyring package not installed — API credentials cannot be stored securely",
+            "keyring package not installed -- API credentials cannot be stored securely",
             fix_hint="pip install keyring",
             details={"keyring_installed": False})
     
@@ -744,7 +744,7 @@ def test_credentials(root: Path) -> TestResult:
 
 
 # ============================================================================
-# SECTION 6: LEVEL 3 TESTS — CONTINUOUS BIT (Pipeline Components)
+# SECTION 6: LEVEL 3 TESTS -- CONTINUOUS BIT (Pipeline Components)
 # ============================================================================
 # Test each component of the RAG pipeline individually.
 # Like testing each instrument on a bench before running the full procedure.
@@ -786,19 +786,19 @@ def test_embedding_model_cache(root: Path) -> TestResult:
     
     if offline_mode:
         return TestResult("model_cache", "ML Pipeline", 3, "FAIL",
-            "Embedding model NOT cached and HF_HUB_OFFLINE=1 — model cannot download",
+            "Embedding model NOT cached and HF_HUB_OFFLINE=1 -- model cannot download",
             fix_hint="Copy model cache from another machine or set HF_HUB_OFFLINE=0 temporarily",
             details=details)
     
     return TestResult("model_cache", "ML Pipeline", 3, "WARN",
-        "Embedding model not found in cache — will attempt download on first use",
+        "Embedding model not found in cache -- will attempt download on first use",
         fix_hint="If behind corporate firewall, copy .cache/huggingface from a working machine",
         details=details)
 
 
 def test_embedder_functional(root: Path) -> TestResult:
     """Actually load the embedding model and produce a vector.
-    THIS IS THE REAL TEST — if this passes, embeddings work."""
+    THIS IS THE REAL TEST -- if this passes, embeddings work."""
     try:
         from src.core.config import load_config
         from src.core.embedder import Embedder
@@ -824,7 +824,7 @@ def test_embedder_functional(root: Path) -> TestResult:
                 details=details)
         
         return TestResult("embedder_functional", "ML Pipeline", 3, "PASS",
-            f"Embedder OK — {config.embedding.model_name} → {vec.shape[0]}D vector",
+            f"Embedder OK -- {config.embedding.model_name} -> {vec.shape[0]}D vector",
             details=details)
     except Exception as e:
         return TestResult("embedder_functional", "ML Pipeline", 3, "FAIL",
@@ -863,7 +863,7 @@ def test_chunker_functional(root: Path) -> TestResult:
                 fix_hint="Check chunker.py chunk_text() logic", details=details)
         
         return TestResult("chunker_functional", "ML Pipeline", 3, "PASS",
-            f"Chunker OK — {len(test_text)} chars → {len(chunks)} chunks (avg {details['avg_chunk_len']} chars)",
+            f"Chunker OK -- {len(test_text)} chars -> {len(chunks)} chunks (avg {details['avg_chunk_len']} chars)",
             details=details)
     except Exception as e:
         return TestResult("chunker_functional", "ML Pipeline", 3, "FAIL",
@@ -883,7 +883,7 @@ def test_parser_registry(root: Path) -> TestResult:
         details = {"parser_class": "TextParser", "extensions": list(extensions)[:20]}
         
         return TestResult("parser_registry", "ML Pipeline", 3, "PASS",
-            f"TextParser OK — {len(extensions)} file types supported",
+            f"TextParser OK -- {len(extensions)} file types supported",
             details=details)
     except Exception as e:
         return TestResult("parser_registry", "ML Pipeline", 3, "FAIL",
@@ -929,7 +929,7 @@ def test_ollama_health(root: Path) -> TestResult:
                         details=details)
                 
                 return TestResult("ollama_health", "LLM Backend", 3, "PASS",
-                    f"Ollama OK — {len(models)} model(s): {', '.join(models[:3])}",
+                    f"Ollama OK -- {len(models)} model(s): {', '.join(models[:3])}",
                     details=details)
             else:
                 details["status_code"] = resp.status_code
@@ -970,7 +970,7 @@ def test_api_reachability(root: Path) -> TestResult:
     
     if not endpoint:
         return TestResult("api_reachability", "LLM Backend", 3, "SKIP",
-            "No API endpoint configured — online mode not set up",
+            "No API endpoint configured -- online mode not set up",
             fix_hint="Run: rag-store-endpoint", details=details)
     
     details["endpoint"] = endpoint[:50] + "..." if len(endpoint) > 50 else endpoint
@@ -998,7 +998,7 @@ def test_api_reachability(root: Path) -> TestResult:
         try:
             import httpx
             with httpx.Client(timeout=10, verify=True) as client:
-                # Just hit the base URL — we expect a 404 or 200, anything except connection error
+                # Just hit the base URL -- we expect a 404 or 200, anything except connection error
                 resp = client.get(endpoint)
                 details["http_status"] = resp.status_code
                 return TestResult("api_reachability", "LLM Backend", 3, "PASS",
@@ -1057,7 +1057,7 @@ def test_security_network_lockdown(root: Path) -> TestResult:
         config = load_config(str(root))
         api_endpoint = getattr(config.api, "endpoint", "") or getattr(config.api, "base_url", "")
         if api_endpoint and "openai.com" in api_endpoint:
-            issues.append("SEC-001: API defaults to public OpenAI — data exfiltration risk")
+            issues.append("SEC-001: API defaults to public OpenAI -- data exfiltration risk")
     except:
         pass
     
@@ -1120,7 +1120,7 @@ def test_resource_cleanup(root: Path) -> TestResult:
         
         if findings:
             return TestResult("resource_cleanup", "Indexer", 3, "WARN",
-                f"BUG-003: {'; '.join(findings)} — potential memory leak on long runs",
+                f"BUG-003: {'; '.join(findings)} -- potential memory leak on long runs",
                 fix_hint="Add close() methods for proper resource cleanup")
         
         return TestResult("resource_cleanup", "Indexer", 3, "PASS",
@@ -1150,7 +1150,7 @@ def test_memmap_integrity(root: Path) -> TestResult:
         
         if not all_files:
             return TestResult("memmap_integrity", "ML Pipeline", 3, "SKIP",
-                "No embedding files found — index may use in-DB storage",
+                "No embedding files found -- index may use in-DB storage",
                 details=details)
         
         # Check first file's dimensions match config
@@ -1185,14 +1185,14 @@ def test_memmap_integrity(root: Path) -> TestResult:
             details["read_error"] = str(e)
         
         return TestResult("memmap_integrity", "ML Pipeline", 3, "PASS",
-            f"Embedding files OK — {len(all_files)} file(s) in cache", details=details)
+            f"Embedding files OK -- {len(all_files)} file(s) in cache", details=details)
     except Exception as e:
         return TestResult("memmap_integrity", "ML Pipeline", 3, "ERROR",
             f"Memmap check failed: {e}")
 
 
 # ============================================================================
-# SECTION 7: LEVEL 4 TESTS — MAINTENANCE BIT (Deep Checks)
+# SECTION 7: LEVEL 4 TESTS -- MAINTENANCE BIT (Deep Checks)
 # ============================================================================
 
 def test_indexer_code_bugs(root: Path) -> TestResult:
@@ -1226,7 +1226,7 @@ def test_indexer_code_bugs(root: Path) -> TestResult:
 
 def test_llm_router_url_construction(root: Path) -> TestResult:
     """Inspect llm_router.py for URL doubling issues.
-    THIS TEST CATCHES: The exact bug that caused our 404 errors — 
+    THIS TEST CATCHES: The exact bug that caused our 404 errors -- 
     the code appending /openai/deployments/... to a URL that already has it."""
     try:
         from src.core.llm_router import LLMRouter
@@ -1247,18 +1247,18 @@ def test_llm_router_url_construction(root: Path) -> TestResult:
         
         # Check for URL path doubling
         if source.count("/openai/deployments") > 1:
-            issues.append("Multiple /openai/deployments references — potential URL doubling")
+            issues.append("Multiple /openai/deployments references -- potential URL doubling")
         
         # Check for hardcoded public endpoints
         if "api.openai.com" in source:
-            issues.append("Hardcoded api.openai.com — should use configured endpoint only")
+            issues.append("Hardcoded api.openai.com -- should use configured endpoint only")
         
         # Check for proper Azure detection
         has_azure_detection = "azure" in source.lower() or "aoai" in source.lower()
         details["has_azure_detection"] = has_azure_detection
         
         if not has_azure_detection and "api_key" not in source.lower():
-            issues.append("No Azure detection — may send wrong auth header format")
+            issues.append("No Azure detection -- may send wrong auth header format")
         
         details["issues"] = issues
         
@@ -1319,7 +1319,7 @@ def test_powershell_profile(root: Path) -> TestResult:
 
 
 def test_git_status(root: Path) -> TestResult:
-    """Check git repository status — uncommitted changes, sync state."""
+    """Check git repository status -- uncommitted changes, sync state."""
     git_dir = root / ".git"
     if not git_dir.exists():
         return TestResult("git_status", "Environment", 4, "SKIP",
@@ -1335,11 +1335,11 @@ def test_git_status(root: Path) -> TestResult:
         
         if changes:
             return TestResult("git_status", "Environment", 4, "WARN",
-                f"{len(changes)} uncommitted change(s) — remember to commit before end of day",
+                f"{len(changes)} uncommitted change(s) -- remember to commit before end of day",
                 fix_hint="git add -A && git commit -m 'session checkpoint'",
                 details=details)
         return TestResult("git_status", "Environment", 4, "PASS",
-            "Git clean — all changes committed", details=details)
+            "Git clean -- all changes committed", details=details)
     except FileNotFoundError:
         return TestResult("git_status", "Environment", 4, "SKIP",
             "git command not found", details={})
@@ -1381,7 +1381,7 @@ def test_ssl_certificates(root: Path) -> TestResult:
     
     if not details.get("pip_system_certs", False):
         return TestResult("ssl_certificates", "Network", 3, "WARN",
-            "pip-system-certs not installed — may fail behind corporate proxy",
+            "pip-system-certs not installed -- may fail behind corporate proxy",
             fix_hint="pip install pip-system-certs",
             details=details)
     
@@ -1445,7 +1445,7 @@ def print_report(report: DiagnosticReport, verbose: bool = False) -> None:
     
     # Header
     print(f"\n{BOLD}{'='*70}")
-    print(f"  HybridRAG v3 — Diagnostic Report v2.0")
+    print(f"  HybridRAG v3 -- Diagnostic Report v2.0")
     print(f"{'='*70}{RESET}")
     print(f"  {DIM}Timestamp:  {report.timestamp}")
     print(f"  Hostname:  {report.hostname}")
@@ -1460,7 +1460,7 @@ def print_report(report: DiagnosticReport, verbose: bool = False) -> None:
         categories.setdefault(r.category, []).append(r)
     
     for cat, results in categories.items():
-        print(f"  {CYAN}{BOLD}── {cat} ──{RESET}")
+        print(f"  {CYAN}{BOLD}-- {cat} --{RESET}")
         for r in results:
             color = STATUS_COLORS.get(r.status, "")
             icon = STATUS_ICONS.get(r.status, "?")
@@ -1468,12 +1468,12 @@ def print_report(report: DiagnosticReport, verbose: bool = False) -> None:
             print(f"    {color}{icon} [{r.status:4s}]{RESET} {r.message}{DIM}{time_str}{RESET}")
             if verbose and r.fix_hint and r.status in ("FAIL", "WARN"):
                 for line in r.fix_hint.split("\n"):
-                    print(f"           {DIM}→ {line}{RESET}")
+                    print(f"           {DIM}-> {line}{RESET}")
         print()
     
     # Known bugs
     if report.bugs:
-        print(f"  {RED}{BOLD}── Known Bugs ──{RESET}")
+        print(f"  {RED}{BOLD}-- Known Bugs --{RESET}")
         sev_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
         for bug in sorted(report.bugs, key=lambda b: sev_order.get(b.severity, 9)):
             sev_color = RED if bug.severity in ("CRITICAL", "HIGH") else YELLOW
@@ -1502,13 +1502,13 @@ def print_report(report: DiagnosticReport, verbose: bool = False) -> None:
     if report.failed > 0 or report.errors > 0:
         crit_bugs = sum(1 for b in report.bugs if b.severity in ("CRITICAL",))
         if crit_bugs:
-            print(f"\n  {RED}{BOLD}██ SYSTEM NO-GO — Fix critical issues before operation ██{RESET}")
+            print(f"\n  {RED}{BOLD}## SYSTEM NO-GO -- Fix critical issues before operation ##{RESET}")
         else:
-            print(f"\n  {YELLOW}{BOLD}▶ CONDITIONAL GO — {report.failed} failure(s) need attention ◀{RESET}")
+            print(f"\n  {YELLOW}{BOLD}> CONDITIONAL GO -- {report.failed} failure(s) need attention <{RESET}")
     elif report.warnings > 2:
-        print(f"\n  {YELLOW}{BOLD}▶ GO WITH CAUTION — {report.warnings} warnings to review ◀{RESET}")
+        print(f"\n  {YELLOW}{BOLD}> GO WITH CAUTION -- {report.warnings} warnings to review <{RESET}")
     else:
-        print(f"\n  {GREEN}{BOLD}██ SYSTEM GO — All checks passed ██{RESET}")
+        print(f"\n  {GREEN}{BOLD}## SYSTEM GO -- All checks passed ##{RESET}")
     print()
 
 
@@ -1540,14 +1540,14 @@ def save_json_report(report: DiagnosticReport, path: str) -> None:
 
 def main():
     ap = argparse.ArgumentParser(
-        description="HybridRAG v3 — Diagnostic Suite v2.0",
+        description="HybridRAG v3 -- Diagnostic Suite v2.0",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""\
         LEVELS:
-          1  Power-on BIT   — Python, venv, packages, disk, project structure
-          2  Initiated BIT  — Config, database, schema, credentials
-          3  Continuous BIT  — Embedder, chunker, parser, Ollama, API, security
-          4  Maintenance BIT — Code bugs, URL construction, git, PowerShell
+          1  Power-on BIT   -- Python, venv, packages, disk, project structure
+          2  Initiated BIT  -- Config, database, schema, credentials
+          3  Continuous BIT  -- Embedder, chunker, parser, Ollama, API, security
+          4  Maintenance BIT -- Code bugs, URL construction, git, PowerShell
 
         EXAMPLES:
           python hybridrag_diagnostic_v2.py                 # Full diagnostic
@@ -1612,7 +1612,7 @@ def main():
         ("memmap_integrity", "ML Pipeline", test_memmap_integrity),
     ]
     
-    # Conditionally include embedder (it's slow — loads the model)
+    # Conditionally include embedder (it's slow -- loads the model)
     if not args.skip_embed:
         level_3_tests.insert(1, ("embedder_functional", "ML Pipeline", test_embedder_functional))
     

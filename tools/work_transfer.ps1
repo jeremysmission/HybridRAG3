@@ -11,3 +11,4 @@ Copy-Item "$tmp\diagnostics\*" -Destination "$proj\diagnostics\" -Force
 Copy-Item "$tmp\REDESIGN_README.txt" -Destination "$proj\REDESIGN_README.txt" -Force
 Remove-Item $tmp -Recurse -Force
 Write-Host "Transfer complete"
+

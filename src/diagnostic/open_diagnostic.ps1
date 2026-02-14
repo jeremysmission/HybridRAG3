@@ -1,5 +1,5 @@
-# ============================================================================
-# open_diagnostic.ps1 — Review and run the HybridRAG diagnostic tool
+﻿# ============================================================================
+# open_diagnostic.ps1 â€” Review and run the HybridRAG diagnostic tool
 # ============================================================================
 # HOW: . .\open_diagnostic.ps1   (from your HybridRAG PowerShell session)
 # ============================================================================
@@ -46,3 +46,4 @@ Write-Host "  Live query:       python hybridrag_diagnostic.py --test-embed --te
 Write-Host "  Save JSON:        python hybridrag_diagnostic.py --json-file report.json" -ForegroundColor White
 Write-Host "  Perf only:        python hybridrag_diagnostic.py --perf-only --benchmark-iters 5" -ForegroundColor White
 Write-Host ""
+

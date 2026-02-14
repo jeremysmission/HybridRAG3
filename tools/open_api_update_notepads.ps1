@@ -1,4 +1,4 @@
-# ============================================================================
+﻿# ============================================================================
 # Open Notepad windows for API update files
 # Run this from your HybridRAG directory on the WORK LAPTOP
 # ============================================================================
@@ -19,7 +19,7 @@ Start-Process notepad
 Start-Sleep -Seconds 1
 
 # File 2: Secure API Setup Notes (KEEP LOCAL ONLY)
-# Save to your secure notes location — DO NOT commit to GitHub
+# Save to your secure notes location â€” DO NOT commit to GitHub
 Write-Host "Opening Notepad 2: API_SETUP_NOTES_SECURE.md" -ForegroundColor Yellow
 Write-Host "  -> Save to your secure notes folder" -ForegroundColor DarkGray
 Write-Host "  -> DO NOT commit this file to GitHub" -ForegroundColor Red
@@ -34,3 +34,4 @@ Write-Host "  4. Save to your secure notes (NOT in the git repo)" -ForegroundCol
 Write-Host "  5. Reload: . .\start_hybridrag.ps1" -ForegroundColor White
 Write-Host "  6. Test:   rag-test-api" -ForegroundColor White
 Write-Host ""
+

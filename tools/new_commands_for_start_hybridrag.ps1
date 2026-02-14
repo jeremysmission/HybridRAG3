@@ -1,4 +1,4 @@
-# ===========================================================================
+﻿# ===========================================================================
 # new_commands_for_start_hybridrag.ps1 -- New rag- Commands
 # ===========================================================================
 #
@@ -349,3 +349,4 @@ Write-Host "  rag-fix-quotes         Fix smart quotes in all files" -ForegroundC
 Write-Host "  rag-detect-bad-chars   Scan for bad characters" -ForegroundColor White
 Write-Host "  rag-enable-wal         Enable SQLite WAL mode" -ForegroundColor White
 Write-Host "==========================================" -ForegroundColor Green
+

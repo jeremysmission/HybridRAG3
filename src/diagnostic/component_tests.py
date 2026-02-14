@@ -1,11 +1,11 @@
-# ============================================================================
-# HybridRAG v3 — Diagnostic: Component & Security Health Tests
+﻿# ============================================================================
+# HybridRAG v3 -- Diagnostic: Component & Security Health Tests
 # ============================================================================
 # FILE: src/diagnostic/component_tests.py
 #
 # WHAT THIS FILE DOES:
 #   Health checks for the "processing pipeline" components and security:
-#     Parsers → Chunker → Embedder → Memmap Storage → Security
+#     Parsers -> Chunker -> Embedder -> Memmap Storage -> Security
 #
 # SPLIT FROM health_tests.py TO KEEP FILES UNDER 500 LINES.
 # ============================================================================
@@ -54,7 +54,7 @@ def test_parser_registry() -> TestResult:
 
 
 def test_parse_file(file_path: str) -> TestResult:
-    """Parse a specific file — checks for BUG-004 binary garbage."""
+    """Parse a specific file -- checks for BUG-004 binary garbage."""
     try:
         p = Path(file_path)
         if not p.exists():
@@ -214,7 +214,7 @@ def test_security_endpoint() -> TestResult:
         if keys:
             issues.append(f"Hardcoded keys in: {keys}")
         if yaml_key:
-            issues.append("Key in YAML — use env var")
+            issues.append("Key in YAML -- use env var")
         if issues:
             return TestResult("security_endpoint", "Security",
                 "FAIL" if public else "WARN", "; ".join(issues), d,
@@ -290,7 +290,7 @@ def test_parser_smoke() -> TestResult:
             details[name] = "OK"
         except ImportError:
             failed.append(name)
-            details[name] = f"MISSING — fix: pip install {pip_name}"
+            details[name] = f"MISSING -- fix: pip install {pip_name}"
         except Exception as e:
             failed.append(name)
             details[name] = f"ERROR: {type(e).__name__}: {e}"

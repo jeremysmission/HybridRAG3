@@ -1,4 +1,4 @@
-# ===========================================================================
+﻿# ===========================================================================
 # write_llm_router_fix.ps1 -- File Writer (Bypasses Clipboard)
 # ===========================================================================
 #
@@ -329,3 +329,4 @@ Write-Host "  1. Load commands: . .\tools\new_commands_for_start_hybridrag.ps1" 
 Write-Host "  2. Pre-flight:    rag-debug-url" -ForegroundColor White
 Write-Host "  3. Test API:      rag-test-api-verbose" -ForegroundColor White
 Write-Host "======================================" -ForegroundColor Cyan
+

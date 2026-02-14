@@ -1,5 +1,5 @@
-# ============================================================================
-# HybridRAG v3 — Diagnostic: Performance Benchmarks
+﻿# ============================================================================
+# HybridRAG v3 -- Diagnostic: Performance Benchmarks
 # ============================================================================
 # FILE: src/diagnostic/perf_benchmarks.py
 #

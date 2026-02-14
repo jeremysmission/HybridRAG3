@@ -1,5 +1,5 @@
-# ============================================================================
-# HybridRAG Diagnostic v2.0 — Quick Launcher
+﻿# ============================================================================
+# HybridRAG Diagnostic v2.0 â€” Quick Launcher
 # ============================================================================
 # Save this in your project root alongside hybridrag_diagnostic_v2.py
 #
@@ -8,7 +8,7 @@
 # ============================================================================
 
 Write-Host ""
-Write-Host "  HybridRAG Diagnostic v2.0 — Quick Reference" -ForegroundColor Cyan
+Write-Host "  HybridRAG Diagnostic v2.0 â€” Quick Reference" -ForegroundColor Cyan
 Write-Host "  ============================================" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "  COMMANDS:" -ForegroundColor Yellow
@@ -20,10 +20,10 @@ Write-Host "    python hybridrag_diagnostic_v2.py --json report.json  # Save JSO
 Write-Host "    python hybridrag_diagnostic_v2.py --level 3         # Up to Level 3" -ForegroundColor White
 Write-Host ""
 Write-Host "  LEVELS:" -ForegroundColor Yellow
-Write-Host "    1  Power-On   — Python, venv, packages, disk, structure (6 tests)" -ForegroundColor DarkGray
-Write-Host "    2  Initiated  — Config, database, schema, credentials (7 tests)" -ForegroundColor DarkGray
-Write-Host "    3  Continuous — Embedder, chunker, Ollama, API, security (11 tests)" -ForegroundColor DarkGray
-Write-Host "    4  Maintenance — Code bugs, URL check, git, PowerShell (4 tests)" -ForegroundColor DarkGray
+Write-Host "    1  Power-On   â€” Python, venv, packages, disk, structure (6 tests)" -ForegroundColor DarkGray
+Write-Host "    2  Initiated  â€” Config, database, schema, credentials (7 tests)" -ForegroundColor DarkGray
+Write-Host "    3  Continuous â€” Embedder, chunker, Ollama, API, security (11 tests)" -ForegroundColor DarkGray
+Write-Host "    4  Maintenance â€” Code bugs, URL check, git, PowerShell (4 tests)" -ForegroundColor DarkGray
 Write-Host ""
 
 # Open the diagnostic file in notepad for review
@@ -34,3 +34,4 @@ if (Test-Path "hybridrag_diagnostic_v2.py") {
     Write-Host "  WARNING: hybridrag_diagnostic_v2.py not found in current directory" -ForegroundColor Red
     Write-Host "  Make sure you're in the HybridRAG project root" -ForegroundColor Yellow
 }
+

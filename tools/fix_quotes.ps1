@@ -1,4 +1,4 @@
-# ===========================================================================
+﻿# ===========================================================================
 # fix_quotes.ps1 -- Smart Quote and Bad Character Fixer
 # ===========================================================================
 #
@@ -179,3 +179,4 @@ if ($fixCount -gt 0) {
     Write-Host "Backups created with .bak extension" -ForegroundColor Yellow
 }
 Write-Host "========================================" -ForegroundColor Cyan
+

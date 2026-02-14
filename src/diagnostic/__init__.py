@@ -1,5 +1,5 @@
-# ============================================================================
-# HybridRAG v3 — Diagnostic Package: Core Data Structures & Helpers
+﻿# ============================================================================
+# HybridRAG v3 -- Diagnostic Package: Core Data Structures & Helpers
 # ============================================================================
 # FILE: src/diagnostic/__init__.py
 #
@@ -227,7 +227,7 @@ def benchmark(func: Callable, iterations: int = 3, label: str = "",
 
 def run_test(test_func, *args, **kwargs) -> TestResult:
     """
-    Run a test safely — if it crashes, return an ERROR result
+    Run a test safely -- if it crashes, return an ERROR result
     instead of stopping the entire diagnostic.
     """
     start = time.perf_counter()
