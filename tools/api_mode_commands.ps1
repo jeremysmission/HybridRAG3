@@ -1,4 +1,4 @@
-﻿# ============================================================================
+# ============================================================================
 # HybridRAG v3 - API Mode and Profile Commands (api_mode_commands.ps1)
 # ============================================================================
 #
@@ -8,27 +8,37 @@
 #     rag-store-endpoint  Store your company API endpoint URL
 #     rag-cred-status     Check what credentials are stored
 #     rag-cred-delete     Remove stored credentials
-#     rag-mode-online     Switch to online (API) mode
-#     rag-mode-offline    Switch back to offline (Ollama) mode
+#     rag-mode-online     Switch to online API mode
+#     rag-mode-offline    Switch to offline AI mode (Ollama, Qwen, etc.)
+#     rag-models          Show all available AI models (offline + online)
 #     rag-test-api        Quick test that the API connection works
 #     rag-profile         View/switch performance profile
 #
 # TECHNICAL NOTE:
 #   All Python logic lives in the scripts/ folder as separate .py files.
 #   PowerShell only calls "python scripts\_something.py" with no inline
-#   Python code. This prevents PowerShell from trying to parse Python
-#   syntax and throwing errors.
+#   Python code. This prevents here-string indentation bugs and keeps
+#   PS functions clean.
 #
 # SECURITY NOTES:
 #   API keys stored via Windows Credential Manager (DPAPI encrypted).
 #   Keys tied to YOUR Windows login. Other users cannot read them.
 #   Keys never appear in config files, logs, or git.
 #   HuggingFace remains blocked in ALL modes.
+#   Network Gate enforces which endpoints are reachable per mode.
 #
 # INTERNET ACCESS:
 #   rag-store-key/endpoint: NO internet (local Credential Manager only)
 #   rag-test-api: YES (makes one HTTP request to your API endpoint)
 #   rag-mode-online: NO requests (just changes config.mode in YAML)
+#   rag-mode-offline: NO internet (queries localhost Ollama only)
+#   rag-models: NO internet (queries localhost Ollama only)
+#
+# CHANGE LOG:
+#   2026-02-15: Removed HYBRIDRAG_NETWORK_KILL_SWITCH references
+#   2026-02-16: Redesigned mode switching with model selection
+#               Added rag-models command
+#               Updated labels: "offline AI mode" instead of "Ollama mode"
 # ============================================================================
 
 
@@ -86,6 +96,21 @@ function rag-cred-delete {
 
 
 function rag-mode-online {
+    <#
+    .SYNOPSIS
+    Switch to online API mode.
+
+    WHAT HAPPENS:
+      1. Checks that API key and endpoint are configured
+      2. Sets mode to "online" in config/default_config.yaml
+      3. Shows current API model and endpoint
+      4. Queries now route to cloud API
+
+    CREDENTIALS:
+      API key resolved via 3-layer system (keyring -> env -> config)
+      managed by src/security/credentials.py. This function does NOT
+      modify credentials -- it only checks they exist.
+    #>
     Write-Host ""
     Write-Host "Checking credentials..." -ForegroundColor Cyan
 
@@ -111,24 +136,64 @@ function rag-mode-online {
     python "$PROJECT_ROOT\scripts\_set_online.py"
 
     Write-Host ""
-    Write-Host "  Mode:                 ONLINE (API)" -ForegroundColor Green
     Write-Host "  HF_HUB_OFFLINE:       $env:HF_HUB_OFFLINE (still locked)" -ForegroundColor Green
     Write-Host "  TRANSFORMERS_OFFLINE:  $env:TRANSFORMERS_OFFLINE (still locked)" -ForegroundColor Green
-    Write-Host "  Kill switch:          $env:HYBRIDRAG_NETWORK_KILL_SWITCH" -ForegroundColor Green
     Write-Host ""
-    Write-Host "  Online mode active. Queries now route to GPT API." -ForegroundColor Cyan
+    Write-Host "  Network Gate status:" -ForegroundColor Green
+    python -m src.tools.net_status
+    Write-Host ""
+    Write-Host "  Online mode active. Queries now route to cloud API." -ForegroundColor Cyan
     Write-Host "  To switch back: rag-mode-offline" -ForegroundColor DarkGray
     Write-Host ""
 }
 
 
 function rag-mode-offline {
+    <#
+    .SYNOPSIS
+    Switch to offline AI mode (local models via Ollama).
+
+    WHAT HAPPENS:
+      1. Detects all installed local AI models (Llama3, Qwen, etc.)
+      2. Prompts you to choose which model to use
+      3. Sets mode to "offline" in config/default_config.yaml
+      4. Queries now route to your local model via Ollama
+
+    MODELS ARE AUTO-DETECTED:
+      Any model you've pulled with 'ollama pull' appears in the list.
+      Add models:    ollama pull mistral
+      Remove models: ollama rm llama2
+    #>
     python "$PROJECT_ROOT\scripts\_set_offline.py"
+
     Write-Host ""
-    Write-Host "  Mode: OFFLINE (Ollama)" -ForegroundColor Yellow
-    Write-Host "  Queries now route to local Ollama instance."
-    Write-Host "  Make sure Ollama is running: ollama serve"
+    Write-Host "  Network Gate status:" -ForegroundColor Yellow
+    python -m src.tools.net_status
     Write-Host ""
+    Write-Host "  Make sure Ollama is running: ollama serve" -ForegroundColor DarkGray
+    Write-Host ""
+}
+
+
+# ============================================================================
+# MODEL MANAGEMENT
+# ============================================================================
+
+
+function rag-models {
+    <#
+    .SYNOPSIS
+    Show all available AI models (offline and online).
+
+    DISPLAYS:
+      - All installed offline models (auto-detected from Ollama)
+      - Currently configured online API model
+      - Which model is active based on current mode
+      - How to add, remove, or switch models
+
+    INTERNET ACCESS: NONE (Ollama query is localhost only)
+    #>
+    python "$PROJECT_ROOT\scripts\_list_models.py"
 }
 
 
@@ -190,18 +255,35 @@ function rag-profile {
 
 
 # ============================================================================
+# MODEL SELECTION WIZARD
+# ============================================================================
+
+function rag-set-model {
+    <#
+    .SYNOPSIS
+    3-step model selection wizard: Mode -> Objective -> Pick
+    #>
+    Write-Host ""
+    Write-Host "Starting model selection wizard..." -ForegroundColor Cyan
+
+    python "$PROJECT_ROOT\scripts\_set_model.py"
+}
+
+
+# ============================================================================
 # STARTUP MESSAGE
 # ============================================================================
 
 Write-Host ""
 Write-Host "API + Profile Commands loaded:" -ForegroundColor Cyan
+Write-Host "  rag-set-model       Model selection wizard (recommended)" -ForegroundColor Yellow
 Write-Host "  rag-store-key       Store API key (encrypted)" -ForegroundColor DarkGray
 Write-Host "  rag-store-endpoint  Store custom API endpoint" -ForegroundColor DarkGray
 Write-Host "  rag-cred-status     Check credential status" -ForegroundColor DarkGray
 Write-Host "  rag-cred-delete     Remove stored credentials" -ForegroundColor DarkGray
-Write-Host "  rag-mode-online     Switch to API mode" -ForegroundColor DarkGray
-Write-Host "  rag-mode-offline    Switch to Ollama mode" -ForegroundColor DarkGray
+Write-Host "  rag-mode-online     Switch to online API mode (direct)" -ForegroundColor DarkGray
+Write-Host "  rag-mode-offline    Switch to offline AI mode (direct)" -ForegroundColor DarkGray
+Write-Host "  rag-models          Show all available AI models" -ForegroundColor DarkGray
 Write-Host "  rag-test-api        Test API connectivity" -ForegroundColor DarkGray
 Write-Host "  rag-profile         View/switch performance profile" -ForegroundColor DarkGray
 Write-Host ""
-
