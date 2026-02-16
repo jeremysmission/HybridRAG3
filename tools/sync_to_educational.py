@@ -19,6 +19,15 @@ RULES:
 
 USAGE: python tools\\sync_to_educational.py
   Run from D:\\HybridRAG3 (the private repo)
+
+CHANGELOG:
+  2026-02-16: Added "scripts" to COPY_DIRS (model wizard files).
+              Moved api_mode_commands.ps1 from SKIP to COPY (NGC paths removed).
+              Added hallucination_guard to SKIP (unverified, defer to future sync).
+              Fixed false-positive regex: NIST/CUI now use \\b word boundaries
+              to prevent corrupting "Administration" -> "Admisecurity standardration".
+              Added standalone "clearance" and "randaje" to TEXT_REPLACEMENTS
+              (previously only "security clearance" was caught).
 """
 import os
 import sys
@@ -39,6 +48,7 @@ COPY_DIRS = [
     "config",
     "tools/py",
     "diagnostics",
+    "scripts",              # model wizard (_set_model.py, _model_meta.py)
 ]
 
 # Individual files to copy
@@ -48,6 +58,7 @@ COPY_FILES = [
     "tools/master_toolkit.ps1",
     "tools/_rebuild_toolkit.py",
     "tools/test_all_diagnostics.ps1",
+    "tools/api_mode_commands.ps1",   # cleaned of NGC paths; has rag-set-model
 ]
 
 # Files/folders to NEVER copy
@@ -71,7 +82,16 @@ SKIP_PATTERNS = [
     "azure_api_test.ps1",         # has NGC paths
     "fix_azure_detection.ps1",    # has NGC paths
     "rebuilt_rag_commands.ps1",   # has NGC paths
-    "api_mode_commands.ps1",      # has NGC paths
+    # -- Hallucination guard: skip until verified and installed properly --
+    "hallucination_guard",         # entire src/core/hallucination_guard/ subfolder
+    "guard_config.py",             # guard dataclass config
+    "feature_registry.py",         # feature toggle (guard dependency)
+    "grounded_query_engine.py",    # guard wrapper for query engine
+    "guard_diagnostic.py",         # guard health check
+    "virtual_test_guard_part1.py", # guard test files
+    "virtual_test_guard_part2.py",
+    "virtual_test_limitless_verifier.py",
+    "rag-features.ps1",           # guard PowerShell commands
     "HYBRIDRAG3_SECURITY_AUDIT_NIST_800_171.md",  # full NIST audit doc
     "01_knowledge_distillation_finetuning_tutorial.md",  # heavy defense refs
     "02_vscode_ai_completion_comparison.md",  # defense environment refs
@@ -104,16 +124,17 @@ TEXT_REPLACEMENTS = [
     (r"air[ -]?gap", "offline"),
 
     # NIST/DoD/military standards -> generic
-    (r"NIST SP 800-171[^\"]*", "security compliance standard"),
-    (r"NIST 800-171", "security compliance standard"),
-    (r"NIST 800-53", "security compliance standard"),
-    (r"NIST IR", "industry standard"),
-    (r"NIST", "security standard"),
+    # NOTE: \b word boundaries prevent matching inside "Administration"
+    (r"\bNIST SP 800-171[^\"]*", "security compliance standard"),
+    (r"\bNIST 800-171\b", "security compliance standard"),
+    (r"\bNIST 800-53\b", "security compliance standard"),
+    (r"\bNIST\b IR", "industry standard"),
+    (r"\bNIST\b", "security standard"),
     (r"DoD CJCSM 6510\.01B", "industry security framework"),
     (r"DoD", "industry"),
     (r"CJCSM", "framework"),
     (r"ITAR", "regulatory"),
-    (r"CUI", "sensitive data"),
+    (r"\bCUI\b", "sensitive data"),
     (r"CMMC", "compliance framework"),
     (r"CAT I\b", "Critical"),
     (r"CAT II\b", "High"),
@@ -122,10 +143,12 @@ TEXT_REPLACEMENTS = [
     (r"MIL-STD-\d+", "industry standard"),
     (r"ARINC \d+", "industry standard"),
     (r"security clearance", "access authorization"),
+    (r"\bclearance\b", "authorization"),   # standalone "clearance" (not just "security clearance")
 
     # Personal/machine paths
     (r"C:\\Users\\randaje\\OneDrive - NGC\\Desktop\\HybridRAG3", "{PROJECT_ROOT}"),
     (r"C:\\Users\\randaje", "{USER_HOME}"),
+    (r"\brandaje\b", "{USERNAME}"),         # catch any remaining username references
     (r"OneDrive - NGC", "OneDrive"),
     (r"D:\\KnowledgeBase", "{KNOWLEDGE_BASE}"),
     (r"D:\\RAG Indexed Data", "{DATA_DIR}"),
