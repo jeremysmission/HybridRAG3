@@ -19,7 +19,7 @@ Start-Process notepad
 Start-Sleep -Seconds 1
 
 # File 2: Secure API Setup Notes (KEEP LOCAL ONLY)
-# Save to your secure notes location â€” DO NOT commit to GitHub
+# Save to your secure notes location -- DO NOT commit to GitHub
 Write-Host "Opening Notepad 2: API_SETUP_NOTES_SECURE.md" -ForegroundColor Yellow
 Write-Host "  -> Save to your secure notes folder" -ForegroundColor DarkGray
 Write-Host "  -> DO NOT commit this file to GitHub" -ForegroundColor Red

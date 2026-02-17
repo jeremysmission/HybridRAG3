@@ -8,7 +8,7 @@
 #   writes a temp Python file, runs it, and cleans up.
 #
 # HOW TO LOAD:
-#   cd "C:\Users\randaje\OneDrive - NGC\Desktop\HybridRAG3"
+#   cd "<YOUR_PROJECT_ROOT>"
 #   .\.venv\Scripts\Activate
 #   . .\tools\master_toolkit.ps1
 #

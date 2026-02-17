@@ -1,5 +1,5 @@
 ﻿# ===========================================================================
-# AZURE API TEST TOOL â€” COMPLETE DIAGNOSTIC + LIVE TEST
+# AZURE API TEST TOOL -- COMPLETE DIAGNOSTIC + LIVE TEST
 # ===========================================================================
 #
 # WHAT THIS DOES:
@@ -13,7 +13,7 @@
 #   PowerShell quoting issues that broke rag-debug-url and rag-test-api.
 #
 # HOW TO RUN:
-#   cd "C:\Users\randaje\OneDrive - NGC\Desktop\HybridRAG3"
+#   cd "<YOUR_PROJECT_ROOT>"
 #   .\.venv\Scripts\Activate
 #   . .\tools\azure_api_test.ps1
 #
@@ -24,7 +24,15 @@
 # ===========================================================================
 
 $ErrorActionPreference = "Stop"
-$projectRoot = "C:\Users\randaje\OneDrive - NGC\Desktop\HybridRAG3"
+# Resolve project root -- works whether run directly, dot-sourced,
+# or via Invoke-Expression (Group Policy workaround on work laptop).
+# $PSScriptRoot is empty under Invoke-Expression, so we fall back to
+# the current working directory (which should be the project root).
+if ($PSScriptRoot) {
+    $projectRoot = Split-Path -Parent $PSScriptRoot
+} else {
+    $projectRoot = (Get-Location).Path
+}
 $tempDir = Join-Path $projectRoot "temp_diag"
 
 # --- Setup ---
