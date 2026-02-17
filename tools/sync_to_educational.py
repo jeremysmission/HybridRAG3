@@ -28,6 +28,11 @@ CHANGELOG:
               to prevent corrupting "Administration" -> "Admisecurity standardration".
               Added standalone "clearance" and "randaje" to TEXT_REPLACEMENTS
               (previously only "security clearance" was caught).
+  2026-02-17: Replaced 3 specific virtual_test skips with catch-all "virtual_test"
+              prefix (catches all current and future virtual test files).
+              Added sync_to_educational.py itself to SKIP (contains banned terms).
+              Added "Claude" and "Anthropic" to TEXT_REPLACEMENTS and banned words
+              (session artifacts that should not appear in educational repo).
 """
 import os
 import sys
@@ -88,9 +93,8 @@ SKIP_PATTERNS = [
     "feature_registry.py",         # feature toggle (guard dependency)
     "grounded_query_engine.py",    # guard wrapper for query engine
     "guard_diagnostic.py",         # guard health check
-    "virtual_test_guard_part1.py", # guard test files
-    "virtual_test_guard_part2.py",
-    "virtual_test_limitless_verifier.py",
+    "virtual_test",                # ALL virtual test files (contain Claude/session refs)
+    "sync_to_educational.py",      # this script itself (contains banned terms in config)
     "rag-features.ps1",           # guard PowerShell commands
     "HYBRIDRAG3_SECURITY_AUDIT_NIST_800_171.md",  # full NIST audit doc
     "01_knowledge_distillation_finetuning_tutorial.md",  # heavy defense refs
@@ -159,6 +163,10 @@ TEXT_REPLACEMENTS = [
     # Personal references
     (r"Jeremy", "the developer"),
     (r"jeremysmission", "{GITHUB_USER}"),
+
+    # AI tool references (session artifacts)
+    (r"Claude", "AI assistant"),
+    (r"Anthropic", "AI provider"),
 ]
 
 # Educational README content
@@ -429,6 +437,8 @@ def main():
         ("OneDrive - NGC", False),
         ("D:\\\\KnowledgeBase", False),
         ("jeremysmission", False),
+        ("Claude", True),          # word boundary -- avoid "excluded" false positive
+        ("Anthropic", False),
     ]
     found_any = False
     for root, dirs, files in os.walk(DST_ROOT):
