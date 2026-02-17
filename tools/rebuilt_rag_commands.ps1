@@ -1,5 +1,5 @@
 ﻿# ===========================================================================
-# REBUILT RAG COMMANDS â€” QUOTING-SAFE VERSION
+# REBUILT RAG COMMANDS -- QUOTING-SAFE VERSION
 # ===========================================================================
 #
 # WHAT THIS IS:
@@ -9,7 +9,7 @@
 #   rag-debug-url and rag-test-api-verbose.
 #
 # HOW TO USE:
-#   cd "C:\Users\randaje\OneDrive - NGC\Desktop\HybridRAG3"
+#   cd "<YOUR_PROJECT_ROOT>"
 #   .\.venv\Scripts\Activate
 #   . .\tools\rebuilt_rag_commands.ps1
 #
@@ -398,7 +398,7 @@ function rag-env-vars {
 
 
 # ===========================================================================
-# COMMAND: rag-fix-quotes (UNCHANGED â€” this one worked fine)
+# COMMAND: rag-fix-quotes (UNCHANGED -- this one worked fine)
 # ===========================================================================
 function rag-fix-quotes {
     Write-Host "Scanning and fixing smart quotes in project files..." -ForegroundColor Cyan
@@ -452,7 +452,7 @@ function rag-fix-quotes {
 
 
 # ===========================================================================
-# COMMAND: rag-detect-bad-chars (UNCHANGED â€” this one worked fine)
+# COMMAND: rag-detect-bad-chars (UNCHANGED -- this one worked fine)
 # ===========================================================================
 function rag-detect-bad-chars {
     Write-Host "Scanning for non-ASCII characters in code files..." -ForegroundColor Cyan

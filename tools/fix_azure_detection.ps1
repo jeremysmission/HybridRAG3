@@ -17,7 +17,7 @@
 #   This script patches the detection logic to recognize "aoai" as Azure.
 #
 # HOW TO RUN:
-#   cd "C:\Users\randaje\OneDrive - NGC\Desktop\HybridRAG3"
+#   cd "<YOUR_PROJECT_ROOT>"
 #   .\.venv\Scripts\Activate
 #   . .\tools\fix_azure_detection.ps1
 #
@@ -34,7 +34,13 @@
 $ErrorActionPreference = "Stop"
 
 # --- Locate the file ---
-$projectRoot = "C:\Users\randaje\OneDrive - NGC\Desktop\HybridRAG3"
+# Resolve project root -- works whether run directly, dot-sourced,
+# or via Invoke-Expression (Group Policy workaround on work laptop).
+if ($PSScriptRoot) {
+    $projectRoot = Split-Path -Parent $PSScriptRoot
+} else {
+    $projectRoot = (Get-Location).Path
+}
 $routerFile = Join-Path $projectRoot "src\core\llm_router_fix.py"
 
 if (-not (Test-Path $routerFile)) {

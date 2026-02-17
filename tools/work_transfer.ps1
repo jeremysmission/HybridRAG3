@@ -1,6 +1,12 @@
 ﻿$zip = "$env:USERPROFILE\Downloads\session2_transfer.zip"
 $tmp = "$env:TEMP\transfer_tmp"
-$proj = "C:\Users\randaje\OneDrive - NGC\Desktop\HybridRAG3"
+# Resolve project root -- works whether run directly, dot-sourced,
+# or via Invoke-Expression (Group Policy workaround on work laptop).
+if ($PSScriptRoot) {
+    $proj = Split-Path -Parent $PSScriptRoot
+} else {
+    $proj = (Get-Location).Path
+}
 if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
 Expand-Archive -Path $zip -DestinationPath $tmp -Force
 Copy-Item "$tmp\src\*" -Destination "$proj\src\" -Recurse -Force
