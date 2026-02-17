@@ -91,6 +91,7 @@ Write-Host "Activating .venv..." -ForegroundColor Green
 # $PSScriptRoot resolves to the folder this script lives in, so it works
 # on any drive letter (C:, D:, E:, USB, etc.)
 $env:PYTHONPATH = $PROJECT_ROOT
+$env:HYBRIDRAG_PROJECT_ROOT = $PROJECT_ROOT
 
 # ---- 5) VERIFY PYTHON -------------------------------------------------------
 Write-Host ""
@@ -320,6 +321,62 @@ Write-Host ""
 Write-Host "TIP: If commands don't work, make sure you ran:" -ForegroundColor Yellow
 Write-Host '  . .\start_hybridrag.ps1    (with the dot-space at the start)' -ForegroundColor Yellow
 Write-Host ""
-. "$PROJECT_ROOT\tools\api_mode_commands.ps1"
+# ---- 12) LOAD API MODE COMMANDS ----------------------------------------------
+# api_mode_commands.ps1 provides rag-store-key, rag-test-api, rag-set-model, etc.
+#
+# WHY THE FALLBACK:
+#   On some corporate machines, Group Policy blocks execution of unsigned
+#   PowerShell scripts. The dot-source (. "path\file.ps1") triggers this
+#   policy check. The workaround is to read the file as plain text with
+#   [IO.File]::ReadAllText() and then Invoke-Expression. This bypasses
+#   the script execution policy because PowerShell doesn't treat the text
+#   as a "script file" -- it treats it as a string of commands.
+#
+# The try/catch attempts dot-source first (faster, preserves debugging info).
+# If that fails due to policy, it falls back to the ReadAllText method.
+# Either way, the commands get loaded into your session.
+#
+# INTERNET ACCESS: NONE (this just loads function definitions)
 
+$apiCmdsPath = "$PROJECT_ROOT\tools\api_mode_commands.ps1"
+if (Test-Path $apiCmdsPath) {
+    try {
+        . $apiCmdsPath
+    } catch {
+        # Group Policy blocked dot-source -- use ReadAllText workaround
+        try {
+            $code = [IO.File]::ReadAllText($apiCmdsPath)
+            Invoke-Expression $code
+        } catch {
+            Write-Host "WARNING: Could not load API mode commands." -ForegroundColor Yellow
+            Write-Host "  Error: $_" -ForegroundColor Yellow
+            Write-Host "  API commands (rag-store-key, rag-test-api, etc.) unavailable." -ForegroundColor Yellow
+            Write-Host "  Manual workaround:" -ForegroundColor Yellow
+            Write-Host '    $code = [IO.File]::ReadAllText("tools\api_mode_commands.ps1")' -ForegroundColor DarkGray
+            Write-Host '    Invoke-Expression $code' -ForegroundColor DarkGray
+            Write-Host ""
+        }
+    }
+} else {
+    Write-Host "NOTE: tools\api_mode_commands.ps1 not found -- API commands not loaded." -ForegroundColor Yellow
+}
 
+# ---- 13) SHOW CURRENT MODE ---------------------------------------------------
+# Display the active mode so the user knows what they're working with.
+# This was a requested enhancement -- the startup should confirm which
+# profile (online/offline) is active.
+Write-Host ""
+Write-Host "Current mode:" -ForegroundColor Cyan
+python -c "
+try:
+    import yaml
+    with open('config/default_config.yaml', 'r') as f:
+        c = yaml.safe_load(f)
+    mode = c.get('mode', 'unknown')
+    model = c.get('api', {}).get('model', 'unknown') if mode == 'online' else c.get('ollama', {}).get('model', 'unknown')
+    print(f'  Mode:  {mode}')
+    print(f'  Model: {model}')
+except Exception as e:
+    print(f'  Could not read config: {e}')
+"
+Write-Host ""
