@@ -100,6 +100,7 @@ SKIP_PATTERNS = [
     "01_knowledge_distillation_finetuning_tutorial.md",  # heavy defense refs
     "02_vscode_ai_completion_comparison.md",  # defense environment refs
     "03_python_learning_curriculum_12weeks.md",  # personal career details
+    "*.lnk",                       # Windows shortcut files (personal/machine-specific)
 ]
 
 # Text replacements (case-insensitive where noted)
