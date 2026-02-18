@@ -64,6 +64,8 @@ COPY_FILES = [
     "tools/_rebuild_toolkit.py",
     "tools/test_all_diagnostics.ps1",
     "tools/api_mode_commands.ps1",   # cleaned of NGC paths; has rag-set-model
+    "start.cmd",                     # cross-env launcher (works on restricted machines)
+    "run.cmd",                       # fallback launcher via python tools/run.py
 ]
 
 # Files/folders to NEVER copy
