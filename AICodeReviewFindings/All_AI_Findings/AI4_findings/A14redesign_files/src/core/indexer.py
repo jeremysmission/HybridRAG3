@@ -640,59 +640,50 @@ class Indexer:
     # BUG-004 FIX: Validate text before chunking to catch garbage
     # =================================================================
     def _validate_text(self, text: str) -> bool:
-        """
-        Check if extracted text is actually readable, not binary garbage.
+        """Heuristically reject extracted "text" that is actually binary junk.
 
-        WHY THIS EXISTS (BUG-004):
-          Some corrupted PDFs don't crash the parser -- they just return
-          garbage like "\\x00\\x89PNG\\r\\n\\x1a\\x00..." as text. Without
-          this check, that garbage gets chunked, embedded, and stored,
-          polluting search results with nonsensical matches.
+        This is a *second* safety net after file-type preflight checks. It is tuned to:
+          - Accept normal English/technical docs
+          - Accept non-Latin scripts (CJK/Arabic/etc.)
+          - Reject common binary signatures (NULs, PNG headers, compressed blobs)
 
-        HOW IT WORKS:
-          1. Take a sample of the text (first 2000 chars is enough)
-          2. Count how many characters are "normal" (letters, digits,
-             spaces, common punctuation)
-          3. If less than 30% of characters are normal, it's garbage
-
-        WHY 30%?
-          - Pure English text: ~95% printable
-          - Technical docs with equations/symbols: ~70% printable
-          - Mixed language docs (CJK, Arabic, etc.): ~60% printable
-          - Binary garbage: typically < 10% printable
-          - 30% gives plenty of margin for all real document types
-
-        NOTE: The pre-flight check (_preflight_check) catches most
-        corrupt files before they reach this point. This is the second
-        safety net for files that have valid structure but produce
-        garbage text (e.g., encrypted PDFs, DRM-protected files).
-
-        Returns True if text looks valid, False if it looks like garbage.
+        Returns:
+            True  -> looks like real text
+            False -> likely binary/corrupt extraction output
         """
         if not text or len(text) < 20:
-            return False  # Too short to be useful
-
-        # Take a sample -- no need to scan millions of chars
-        sample = text[:2000]
-
-        # -- Fast-reject: null bytes never appear in real text documents --
-        # Binary formats (PNG, PDF internals, EXE headers) contain null bytes.
-        # Real text -- even multilingual or heavily symbolic -- does not.
-        # If more than 1% of the sample is null bytes, it's binary garbage.
-        null_count = sample.count('\x00')
-        if null_count / len(sample) > 0.01:
             return False
 
-        # Count "normal" characters: letters, digits, spaces, newlines,
-        # and common punctuation that appears in real documents
-        normal_count = 0
+        sample = text[:2000]
+
+        # Fast, high-signal rejection: real text almost never contains NUL bytes.
+        if "\x00" in sample:
+            return False
+
+        total = len(sample)
+        non_printable = 0
+        alpha_num = 0
+
         for ch in sample:
-            if ch.isalnum() or ch in ' \t\n\r.,;:!?()-/\'"@#$%&*+=[]{}|<>~':
-                normal_count += 1
+            if ch.isalnum():
+                alpha_num += 1
+            # isprintable() rejects most control bytes; allow common whitespace explicitly.
+            if not (ch.isprintable() or ch in "\n\r\t"):
+                non_printable += 1
 
-        ratio = normal_count / len(sample)
-        return ratio >= 0.30
+        non_printable_ratio = non_printable / total
+        alpha_num_ratio = alpha_num / total
 
+        # If more than 5% are non-printable control bytes, it's almost always garbage.
+        if non_printable_ratio > 0.05:
+            return False
+
+        # Also require at least a little "real content" (letters/digits) in the sample.
+        # This still accepts CJK (isalnum True) and most technical docs.
+        if alpha_num_ratio < 0.10:
+            return False
+
+        return True
     def _is_excluded(self, file_path: Path) -> bool:
         """Check if any parent directory is in the exclusion list."""
         parts_lower = {p.lower() for p in file_path.parts}
