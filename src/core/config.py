@@ -53,6 +53,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
 
+# Guard config lives in its own file to keep config.py under 500 lines.
+# Re-exported here so callers can do: from src.core.config import HallucinationGuardConfig
+from src.core.guard_config import HallucinationGuardConfig
+
 
 # -------------------------------------------------------------------
 # Sub-configs: each one maps to a section in the YAML file
@@ -356,6 +360,22 @@ class Config:
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
     indexing: IndexingConfig = field(default_factory=IndexingConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
+    hallucination_guard: HallucinationGuardConfig = field(
+        default_factory=HallucinationGuardConfig,
+    )
+
+    # --- Convenience properties for guard settings ---
+    @property
+    def hallucination_guard_enabled(self) -> bool:
+        return self.hallucination_guard.enabled
+
+    @property
+    def hallucination_guard_threshold(self) -> float:
+        return self.hallucination_guard.threshold
+
+    @property
+    def hallucination_guard_action(self) -> str:
+        return self.hallucination_guard.failure_action
 
 
 # -------------------------------------------------------------------
@@ -474,6 +494,10 @@ def load_config(
         retrieval=_dict_to_dataclass(RetrievalConfig, yaml_data.get("retrieval", {})),
         indexing=_dict_to_dataclass(IndexingConfig, yaml_data.get("indexing", {})),
         security=_dict_to_dataclass(SecurityConfig, yaml_data.get("security", {})),
+        hallucination_guard=_dict_to_dataclass(
+            HallucinationGuardConfig,
+            yaml_data.get("hallucination_guard", {}),
+        ),
     )
 
     # --- Auto-configure the network gate ---

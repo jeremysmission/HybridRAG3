@@ -379,7 +379,17 @@ if __name__ == "__main__":
     sim_08()
     sim_09()
 
+    pass_count = sum(1 for r in results if r["passed"])
+    fail_count = sum(1 for r in results if not r["passed"])
     print()
     print("=" * 60)
-    print(f"  PART 1 RESULTS: {PASS_COUNT} PASS / {FAIL_COUNT} FAIL")
+    print(f"  PART 1 RESULTS: {pass_count} PASS / {fail_count} FAIL")
     print("=" * 60)
+    if fail_count > 0:
+        print("  FAILURES:")
+        for r in results:
+            if not r["passed"]:
+                print(f"    [FAIL] {r['name']}")
+                if r["detail"]:
+                    print(f"           {r['detail']}")
+        sys.exit(1)
