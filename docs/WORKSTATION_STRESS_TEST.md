@@ -1,6 +1,6 @@
 # Workstation Stress Test Simulation Results
 
-**Date:** 2026-02-20T15:46:04.844835
+**Date:** 2026-02-20T15:48:25.471046
 
 ## Hardware Profile
 
@@ -9,7 +9,7 @@
 | CPU | 16 threads |
 | RAM | 128 GB |
 | GPU | 2x RTX 3090 FE (NVLink) (48 GB VRAM) |
-| Storage | 2 TB NVMe SSD (5000 MB/s) |
+| Storage | 2 TB NVMe SSD (7250 MB/s) |
 
 ## Index Profile
 
@@ -23,100 +23,100 @@
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
-| 10 | 1.6s | 16.9s | 18.5s | Good |
-| 8 | 1.4s | 14.1s | 15.5s | Good |
-| 6 | 1.2s | 11.3s | 12.4s | Good |
-| 4 | 1.0s | 8.4s | 9.4s | Excellent |
-| 3 | 1.0s | 7.0s | 8.0s | Excellent |
-| 2 | 1.0s | 5.6s | 6.6s | Excellent |
+| 10 | 1.5s | 16.9s | 18.4s | Good |
+| 8 | 1.3s | 14.1s | 15.3s | Good |
+| 6 | 1.1s | 11.3s | 12.3s | Good |
+| 4 | 0.9s | 8.4s | 9.3s | Excellent |
+| 3 | 0.9s | 7.0s | 7.9s | Excellent |
+| 2 | 0.8s | 5.6s | 6.5s | Excellent |
 
 ## Offline/Ollama (phi4:14b) -- 700 GB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
-| 10 | 1.6s | 29.2s | 30.8s | Acceptable |
-| 8 | 1.4s | 24.3s | 25.7s | Acceptable |
-| 6 | 1.2s | 19.5s | 20.7s | Acceptable |
-| 4 | 1.0s | 14.6s | 15.6s | Good |
-| 3 | 1.0s | 12.2s | 13.1s | Good |
-| 2 | 1.0s | 9.7s | 10.7s | Good |
+| 10 | 1.5s | 29.2s | 30.7s | Acceptable |
+| 8 | 1.3s | 24.3s | 25.6s | Acceptable |
+| 6 | 1.1s | 19.5s | 20.5s | Acceptable |
+| 4 | 0.9s | 14.6s | 15.5s | Good |
+| 3 | 0.9s | 12.2s | 13.0s | Good |
+| 2 | 0.8s | 9.7s | 10.6s | Good |
 
 ## vLLM Server (qwen3:8b) -- 700 GB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
-| 10 | 1.6s | 10.2s | 11.8s | Good |
-| 8 | 1.4s | 9.1s | 10.5s | Good |
-| 6 | 1.2s | 7.8s | 9.0s | Excellent |
-| 4 | 1.0s | 6.4s | 7.4s | Excellent |
-| 3 | 1.0s | 5.8s | 6.8s | Excellent |
-| 2 | 1.0s | 5.1s | 6.1s | Excellent |
+| 10 | 1.5s | 10.2s | 11.7s | Good |
+| 8 | 1.3s | 9.1s | 10.4s | Good |
+| 6 | 1.1s | 7.8s | 8.8s | Excellent |
+| 4 | 0.9s | 6.4s | 7.3s | Excellent |
+| 3 | 0.9s | 5.8s | 6.6s | Excellent |
+| 2 | 0.8s | 5.1s | 6.0s | Excellent |
 
 ## vLLM Server (phi4:14b) -- 700 GB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
-| 10 | 1.6s | 17.6s | 19.2s | Good |
-| 8 | 1.4s | 15.1s | 16.5s | Good |
-| 6 | 1.2s | 12.6s | 13.7s | Good |
-| 4 | 1.0s | 10.0s | 11.0s | Good |
-| 3 | 1.0s | 9.0s | 10.0s | Excellent |
-| 2 | 1.0s | 8.0s | 8.9s | Excellent |
+| 10 | 1.5s | 17.6s | 19.0s | Good |
+| 8 | 1.3s | 15.1s | 16.3s | Good |
+| 6 | 1.1s | 12.6s | 13.6s | Good |
+| 4 | 0.9s | 10.0s | 10.9s | Good |
+| 3 | 0.9s | 9.0s | 9.9s | Excellent |
+| 2 | 0.8s | 8.0s | 8.8s | Excellent |
 
 ## Online (gpt-4o) -- 700 GB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
-| 10 | 1.6s | 6.5s | 8.1s | Excellent |
-| 8 | 1.4s | 6.2s | 7.6s | Excellent |
-| 6 | 1.2s | 6.2s | 7.4s | Excellent |
-| 4 | 1.0s | 5.9s | 6.9s | Excellent |
-| 3 | 1.0s | 5.9s | 6.9s | Excellent |
-| 2 | 1.0s | 5.9s | 6.9s | Excellent |
+| 10 | 1.5s | 6.5s | 7.9s | Excellent |
+| 8 | 1.3s | 6.2s | 7.4s | Excellent |
+| 6 | 1.1s | 6.2s | 7.2s | Excellent |
+| 4 | 0.9s | 5.9s | 6.7s | Excellent |
+| 3 | 0.9s | 5.9s | 6.7s | Excellent |
+| 2 | 0.8s | 5.9s | 6.7s | Excellent |
 
 ## Online (gpt-4o-mini) -- 700 GB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
-| 10 | 1.6s | 4.2s | 5.8s | Excellent |
-| 8 | 1.4s | 4.0s | 5.4s | Excellent |
-| 6 | 1.2s | 4.0s | 5.2s | Excellent |
-| 4 | 1.0s | 3.8s | 4.8s | Excellent |
-| 3 | 1.0s | 3.8s | 4.8s | Excellent |
-| 2 | 1.0s | 3.8s | 4.8s | Excellent |
+| 10 | 1.5s | 4.2s | 5.7s | Excellent |
+| 8 | 1.3s | 4.0s | 5.3s | Excellent |
+| 6 | 1.1s | 4.0s | 5.1s | Excellent |
+| 4 | 0.9s | 3.8s | 4.7s | Excellent |
+| 3 | 0.9s | 3.8s | 4.7s | Excellent |
+| 2 | 0.8s | 3.8s | 4.7s | Excellent |
 
 ## Offline/Ollama (qwen3:8b) -- 2 TB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
-| 10 | 3.0s | 16.9s | 19.9s | Good |
-| 8 | 2.7s | 14.1s | 16.8s | Good |
-| 6 | 2.4s | 11.3s | 13.6s | Good |
-| 4 | 2.1s | 8.4s | 10.5s | Good |
-| 3 | 2.0s | 7.0s | 9.1s | Excellent |
-| 2 | 2.0s | 5.6s | 7.7s | Excellent |
+| 10 | 2.6s | 16.9s | 19.5s | Good |
+| 8 | 2.3s | 14.1s | 16.4s | Good |
+| 6 | 2.0s | 11.3s | 13.3s | Good |
+| 4 | 1.7s | 8.4s | 10.1s | Good |
+| 3 | 1.7s | 7.0s | 8.7s | Excellent |
+| 2 | 1.7s | 5.6s | 7.3s | Excellent |
 
 ## vLLM Server (qwen3:8b) -- 2 TB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
-| 10 | 3.0s | 10.2s | 13.2s | Good |
-| 8 | 2.7s | 9.1s | 11.8s | Good |
-| 6 | 2.4s | 7.8s | 10.1s | Good |
-| 4 | 2.1s | 6.4s | 8.5s | Excellent |
-| 3 | 2.0s | 5.8s | 7.8s | Excellent |
-| 2 | 2.0s | 5.1s | 7.1s | Excellent |
+| 10 | 2.6s | 10.2s | 12.9s | Good |
+| 8 | 2.3s | 9.1s | 11.4s | Good |
+| 6 | 2.0s | 7.8s | 9.8s | Excellent |
+| 4 | 1.7s | 6.4s | 8.1s | Excellent |
+| 3 | 1.7s | 5.8s | 7.5s | Excellent |
+| 2 | 1.7s | 5.1s | 6.8s | Excellent |
 
 ## Online (gpt-4o) -- 2 TB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
-| 10 | 3.0s | 6.5s | 9.5s | Excellent |
-| 8 | 2.7s | 6.2s | 8.9s | Excellent |
-| 6 | 2.4s | 6.2s | 8.5s | Excellent |
-| 4 | 2.1s | 5.9s | 7.9s | Excellent |
-| 3 | 2.0s | 5.9s | 7.9s | Excellent |
-| 2 | 2.0s | 5.9s | 7.9s | Excellent |
+| 10 | 2.6s | 6.5s | 9.1s | Excellent |
+| 8 | 2.3s | 6.2s | 8.5s | Excellent |
+| 6 | 2.0s | 6.2s | 8.2s | Excellent |
+| 4 | 1.7s | 5.9s | 7.6s | Excellent |
+| 3 | 1.7s | 5.9s | 7.6s | Excellent |
+| 2 | 1.7s | 5.9s | 7.6s | Excellent |
 
 ## Improvement Recommendations
 
