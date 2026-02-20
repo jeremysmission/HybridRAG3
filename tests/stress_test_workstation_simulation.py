@@ -61,14 +61,56 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 
 class HardwareProfile:
     """Workstation hardware specification."""
-    cpu_threads: int = 16           # Typical workstation (8-core / 16-thread)
-    ram_gb: float = 64.0
-    gpu_vram_gb: float = 12.0       # NVIDIA (RTX 3060/4070 class)
-    gpu_name: str = "NVIDIA 12GB"
-    storage_type: str = "HDD"       # 2 TB HDD
-    storage_read_mbps: float = 150  # Sequential HDD read (~150 MB/s)
-    storage_iops: int = 150         # Random IOPS (HDD ~100-200)
-    network_mbps: float = 100       # Corporate LAN (for API calls)
+
+    def __init__(
+        self,
+        name: str = "Workstation",
+        cpu_threads: int = 16,
+        ram_gb: float = 64.0,
+        gpu_vram_gb: float = 12.0,
+        gpu_name: str = "NVIDIA 12GB",
+        storage_type: str = "NVMe SSD",
+        storage_model: str = "Generic NVMe",
+        storage_read_mbps: float = 3500,
+        storage_iops: int = 500000,
+        network_mbps: float = 100,
+    ):
+        self.name = name
+        self.cpu_threads = cpu_threads
+        self.ram_gb = ram_gb
+        self.gpu_vram_gb = gpu_vram_gb
+        self.gpu_name = gpu_name
+        self.storage_type = storage_type
+        self.storage_model = storage_model
+        self.storage_read_mbps = storage_read_mbps
+        self.storage_iops = storage_iops
+        self.network_mbps = network_mbps
+
+
+# Pre-built hardware profiles
+WORKSTATION = HardwareProfile(
+    name="Desktop Workstation",
+    cpu_threads=16,           # 8-core / 16-thread
+    ram_gb=64.0,
+    gpu_vram_gb=12.0,         # RTX 3060/4070 class
+    gpu_name="NVIDIA 12GB",
+    storage_type="NVMe SSD",
+    storage_model="Generic NVMe Gen3/4",
+    storage_read_mbps=3500,
+    storage_iops=500000,
+)
+
+WORK_LAPTOP = HardwareProfile(
+    name="Work Laptop (Demo)",
+    cpu_threads=16,           # Typical corporate laptop (8P+8E or 8-core)
+    ram_gb=32.0,              # Corporate standard
+    gpu_vram_gb=0.0,          # No discrete GPU (integrated only)
+    gpu_name="Intel Integrated (no discrete GPU)",
+    storage_type="NVMe SSD",
+    storage_model="WD PC SN8000S SED SanDisk (PCIe Gen4)",
+    storage_read_mbps=5545,   # WD SN8000S sequential read
+    storage_iops=700000,      # Estimated PCIe Gen4 random IOPS
+)
 
 
 # ============================================================================
@@ -165,37 +207,51 @@ def vector_search_latency(
     Time for cosine similarity search across all embeddings.
 
     Memmap block scan: reads embeddings in blocks from disk.
-    On HDD, this is I/O bound. On SSD, it is CPU bound.
+    On HDD, this is I/O bound. On NVMe SSD, it is CPU bound.
 
-    Baseline: ~100ms for 2000 chunks (from PERFORMANCE_BASELINE.md).
-    Scales roughly linearly with chunk count for block scan.
+    The search involves two components:
+      1. I/O: reading the memmap file from disk
+      2. CPU: numpy vectorized dot products (BLAS-optimized)
+
+    Baseline measurement: ~100ms for 2000 chunks (PERFORMANCE_BASELINE.md).
+    That 100ms includes both I/O and CPU overhead.
+
+    CPU dot products scale sub-linearly with numpy BLAS because:
+      - SIMD vectorization processes 8-16 floats per instruction
+      - Block scanning amortizes overhead across large matrices
+      - numpy uses multi-threaded BLAS for large matrix ops
+    At 8.4M chunks (384-dim), numpy computes all dot products in ~1-3s.
     """
-    # Baseline from real measurements
-    baseline_chunks = 2000
-    baseline_ms = 100
-
-    # Scale by chunk count (linear scan)
-    scale = idx.total_chunks / baseline_chunks
-
-    # I/O factor: reading memmap from HDD
-    # For large memmaps, OS page cache helps, but cold reads are slow
-    # Assume 50% cache hit rate for repeated queries
+    # ---------- I/O component ----------
+    # Reading the memmap embedding file from disk
     embeddings_mb = idx.embeddings_size_gb * 1024
-    cache_hit = 0.5 if idx.embeddings_size_gb < hw.ram_gb * 0.3 else 0.2
+    # OS page cache: warm cache from prior queries
+    cache_hit = 0.7 if idx.embeddings_size_gb < hw.ram_gb * 0.3 else 0.3
     io_read_mb = embeddings_mb * (1 - cache_hit)
     io_time_ms = (io_read_mb / hw.storage_read_mbps) * 1000
 
-    # CPU time for dot products
-    cpu_time_ms = baseline_ms * scale
+    # ---------- CPU component ----------
+    # numpy BLAS-optimized dot product: matrix (N x 384) @ vector (384,)
+    # Measured throughput: ~50M dot products/second on modern 16-thread CPU
+    # This accounts for SIMD, cache locality, and multi-threading
+    dot_products_per_second = 50_000_000
+    cpu_time_ms = (idx.total_chunks / dot_products_per_second) * 1000
 
-    # Concurrent reads: memmap is read-only, multiple readers OK
-    # But HDD has limited IOPS for random reads
-    io_contention = 1.0 + (concurrent - 1) * 0.15 if hw.storage_type == "HDD" else 1.0
+    # ---------- Concurrency ----------
+    if hw.storage_type == "HDD":
+        io_contention = 1.0 + (concurrent - 1) * 0.15
+        cpu_contention = 1.0 + max(0, (concurrent - 4)) * 0.1
+    elif "SSD" in hw.storage_type:
+        io_contention = 1.0 + (concurrent - 1) * 0.01  # NVMe negligible
+        # CPU contention: concurrent numpy dot products share CPU threads
+        cpu_contention = 1.0 + max(0, (concurrent - 4)) * 0.15
+    else:
+        io_contention = 1.0
+        cpu_contention = 1.0
 
-    total_ms = cpu_time_ms + (io_time_ms * io_contention)
+    total_ms = (cpu_time_ms * cpu_contention) + (io_time_ms * io_contention)
 
-    # Cap: numpy block scan with warm cache is efficient
-    return min(total_ms, 30000) / 1000  # seconds
+    return total_ms / 1000  # seconds
 
 
 def bm25_search_latency(
@@ -347,6 +403,74 @@ def llm_inference_online(
     return total_time, specs["note"]
 
 
+def llm_inference_vllm_server(
+    hw: HardwareProfile, concurrent: int, model: str
+) -> Tuple[float, str]:
+    """
+    LLM inference via vLLM on a DEDICATED GPU server (Docker or bare metal).
+
+    vLLM vs Ollama -- why it matters for multi-user:
+      Ollama: ONE request at a time on GPU. Users wait in a queue.
+      vLLM:   CONTINUOUS BATCHING. Multiple requests processed on GPU
+              simultaneously. The GPU stays busy 100% of the time and
+              throughput scales much better with concurrent users.
+
+    Setup options:
+      1. Docker with NVIDIA Container Toolkit (easiest)
+         docker run --gpus all -p 8000:8000 vllm/vllm-openai \\
+             --model Qwen/Qwen2.5-7B-Instruct
+      2. Bare metal: pip install vllm && python -m vllm.entrypoints.openai.api_server
+      3. Dedicated server: separate machine on LAN with bigger GPU
+
+    Throughput model (12 GB VRAM, qwen3:8b equivalent):
+      - vLLM batch efficiency: ~2.5x throughput vs serial Ollama
+      - With continuous batching, concurrent requests share GPU compute
+      - Throughput degrades gently, not linearly like Ollama queue
+    """
+    # Model throughput under vLLM continuous batching (12 GB GPU)
+    model_throughput = {
+        "qwen3:8b": {
+            "single_tps": 30,      # Same as Ollama for single user
+            "batch_factor": 2.5,   # vLLM batch efficiency vs serial
+            "max_batch": 4,        # Max concurrent batch on 12 GB VRAM
+            "note": "vLLM continuous batching, ~2.5x Ollama throughput",
+        },
+        "phi4:14b-q4_K_M": {
+            "single_tps": 17,
+            "batch_factor": 2.0,   # Larger model = less batch headroom
+            "max_batch": 2,        # Tight VRAM, limited batching
+            "note": "vLLM batching limited by 12GB VRAM",
+        },
+    }
+
+    specs = model_throughput.get(model, model_throughput["qwen3:8b"])
+
+    input_tokens = 1500
+    output_tokens = 400
+
+    # Single-user inference (same as Ollama)
+    prompt_time = input_tokens / 200  # prompt processing ~200 tok/s
+    gen_time = output_tokens / specs["single_tps"]
+    single_user_time = prompt_time + gen_time
+
+    # vLLM continuous batching model:
+    # Up to max_batch users processed simultaneously with batch_factor speedup
+    # Beyond max_batch, requests queue but with batch_factor throughput
+    effective_batch = min(concurrent, specs["max_batch"])
+    queued_users = max(0, concurrent - specs["max_batch"])
+
+    # Time for a batched request (slightly slower per-request due to sharing)
+    batch_overhead = 1.0 + (effective_batch - 1) * 0.15  # 15% overhead per extra
+    batched_time = single_user_time * batch_overhead / specs["batch_factor"]
+
+    # Queue wait for overflow beyond max_batch
+    batches_ahead = queued_users / max(specs["max_batch"], 1) / 2  # avg wait
+    queue_wait = batches_ahead * batched_time
+
+    total_time = queue_wait + batched_time
+    return total_time, specs["note"]
+
+
 # ============================================================================
 # FULL PIPELINE SIMULATION
 # ============================================================================
@@ -388,6 +512,8 @@ def simulate_query(
     # Stage 7: LLM inference (THE BOTTLENECK)
     if mode == "offline":
         llm_time, llm_note = llm_inference_offline(hw, concurrent, model)
+    elif mode == "vllm":
+        llm_time, llm_note = llm_inference_vllm_server(hw, concurrent, model)
     else:
         llm_time, llm_note = llm_inference_online(hw, concurrent, model)
     stages["7_llm_inference"] = llm_time
@@ -411,8 +537,18 @@ def simulate_query(
 # MAIN SIMULATION
 # ============================================================================
 
+def _print_hw_profile(hw: HardwareProfile):
+    """Print a hardware profile summary."""
+    print(f"  Name:    {hw.name}")
+    print(f"  CPU:     {hw.cpu_threads} threads")
+    print(f"  RAM:     {hw.ram_gb:.0f} GB")
+    print(f"  GPU:     {hw.gpu_name} ({hw.gpu_vram_gb:.0f} GB VRAM)")
+    print(f"  Storage: {hw.storage_model} ({hw.storage_read_mbps:.0f} MB/s)")
+
+
 def main():
-    hw = HardwareProfile()
+    hw = WORKSTATION
+    hw_laptop = WORK_LAPTOP
     idx_700 = IndexProfile(700.0)
     idx_2000 = IndexProfile(2000.0)
 
@@ -423,12 +559,11 @@ def main():
     print()
 
     # ---- Hardware Summary ----
-    print("HARDWARE PROFILE")
+    print("HARDWARE PROFILES")
     print("-" * 40)
-    print(f"  CPU:     {hw.cpu_threads} threads")
-    print(f"  RAM:     {hw.ram_gb:.0f} GB")
-    print(f"  GPU:     {hw.gpu_name} ({hw.gpu_vram_gb:.0f} GB VRAM)")
-    print(f"  Storage: 2 TB {hw.storage_type} ({hw.storage_read_mbps:.0f} MB/s)")
+    _print_hw_profile(hw)
+    print()
+    _print_hw_profile(hw_laptop)
     print()
 
     # ---- Index Summary (700 GB) ----
@@ -446,7 +581,7 @@ def main():
     user_counts = [10, 8, 6, 4, 3, 2]
 
     # ==================================================================
-    # OFFLINE MODE SIMULATION (700 GB)
+    # OFFLINE MODE SIMULATION (700 GB) -- Ollama (serial GPU queue)
     # ==================================================================
     print()
     print("=" * 78)
@@ -476,11 +611,42 @@ def main():
     _print_results_table("OFFLINE (phi4:14b) -- 700 GB", phi4_results)
 
     # ==================================================================
+    # vLLM SERVER MODE (700 GB) -- continuous batching
+    # ==================================================================
+    print()
+    print("=" * 78)
+    print("SCENARIO 2: vLLM SERVER MODE (Docker/bare metal) -- 700 GB INDEX")
+    print("=" * 78)
+    print()
+    print("vLLM replaces Ollama. Same GPU, same model, but continuous batching")
+    print("means multiple users are processed on GPU simultaneously instead of")
+    print("waiting in a serial queue. Can run as Docker container or systemd service.")
+    print()
+    print("Setup: docker run --gpus all -p 8000:8000 vllm/vllm-openai \\")
+    print("           --model Qwen/Qwen2.5-7B-Instruct")
+    print()
+
+    vllm_results_700 = []
+    for n in user_counts:
+        r = simulate_query(hw, idx_700, n, "vllm", "qwen3:8b", reranker=True)
+        vllm_results_700.append(r)
+
+    _print_results_table("vLLM SERVER (qwen3:8b) -- 700 GB", vllm_results_700)
+
+    print()
+    print("  phi4:14b-q4_K_M via vLLM (logistics profile):")
+    vllm_phi4_results = []
+    for n in user_counts:
+        r = simulate_query(hw, idx_700, n, "vllm", "phi4:14b-q4_K_M", reranker=True)
+        vllm_phi4_results.append(r)
+    _print_results_table("vLLM SERVER (phi4:14b) -- 700 GB", vllm_phi4_results)
+
+    # ==================================================================
     # ONLINE MODE SIMULATION (700 GB)
     # ==================================================================
     print()
     print("=" * 78)
-    print("SCENARIO 2: ONLINE MODE (Cloud API) -- 700 GB INDEX")
+    print("SCENARIO 3: ONLINE MODE (Cloud API) -- 700 GB INDEX")
     print("=" * 78)
     print()
     print("Using gpt-4o as primary, gpt-4o-mini for PM profile")
@@ -507,7 +673,7 @@ def main():
     # ==================================================================
     print()
     print("=" * 78)
-    print("SCENARIO 3: WHAT HAPPENS AT 2 TB SOURCE DATA")
+    print("SCENARIO 4: WHAT HAPPENS AT 2 TB SOURCE DATA")
     print("=" * 78)
     print()
     print(f"  {idx_2000.summary()}")
@@ -518,7 +684,14 @@ def main():
         r = simulate_query(hw, idx_2000, n, "offline", "qwen3:8b", reranker=True)
         offline_results_2000.append(r)
 
-    _print_results_table("OFFLINE (qwen3:8b) -- 2 TB", offline_results_2000)
+    _print_results_table("OFFLINE/Ollama (qwen3:8b) -- 2 TB", offline_results_2000)
+
+    vllm_results_2000 = []
+    for n in user_counts:
+        r = simulate_query(hw, idx_2000, n, "vllm", "qwen3:8b", reranker=True)
+        vllm_results_2000.append(r)
+
+    _print_results_table("vLLM SERVER (qwen3:8b) -- 2 TB", vllm_results_2000)
 
     online_results_2000 = []
     for n in user_counts:
@@ -526,6 +699,48 @@ def main():
         online_results_2000.append(r)
 
     _print_results_table("ONLINE (gpt-4o) -- 2 TB", online_results_2000)
+
+    # ==================================================================
+    # WORK LAPTOP (DEMO) -- online only (no discrete GPU)
+    # ==================================================================
+    print()
+    print("=" * 78)
+    print("SCENARIO 5: WORK LAPTOP DEMO (WD SN8000S, no discrete GPU)")
+    print("=" * 78)
+    print()
+    print("The work laptop has no discrete GPU, so offline LLM inference would")
+    print("run on CPU only (~1-3 tok/s = unusable). Online API mode is the only")
+    print("practical option for the demo laptop. However, retrieval is LOCAL and")
+    print("the SN8000S NVMe (5545 MB/s) is faster than the workstation drive.")
+    print()
+
+    # Demo scenario: 1-3 users on a laptop (demo audience)
+    laptop_counts = [3, 2, 1]
+    idx_demo = IndexProfile(700.0)  # Same 700 GB index
+
+    laptop_online_results = []
+    for n in laptop_counts:
+        r = simulate_query(hw_laptop, idx_demo, n, "online", "gpt-4o", reranker=True)
+        laptop_online_results.append(r)
+
+    _print_results_table("LAPTOP ONLINE (gpt-4o) -- 700 GB", laptop_online_results)
+
+    print()
+    print("  gpt-4o-mini (faster, cost-efficient for demos):")
+    laptop_mini_results = []
+    for n in laptop_counts:
+        r = simulate_query(hw_laptop, idx_demo, n, "online", "gpt-4o-mini", reranker=True)
+        laptop_mini_results.append(r)
+    _print_results_table("LAPTOP ONLINE (gpt-4o-mini) -- 700 GB", laptop_mini_results)
+
+    print()
+    print("  NOTE: Laptop has 32 GB RAM. At 700 GB source data, embeddings are")
+    print(f"  {idx_demo.embeddings_size_gb:.1f} GB. Fits in RAM but leaves less headroom.")
+    if idx_demo.embeddings_size_gb + 8 > hw_laptop.ram_gb:
+        print("  [WARN] Tight RAM. Consider smaller index for demo.")
+    else:
+        headroom = hw_laptop.ram_gb - idx_demo.embeddings_size_gb - 8
+        print(f"  [OK] {headroom:.0f} GB RAM headroom after embeddings + OS + models.")
 
     # ==================================================================
     # BOTTLENECK ANALYSIS
@@ -536,9 +751,9 @@ def main():
     print("=" * 78)
     print()
 
-    # Show stage breakdown for 10-user offline
+    # Show stage breakdown for 10-user offline (Ollama)
     r10 = offline_results_700[0]
-    print("Pipeline breakdown (10 users, offline, qwen3:8b, 700 GB):")
+    print("Pipeline breakdown (10 users, Ollama, qwen3:8b, 700 GB, NVMe SSD):")
     print("-" * 60)
     for stage, secs in r10["stages"].items():
         pct = (secs / r10["total_seconds"]) * 100
@@ -551,8 +766,42 @@ def main():
     print(f"  LLM inference (stage 7): {r10['llm_seconds']:.2f}s "
           f"({r10['llm_seconds']/r10['total_seconds']*100:.1f}%)")
     print()
-    print("  >> LLM inference dominates. The GPU is the serial bottleneck.")
-    print("  >> All 10 users share ONE GPU. Queries are queued, not parallel.")
+    print("  >> With NVMe SSD, retrieval is now FAST.")
+    print("  >> LLM inference still dominates due to Ollama's serial GPU queue.")
+    print()
+
+    # Show vLLM comparison
+    rv10 = vllm_results_700[0]
+    print("Pipeline breakdown (10 users, vLLM, qwen3:8b, 700 GB, NVMe SSD):")
+    print("-" * 60)
+    for stage, secs in rv10["stages"].items():
+        pct = (secs / rv10["total_seconds"]) * 100
+        bar = "#" * int(pct / 2)
+        print(f"  {stage:20s}  {secs:7.2f}s  ({pct:5.1f}%)  {bar}")
+    print(f"  {'TOTAL':20s}  {rv10['total_seconds']:7.2f}s")
+    print()
+    print(f"  >> vLLM continuous batching: {r10['llm_seconds']:.1f}s -> "
+          f"{rv10['llm_seconds']:.1f}s ({r10['llm_seconds']/max(rv10['llm_seconds'],0.1):.1f}x faster)")
+    print()
+
+    # Side-by-side summary
+    ro10 = online_results_700[0]
+    print("=" * 78)
+    print("10-USER COMPARISON (700 GB, NVMe SSD)")
+    print("=" * 78)
+    print(f"  {'Mode':<25s}  {'Retrieval':>10s}  {'LLM':>10s}  {'TOTAL':>10s}  {'Rating':>10s}")
+    print(f"  {'-'*25}  {'-'*10}  {'-'*10}  {'-'*10}  {'-'*10}")
+    for label, r in [
+        ("Ollama (serial queue)", r10),
+        ("vLLM (continuous batch)", rv10),
+        ("Cloud API (gpt-4o)", ro10),
+    ]:
+        total = r["total_seconds"]
+        rating = ("Excellent" if total < 10 else "Good" if total < 20
+                  else "Acceptable" if total < 45 else "Slow" if total < 90
+                  else "Poor" if total < 180 else "Unusable")
+        print(f"  {label:<25s}  {r['retrieval_seconds']:>9.1f}s  "
+              f"{r['llm_seconds']:>9.1f}s  {total:>9.1f}s  {rating:>10s}")
 
     # ==================================================================
     # 700 GB vs 2 TB COMPARISON
@@ -570,9 +819,11 @@ def main():
           f"{idx_2000.total_chunks/idx_700.total_chunks:.1f}x")
     print(f"  {'Embeddings file':.<30s}  {idx_700.embeddings_size_gb:>9.1f}G  {idx_2000.embeddings_size_gb:>9.1f}G  "
           f"{idx_2000.embeddings_size_gb/idx_700.embeddings_size_gb:.1f}x")
-    print(f"  {'Vector search (s)':.<30s}  {r_700['stages']['2_vector_search']:>10.2f}  "
-          f"{r_2000['stages']['2_vector_search']:>10.2f}  "
-          f"{r_2000['stages']['2_vector_search']/max(r_700['stages']['2_vector_search'],0.001):.1f}x")
+    vs_700 = r_700['stages']['2_vector_search']
+    vs_2000 = r_2000['stages']['2_vector_search']
+    print(f"  {'Vector search (s)':.<30s}  {vs_700:>10.2f}  "
+          f"{vs_2000:>10.2f}  "
+          f"{vs_2000/max(vs_700,0.001):.1f}x")
     print(f"  {'BM25 search (s)':.<30s}  {r_700['stages']['3_bm25_search']:>10.3f}  "
           f"{r_2000['stages']['3_bm25_search']:>10.3f}  "
           f"{r_2000['stages']['3_bm25_search']/max(r_700['stages']['3_bm25_search'],0.001):.1f}x")
@@ -582,9 +833,10 @@ def main():
           f"{r_2000['total_seconds']:>10.2f}  "
           f"{r_2000['total_seconds']/r_700['total_seconds']:.1f}x")
     print()
-    print("  KEY INSIGHT: At 2 TB, vector search becomes the secondary bottleneck.")
-    print("  The embeddings file grows to ~4.9 GB, exceeding comfortable HDD cache.")
+    print("  KEY INSIGHT: With NVMe SSD, retrieval stays fast even at 2 TB.")
+    print("  The embeddings file grows to ~18 GB but NVMe handles it well.")
     print("  LLM inference time stays the same (it doesn't depend on index size).")
+    print("  vLLM is the biggest remaining improvement for multi-user offline.")
 
     # ==================================================================
     # WHAT BREAKS AT 2 TB
@@ -611,14 +863,15 @@ def main():
     else:
         print(f"    STATUS: [WARN] Tight ({ram_total_needed - hw.ram_gb:.1f} GB over)")
     print()
-    print("  CRITICAL ISSUES AT 2 TB:")
+    print("  ISSUES AT 2 TB:")
     print(f"    1. Vector search: {r_2000['stages']['2_vector_search']:.1f}s "
-          "on HDD (cold cache)")
-    print(f"       With SSD: would drop to ~{r_2000['stages']['2_vector_search']*0.15:.1f}s")
+          "on NVMe SSD (fast, no bottleneck)")
     print(f"    2. Indexing time: ~{idx_2000.total_chunks / 100 / 3600:.0f} hours "
           "to build index from scratch")
     print(f"    3. Reranker CPU load increases with chunk count")
     print(f"    4. FTS5 index rebuild takes longer after indexing")
+    print(f"    5. LLM inference (Ollama): still serial GPU bottleneck")
+    print(f"       -> vLLM continuous batching solves this")
 
     # ==================================================================
     # IMPROVEMENT RECOMMENDATIONS
@@ -632,36 +885,31 @@ def main():
     improvements = [
         {
             "rank": 1,
-            "what": "Replace HDD with NVMe SSD",
-            "cost": "$100-200 for 2 TB NVMe",
-            "impact": "Vector search: 15-20x faster (HDD 150 MB/s -> SSD 3500 MB/s). "
-                      "Memmap reads go from seconds to milliseconds. "
-                      "This is the SINGLE BIGGEST hardware improvement.",
-            "offline_speedup": "5-10s saved per query at 700 GB, 20-40s at 2 TB",
-            "online_speedup": "Same improvement for retrieval stage",
+            "what": "Replace Ollama with vLLM (Docker or bare metal)",
+            "cost": "Free (Apache 2.0 license)",
+            "impact": "BIGGEST win for multi-user offline. vLLM continuous batching "
+                      "processes multiple GPU requests simultaneously instead of "
+                      "queuing serially. Docker setup: one command. "
+                      "Requires Linux or WSL2 for GPU passthrough.",
+            "offline_speedup": "3-5x throughput at 10 concurrent users",
+            "online_speedup": "N/A (already using cloud batching)",
+            "how": "docker run --gpus all -p 8000:8000 vllm/vllm-openai "
+                   "--model Qwen/Qwen2.5-7B-Instruct",
         },
         {
             "rank": 2,
-            "what": "Upgrade GPU to 24 GB VRAM (RTX 4090 / A5000)",
-            "cost": "$1,200-2,000",
-            "impact": "Enables qwen3:32b (much better quality), 2x faster token "
-                      "generation, and model stays in VRAM without swapping. "
-                      "Also enables batch inference for 2-3 concurrent GPU users.",
-            "offline_speedup": "2-3x faster inference, better answer quality",
-            "online_speedup": "No change (cloud GPU already fast)",
+            "what": "Switch to FAISS or Hnswlib for vector search",
+            "cost": "Free (code change, adds dependency)",
+            "impact": "Replace brute-force memmap scan with approximate nearest "
+                      "neighbor (ANN) index. Searches 8M chunks in <50ms instead "
+                      "of 1-2s. Critical for scaling to 2 TB. "
+                      "faiss-cpu is BSD licensed, hnswlib is Apache.",
+            "offline_speedup": "Vector search drops from ~1.3s to <50ms",
+            "online_speedup": "Same benefit for retrieval stage",
+            "how": "pip install faiss-cpu; swap memmap scan for FAISS IVF index",
         },
         {
             "rank": 3,
-            "what": "Add request queuing with priority (software change)",
-            "cost": "Free (code change)",
-            "impact": "FastAPI backend with asyncio queue. Prevents GPU starvation. "
-                      "Priority queue lets urgent queries skip ahead. "
-                      "Shows estimated wait time in UI.",
-            "offline_speedup": "Better UX, not faster raw throughput",
-            "online_speedup": "Prevents rate limit errors under burst load",
-        },
-        {
-            "rank": 4,
             "what": "Enable embedding cache (query-level caching)",
             "cost": "Free (code change)",
             "impact": "Cache recent query embeddings + search results. If users ask "
@@ -669,45 +917,61 @@ def main():
                       "for teams asking related questions about same documents.",
             "offline_speedup": "Retrieval drops to ~0ms for cached queries",
             "online_speedup": "Same benefit for retrieval stage",
+            "how": "LRU dict keyed by query hash, invalidate on re-index",
+        },
+        {
+            "rank": 4,
+            "what": "Upgrade GPU to 24 GB VRAM (RTX 4090 / A5000)",
+            "cost": "$1,200-2,000",
+            "impact": "Enables qwen3:32b (much better quality), 2x faster token "
+                      "generation, and model stays in VRAM without swapping. "
+                      "More VRAM also means vLLM can batch more concurrent requests.",
+            "offline_speedup": "2-3x faster inference, better answer quality",
+            "online_speedup": "No change (cloud GPU already fast)",
+            "how": "Hardware upgrade, swap GPU card",
         },
         {
             "rank": 5,
-            "what": "Switch to FAISS or Hnswlib for vector search",
-            "cost": "Free (code change, adds dependency)",
-            "impact": "Replace brute-force memmap scan with approximate nearest "
-                      "neighbor (ANN) index. Searches 8M chunks in <50ms instead of "
-                      "seconds. Critical for 2 TB scale.",
-            "offline_speedup": "Vector search drops from seconds to <50ms",
-            "online_speedup": "Same benefit",
+            "what": "Add request queuing with priority (software change)",
+            "cost": "Free (code change)",
+            "impact": "FastAPI backend with asyncio queue. Prevents GPU starvation. "
+                      "Priority queue lets urgent queries skip ahead. "
+                      "Shows estimated wait time in UI.",
+            "offline_speedup": "Better UX, not faster raw throughput",
+            "online_speedup": "Prevents rate limit errors under burst load",
+            "how": "asyncio.PriorityQueue in FastAPI middleware",
         },
         {
             "rank": 6,
-            "what": "Use vLLM instead of Ollama for multi-user serving",
-            "cost": "Free (Apache 2.0), but more complex setup",
-            "impact": "vLLM supports continuous batching -- processes multiple "
-                      "requests on GPU simultaneously instead of queuing them. "
-                      "10 users get near-single-user speed. "
-                      "Requires Linux or WSL2.",
-            "offline_speedup": "3-5x throughput improvement at 10 concurrent users",
-            "online_speedup": "N/A (already using cloud batching)",
-        },
-        {
-            "rank": 7,
-            "what": "Add second GPU (multi-GPU inference)",
-            "cost": "$800-2,000",
-            "impact": "Two 12 GB GPUs can serve two models simultaneously, "
-                      "halving queue wait. Or one 24 GB model via tensor parallel.",
-            "offline_speedup": "2x concurrent throughput",
-            "online_speedup": "No change",
-        },
-        {
-            "rank": 8,
             "what": "Precompute common queries (scheduled batch)",
             "cost": "Free (code change)",
             "impact": "Run top-50 anticipated queries overnight, cache results. "
                       "Morning users get instant answers for common questions.",
             "offline_speedup": "Instant for precomputed queries",
             "online_speedup": "Same benefit, also saves API cost",
+            "how": "Scheduled task that runs queries from a seed list",
+        },
+        {
+            "rank": 7,
+            "what": "Add second GPU (multi-GPU inference)",
+            "cost": "$800-2,000",
+            "impact": "Two 12 GB GPUs can serve two models simultaneously, "
+                      "halving queue wait. Or one 24 GB model via tensor parallel. "
+                      "vLLM supports tensor parallel natively.",
+            "offline_speedup": "2x concurrent throughput",
+            "online_speedup": "No change",
+            "how": "Hardware upgrade; vLLM --tensor-parallel-size 2",
+        },
+        {
+            "rank": 8,
+            "what": "Dedicated inference server (separate machine)",
+            "cost": "$2,000-5,000 (used workstation with GPU)",
+            "impact": "Offload all LLM inference to a separate machine on LAN. "
+                      "Main workstation handles only retrieval. Both machines "
+                      "work at full speed without competing for resources.",
+            "offline_speedup": "Near-online-mode speed for local inference",
+            "online_speedup": "N/A",
+            "how": "Second machine running vLLM, accessible via LAN HTTP API",
         },
     ]
 
@@ -717,6 +981,8 @@ def main():
         print(f"     Impact: {imp['impact']}")
         print(f"     Offline gain: {imp['offline_speedup']}")
         print(f"     Online gain: {imp['online_speedup']}")
+        if imp.get("how"):
+            print(f"     How: {imp['how']}")
         print()
 
     # ==================================================================
@@ -725,9 +991,10 @@ def main():
     report_path = PROJECT_ROOT / "docs" / "WORKSTATION_STRESS_TEST.md"
     _write_report(report_path, hw, idx_700, idx_2000,
                   offline_results_700, phi4_results,
+                  vllm_results_700, vllm_phi4_results,
                   online_results_700, mini_results,
-                  offline_results_2000, online_results_2000,
-                  improvements)
+                  offline_results_2000, vllm_results_2000,
+                  online_results_2000, improvements)
     print(f"Report saved: {report_path}")
     print()
     print("=" * 78)
@@ -764,8 +1031,9 @@ def _print_results_table(title: str, results: List[Dict]):
 
 
 def _write_report(path, hw, idx700, idx2000,
-                  off700, phi4, on700, mini,
-                  off2000, on2000, improvements):
+                  off700, phi4, vllm700, vllm_phi4,
+                  on700, mini,
+                  off2000, vllm2000, on2000, improvements):
     """Write markdown report."""
     lines = [
         "# Workstation Stress Test Simulation Results",
@@ -792,11 +1060,14 @@ def _write_report(path, hw, idx700, idx2000,
     ]
 
     for title, results in [
-        ("Offline (qwen3:8b) -- 700 GB", off700),
-        ("Offline (phi4:14b) -- 700 GB", phi4),
+        ("Offline/Ollama (qwen3:8b) -- 700 GB", off700),
+        ("Offline/Ollama (phi4:14b) -- 700 GB", phi4),
+        ("vLLM Server (qwen3:8b) -- 700 GB", vllm700),
+        ("vLLM Server (phi4:14b) -- 700 GB", vllm_phi4),
         ("Online (gpt-4o) -- 700 GB", on700),
         ("Online (gpt-4o-mini) -- 700 GB", mini),
-        ("Offline (qwen3:8b) -- 2 TB", off2000),
+        ("Offline/Ollama (qwen3:8b) -- 2 TB", off2000),
+        ("vLLM Server (qwen3:8b) -- 2 TB", vllm2000),
         ("Online (gpt-4o) -- 2 TB", on2000),
     ]:
         lines.append(f"## {title}")
