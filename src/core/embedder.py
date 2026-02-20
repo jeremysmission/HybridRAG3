@@ -1,9 +1,9 @@
 # ============================================================================
-# HybridRAG — Embedder (src/core/embedder.py)
+# HybridRAG -- Embedder (src/core/embedder.py)
 # ============================================================================
 #
 # WHAT THIS FILE DOES:
-#   Converts text into "embedding vectors" — arrays of 384 numbers that
+#   Converts text into "embedding vectors" -- arrays of 384 numbers that
 #   represent the MEANING of the text. Two pieces of text with similar
 #   meaning will have similar vectors, even if they use different words.
 #
@@ -36,17 +36,17 @@
 #
 # SECURITY MODEL (3-layer network lockdown):
 #   Layer 1: start_hybridrag.ps1 sets HF_HUB_OFFLINE=1 in the PowerShell
-#            session. This is the primary lockdown — works for all normal
+#            session. This is the primary lockdown -- works for all normal
 #            usage when you launch via the start script.
 #
 #   Layer 2: THIS FILE (embedder.py) enforces HF_HUB_OFFLINE=1 at the
 #            Python level BEFORE importing sentence-transformers. This is
-#            defense-in-depth — if someone runs Python directly without
+#            defense-in-depth -- if someone runs Python directly without
 #            going through start_hybridrag.ps1, the lockdown still holds.
 #            The HuggingFace libraries check os.environ at import time,
 #            so we MUST set these before the import statement.
 #
-#   Layer 3: SEC-001 fix in config.py — API endpoint defaults to empty
+#   Layer 3: SEC-001 fix in config.py -- API endpoint defaults to empty
 #            string instead of public OpenAI, preventing accidental
 #            data exfiltration through the LLM query path.
 #
@@ -58,7 +58,7 @@
 #   This file blocks all HuggingFace network calls. Models must be
 #   pre-cached in .model_cache/ (done by setup_install.ps1 Step 8).
 #   If a model is not cached, SentenceTransformer will raise an error
-#   instead of silently downloading — loud failure, not silent leak.
+#   instead of silently downloading -- loud failure, not silent leak.
 # ============================================================================
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ import os
 #   This Python-level enforcement ensures the lockdown holds regardless
 #   of how the Python process was launched.
 #
-# These are set unconditionally — there is no "online" mode for the
+# These are set unconditionally -- there is no "online" mode for the
 # embedding model. The embedder always runs locally with cached models.
 # Online mode (for the LLM) goes through llm_router.py, not here.
 # ============================================================================
@@ -110,7 +110,7 @@ class Embedder:
         ----------
         model_name : str
             Name of the sentence-transformers model. Must be pre-cached
-            in .model_cache/ — the model will NOT be downloaded from the
+            in .model_cache/ -- the model will NOT be downloaded from the
             internet because HF_HUB_OFFLINE=1 is enforced above.
         """
         self.model_name = model_name
@@ -192,7 +192,7 @@ class Embedder:
         rather than waiting for Python to get around to it.
 
         Safe to call multiple times. After calling close(), the embedder
-        cannot be used again — you'd need to create a new instance.
+        cannot be used again -- you'd need to create a new instance.
         """
         if hasattr(self, "model") and self.model is not None:
             del self.model

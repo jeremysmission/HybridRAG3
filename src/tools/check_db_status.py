@@ -1,5 +1,5 @@
 # ============================================================================
-# HybridRAG — Quick Database Status Check (src/tools/check_db_status.py)
+# HybridRAG -- Quick Database Status Check (src/tools/check_db_status.py)
 # ============================================================================
 #
 # WHAT THIS DOES:

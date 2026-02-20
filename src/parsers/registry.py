@@ -18,8 +18,8 @@ from typing import Dict, Optional, Type
 from .plain_text_parser import PlainTextParser
 from .pdf_parser import PDFParser
 
-# These may already exist in your project; if not, we’ll add them later.
-# If any import fails, you’ll see it immediately and we’ll correct quickly.
+# These may already exist in your project; if not, we'll add them later.
+# If any import fails, you'll see it immediately and we'll correct quickly.
 from .office_docx_parser import DocxParser
 from .office_pptx_parser import PptxParser
 from .office_xlsx_parser import XlsxParser

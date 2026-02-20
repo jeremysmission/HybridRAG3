@@ -1,5 +1,5 @@
 # ============================================================================
-# HybridRAG — Health Checks (src/core/health_checks.py)
+# HybridRAG -- Health Checks (src/core/health_checks.py)
 # ============================================================================
 #
 # WHAT THIS FILE DOES:
@@ -17,7 +17,7 @@
 #
 # DESIGN PRINCIPLE:
 #   Every check returns (ok: bool, message: str).
-#   This makes it trivial to display results in any format —
+#   This makes it trivial to display results in any format --
 #   terminal, GUI, JSON API, whatever.
 # ============================================================================
 
@@ -38,8 +38,8 @@ def check_memmap_ready(vector_store) -> Tuple[bool, str]:
     Returns
     -------
     (ok, message) where:
-        ok : bool — True if memmap is ready for search
-        message : str — human-readable status description
+        ok : bool -- True if memmap is ready for search
+        message : str -- human-readable status description
     """
     # Make sure the vector store actually has a mem_store attribute
     try:

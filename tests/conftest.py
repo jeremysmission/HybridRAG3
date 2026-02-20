@@ -78,6 +78,7 @@ class FakeChunkingConfig:
     """Fake config section for chunking settings."""
     chunk_size: int = 1200
     overlap: int = 200
+    max_heading_len: int = 160
 
 
 @dataclass

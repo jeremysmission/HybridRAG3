@@ -1,12 +1,12 @@
 # ============================================================================
-# HybridRAG — Vector Store (src/core/vector_store.py)
+# HybridRAG -- Vector Store (src/core/vector_store.py)
 # ============================================================================
 #
 # WHAT THIS FILE DOES:
 #   This is the "database" for HybridRAG. It stores three things:
-#     1. Chunk metadata (source file, position, timestamp) — in SQLite
-#     2. Chunk text (the actual words from your documents) — in SQLite
-#     3. Embedding vectors (the math representation of meaning) — in memmap
+#     1. Chunk metadata (source file, position, timestamp) -- in SQLite
+#     2. Chunk text (the actual words from your documents) -- in SQLite
+#     3. Embedding vectors (the math representation of meaning) -- in memmap
 #
 # WHY TWO STORAGE SYSTEMS (SQLite + memmap)?
 #   SQLite is great for structured data (text, metadata, queries) but
@@ -35,7 +35,7 @@
 # WHY INSERT OR IGNORE?
 #   If indexing crashes halfway and you restart, the same chunks get
 #   the same deterministic IDs (from chunk_ids.py). INSERT OR IGNORE
-#   means "skip it if it already exists" — so you never get duplicates.
+#   means "skip it if it already exists" -- so you never get duplicates.
 #
 # BUGS FIXED (2026-02-08):
 #   BUG-001: Added file_hash column to chunks table + migration.
@@ -85,18 +85,18 @@ class EmbeddingMemmapStore:
     Disk-backed embedding store using numpy memory-mapped files.
 
     Files created:
-      embeddings.f16.dat   — raw float16 matrix, shape [N, 384]
-      embeddings_meta.json — bookkeeping: {"dim": 384, "count": 12345}
+      embeddings.f16.dat   -- raw float16 matrix, shape [N, 384]
+      embeddings_meta.json -- bookkeeping: {"dim": 384, "count": 12345}
 
     How memmap works (plain English):
       A normal numpy array lives entirely in RAM. A memmap array lives
       on disk, and numpy only loads the specific rows you ask for.
       This means you can have 10 million embeddings on a laptop with
-      8GB RAM — numpy just reads the disk when you do a search.
+      8GB RAM -- numpy just reads the disk when you do a search.
 
     Append-only design:
       New embeddings are always added at the end. We never modify or
-      delete rows in the middle. Orphaned rows are harmless — search()
+      delete rows in the middle. Orphaned rows are harmless -- search()
       never returns them because nothing in SQLite points to them.
     """
 
@@ -143,7 +143,7 @@ class EmbeddingMemmapStore:
         """
         Append a batch of embeddings to the memmap file.
 
-        Returns (start_row, end_row_exclusive) — the row indices where
+        Returns (start_row, end_row_exclusive) -- the row indices where
         these embeddings were stored. SQLite uses these to link chunks
         to their embedding vectors.
         """
@@ -194,7 +194,7 @@ class EmbeddingMemmapStore:
 
 
 # -------------------------------------------------------------------
-# VectorStore — the main class that everything else uses
+# VectorStore -- the main class that everything else uses
 # -------------------------------------------------------------------
 
 class VectorStore:
@@ -273,7 +273,7 @@ class VectorStore:
             )
             self.conn.commit()
         except Exception:
-            pass  # Column already exists — expected and fine
+            pass  # Column already exists -- expected and fine
 
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_path);"
@@ -313,7 +313,7 @@ class VectorStore:
             The actual text content of each chunk.
         chunk_ids : list of str, length N (optional)
             Deterministic IDs for idempotent indexing.
-        file_hash : str (NEW — BUG-001 fix)
+        file_hash : str (NEW -- BUG-001 fix)
             Fingerprint of the source file, e.g. "284519:132720938471230000".
             Stored with every chunk so the indexer can detect file changes.
         """
@@ -407,7 +407,7 @@ class VectorStore:
         Delete all chunks for a given source file.
         Returns the number of chunks deleted.
 
-        NOTE: Orphaned memmap rows are harmless — search() never returns
+        NOTE: Orphaned memmap rows are harmless -- search() never returns
         them because nothing in SQLite points to them.
         """
         assert self.conn is not None

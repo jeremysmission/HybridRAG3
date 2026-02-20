@@ -1,5 +1,5 @@
 # ============================================================================
-# HybridRAG — Email Parser (src/parsers/eml_parser.py)
+# HybridRAG -- Email Parser (src/parsers/eml_parser.py)
 # ============================================================================
 #
 # WHAT THIS FILE DOES:
@@ -10,7 +10,7 @@
 # HOW IT WORKS:
 #   1. Opens the .eml file and parses it using Python's built-in email library
 #   2. Extracts headers: Subject, From, To, Cc, Date, Message-ID
-#   3. Finds the email body — prefers plain text, falls back to HTML
+#   3. Finds the email body -- prefers plain text, falls back to HTML
 #   4. If the body is HTML, strips out all tags to get clean text
 #   5. Combines headers + body into one text block for indexing
 #   6. Returns diagnostics showing exactly what happened
@@ -28,9 +28,9 @@
 #
 # DEPENDENCIES:
 #   - Python's built-in `email` module (no extra installs needed)
-#   - No external libraries required — everything is stdlib
+#   - No external libraries required -- everything is stdlib
 #
-# INTERNET ACCESS: None — purely local file processing
+# INTERNET ACCESS: None -- purely local file processing
 # ============================================================================
 
 import os
@@ -114,7 +114,7 @@ class EmlParser:
 
     Design principles:
         - Uses only Python's built-in email library (no pip installs)
-        - Never crashes the indexing pipeline — always returns gracefully
+        - Never crashes the indexing pipeline -- always returns gracefully
         - Prefers plain text body, falls back to stripped HTML
         - Returns full diagnostics for debugging and audit trail
 
@@ -180,7 +180,7 @@ class EmlParser:
             # ============================================================
             # STEP 2: Extract email headers
             # ============================================================
-            # These headers are the "envelope" of the email — who sent it,
+            # These headers are the "envelope" of the email -- who sent it,
             # who received it, when, and what the subject was.
             def _h(name: str) -> str:
                 """Safely get a header value, returning empty string if missing."""
@@ -204,7 +204,7 @@ class EmlParser:
             # Multipart emails may have:
             #   - text/plain (the readable text we want)
             #   - text/html (HTML-formatted version)
-            #   - attachments (files — we skip these)
+            #   - attachments (files -- we skip these)
             #
             # We walk through all parts looking for the body text.
             # Preference: text/plain > text/html (stripped)
@@ -237,7 +237,7 @@ class EmlParser:
                         elif ctype == "text/html" and not text_html:
                             text_html = decoded
             else:
-                # Simple (non-multipart) email — just one body
+                # Simple (non-multipart) email -- just one body
                 ctype = msg.get_content_type()
                 payload = msg.get_payload(decode=True)
                 charset = msg.get_content_charset()

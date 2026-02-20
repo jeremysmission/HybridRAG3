@@ -1,5 +1,5 @@
 # ============================================================================
-# HybridRAG — Structured Logger (src/monitoring/logger.py)
+# HybridRAG -- Structured Logger (src/monitoring/logger.py)
 # ============================================================================
 #
 # WHAT THIS FILE DOES:
@@ -38,7 +38,7 @@
 #   - structlog: A structured logging library that outputs JSON
 #   - Python's built-in logging module (structlog builds on top of it)
 #
-# INTERNET ACCESS: None — writes to local files only
+# INTERNET ACCESS: None -- writes to local files only
 # ============================================================================
 
 import sys

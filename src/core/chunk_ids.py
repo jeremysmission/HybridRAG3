@@ -1,5 +1,5 @@
 # ============================================================================
-# HybridRAG — Chunk ID Generator (src/core/chunk_ids.py)
+# HybridRAG -- Chunk ID Generator (src/core/chunk_ids.py)
 # ============================================================================
 #
 # WHAT THIS FILE DOES:
@@ -7,7 +7,7 @@
 #
 #   "Repeatable" means: if you run indexing twice on the same file,
 #   the same chunks get the same IDs both times. This is called
-#   "deterministic" — the output is determined by the input, not by
+#   "deterministic" -- the output is determined by the input, not by
 #   randomness or timestamps.
 #
 # WHY THIS MATTERS:
@@ -16,7 +16,7 @@
 #   would create DUPLICATE chunks for files #1 through #7,000 because
 #   each run would generate new random IDs.
 #
-#   With deterministic IDs, the database says "INSERT OR IGNORE" — 
+#   With deterministic IDs, the database says "INSERT OR IGNORE" -- 
 #   it sees the same chunk_id already exists and skips it. No duplicates.
 #   Indexing effectively resumes from where it left off.
 #
@@ -30,8 +30,8 @@
 #     5. Chunk text fingerprint (what the text actually says)
 #
 #   If ANY of these change, the chunk ID changes. This means:
-#     - Edit a file → new mtime → new IDs → file gets re-indexed
-#     - Same file, same content → same IDs → safely skipped
+#     - Edit a file -> new mtime -> new IDs -> file gets re-indexed
+#     - Same file, same content -> same IDs -> safely skipped
 #
 # WHY SHA256 INSTEAD OF SIMPLER OPTIONS:
 #   - UUID4: random, not deterministic (defeats the whole purpose)
@@ -43,7 +43,7 @@
 # WHY NOT HASH THE ENTIRE FILE CONTENT (like xxhash)?
 #   Reading entire files is slow on network drives. A 500MB PDF takes
 #   seconds to hash. By using mtime (modification timestamp), we get
-#   "did this file change?" detection for free — the OS already tracks
+#   "did this file change?" detection for free -- the OS already tracks
 #   it. The tradeoff is that mtime can be wrong in rare cases (copied
 #   files, clock skew), but for practical use it's reliable enough.
 # ============================================================================

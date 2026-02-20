@@ -49,7 +49,7 @@ def main() -> None:
         print("")
 
         # Totals by stage
-        # Each file goes through stages: scan → hash → parse → chunk → embed → done
+        # Each file goes through stages: scan -> hash -> parse -> chunk -> embed -> done
         # This query counts how many events occurred at each stage
         totals = con.execute(
             """

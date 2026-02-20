@@ -1,5 +1,5 @@
 # ============================================================================
-# HybridRAG — PDF OCR Fallback (src/parsers/pdf_ocr_fallback.py)
+# HybridRAG -- PDF OCR Fallback (src/parsers/pdf_ocr_fallback.py)
 # ============================================================================
 #
 # WHAT THIS FILE DOES:
@@ -28,13 +28,13 @@
 # CONFIGURATION (via environment variables):
 #   HYBRIDRAG_OCR_TRIGGER_MIN_CHARS = 20    (OCR if normal extraction < this)
 #   HYBRIDRAG_OCR_MAX_PAGES = 200           (don't OCR more than this)
-#   HYBRIDRAG_OCR_DPI = 200                 (image quality — higher = slower)
+#   HYBRIDRAG_OCR_DPI = 200                 (image quality -- higher = slower)
 #   HYBRIDRAG_OCR_TIMEOUT_S = 20            (seconds per page before giving up)
 #   HYBRIDRAG_OCR_LANG = "eng"              (language for OCR recognition)
 #   HYBRIDRAG_TESSERACT_CMD = ""            (path to tesseract.exe if not in PATH)
 #   HYBRIDRAG_POPPLER_BIN = ""              (path to poppler bin/ folder)
 #
-# INTERNET ACCESS: None — purely local processing
+# INTERNET ACCESS: None -- purely local processing
 # ============================================================================
 
 import os
@@ -55,8 +55,8 @@ def _get_int_env(name: str, default: int) -> int:
 
     Example:
         _get_int_env("HYBRIDRAG_OCR_DPI", 200)
-        → Returns 200 if the env var isn't set
-        → Returns the env var's value as an integer if it is set
+        -> Returns 200 if the env var isn't set
+        -> Returns the env var's value as an integer if it is set
     """
     try:
         return int(str(os.getenv(name, str(default))).strip())
@@ -91,8 +91,8 @@ def ocr_deps_available() -> Tuple[bool, Dict[str, Any]]:
     details: Dict[str, Any] = {}
     try:
         # Try importing both required libraries
-        import pytesseract  # noqa — The Python wrapper for Tesseract OCR
-        from pdf2image import convert_from_path  # noqa — Converts PDF pages to images
+        import pytesseract  # noqa -- The Python wrapper for Tesseract OCR
+        from pdf2image import convert_from_path  # noqa -- Converts PDF pages to images
         details["pytesseract_import"] = True
         details["pdf2image_import"] = True
     except Exception as e:
@@ -233,7 +233,7 @@ def ocr_pdf_pages(
                 try:
                     page_text = fut.result(timeout=timeout_s)
                 except FuturesTimeoutError:
-                    # This page took too long — skip it and continue
+                    # This page took too long -- skip it and continue
                     details["pages_timed_out"] += 1
                     continue
 
@@ -246,7 +246,7 @@ def ocr_pdf_pages(
                 parts.append(f"\n\n[OCR_PAGE={page_num}]\n{page_text}")
 
         except Exception:
-            # This page crashed OCR — skip it and continue
+            # This page crashed OCR -- skip it and continue
             details["pages_failed"] += 1
             continue
 

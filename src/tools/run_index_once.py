@@ -1,5 +1,5 @@
 # ============================================================================
-# HybridRAG — Main Indexing Runner (src/tools/run_index_once.py)
+# HybridRAG -- Main Indexing Runner (src/tools/run_index_once.py)
 # ============================================================================
 #
 # WHAT THIS FILE DOES:
@@ -355,14 +355,14 @@ def main():
         #   3. Re-enable Windows sleep
         #
         # If indexer.close() also closes vs, calling vs.close() again
-        # is safe — the close() methods are all idempotent (no-op if
+        # is safe -- the close() methods are all idempotent (no-op if
         # already closed).
         # =============================================================
         tracker.close()
         try:
             indexer.close()
         except Exception:
-            pass  # Best-effort cleanup — don't crash during shutdown
+            pass  # Best-effort cleanup -- don't crash during shutdown
         try:
             vs.close()
         except Exception:

@@ -1,0 +1,1 @@
+Start-Process notepad "D:\HybridRAG3\tools\index_status.py"

@@ -381,18 +381,25 @@ class NetworkGate:
         Non-raising version of check_allowed.
 
         Returns True if the URL would be allowed, False if it would be blocked.
-        Does NOT log to the audit trail (use check_allowed for that).
-        Useful for conditional logic where you want to check without raising.
+        The check is recorded in the audit trail labeled 'is_allowed_check'.
+        This is correct zero-trust behavior -- all access checks should be audited.
+
+        WHY THIS WAS REDESIGNED:
+          The previous version temporarily swapped self._audit_log with an empty
+          list to suppress logging. This created two bugs:
+            1. Not thread-safe: two non-atomic bytecode instructions to swap/restore
+            2. Any exception other than NetworkBlockedError left _audit_log corrupted
+          The fix is simple: let check_allowed run normally. The audit log entry
+          labeled 'is_allowed_check' is correct -- you want to know everything
+          that touched the gate, including non-raising probes.
         """
         try:
-            # Temporarily suppress logging
-            old_log = self._audit_log
-            self._audit_log = []
             self.check_allowed(url, purpose="is_allowed_check")
-            self._audit_log = old_log
             return True
         except NetworkBlockedError:
-            self._audit_log = old_log
+            return False
+        except Exception:
+            # Any unexpected error -- fail closed (deny access)
             return False
 
     # -- AUDIT LOG --
