@@ -5,7 +5,7 @@ try:
     from src.core.config import Config
     cfg = Config()
     db_path = cfg.database.path if hasattr(cfg, "database") else None
-except:
+except Exception:
     db_path = None
 
 # Try common database locations
@@ -34,14 +34,14 @@ for db in candidates:
             cur.execute("SELECT COUNT(*) FROM chunks")
             chunks = cur.fetchone()[0]
             print(f"  Chunks:   {chunks}")
-        except: pass
+        except Exception: pass
         
         # Count unique files
         try:
             cur.execute("SELECT COUNT(DISTINCT source_file) FROM chunks")
             files = cur.fetchone()[0]
             print(f"  Files:    {files}")
-        except: pass
+        except Exception: pass
         
         # Last indexed
         try:
@@ -49,14 +49,14 @@ for db in candidates:
             last = cur.fetchone()[0]
             if last:
                 print(f"  Last indexed: {last}")
-        except: pass
+        except Exception: pass
         
         # Index runs
         try:
             cur.execute("SELECT COUNT(*) FROM index_runs")
             runs = cur.fetchone()[0]
             print(f"  Total runs:   {runs}")
-        except: pass
+        except Exception: pass
         
         conn.close()
     except Exception as e:
