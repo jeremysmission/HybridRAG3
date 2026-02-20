@@ -90,7 +90,7 @@ class HardwareProfile:
 # Pre-built hardware profiles
 PERSONAL_WORKSTATION = HardwareProfile(
     name="Personal Workstation (Home Build)",
-    cpu_threads=32,           # AMD Ryzen 9 (AM5) -- 16 cores / 32 threads
+    cpu_threads=16,           # AMD Ryzen 7 7700X -- 8 cores / 16 threads, 5.4 GHz boost
     ram_gb=128.0,             # 128 GB DDR5 6000 MT/s (2x G.SKILL Flare X5 64GB kits)
     gpu_vram_gb=48.0,         # 2x RTX 3090 FE = 24 GB GDDR6X each = 48 GB total
     gpu_name="2x RTX 3090 FE (NVLink)",
