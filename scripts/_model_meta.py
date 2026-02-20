@@ -139,8 +139,10 @@ RECOMMENDED_OFFLINE = {
 #   deepseek-r1:70b    ~43 GB download, ~48 GB VRAM at Q4_K_M
 #   llama3.1:70b       ~43 GB download, ~48 GB VRAM at Q4_K_M
 #
-# NOTE: qwen3:72b does NOT exist. Qwen3 jumps from 32B to 235B (MoE).
+# NOTE: Neither qwen3:72b nor qwen3:72b-q4_K_M exist. Qwen3 sizes are:
+#       0.6b, 1.7b, 4b, 8b, 14b, 30b, 32b, 235b. No 72B variant.
 #       Use qwen3:32b as the stepping stone above 8B.
+# ALL TAGS VERIFIED against live Ollama library 2026-02-20.
 # ============================================================================
 
 PERSONAL_FUTURE = {
