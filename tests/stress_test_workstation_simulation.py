@@ -89,21 +89,34 @@ class HardwareProfile:
 
 # Pre-built hardware profiles
 PERSONAL_WORKSTATION = HardwareProfile(
-    name="Personal Workstation (Home)",
-    cpu_threads=28,           # Desktop Intel Core Ultra 7 (8P HT + 12E = 28 threads)
-    ram_gb=64.0,              # DDR5 6400+ MT/s
-    gpu_vram_gb=12.0,         # Desktop RTX Blackwell 12 GB GDDR7
-    gpu_name="RTX Blackwell Desktop 12GB",
+    name="Personal Workstation (Home Build)",
+    cpu_threads=32,           # AMD Ryzen 9 (AM5) -- 16 cores / 32 threads
+    ram_gb=128.0,             # 128 GB DDR5 6000 MT/s (2x G.SKILL Flare X5 64GB kits)
+    gpu_vram_gb=48.0,         # 2x RTX 3090 FE = 24 GB GDDR6X each = 48 GB total
+    gpu_name="2x RTX 3090 FE (NVLink)",
     storage_type="NVMe SSD",
-    storage_model="Samsung 990 EVO Plus 2TB (PCIe Gen5x2/Gen4x4)",
-    storage_read_mbps=7250,   # Samsung 990 EVO Plus sequential read
-    storage_iops=1000000,     # PCIe Gen5 class random IOPS
+    storage_model="TBD (EVOs returned, PCIe 5.0 M.2 slot ready)",
+    storage_read_mbps=5000,   # Placeholder -- assuming decent Gen4 NVMe
+    storage_iops=700000,
 )
-# Personal desktop Blackwell advantage over laptop variant:
-#   - Higher TDP (~250W vs 60W) = higher sustained GPU clocks
-#   - Same GDDR7 memory bandwidth (~672 GB/s) but better sustained
-#   - Desktop CPU runs at full power without thermal throttling
-#   - Samsung 990 EVO Plus: 7,250 MB/s vs laptop SN8000S: 5,545 MB/s
+# Personal workstation build:
+#   Mobo:  ASUS TUF Gaming B650-PLUS WiFi (AM5, PCIe 5.0 M.2)
+#   PSU:   Corsair RM1200x Shift 1200W (ATX 3.1, 80+ Gold)
+#   Case:  Lian Li Dynamic EVO XL (E-ATX, up to 3x 420mm rad)
+#   Cool:  Thermalright Peerless Assassin 120 SE + 5x Arctic P14 140mm
+#   GPU:   2x NVIDIA GeForce RTX 3090 Founders Edition (Renewed)
+#          - 24 GB GDDR6X each, 936 GB/s mem bandwidth each
+#          - 10,496 CUDA cores each, 350W TDP each
+#          - NVLink bridge supported (112.5 GB/s bidirectional)
+#   RAM:   4x 32GB G.SKILL Flare X5 DDR5 6000 CL30 (AMD EXPO)
+#
+# KEY ADVANTAGES:
+#   - 48 GB total VRAM = can run 70B parameter models (q4 quantized)
+#   - Dual GPU with vLLM tensor parallel = 2x throughput
+#   - Or: serve TWO different models simultaneously (one per GPU)
+#   - 128 GB RAM = handles 2TB+ indexes entirely in memory
+#   - RTX 3090 GDDR6X at 936 GB/s = ~3.7x baseline memory bandwidth
+#   - 1200W PSU handles both GPUs at full load (2x 350W + system)
 
 WORK_LAPTOP = HardwareProfile(
     name="Work Laptop (Demo)",
@@ -337,19 +350,35 @@ def llm_inference_offline(
     # Baseline: desktop GDDR6 at ~256 GB/s memory bandwidth
     # Blackwell GDDR7 at ~672 GB/s = ~2.6x bandwidth = ~2.3x actual throughput
     # (not perfectly linear due to compute overhead, but close)
+    # GPU architecture determines throughput scaling
+    # Baseline: older desktop 12GB GDDR6 at ~256 GB/s memory bandwidth
+    # LLM token gen is memory-bandwidth-bound (reading model weights per token)
     is_blackwell = "Blackwell" in hw.gpu_name or "RTX Pro 3000" in hw.gpu_name
-    # Desktop Blackwell has higher sustained clocks due to higher TDP (250W vs 60W)
-    if is_blackwell and "Desktop" in hw.gpu_name:
-        bw_multiplier = 2.5  # Desktop: higher sustained clocks + same GDDR7
+    is_dual_3090 = "3090" in hw.gpu_name
+    num_gpus = 2 if ("2x" in hw.gpu_name or "dual" in hw.gpu_name.lower()) else 1
+
+    if is_dual_3090:
+        # RTX 3090 GDDR6X: 936 GB/s per GPU = ~3.7x baseline
+        # Dual GPUs: Ollama uses ONE GPU at a time (serial, no tensor parallel)
+        # But having 2 GPUs means we can alternate / load-balance
+        bw_multiplier = 3.7
+        gpu_tag = "RTX 3090 3.7x"
+    elif is_blackwell and "Desktop" in hw.gpu_name:
+        bw_multiplier = 2.5
+        gpu_tag = "Blackwell Desktop 2.5x"
     elif is_blackwell:
-        bw_multiplier = 2.3  # Laptop: 60W TDP, slight thermal throttling
+        bw_multiplier = 2.3
+        gpu_tag = "Blackwell Laptop 2.3x"
     else:
         bw_multiplier = 1.0
+        gpu_tag = ""
 
     # Model-specific throughput (tokens per second on BASELINE older 12 GB GPU)
     model_throughput = {
         "qwen3:8b":          {"prompt_tps": 200, "gen_tps": 30, "note": "Primary for most profiles"},
-        "phi4:14b-q4_K_M":   {"prompt_tps": 120, "gen_tps": 17, "note": "Tight fit in 12GB VRAM"},
+        "phi4:14b-q4_K_M":   {"prompt_tps": 120, "gen_tps": 17, "note": "14B model"},
+        "qwen3:32b-q4":      {"prompt_tps": 80,  "gen_tps": 12, "note": "32B model (needs 20GB VRAM)"},
+        "llama3:70b-q4":     {"prompt_tps": 40,  "gen_tps": 6,  "note": "70B model (needs 40GB VRAM, tensor parallel)"},
         "deepseek-r1:8b":    {"prompt_tps": 180, "gen_tps": 25, "note": "Reasoning model, slower gen"},
         "gemma3:4b":         {"prompt_tps": 300, "gen_tps": 45, "note": "Small, fast"},
     }
@@ -358,10 +387,11 @@ def llm_inference_offline(
     # Scale throughput by GPU memory bandwidth
     effective_prompt_tps = specs["prompt_tps"] * bw_multiplier
     effective_gen_tps = specs["gen_tps"] * bw_multiplier
+    tag = f" [{gpu_tag}]" if gpu_tag else ""
     specs = {
         "prompt_tps": effective_prompt_tps,
         "gen_tps": effective_gen_tps,
-        "note": specs["note"] + (f" [Blackwell {bw_multiplier:.1f}x]" if is_blackwell else ""),
+        "note": specs["note"] + tag,
     }
 
     # Typical query context
@@ -373,11 +403,14 @@ def llm_inference_offline(
     gen_time = output_tokens / specs["gen_tps"]
     single_user_time = prompt_time + gen_time
 
-    # CRITICAL: GPU is a SERIAL BOTTLENECK
-    # Ollama processes one request at a time on GPU.
-    # With N concurrent users, average wait = (N-1)/2 * single_user_time
-    # Plus the user's own inference time.
-    avg_queue_wait = ((concurrent - 1) / 2) * single_user_time
+    # CRITICAL: GPU is a SERIAL BOTTLENECK (per GPU)
+    # Ollama processes one request at a time per GPU.
+    # With dual GPUs, Ollama can run 2 models or load-balance.
+    # Effective parallelism = number of GPUs.
+    # With N concurrent users and G GPUs:
+    #   avg_queue_wait = ((N/G - 1) / 2) * single_user_time
+    effective_concurrent = max(1, concurrent / num_gpus)
+    avg_queue_wait = ((effective_concurrent - 1) / 2) * single_user_time
     total_time = avg_queue_wait + single_user_time
 
     return total_time, specs["note"]
@@ -463,35 +496,64 @@ def llm_inference_vllm_server(
     """
     # GPU architecture scaling (same as offline)
     is_blackwell = "Blackwell" in hw.gpu_name or "RTX Pro 3000" in hw.gpu_name
-    if is_blackwell and "Desktop" in hw.gpu_name:
+    is_dual_3090 = "3090" in hw.gpu_name
+    num_gpus = 2 if ("2x" in hw.gpu_name or "dual" in hw.gpu_name.lower()) else 1
+
+    if is_dual_3090:
+        bw_multiplier = 3.7
+        gpu_tag = "2x RTX 3090"
+    elif is_blackwell and "Desktop" in hw.gpu_name:
         bw_multiplier = 2.5
+        gpu_tag = "Blackwell Desktop"
     elif is_blackwell:
         bw_multiplier = 2.3
+        gpu_tag = "Blackwell Laptop"
     else:
         bw_multiplier = 1.0
+        gpu_tag = ""
 
     # Model throughput under vLLM continuous batching (BASELINE desktop 12 GB GPU)
     model_throughput = {
         "qwen3:8b": {
-            "single_tps": 30,      # Same as Ollama for single user
-            "batch_factor": 2.5,   # vLLM batch efficiency vs serial
-            "max_batch": 4,        # Max concurrent batch on 12 GB VRAM
-            "note": "vLLM continuous batching, ~2.5x Ollama throughput",
+            "single_tps": 30,
+            "batch_factor": 2.5,
+            "max_batch": 4,        # Per GPU
+            "note": "vLLM continuous batching",
         },
         "phi4:14b-q4_K_M": {
             "single_tps": 17,
-            "batch_factor": 2.0,   # Larger model = less batch headroom
-            "max_batch": 2,        # Tight VRAM, limited batching
-            "note": "vLLM batching limited by 12GB VRAM",
+            "batch_factor": 2.0,
+            "max_batch": 2,
+            "note": "vLLM batching, 14B model",
+        },
+        "qwen3:32b-q4": {
+            "single_tps": 12,
+            "batch_factor": 2.0,
+            "max_batch": 3,        # 20GB model in 24GB = room for batching
+            "note": "vLLM 32B model, fits in one 24GB GPU",
+        },
+        "llama3:70b-q4": {
+            "single_tps": 6,
+            "batch_factor": 1.8,
+            "max_batch": 2,        # Tensor parallel across 2 GPUs, tight
+            "note": "vLLM 70B tensor parallel across 2 GPUs",
         },
     }
 
     specs = model_throughput.get(model, model_throughput["qwen3:8b"])
-    # Scale by GPU memory bandwidth
     specs = dict(specs)  # copy
     specs["single_tps"] = specs["single_tps"] * bw_multiplier
-    if is_blackwell:
-        specs["note"] += f" [Blackwell {bw_multiplier:.1f}x]"
+    # Dual GPUs with vLLM: can run tensor parallel (1 big model across 2)
+    # or serve 2 models independently (doubles max_batch)
+    if num_gpus > 1 and model != "llama3:70b-q4":
+        # Non-tensor-parallel models: serve from both GPUs independently
+        specs["max_batch"] = specs["max_batch"] * num_gpus
+        specs["note"] += f" [2 GPUs independent, {specs['max_batch']} batch]"
+    elif num_gpus > 1:
+        # 70B model: tensor parallel, single model across both GPUs
+        specs["note"] += f" [tensor parallel 2 GPUs]"
+    if gpu_tag:
+        specs["note"] += f" [{gpu_tag} {bw_multiplier:.1f}x]"
 
     input_tokens = 1500
     output_tokens = 400
@@ -636,8 +698,12 @@ def main():
     print("SCENARIO 1: PERSONAL WORKSTATION -- OFFLINE (Ollama) -- 700 GB")
     print("=" * 78)
     print()
-    print("Mixed profiles: qwen3:8b (eng/pm/sys/draft), phi4:14b (logistics),")
-    print("deepseek-r1:8b (reasoning), gemma3:4b (fast summarization)")
+    print("NOTE: Personal workstation is for HOME development/testing ONLY.")
+    print("Cannot bring to work. Cannot comingle work data on it.")
+    print("Used for scalability testing and offline AI experimentation.")
+    print()
+    print("2x RTX 3090 FE = 48 GB VRAM total. Ollama can load-balance across GPUs.")
+    print("936 GB/s memory bandwidth per GPU = 3.7x faster than baseline GDDR6.")
     print()
     print("Using qwen3:8b as primary (covers most use cases)")
     print()
@@ -657,6 +723,25 @@ def main():
         r = simulate_query(hw, idx_700, n, "offline", "phi4:14b-q4_K_M", reranker=True)
         phi4_results.append(r)
     _print_results_table("OFFLINE (phi4:14b) -- 700 GB", phi4_results)
+
+    # Show larger models that dual 3090 enables
+    if hw.gpu_vram_gb >= 24:
+        print()
+        print("  qwen3:32b-q4 (fits in one 24 GB GPU, massive quality upgrade):")
+        q32_results = []
+        for n in user_counts:
+            r = simulate_query(hw, idx_700, n, "offline", "qwen3:32b-q4", reranker=True)
+            q32_results.append(r)
+        _print_results_table("OFFLINE (qwen3:32b) -- 700 GB", q32_results)
+
+    if hw.gpu_vram_gb >= 40:
+        print()
+        print("  llama3:70b-q4 (tensor parallel across 2x 3090, 40 GB needed):")
+        l70_results = []
+        for n in user_counts:
+            r = simulate_query(hw, idx_700, n, "offline", "llama3:70b-q4", reranker=True)
+            l70_results.append(r)
+        _print_results_table("OFFLINE (llama3:70b) -- 700 GB", l70_results)
 
     # ==================================================================
     # vLLM SERVER MODE (700 GB) -- continuous batching
@@ -688,6 +773,25 @@ def main():
         r = simulate_query(hw, idx_700, n, "vllm", "phi4:14b-q4_K_M", reranker=True)
         vllm_phi4_results.append(r)
     _print_results_table("vLLM SERVER (phi4:14b) -- 700 GB", vllm_phi4_results)
+
+    # Show larger models via vLLM on dual 3090
+    if hw.gpu_vram_gb >= 24:
+        print()
+        print("  qwen3:32b-q4 via vLLM (fits one GPU, other GPU serves parallel):")
+        vllm_q32 = []
+        for n in user_counts:
+            r = simulate_query(hw, idx_700, n, "vllm", "qwen3:32b-q4", reranker=True)
+            vllm_q32.append(r)
+        _print_results_table("vLLM SERVER (qwen3:32b) -- 700 GB", vllm_q32)
+
+    if hw.gpu_vram_gb >= 40:
+        print()
+        print("  llama3:70b-q4 via vLLM (tensor parallel across 2x 3090):")
+        vllm_l70 = []
+        for n in user_counts:
+            r = simulate_query(hw, idx_700, n, "vllm", "llama3:70b-q4", reranker=True)
+            vllm_l70.append(r)
+        _print_results_table("vLLM SERVER (llama3:70b) -- 700 GB", vllm_l70)
 
     # ==================================================================
     # ONLINE MODE SIMULATION (700 GB)
