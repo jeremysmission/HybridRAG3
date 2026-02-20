@@ -19,6 +19,7 @@ from src.core.boot import boot_hybridrag, BootResult
 result: BootResult = boot_hybridrag(config_path=None)
 
 # BootResult fields:
+#   boot_timestamp: str        -- ISO timestamp of boot (e.g., "2026-02-20 14:30:00")
 #   success: bool              -- True if at least one mode is available
 #   online_available: bool     -- True if API client was built
 #   offline_available: bool    -- True if Ollama responds
@@ -371,6 +372,61 @@ score: int = use_case_score(tier_eng=85, tier_gen=70, uc_key="eng")
 # Recommended model for a use case
 rec = RECOMMENDED_OFFLINE["eng"]
 # {primary, alt, temperature, context, reranker, top_k}
+```
+
+---
+
+## 15. Hallucination Guard
+
+**Module:** `src/core/hallucination_guard/__init__.py`
+**Status:** STABLE
+
+```python
+from src.core.hallucination_guard import (
+    guard_response, harden_prompt, HallucinationGuard, GuardConfig,
+    GuardResult, ClaimResult, ClaimVerdict, GUARD_VERSION,
+)
+
+# GUARD_VERSION: str  -- Package version (currently "1.1.0")
+
+# Before LLM call: harden the prompt
+pkg: dict = harden_prompt(system_prompt, query, chunks, source_files)
+# Keys: "system", "user"
+
+# After LLM call: verify the response
+result: GuardResult = guard_response(response_text, chunks, query)
+# GuardResult fields:
+#   is_safe: bool           -- True if faithfulness >= threshold
+#   faithfulness: float     -- 0.0-1.0 overall score
+#   original_response: str  -- The LLM's raw response
+#   safe_response: str      -- Conservative fallback (if not safe)
+#   claims: List[ClaimResult]  -- Per-claim verification results
+```
+
+---
+
+## 16. Exceptions
+
+**Module:** `src/core/exceptions.py`
+**Status:** STABLE
+
+```python
+from src.core.exceptions import (
+    HybridRAGError,        # Base class for all custom exceptions
+    ConfigError,           # Invalid config (CONF-*)
+    AuthRejectedError,     # 401/403 from API (AUTH-001)
+    NetworkBlockedError,   # Gate denied connection (NET-001)
+    EndpointNotConfiguredError,  # Missing endpoint (NET-002)
+    EmbeddingError,        # Model issues (EMB-*)
+    IndexingError,         # Unrecoverable file error (IDX-001)
+)
+
+# All exceptions have:
+#   fix_suggestion: str | None  -- Human-readable fix
+#   error_code: str | None      -- Machine-readable code (e.g., "IDX-001")
+
+# IndexingError also has:
+#   file_path: str | None       -- The file that caused the error
 ```
 
 ---

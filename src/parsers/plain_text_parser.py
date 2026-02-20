@@ -1,12 +1,26 @@
 # ============================================================================
-# HybridRAG - Plain Text Parser (src/parsers/plain_text_parser.py)
+# HybridRAG -- Plain Text Parser (src/parsers/plain_text_parser.py)
 # ============================================================================
-# Extracts text from "text-like" files:
-#   .txt, .md, .csv, .json, .xml, .log, .yaml, etc.
 #
-# Why this is separate:
-# - Prevents circular imports between registry.py and text_parser.py
-# - Keeps things modular as we add many parsers (emails, images, CAD, etc.)
+# WHAT THIS FILE DOES (plain English):
+#   The simplest parser in HybridRAG. It reads files that are already
+#   plain text -- no conversion needed. This covers:
+#     .txt, .md, .csv, .json, .xml, .log, .yaml, .ini
+#
+#   Unlike PDF or Word files, these are already human-readable text.
+#   We just read the bytes, decode them as UTF-8, and pass along.
+#
+# WHY errors="ignore"?
+#   Some text files may contain a few non-UTF-8 bytes (e.g., a log
+#   file from a system that uses Latin-1 encoding). Rather than crash
+#   on one bad byte, we skip it and keep the rest. Losing one character
+#   out of 100,000 is better than failing to index the entire file.
+#
+# WHY THIS IS A SEPARATE FILE:
+#   Prevents circular imports. The REGISTRY imports parsers, and if
+#   this lived in text_parser.py, the import chain would loop.
+#
+# INTERNET ACCESS: NONE
 # ============================================================================
 
 from __future__ import annotations

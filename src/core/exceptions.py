@@ -531,3 +531,10 @@ def exception_from_http_status(status_code, response_body="", deployment=None):
             f"HTTP {status_code}. Response: {body_preview}",
             error_code=f"API-{status_code}",
         )
+
+
+class IndexingError(HybridRAGError):
+    """Raised when the indexing pipeline encounters an unrecoverable file error."""
+    def __init__(self, message, file_path=None, fix_suggestion=None):
+        self.file_path = file_path
+        super().__init__(message, fix_suggestion, error_code="IDX-001")

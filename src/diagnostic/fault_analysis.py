@@ -143,6 +143,9 @@ class FaultAnalysisResult:
 # The Fault Analyzer -- the "smart mechanic"
 # ============================================================================
 
+# ARCHITECTURE NOTE: FaultAnalyzer exceeds 500 lines (656 lines).
+# Split into FaultAnalyzer (hypothesis engine) and
+# FaultReporter (formatting/output) when next modified.
 class FaultAnalyzer:
     """
     Examines all diagnostic results and produces a ranked fault analysis.

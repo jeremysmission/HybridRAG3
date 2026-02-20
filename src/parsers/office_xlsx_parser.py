@@ -1,14 +1,33 @@
 # ============================================================================
-# HybridRAG - XLSX Parser (src/parsers/office_xlsx_parser.py)
+# HybridRAG -- XLSX Parser (src/parsers/office_xlsx_parser.py)
 # ============================================================================
-# Extracts text from Excel (.xlsx) spreadsheets.
 #
-# Strategy:
-# - Read each sheet
-# - Convert rows into pipe-delimited text lines
-# - Skip completely empty rows
+# WHAT THIS FILE DOES (plain English):
+#   Reads Excel (.xlsx) spreadsheet files and converts them into
+#   searchable text. Each sheet becomes a labeled section, and each
+#   row becomes a pipe-delimited line (like: "Part No | Description | Qty").
 #
-# This is not "perfect Excel understanding", but it makes key content searchable.
+# WHY THIS MATTERS:
+#   Parts lists, test results, configuration tables, and inventory
+#   spreadsheets contain structured data that people need to search.
+#   "What part number is the antenna?" should find the row in the
+#   equipment spreadsheet even though it's not a PDF or Word doc.
+#
+# HOW IT WORKS:
+#   1. Open the .xlsx file using openpyxl in read-only mode (low RAM)
+#   2. Loop through every sheet (workbook tab)
+#   3. Tag each sheet with [SHEET] SheetName for traceability
+#   4. For each row, convert all cell values to strings
+#   5. Join cells with " | " pipe delimiters
+#   6. Skip entirely empty rows (all cells blank)
+#   7. Return combined text + details (sheet count, row count)
+#
+# LIMITATIONS:
+#   This is not "perfect Excel understanding" -- it does not interpret
+#   formulas, charts, or conditional formatting. But it makes the
+#   TEXT CONTENT of every cell searchable, which covers 90%+ of use cases.
+#
+# INTERNET ACCESS: NONE
 # ============================================================================
 
 from __future__ import annotations
@@ -33,6 +52,9 @@ class XlsxParser:
             return "", details
 
         try:
+            # data_only=True reads the computed VALUES of formulas (not the
+            # formula text). read_only=True prevents loading the entire file
+            # into memory at once (important for huge spreadsheets).
             wb = openpyxl.load_workbook(str(path), data_only=True, read_only=True)
 
             parts = []

@@ -1,11 +1,34 @@
 # ============================================================================
-# HybridRAG - Query Engine (src/core/query_engine.py)
+# HybridRAG -- Query Engine (src/core/query_engine.py)
 # ============================================================================
-# Orchestrate: search -> retrieve context -> call LLM -> audit log -> return result
 #
-# Step 4 Notes:
-# - Retriever now uses a memory-mapped embedding matrix for fast/low-RAM search.
-# - QueryEngine API stays the same.
+# WHAT THIS FILE DOES (plain English):
+#   This is the "front desk" of HybridRAG. When a user asks a question,
+#   the Query Engine orchestrates the entire pipeline to find and return
+#   an answer. Think of it like a librarian: the user asks a question,
+#   the librarian searches the catalog (Retriever), pulls relevant
+#   books from the shelf (VectorStore), reads the important passages
+#   (context building), and gives a summarized answer (LLM call).
+#
+# THE PIPELINE (6 steps):
+#   1. SEARCH   -- Use the Retriever to find relevant document chunks
+#   2. CONTEXT  -- Combine the best chunks into a text passage
+#   3. PROMPT   -- Build a prompt that tells the LLM to answer using
+#                  ONLY the provided context (no making things up)
+#   4. LLM CALL -- Send the prompt to either Ollama (offline, local)
+#                  or the API (online, cloud) via the LLMRouter
+#   5. COST     -- Calculate API cost for online queries (~$0.002 each)
+#   6. LOG      -- Record the query for audit trail and diagnostics
+#
+# EVERY FAILURE PATH RETURNS A SAFE RESULT:
+#   No search results?  -> "No relevant information found"
+#   Empty context?      -> "Relevant documents found but no usable text"
+#   LLM fails?          -> "Error calling LLM. Please try again."
+#   Unexpected crash?   -> Error details returned, never thrown to caller
+#
+# INTERNET ACCESS:
+#   Online mode: YES (API call to configured endpoint)
+#   Offline mode: localhost only (Ollama)
 # ============================================================================
 
 import time

@@ -51,6 +51,7 @@ import logging
 import os
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
@@ -72,6 +73,7 @@ class BootResult:
         warnings: Non-fatal issues found during boot.
         errors: Fatal issues that prevented a mode from starting.
     """
+    boot_timestamp: str = ""
     success: bool = False
     online_available: bool = False
     offline_available: bool = False
@@ -168,7 +170,9 @@ def boot_hybridrag(config_path=None) -> BootResult:
     Returns:
         BootResult with all status information.
     """
-    result = BootResult()
+    result = BootResult(
+        boot_timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    )
 
     # === STEP 1: Load Configuration ===
     logger.info("BOOT Step 1: Loading configuration...")
@@ -222,6 +226,17 @@ def boot_hybridrag(config_path=None) -> BootResult:
         allowed_prefixes = []
         if isinstance(config, dict):
             allowed_prefixes = config.get("api", {}).get("allowed_endpoint_prefixes", [])
+
+        # Validate endpoint URL format before using it.
+        # Catches "openai.azure.com" (missing https://) with a clear
+        # message instead of a 30-second mystery timeout.
+        if boot_endpoint and not (
+            boot_endpoint.startswith("http://") or
+            boot_endpoint.startswith("https://")):
+            result.warnings.append(
+                f"Invalid endpoint format: {boot_endpoint}. "
+                f"Expected http:// or https://")
+            boot_endpoint = ""
 
         gate = configure_gate(
             mode=boot_mode,
