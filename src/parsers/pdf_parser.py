@@ -1,5 +1,5 @@
 # ============================================================================
-# HybridRAG — PDF Parser (src/parsers/pdf_parser.py)
+# HybridRAG -- PDF Parser (src/parsers/pdf_parser.py)
 # ============================================================================
 #
 # WHAT THIS FILE DOES:
@@ -7,22 +7,22 @@
 #   embed it for search. PDFs are the most complex file format HybridRAG
 #   handles because they come in many varieties:
 #
-#   1. DIGITAL PDFs — Created from Word/PowerPoint. Text is stored as
+#   1. DIGITAL PDFs -- Created from Word/PowerPoint. Text is stored as
 #      characters. Easy to extract. Most PDFs are this type.
 #
-#   2. SCANNED PDFs — Someone scanned a paper document. The PDF contains
+#   2. SCANNED PDFs -- Someone scanned a paper document. The PDF contains
 #      images of pages, not actual text. Requires OCR (Optical Character
 #      Recognition) to "read" the images and convert them to text.
 #
-#   3. MIXED PDFs — Some pages are digital, some are scanned images.
+#   3. MIXED PDFs -- Some pages are digital, some are scanned images.
 #
-#   4. ENCRYPTED PDFs — Password-protected. May or may not allow text
+#   4. ENCRYPTED PDFs -- Password-protected. May or may not allow text
 #      extraction depending on the encryption settings.
 #
 # HOW IT WORKS (the extraction pipeline):
 #   Step 1: Try pypdf (fast, handles most digital PDFs)
-#   Step 2: If pypdf fails or gets no text → try pdfplumber (more robust)
-#   Step 3: If both fail or get very little text → trigger OCR fallback
+#   Step 2: If pypdf fails or gets no text -> try pdfplumber (more robust)
+#   Step 3: If both fail or get very little text -> trigger OCR fallback
 #   Step 4: OCR converts page images to text using Tesseract
 #   Step 5: Return whatever text we got + detailed diagnostic info
 #
@@ -34,7 +34,7 @@
 # DIAGNOSTICS:
 #   Every parse call returns a "details" dictionary that records exactly
 #   what happened at each step. This is critical for debugging when a PDF
-#   fails to index — you can see whether pypdf failed, whether OCR was
+#   fails to index -- you can see whether pypdf failed, whether OCR was
 #   triggered, what errors occurred, etc.
 #
 # DEPENDENCIES:
@@ -76,7 +76,7 @@ class PDFParser:
     """
 
     def __init__(self) -> None:
-        # No initialization needed — the parser is stateless.
+        # No initialization needed -- the parser is stateless.
         # Each call to parse() is independent.
         pass
 
@@ -144,7 +144,7 @@ class PDFParser:
             "likely_reason": None,     # Best guess at why extraction failed
         }
 
-        # Get the file size (useful for diagnostics — large files may be slow)
+        # Get the file size (useful for diagnostics -- large files may be slow)
         try:
             details["file_size_bytes"] = os.path.getsize(file_path)
         except Exception:
@@ -157,7 +157,7 @@ class PDFParser:
         # STEP 1: Try pypdf (fast, handles most digital PDFs)
         # ================================================================
         # pypdf reads the PDF's internal text objects directly.
-        # This is fast because it doesn't render the pages — it just
+        # This is fast because it doesn't render the pages -- it just
         # reads the text data that's already stored in the PDF file.
         # ================================================================
         details["normal_extract"]["attempted"] = True
@@ -205,7 +205,7 @@ class PDFParser:
         # ================================================================
         # STEP 2: If pypdf got nothing, try pdfplumber (more robust)
         # ================================================================
-        # pdfplumber uses a different approach — it analyzes the visual
+        # pdfplumber uses a different approach -- it analyzes the visual
         # layout of each page to find text. This is slower but works
         # better on PDFs with complex tables, columns, or unusual fonts.
         # ================================================================
@@ -258,7 +258,7 @@ class PDFParser:
             # ============================================================
             # OCR (Optical Character Recognition) converts page images to text.
             # It requires two external tools:
-            #   - Tesseract: The OCR engine (reads images → text)
+            #   - Tesseract: The OCR engine (reads images -> text)
             #   - pdf2image: Converts PDF pages to images for Tesseract
             #
             # OCR is SLOW (several seconds per page) and imperfect, so we
@@ -326,14 +326,14 @@ class PDFParser:
                 return "", details
 
             except Exception as e:
-                # OCR crashed — return empty text with diagnostic info
+                # OCR crashed -- return empty text with diagnostic info
                 details["ocr_fallback"]["used"] = False
                 details["ocr_fallback"]["status"] = f"OCR_ERROR:{type(e).__name__}"
                 details["likely_reason"] = "LIKELY_SCANNED_OR_IMAGE_ONLY_OR_UNUSUAL_ENCODING"
                 return "", details
 
         # ================================================================
-        # Normal extraction produced enough text — no OCR needed
+        # Normal extraction produced enough text -- no OCR needed
         # ================================================================
         details["ocr_fallback"]["triggered"] = False
         details["ocr_fallback"]["used"] = False

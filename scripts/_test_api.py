@@ -38,7 +38,7 @@ sys.path.insert(0, os.environ.get('HYBRIDRAG_PROJECT_ROOT', '.'))
 from src.core.config import load_config, ensure_directories
 from src.core.llm_router import LLMRouter
 
-# ── Step 1: Load config and force online mode for this test ──
+# -- Step 1: Load config and force online mode for this test --
 # Even if you're currently in offline mode, this test temporarily
 # switches to online to test the API connection. It does NOT change
 # your config file - the mode override only lasts for this script.
@@ -46,7 +46,7 @@ config = load_config('.')
 ensure_directories(config)
 config.mode = 'online'
 
-# ── Step 2: Create the LLM router ──
+# -- Step 2: Create the LLM router --
 # The router will try to find your API key by checking:
 #   1. Windows Credential Manager (keyring) - most secure
 #   2. OPENAI_API_KEY environment variable - fallback
@@ -54,18 +54,18 @@ config.mode = 'online'
 router = LLMRouter(config)
 status = router.get_status()
 
-# ── Step 3: Print what we found ──
+# -- Step 3: Print what we found --
 print('  Mode:      ' + str(status['mode']))
 print('  API ready: ' + str(status['api_configured']))
 print('  Endpoint:  ' + str(status.get('api_endpoint', 'NOT SET')))
 print()
 
-# ── Step 4: Stop early if no API key was found ──
+# -- Step 4: Stop early if no API key was found --
 if not status['api_configured']:
     print('  ERROR: API not configured. Run rag-store-key first.')
     sys.exit(1)
 
-# ── Step 5: Send a tiny test question to the API ──
+# -- Step 5: Send a tiny test question to the API --
 # We use a simple prompt so the response is fast and cheap.
 # "Say hello in exactly 5 words" should produce something like
 # "Hello there, how are you?" - about 5-10 tokens of output.
@@ -79,7 +79,7 @@ start = time.time()
 resp = router.query('Say hello in exactly 5 words.')
 elapsed = (time.time() - start) * 1000   # Convert seconds to milliseconds
 
-# ── Step 6: Check the result ──
+# -- Step 6: Check the result --
 if resp:
     # SUCCESS - the API responded with an answer
     print('  PASS  API responded successfully!')

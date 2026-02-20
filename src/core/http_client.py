@@ -121,53 +121,118 @@ class HttpResponse:
         return ""
 
     def json(self) -> dict:
-        """
-        Parse body as JSON with content-type validation.
+        """Parse body as JSON.
 
-        WHY CONTENT-TYPE CHECK:
-            Corporate proxies, captive portals, and WAF pages often return
-            HTTP 200 with an HTML body. Without this check, the HTML gets
-            parsed as JSON, fails silently (returns {}), and the caller
-            sees "no response" with zero diagnostic information.
+        Contract (by design):
+            - Returns a dict for valid JSON objects.
+            - Returns {} for empty body, invalid JSON, or non-JSON content-type.
 
-        WHAT THIS DOES:
-            1. Checks Content-Type header for "application/json"
-            2. If it's HTML or non-JSON, returns a diagnostic dict
-               instead of silently swallowing the error
-            3. If JSON parsing fails, includes body preview for forensics
+        WHY THIS CHANGED (BUG-07 fix):
+            The old version returned a diagnostic dict with '_parse_error' key
+            on failure. Callers did data.get('choices', []) and silently got
+            nothing back -- the LLM returned an empty answer with no error.
+            This was silent corruption of the query pipeline.
+
+            The new contract: json() returns {} or a valid dict. Period.
+            Callers that need forensic detail on parse failures use
+            json_diagnostic property instead.
 
         Returns:
-            Parsed JSON dict, or a diagnostic dict with _parse_error key.
+            Parsed JSON dict, or {} if parsing fails for any reason.
         """
-        # -- Content-Type validation --
+        return self.json_diagnostic.get("_parsed", {})
+
+    @property
+    def json_diagnostic(self) -> dict:
+        """Return a structured parse diagnostic (never raises).
+
+        Use this when you need to understand WHY json() returned {}.
+        For example, after a failed API call:
+            diag = response.json_diagnostic
+            if not diag['_ok']:
+                log.error('Parse failed: %s', diag['_reason'])
+
+        Fields:
+            _ok: bool -- True if parsing succeeded
+            _parsed: dict -- the parsed result (only when _ok is True)
+            _reason: str -- why it succeeded or failed
+            _content_type: str
+            _status_code: int
+            _body_preview: str -- first 200 chars of body
+            _request_url: str
+            _body_length: int
+        """
         ct = self.content_type
-        if ct and "json" not in ct:
-            # This is the proxy/captive portal/WAF detection.
-            # Instead of returning {} and losing all forensic info,
-            # we return a diagnostic dict that the caller can check.
-            body_preview = self.body[:200] if self.body else "(empty)"
+        body = self.body or ""
+        body_len = len(body)
+        preview = body[:200] if body else "(empty)"
+
+        # Empty body: common for HEAD / 204 / network errors
+        if not body.strip():
             return {
-                "_parse_error": "non_json_content_type",
-                "_content_type": ct,
+                "_ok": False,
+                "_reason": "empty_body",
+                "_content_type": ct or "(not set)",
                 "_status_code": self.status_code,
-                "_body_preview": body_preview,
+                "_body_preview": "(empty)",
                 "_request_url": self.request_url,
-                "_body_length": len(self.body) if self.body else 0,
+                "_body_length": 0,
+                "_parsed": {},
             }
 
-        # -- JSON parsing with forensics --
-        try:
-            return json.loads(self.body)
-        except (json.JSONDecodeError, TypeError) as e:
-            body_preview = self.body[:200] if self.body else "(empty)"
+        # Non-JSON content-type: captive portals / proxies / WAF HTML pages
+        # This is the most common cause of mysterious empty answers in
+        # corporate environments -- the proxy intercepts the request and
+        # returns an HTML login page instead of the API response.
+        if ct and "json" not in ct:
             return {
-                "_parse_error": "json_decode_failed",
+                "_ok": False,
+                "_reason": "non_json_content_type",
+                "_content_type": ct,
+                "_status_code": self.status_code,
+                "_body_preview": preview,
+                "_request_url": self.request_url,
+                "_body_length": body_len,
+                "_parsed": {},
+            }
+
+        # Attempt JSON parse
+        try:
+            parsed = json.loads(body)
+            # Only dicts are valid json() results.
+            # Arrays, strings, numbers etc. go into diagnostic only.
+            if isinstance(parsed, dict):
+                return {
+                    "_ok": True,
+                    "_reason": "ok",
+                    "_content_type": ct or "(not set)",
+                    "_status_code": self.status_code,
+                    "_body_preview": "(omitted)",
+                    "_request_url": self.request_url,
+                    "_body_length": body_len,
+                    "_parsed": parsed,
+                }
+            return {
+                "_ok": False,
+                "_reason": f"json_not_object:{type(parsed).__name__}",
+                "_content_type": ct or "(not set)",
+                "_status_code": self.status_code,
+                "_body_preview": preview,
+                "_request_url": self.request_url,
+                "_body_length": body_len,
+                "_parsed": {},
+            }
+        except (json.JSONDecodeError, TypeError) as e:
+            return {
+                "_ok": False,
+                "_reason": "json_decode_failed",
                 "_error_detail": str(e),
                 "_content_type": ct or "(not set)",
                 "_status_code": self.status_code,
-                "_body_preview": body_preview,
+                "_body_preview": preview,
                 "_request_url": self.request_url,
-                "_body_length": len(self.body) if self.body else 0,
+                "_body_length": body_len,
+                "_parsed": {},
             }
 
 

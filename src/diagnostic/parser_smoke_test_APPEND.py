@@ -1,5 +1,5 @@
 # ============================================================================
-# Parser Smoke Test — add this to the end of component_tests.py
+# Parser Smoke Test -- add this to the end of component_tests.py
 # ============================================================================
 # This function tests that every critical parser can actually import its
 # library AND parse a minimal test input. This catches the exact problem
@@ -49,7 +49,7 @@ def test_parser_smoke() -> TestResult:
             details[name] = "OK"
         except ImportError as e:
             failed.append(name)
-            details[name] = f"MISSING — fix: pip install {pip_name}"
+            details[name] = f"MISSING -- fix: pip install {pip_name}"
         except Exception as e:
             failed.append(name)
             details[name] = f"ERROR: {type(e).__name__}: {e}"

@@ -26,8 +26,8 @@
 #     5. Return a ready-to-use HybridRAG instance
 #
 # ANALOGY:
-#   Like a car's startup sequence: turn key → check battery → fuel pump
-#   prime → engine crank → oil pressure check → ready to drive.
+#   Like a car's startup sequence: turn key -> check battery -> fuel pump
+#   prime -> engine crank -> oil pressure check -> ready to drive.
 #   Each step must pass before the next one runs.
 #
 # USAGE:

@@ -1,4 +1,4 @@
-"""
+r"""
 src/tools/rebuild_memmap_from_sqlite.py
 
 ===========================================================
@@ -145,7 +145,7 @@ def main():
 
     # OPTIONAL: wipe embedding_row first (clarity, not strictly required)
     # Reset all embedding_row values to NULL before rebuilding.
-    # This ensures a clean mapping — every chunk gets a fresh row number.
+    # This ensures a clean mapping -- every chunk gets a fresh row number.
     print("Clearing existing embedding_row values in SQLite...")
     conn.execute("UPDATE chunks SET embedding_row = NULL;")
     conn.commit()

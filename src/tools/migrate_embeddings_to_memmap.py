@@ -1,4 +1,4 @@
-"""
+r"""
 src/tools/migrate_embeddings_to_memmap.py
 
 ===========================================================
@@ -125,7 +125,7 @@ def main():
 
     # Count how many chunks in the database don't have an embedding vector yet.
     # "embedding_row IS NULL" means the chunk's text hasn't been converted
-    # to a vector yet — that's what this migration script fixes.
+    # to a vector yet -- that's what this migration script fixes.
     total_missing = conn.execute(
         "SELECT COUNT(*) FROM chunks WHERE embedding_row IS NULL AND text IS NOT NULL AND LENGTH(text) > 0;"
     ).fetchone()[0]

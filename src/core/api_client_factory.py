@@ -63,6 +63,7 @@ from src.core.exceptions import (
     RateLimitedError,
     ServerError,
     UnexpectedResponseError,
+    ConnectionFailedError,       # BUG-01 fix: was missing, caused NameError on API failure
     exception_from_http_status,
 )
 from src.core.http_client import HttpClient, HttpResponse, create_http_client
@@ -524,9 +525,9 @@ class ApiClientFactory:
         possibility of double-appending paths.
 
         LOGIC:
-        1. If URL already has /chat/completions → use as-is
-        2. If URL has /deployments/ but no /chat/completions → append
-        3. If URL is just the base → build the full path
+        1. If URL already has /chat/completions -> use as-is
+        2. If URL has /deployments/ but no /chat/completions -> append
+        3. If URL is just the base -> build the full path
 
         Azure format:
           {base}/openai/deployments/{deployment}/chat/completions?api-version={ver}

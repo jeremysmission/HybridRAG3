@@ -39,7 +39,7 @@ from src.core.health_checks import check_memmap_ready
 
 
 # ============================================================================
-# Fallback Config — used when the main config can't be loaded
+# Fallback Config -- used when the main config can't be loaded
 # ============================================================================
 # The Retriever needs a config object to know things like "how many results
 # to return" (top_k) and "how many rows to scan at once" (block_rows).

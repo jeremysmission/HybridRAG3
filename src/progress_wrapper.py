@@ -1,5 +1,5 @@
 # ============================================================================
-# HybridRAG — Progress Wrapper (src/progress_wrapper.py)
+# HybridRAG -- Progress Wrapper (src/progress_wrapper.py)
 # ============================================================================
 #
 # WHAT THIS FILE DOES:
@@ -12,7 +12,7 @@
 #   - How fast is it going?
 #   - When will it finish? (ETA)
 #
-#   This wrapper sits "outside" the indexer — it doesn't modify the indexer
+#   This wrapper sits "outside" the indexer -- it doesn't modify the indexer
 #   code at all. It just watches what happens and records progress.
 #
 # SAFETY DESIGN:

@@ -1,5 +1,5 @@
 # ============================================================================
-# HybridRAG — Retriever (src/core/retriever.py)
+# HybridRAG -- Retriever (src/core/retriever.py)
 # ============================================================================
 #
 # WHAT THIS FILE DOES:
@@ -7,9 +7,9 @@
 #   the Retriever finds the most relevant chunks from the indexed documents.
 #
 #   It supports three search strategies:
-#     1. Vector search    — finds chunks whose *meaning* is similar to the query
-#     2. Keyword search   — finds chunks that contain the query's *exact words*
-#     3. Hybrid search    — combines both using Reciprocal Rank Fusion (RRF)
+#     1. Vector search    -- finds chunks whose *meaning* is similar to the query
+#     2. Keyword search   -- finds chunks that contain the query's *exact words*
+#     3. Hybrid search    -- combines both using Reciprocal Rank Fusion (RRF)
 #
 #   Hybrid is the default and usually best: vector catches paraphrases and
 #   synonyms, while keyword catches exact terms like part numbers or acronyms
@@ -20,7 +20,7 @@
 #   1. Reciprocal Rank Fusion (RRF) for hybrid search
 #      WHY: We have two ranked lists (vector hits and keyword hits) that use
 #      completely different scoring scales. Vector scores are cosine similarity
-#      (0.0–1.0), keyword scores are BM25 weights (unbounded). RRF sidesteps
+#      (0.0-1.0), keyword scores are BM25 weights (unbounded). RRF sidesteps
 #      this by only using *rank position*, not raw scores. A chunk ranked #1
 #      in both lists gets a higher combined score than one ranked #1 in only
 #      one list. This is the same algorithm used by Elasticsearch and other
@@ -29,8 +29,8 @@
 #   2. The "* 30" display score scaling
 #      WHY: RRF scores are tiny fractions (e.g., 0.016 for a top result).
 #      The min_score threshold (default 0.20) is calibrated for cosine
-#      similarity (0.0–1.0 range). Multiplying RRF by 30 rescales it into
-#      roughly the same 0.0–1.0 range so the same min_score works for both
+#      similarity (0.0-1.0 range). Multiplying RRF by 30 rescales it into
+#      roughly the same 0.0-1.0 range so the same min_score works for both
 #      hybrid and vector-only modes. We then cap at 1.0.
 #
 #   3. Optional cross-encoder reranker
@@ -45,7 +45,7 @@
 #      chunk high even though none of the query's actual words appear in it.
 #      The lexical boost adds a small score bonus (+0.02 per matching word,
 #      capped at lex_boost) if query terms appear in the first 250 characters
-#      of the chunk. This is a lightweight fallback — hybrid mode with FTS5
+#      of the chunk. This is a lightweight fallback -- hybrid mode with FTS5
 #      is the better solution and makes this unnecessary.
 #
 #   ALTERNATIVES CONSIDERED:
@@ -77,10 +77,10 @@ class SearchHit:
     One search result returned by the Retriever.
 
     Fields:
-      score       — relevance score (0.0 to 1.0, higher = more relevant)
-      source_path — full file path of the original document
-      chunk_index — which chunk within that document (0-based)
-      text        — the actual text content of the chunk
+      score       -- relevance score (0.0 to 1.0, higher = more relevant)
+      source_path -- full file path of the original document
+      chunk_index -- which chunk within that document (0-based)
+      text        -- the actual text content of the chunk
     """
     score: float
     source_path: str
@@ -172,7 +172,7 @@ class Retriever:
         self._reranker = None
 
     # ------------------------------------------------------------------
-    # Public API — this is what query_engine.py calls
+    # Public API -- this is what query_engine.py calls
     # ------------------------------------------------------------------
 
     def search(self, query):
@@ -292,12 +292,12 @@ class Retriever:
         # Convert to SearchHit objects with a display-friendly score
         hits = []
         for item in sorted_results:
-            # Raw RRF scores are tiny (0.01–0.03 range). We need a score in
-            # the 0.0–1.0 range so min_score filtering works consistently
+            # Raw RRF scores are tiny (0.01-0.03 range). We need a score in
+            # the 0.0-1.0 range so min_score filtering works consistently
             # whether we're in hybrid mode or vector-only mode.
             #
             # The "* 30" scaling maps the typical RRF range (~0.016 for a
-            # top-ranked-in-both-lists result) into roughly 0.5–0.9.
+            # top-ranked-in-both-lists result) into roughly 0.5-0.9.
             # We take the max of the vector score and the scaled RRF score,
             # then cap at 1.0 to keep the display clean.
             display_score = max(item["vector_score"], item["rrf_score"] * 30)
@@ -360,7 +360,7 @@ class Retriever:
         slower, so we only run it on the top N candidates.
 
         The raw cross-encoder output is a logit (can be any number).
-        We convert it to a 0–1 probability using the sigmoid function:
+        We convert it to a 0-1 probability using the sigmoid function:
           sigmoid(x) = 1 / (1 + e^(-x))
         """
         # Lazy-load the reranker model on first use
@@ -374,7 +374,7 @@ class Retriever:
         try:
             # Get raw logit scores from the cross-encoder
             scores = self._reranker.predict(pairs)
-            # Convert logits to 0–1 probabilities using sigmoid
+            # Convert logits to 0-1 probabilities using sigmoid
             # (2.718281828 is Euler's number "e")
             for hit, score in zip(hits, scores):
                 hit.score = 1.0 / (1.0 + pow(2.718281828, -float(score)))
@@ -400,7 +400,7 @@ class Retriever:
             return None
 
     # ------------------------------------------------------------------
-    # Context building — format hits for the LLM prompt
+    # Context building -- format hits for the LLM prompt
     # ------------------------------------------------------------------
 
     def build_context(self, hits):
@@ -424,9 +424,9 @@ class Retriever:
         Summarize which files contributed to the search results.
 
         Returns a list of dicts with:
-          path          — file path
-          chunks        — how many chunks came from this file
-          avg_relevance — average score of those chunks
+          path          -- file path
+          chunks        -- how many chunks came from this file
+          avg_relevance -- average score of those chunks
 
         Useful for showing "Sources used" in the UI.
         """
