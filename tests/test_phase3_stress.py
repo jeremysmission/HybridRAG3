@@ -585,11 +585,9 @@ class TestModuleSizeEnforcement:
                         violations.append(f"{rel}::{cls_name} = {lines} lines")
             except Exception:
                 pass
-        # BUG-6: Known violations being fixed in Phase 3 fix cycle:
-        #   - fault_analysis.py::GoldenProbes (651 lines)
-        #   - indexer.py::Indexer (599 lines)
-        assert len(violations) <= 2, (
-            f"NEW classes over 500 lines (beyond known 2):\n"
+        # BUG-6 resolved: all classes refactored under 500 lines
+        assert len(violations) == 0, (
+            f"Classes over 500 lines:\n"
             + "\n".join(violations)
         )
 
