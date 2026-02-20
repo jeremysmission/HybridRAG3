@@ -229,10 +229,12 @@ VRAM hardware. These become available with GPU upgrades:
 | `deepseek-r1:70b`    | ~43 GB   | ~48 GB | `deepseek-r1:8b`  | Near-frontier reasoning |
 | `llama3.1:70b`       | ~43 GB   | ~48 GB | `llama3.1:8b`     | Meta 70B, 128K ctx, broad knowledge |
 
-**Note**: `qwen3:72b` does NOT exist. Qwen3 jumps from 32B to 235B (MoE).
-Use `qwen3:32b` as the stepping stone above 8B.
+**Note**: Neither `qwen3:72b` nor `qwen3:72b-q4_K_M` exist. Qwen3 available
+sizes are: 0.6b, 1.7b, 4b, 8b, 14b, 30b, 32b, 235b. The family jumps from
+32B directly to 235B (MoE). Use `qwen3:32b` as the stepping stone above 8B.
 
-All Ollama pull tags verified against live library (2026-02-20).
+All Ollama pull tags verified against live library (2026-02-20, re-verified
+2026-02-20). Every tag in WORK_ONLY and PERSONAL_FUTURE confirmed valid.
 
 ---
 
