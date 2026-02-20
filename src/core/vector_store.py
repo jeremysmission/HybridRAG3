@@ -112,8 +112,14 @@ class EmbeddingMemmapStore:
         """Load existing metadata or create fresh metadata file."""
         os.makedirs(self.data_dir, exist_ok=True)
         if os.path.exists(self.meta_path):
-            with open(self.meta_path, "r", encoding="utf-8") as f:
-                meta = json.load(f)
+            try:
+                with open(self.meta_path, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+            except (json.JSONDecodeError, ValueError):
+                # Corrupted meta file (power failure, disk full) --
+                # reinitialize fresh rather than crash the vector store.
+                self._save_meta()
+                return
             self.dim = int(meta.get("dim", self.dim))
             self.count = int(meta.get("count", 0))
         else:

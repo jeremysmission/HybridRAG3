@@ -112,3 +112,5 @@ __all__ = [
     "get_guard", "guard_response", "harden_prompt",
     "init_hallucination_guard", "run_self_test", "run_bit",
 ]
+
+GUARD_VERSION = "1.1.0"

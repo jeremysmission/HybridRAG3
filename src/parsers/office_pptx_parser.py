@@ -1,11 +1,27 @@
 # ============================================================================
-# HybridRAG - PPTX Parser (src/parsers/office_pptx_parser.py)
+# HybridRAG -- PPTX Parser (src/parsers/office_pptx_parser.py)
 # ============================================================================
-# Extracts text from PowerPoint (.pptx) slides.
 #
-# Why this matters:
-# - Many briefings and engineering slides contain critical info
-# - We want slides searchable just like manuals
+# WHAT THIS FILE DOES (plain English):
+#   Reads PowerPoint (.pptx) presentation files and extracts all the text
+#   from every slide. Each text block is tagged with its slide number
+#   so you can tell where the information came from when searching.
+#
+# WHY THIS MATTERS:
+#   Briefings, training materials, and technical presentations often
+#   contain critical information that exists nowhere else. Making
+#   slide content searchable means you can find "What frequency range
+#   was mentioned in the system briefing?" without opening 50 decks.
+#
+# HOW IT WORKS:
+#   1. Open the .pptx file using python-pptx
+#   2. Loop through every slide in order
+#   3. For each slide, loop through every "shape" (text boxes, titles,
+#      bullets, tables that have text)
+#   4. Tag each text block with [SLIDE N] so the source is traceable
+#   5. Return combined text + details (slide count, text block count)
+#
+# INTERNET ACCESS: NONE
 # ============================================================================
 
 from __future__ import annotations
@@ -35,13 +51,18 @@ class PptxParser:
             parts = []
             slide_text_count = 0
 
+            # Walk through every slide in presentation order.
+            # Each slide can contain many "shapes" -- text boxes, titles,
+            # bullet lists, table cells, etc. We grab all of them.
             for si, slide in enumerate(pres.slides):
                 for shape in slide.shapes:
+                    # Some shapes are images or charts with no text property
                     if not hasattr(shape, "text"):
                         continue
                     t = (shape.text or "").strip()
                     if t:
                         slide_text_count += 1
+                        # Tag with slide number so search results show origin
                         parts.append(f"[SLIDE {si+1}] {t}")
 
             full = "\n\n".join(parts).strip()

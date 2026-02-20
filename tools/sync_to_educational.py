@@ -97,6 +97,7 @@ SKIP_PATTERNS = [
     "guard_diagnostic.py",         # guard health check
     "virtual_test",                # ALL virtual test files (contain Claude/session refs)
     "sync_to_educational.py",      # this script itself (contains banned terms in config)
+    "HANDOVER",                    # session handover docs (personal workflow details)
     "rag-features.ps1",           # guard PowerShell commands
     "HYBRIDRAG3_SECURITY_AUDIT_NIST_800_171.md",  # full NIST audit doc
     "01_knowledge_distillation_finetuning_tutorial.md",  # heavy defense refs
@@ -153,9 +154,14 @@ TEXT_REPLACEMENTS = [
     (r"\bclearance\b", "authorization"),   # standalone "clearance" (not just "security clearance")
 
     # Personal/machine paths
+    # randaje is the work username -- paths replaced with {USER_HOME}, not banned
+    # jerem is the personal laptop username -- must never appear in Educational repo
     (r"C:\\Users\\randaje\\OneDrive - NGC\\Desktop\\HybridRAG3", "{PROJECT_ROOT}"),
     (r"C:\\Users\\randaje", "{USER_HOME}"),
-    (r"\brandaje\b", "{USERNAME}"),         # catch any remaining username references
+    (r"\brandaje\b", "{USERNAME}"),         # catch any remaining work username references
+    (r"C:\\Users\\jerem\\OneDrive[^\"]*", "{USER_HOME}"),   # personal laptop paths
+    (r"C:\\Users\\jerem", "{USER_HOME}"),
+    (r"\bjerem\b", "{USERNAME}"),           # catch any remaining personal username references
     (r"OneDrive - NGC", "OneDrive"),
     (r"D:\\KnowledgeBase", "{KNOWLEDGE_BASE}"),
     (r"D:\\RAG Indexed Data", "{DATA_DIR}"),
@@ -436,7 +442,9 @@ def main():
         ("ITAR", True),
         ("CMMC", True),
         ("clearance", False),
-        ("randaje", False),
+        # randaje is the work username -- not banned, use $env:USERPROFILE instead of hardcoding
+        # jerem is the personal laptop username -- must never appear in Educational repo
+        ("jerem", True),       # word boundary -- personal laptop username
         ("OneDrive - NGC", False),
         ("D:\\\\KnowledgeBase", False),
         ("jeremysmission", False),

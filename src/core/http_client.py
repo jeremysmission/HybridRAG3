@@ -107,6 +107,7 @@ class HttpResponse:
     latency_seconds: float = 0.0
     error: Optional[str] = None
     request_url: str = ""
+    retry_count: int = 0
 
     @property
     def is_success(self) -> bool:
@@ -429,6 +430,7 @@ class HttpClient:
                     body=body,
                     headers=dict(response.headers),
                     latency_seconds=latency,
+                    retry_count=attempt - 1,
                 )
 
             except urllib.error.HTTPError as e:

@@ -309,8 +309,11 @@ All packages sourced from PyPI (pypi.org) -- open-source with permissive license
 
 ## Documentation
 
+- `docs/THEORY_OF_OPERATION.md` -- High-level overview for non-programmers
+- `docs/TECHNICAL_THEORY_OF_OPERATION.md` -- Developer-focused technical reference
 - `docs/SETUP.md` -- Detailed installation and deployment instructions
 - `docs/ARCHITECTURE.md` -- System design, security model, technical decisions
+- `docs/INTERFACES.md` -- Stable public API reference for all modules
 - `docs/NETWORK_SECURITY_EXPLAINER.md` -- Network isolation design
 - `docs/PERFORMANCE_BASELINE.md` -- Performance benchmarks and tuning
 - `docs/SOURCE_BOUNDED_GENERATION.md` -- LLM context grounding design
