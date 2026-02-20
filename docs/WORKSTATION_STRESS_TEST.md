@@ -1,12 +1,12 @@
 # Workstation Stress Test Simulation Results
 
-**Date:** 2026-02-20T15:43:07.463803
+**Date:** 2026-02-20T15:46:04.844835
 
 ## Hardware Profile
 
 | Component | Spec |
 |-----------|------|
-| CPU | 32 threads |
+| CPU | 16 threads |
 | RAM | 128 GB |
 | GPU | 2x RTX 3090 FE (NVLink) (48 GB VRAM) |
 | Storage | 2 TB NVMe SSD (5000 MB/s) |
