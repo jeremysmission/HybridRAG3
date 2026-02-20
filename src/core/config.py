@@ -297,6 +297,7 @@ class IndexingConfig:
     supported_extensions: List[str] = field(default_factory=lambda: [
         ".txt", ".md", ".csv", ".json", ".xml", ".log",
         ".pdf", ".docx", ".pptx", ".xlsx", ".eml",
+        ".html", ".htm",
         ".yaml", ".yml", ".ini",
         ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif", ".webp",
     ])
