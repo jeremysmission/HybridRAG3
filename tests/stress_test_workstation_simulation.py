@@ -88,8 +88,8 @@ class HardwareProfile:
 
 
 # Pre-built hardware profiles
-WORKSTATION = HardwareProfile(
-    name="Desktop Workstation (New)",
+PERSONAL_WORKSTATION = HardwareProfile(
+    name="Personal Workstation (Home)",
     cpu_threads=28,           # Desktop Intel Core Ultra 7 (8P HT + 12E = 28 threads)
     ram_gb=64.0,              # DDR5 6400+ MT/s
     gpu_vram_gb=12.0,         # Desktop RTX Blackwell 12 GB GDDR7
@@ -99,7 +99,7 @@ WORKSTATION = HardwareProfile(
     storage_read_mbps=7250,   # Samsung 990 EVO Plus sequential read
     storage_iops=1000000,     # PCIe Gen5 class random IOPS
 )
-# Desktop Blackwell advantage over laptop variant:
+# Personal desktop Blackwell advantage over laptop variant:
 #   - Higher TDP (~250W vs 60W) = higher sustained GPU clocks
 #   - Same GDDR7 memory bandwidth (~672 GB/s) but better sustained
 #   - Desktop CPU runs at full power without thermal throttling
@@ -595,7 +595,7 @@ def _print_hw_profile(hw: HardwareProfile):
 
 
 def main():
-    hw = WORKSTATION
+    hw = PERSONAL_WORKSTATION
     hw_laptop = WORK_LAPTOP
     idx_700 = IndexProfile(700.0)
     idx_2000 = IndexProfile(2000.0)
@@ -633,7 +633,7 @@ def main():
     # ==================================================================
     print()
     print("=" * 78)
-    print("SCENARIO 1: OFFLINE MODE (Ollama local GPU) -- 700 GB INDEX")
+    print("SCENARIO 1: PERSONAL WORKSTATION -- OFFLINE (Ollama) -- 700 GB")
     print("=" * 78)
     print()
     print("Mixed profiles: qwen3:8b (eng/pm/sys/draft), phi4:14b (logistics),")
@@ -663,7 +663,7 @@ def main():
     # ==================================================================
     print()
     print("=" * 78)
-    print("SCENARIO 2: vLLM SERVER MODE (Docker/bare metal) -- 700 GB INDEX")
+    print("SCENARIO 2: PERSONAL WORKSTATION -- vLLM SERVER -- 700 GB")
     print("=" * 78)
     print()
     print("vLLM replaces Ollama. Same GPU, same model, but continuous batching")
@@ -694,7 +694,7 @@ def main():
     # ==================================================================
     print()
     print("=" * 78)
-    print("SCENARIO 3: ONLINE MODE (Cloud API) -- 700 GB INDEX")
+    print("SCENARIO 3: PERSONAL WORKSTATION -- ONLINE (Cloud API) -- 700 GB")
     print("=" * 78)
     print()
     print("Using gpt-4o as primary, gpt-4o-mini for PM profile")
@@ -721,7 +721,7 @@ def main():
     # ==================================================================
     print()
     print("=" * 78)
-    print("SCENARIO 4: WHAT HAPPENS AT 2 TB SOURCE DATA")
+    print("SCENARIO 4: PERSONAL WORKSTATION -- 2 TB SOURCE DATA")
     print("=" * 78)
     print()
     print(f"  {idx_2000.summary()}")
