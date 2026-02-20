@@ -102,15 +102,21 @@ WORKSTATION = HardwareProfile(
 
 WORK_LAPTOP = HardwareProfile(
     name="Work Laptop (Demo)",
-    cpu_threads=16,           # Typical corporate laptop (8P+8E or 8-core)
-    ram_gb=32.0,              # Corporate standard
-    gpu_vram_gb=0.0,          # No discrete GPU (integrated only)
-    gpu_name="Intel Integrated (no discrete GPU)",
+    cpu_threads=28,           # Intel Core Ultra 7 265HX: 8P (HT) + 12E = 28 threads
+    ram_gb=64.0,              # 64 GB SODIMM DDR5 6400 MT/s
+    gpu_vram_gb=12.0,         # NVIDIA RTX Pro 3000 Blackwell, 12 GB GDDR7
+    gpu_name="RTX Pro 3000 Blackwell (992 AI TOPS)",
     storage_type="NVMe SSD",
     storage_model="WD PC SN8000S SED SanDisk (PCIe Gen4)",
     storage_read_mbps=5545,   # WD SN8000S sequential read
     storage_iops=700000,      # Estimated PCIe Gen4 random IOPS
+    network_mbps=100,
 )
+# Work laptop extras (not in HardwareProfile but used in simulation):
+#   NPU: Intel AI Boost, 11 TOPS, 36 GB shared memory
+#   CPU: Intel Core Ultra 7 265HX (8P + 12E, 5.3 GHz turbo)
+#   Cache: L1 2MB, L2 36MB, L3 30MB (68 MB total cache!)
+#   GPU mem bandwidth: 672 GB/s (GDDR7) -- ~3x faster than desktop GDDR6
 
 
 # ============================================================================
@@ -311,16 +317,25 @@ def llm_inference_offline(
     THIS IS THE BOTTLENECK. The GPU can only run one inference at a time.
     Ollama queues requests -- concurrent users must wait in line.
 
-    Token generation rates (measured on 12 GB VRAM):
-      qwen3:8b       ~25-35 tok/s on GPU
-      phi4:14b-q4     ~15-20 tok/s on GPU (barely fits in 12GB)
-      deepseek-r1:8b  ~20-30 tok/s on GPU
-      gemma3:4b       ~40-50 tok/s on GPU
+    Token generation speed depends heavily on GPU MEMORY BANDWIDTH:
+      - Desktop GDDR6 (RTX 4070): ~256 GB/s -> ~30 tok/s for 8B model
+      - Laptop GDDR7 (RTX Pro 3000 Blackwell): ~672 GB/s -> ~70 tok/s for 8B
+
+    LLM inference is memory-bandwidth-bound (not compute-bound).
+    Each generated token requires reading all model weights from VRAM.
+    Faster VRAM = proportionally faster token generation.
 
     Average response: ~300-500 tokens (1-2 paragraphs with sources).
-    Prompt processing (input tokens): ~1000-2000 tokens at ~200 tok/s.
+    Prompt processing (input tokens): ~1000-2000 tokens.
     """
-    # Model-specific throughput (tokens per second on 12 GB GPU)
+    # GPU architecture determines throughput scaling
+    # Baseline: desktop GDDR6 at ~256 GB/s memory bandwidth
+    # Blackwell GDDR7 at ~672 GB/s = ~2.6x bandwidth = ~2.3x actual throughput
+    # (not perfectly linear due to compute overhead, but close)
+    is_blackwell = "Blackwell" in hw.gpu_name or "RTX Pro 3000" in hw.gpu_name
+    bw_multiplier = 2.3 if is_blackwell else 1.0
+
+    # Model-specific throughput (tokens per second on BASELINE desktop 12 GB GPU)
     model_throughput = {
         "qwen3:8b":          {"prompt_tps": 200, "gen_tps": 30, "note": "Primary for most profiles"},
         "phi4:14b-q4_K_M":   {"prompt_tps": 120, "gen_tps": 17, "note": "Tight fit in 12GB VRAM"},
@@ -329,6 +344,14 @@ def llm_inference_offline(
     }
 
     specs = model_throughput.get(model, model_throughput["qwen3:8b"])
+    # Scale throughput by GPU memory bandwidth
+    effective_prompt_tps = specs["prompt_tps"] * bw_multiplier
+    effective_gen_tps = specs["gen_tps"] * bw_multiplier
+    specs = {
+        "prompt_tps": effective_prompt_tps,
+        "gen_tps": effective_gen_tps,
+        "note": specs["note"] + (f" [Blackwell {bw_multiplier:.1f}x]" if is_blackwell else ""),
+    }
 
     # Typical query context
     input_tokens = 1500   # ~5 chunks * 300 tokens each
@@ -427,7 +450,11 @@ def llm_inference_vllm_server(
       - With continuous batching, concurrent requests share GPU compute
       - Throughput degrades gently, not linearly like Ollama queue
     """
-    # Model throughput under vLLM continuous batching (12 GB GPU)
+    # GPU architecture scaling (same as offline)
+    is_blackwell = "Blackwell" in hw.gpu_name or "RTX Pro 3000" in hw.gpu_name
+    bw_multiplier = 2.3 if is_blackwell else 1.0
+
+    # Model throughput under vLLM continuous batching (BASELINE desktop 12 GB GPU)
     model_throughput = {
         "qwen3:8b": {
             "single_tps": 30,      # Same as Ollama for single user
@@ -444,6 +471,11 @@ def llm_inference_vllm_server(
     }
 
     specs = model_throughput.get(model, model_throughput["qwen3:8b"])
+    # Scale by GPU memory bandwidth
+    specs = dict(specs)  # copy
+    specs["single_tps"] = specs["single_tps"] * bw_multiplier
+    if is_blackwell:
+        specs["note"] += f" [Blackwell {bw_multiplier:.1f}x]"
 
     input_tokens = 1500
     output_tokens = 400
@@ -701,46 +733,116 @@ def main():
     _print_results_table("ONLINE (gpt-4o) -- 2 TB", online_results_2000)
 
     # ==================================================================
-    # WORK LAPTOP (DEMO) -- online only (no discrete GPU)
+    # WORK LAPTOP (DEMO) -- RTX Pro 3000 Blackwell + NPU
     # ==================================================================
     print()
     print("=" * 78)
-    print("SCENARIO 5: WORK LAPTOP DEMO (WD SN8000S, no discrete GPU)")
+    print("SCENARIO 5: WORK LAPTOP (RTX Pro 3000 Blackwell, 64 GB DDR5)")
     print("=" * 78)
     print()
-    print("The work laptop has no discrete GPU, so offline LLM inference would")
-    print("run on CPU only (~1-3 tok/s = unusable). Online API mode is the only")
-    print("practical option for the demo laptop. However, retrieval is LOCAL and")
-    print("the SN8000S NVMe (5545 MB/s) is faster than the workstation drive.")
+    print("  CPU:     Intel Core Ultra 7 265HX (8P+12E, 28 threads, 5.3 GHz)")
+    print("  RAM:     64 GB SODIMM DDR5 6400 MT/s (~51.2 GB/s bandwidth)")
+    print("  GPU:     NVIDIA RTX Pro 3000 Blackwell, 12 GB GDDR7")
+    print("           5,888 CUDA cores, 184 Tensor Cores (5th gen)")
+    print("           992 AI TOPS, 672 GB/s memory bandwidth")
+    print("  NPU:     Intel AI Boost, 11 TOPS, 36 GB shared memory")
+    print("  Cache:   L1 2MB + L2 36MB + L3 30MB = 68 MB total")
+    print("  Storage: WD PC SN8000S SED (5,545 MB/s)")
+    print()
+    print("  GDDR7 at 672 GB/s = ~2.6x the bandwidth of desktop GDDR6.")
+    print("  LLM inference is memory-bandwidth-bound, so token generation")
+    print("  scales roughly proportionally: ~2.3x faster per token.")
     print()
 
-    # Demo scenario: 1-3 users on a laptop (demo audience)
-    laptop_counts = [3, 2, 1]
-    idx_demo = IndexProfile(700.0)  # Same 700 GB index
+    idx_demo = IndexProfile(700.0)
 
+    # Offline Ollama on Blackwell GPU
+    print("  --- OFFLINE (Ollama on Blackwell GPU) ---")
+    laptop_counts = [10, 8, 6, 4, 3, 2, 1]
+    laptop_offline_results = []
+    for n in laptop_counts:
+        r = simulate_query(hw_laptop, idx_demo, n, "offline", "qwen3:8b", reranker=True)
+        laptop_offline_results.append(r)
+    _print_results_table("LAPTOP OLLAMA (qwen3:8b Blackwell) -- 700 GB", laptop_offline_results)
+
+    print()
+    print("  phi4:14b on Blackwell (logistics profile):")
+    laptop_phi4_results = []
+    for n in laptop_counts:
+        r = simulate_query(hw_laptop, idx_demo, n, "offline", "phi4:14b-q4_K_M", reranker=True)
+        laptop_phi4_results.append(r)
+    _print_results_table("LAPTOP OLLAMA (phi4:14b Blackwell) -- 700 GB", laptop_phi4_results)
+
+    # vLLM on Blackwell GPU
+    print()
+    print("  --- vLLM SERVER on Blackwell GPU ---")
+    laptop_vllm_results = []
+    for n in laptop_counts:
+        r = simulate_query(hw_laptop, idx_demo, n, "vllm", "qwen3:8b", reranker=True)
+        laptop_vllm_results.append(r)
+    _print_results_table("LAPTOP vLLM (qwen3:8b Blackwell) -- 700 GB", laptop_vllm_results)
+
+    # Online API
+    print()
+    print("  --- ONLINE (Cloud API) ---")
     laptop_online_results = []
     for n in laptop_counts:
         r = simulate_query(hw_laptop, idx_demo, n, "online", "gpt-4o", reranker=True)
         laptop_online_results.append(r)
-
     _print_results_table("LAPTOP ONLINE (gpt-4o) -- 700 GB", laptop_online_results)
 
+    # Side-by-side laptop comparison
     print()
-    print("  gpt-4o-mini (faster, cost-efficient for demos):")
-    laptop_mini_results = []
-    for n in laptop_counts:
-        r = simulate_query(hw_laptop, idx_demo, n, "online", "gpt-4o-mini", reranker=True)
-        laptop_mini_results.append(r)
-    _print_results_table("LAPTOP ONLINE (gpt-4o-mini) -- 700 GB", laptop_mini_results)
+    print("=" * 78)
+    print("LAPTOP 10-USER COMPARISON (700 GB)")
+    print("=" * 78)
+    l_off = laptop_offline_results[0]  # 10 users
+    l_vllm = laptop_vllm_results[0]
+    l_on = laptop_online_results[0]
+    print(f"  {'Mode':<30s}  {'Retrieval':>10s}  {'LLM':>10s}  {'TOTAL':>10s}  {'Rating':>10s}")
+    print(f"  {'-'*30}  {'-'*10}  {'-'*10}  {'-'*10}  {'-'*10}")
+    for label, r in [
+        ("Ollama (serial, Blackwell)", l_off),
+        ("vLLM (batched, Blackwell)", l_vllm),
+        ("Cloud API (gpt-4o)", l_on),
+    ]:
+        total = r["total_seconds"]
+        rating = ("Excellent" if total < 10 else "Good" if total < 20
+                  else "Acceptable" if total < 45 else "Slow" if total < 90
+                  else "Poor" if total < 180 else "Unusable")
+        print(f"  {label:<30s}  {r['retrieval_seconds']:>9.1f}s  "
+              f"{r['llm_seconds']:>9.1f}s  {total:>9.1f}s  {rating:>10s}")
 
+    # NPU analysis
     print()
-    print("  NOTE: Laptop has 32 GB RAM. At 700 GB source data, embeddings are")
-    print(f"  {idx_demo.embeddings_size_gb:.1f} GB. Fits in RAM but leaves less headroom.")
-    if idx_demo.embeddings_size_gb + 8 > hw_laptop.ram_gb:
-        print("  [WARN] Tight RAM. Consider smaller index for demo.")
-    else:
-        headroom = hw_laptop.ram_gb - idx_demo.embeddings_size_gb - 8
-        print(f"  [OK] {headroom:.0f} GB RAM headroom after embeddings + OS + models.")
+    print("=" * 78)
+    print("NPU POTENTIAL (Intel AI Boost, 11 TOPS, 36 GB shared)")
+    print("=" * 78)
+    print()
+    print("  Current NPU capabilities (via OpenVINO):")
+    print("    - Embedding model (all-MiniLM-L6-v2): CAN offload to NPU")
+    print("      Frees CPU for BM25/reranker while NPU handles embeddings")
+    print("      Expected: ~5ms query embedding (faster than CPU)")
+    print("    - Reranker (cross-encoder): Possible via OpenVINO ONNX export")
+    print("      Would free CPU entirely for search operations")
+    print("    - LLM inference: NOT practical on NPU yet")
+    print("      11 TOPS is too slow for 8B+ parameter models")
+    print("      CPU still faster than NPU for 4-bit quantized LLMs")
+    print()
+    print("  Future NPU potential (2026-2027 drivers + frameworks):")
+    print("    - Intel NITRO framework: experimental LLM inference on NPU")
+    print("    - 36 GB shared memory could hold smaller models (1-3B)")
+    print("    - Hybrid GPU+NPU: GPU runs main LLM, NPU runs draft model")
+    print("      for speculative decoding (2x generation speed)")
+    print("    - NPU handles all pre/post-processing while GPU does inference")
+    print()
+
+    print("  RAM check (64 GB DDR5 6400 MT/s):")
+    headroom = hw_laptop.ram_gb - idx_demo.embeddings_size_gb - 8
+    print(f"    Embeddings: {idx_demo.embeddings_size_gb:.1f} GB")
+    print(f"    OS + models: ~8 GB")
+    print(f"    Headroom: {headroom:.0f} GB")
+    print(f"    [OK] Plenty of room. DDR5 6400 = ~51 GB/s bandwidth.")
 
     # ==================================================================
     # BOTTLENECK ANALYSIS
