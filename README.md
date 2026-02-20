@@ -201,6 +201,9 @@ HybridRAG3/
 |   |   +-- report.py              Report formatting and output
 |   |
 |   |-- tools/                      Utility scripts
+|   |   |-- bulk_transfer_v2.py    Bulk file transfer engine (network -> staging)
+|   |   |-- transfer_manifest.py   Transfer manifest database (zero-gap tracking)
+|   |   |-- transfer_staging.py    Three-stage staging manager (incoming/verified/quarantine)
 |   |   |-- system_diagnostic.py   Diagnostic entry point
 |   |   |-- run_index_once.py      Main indexing entry point
 |   |   |-- index_status.py        Database status checker
@@ -317,6 +320,8 @@ All packages sourced from PyPI (pypi.org) -- open-source with permissive license
 - `docs/NETWORK_SECURITY_EXPLAINER.md` -- Network isolation design
 - `docs/PERFORMANCE_BASELINE.md` -- Performance benchmarks and tuning
 - `docs/SOURCE_BOUNDED_GENERATION.md` -- LLM context grounding design
+- `docs/CHEAT_SHEET.md` -- Troubleshooting cheat sheet (setup, daily use, errors, scaling)
+- `docs/BULK_TRANSFER_STRESS_TEST.md` -- Bulk transfer V2 stress test results
 - `API_MODE_REVIEW.md` -- API mode code review and bug analysis
 - `config/profiles.yaml` -- Hardware performance profiles
 
