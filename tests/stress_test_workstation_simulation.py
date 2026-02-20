@@ -95,9 +95,9 @@ PERSONAL_WORKSTATION = HardwareProfile(
     gpu_vram_gb=48.0,         # 2x RTX 3090 FE = 24 GB GDDR6X each = 48 GB total
     gpu_name="2x RTX 3090 FE (NVLink)",
     storage_type="NVMe SSD",
-    storage_model="TBD (EVOs returned, PCIe 5.0 M.2 slot ready)",
-    storage_read_mbps=5000,   # Placeholder -- assuming decent Gen4 NVMe
-    storage_iops=700000,
+    storage_model="Samsung 990 EVO Plus 2TB (PCIe Gen5x2/Gen4x4)",
+    storage_read_mbps=7250,   # Samsung 990 EVO Plus sequential read
+    storage_iops=1000000,     # PCIe Gen5 class random IOPS
 )
 # Personal workstation build:
 #   Mobo:  ASUS TUF Gaming B650-PLUS WiFi (AM5, PCIe 5.0 M.2)
