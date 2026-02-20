@@ -58,7 +58,6 @@ PHASE2_MODIFIED = {
     "_set_model.py": PROJECT_ROOT / "scripts" / "_set_model.py",
     "credentials.py": PROJECT_ROOT / "src" / "security" / "credentials.py",
     "diagnostic_v2.py": PROJECT_ROOT / "diagnostics" / "hybridrag_diagnostic_v2.py",
-    "test_azure.py": PROJECT_ROOT / "test_azure.py",
 }
 
 # These are files with direct keyring calls that must use correct schema
@@ -71,7 +70,6 @@ KEYRING_FILES = {
     "store_key.py": PROJECT_ROOT / "tools" / "py" / "store_key.py",
     "test_api_verbose.py": PROJECT_ROOT / "tools" / "py" / "test_api_verbose.py",
     "diagnostic_v2.py": PROJECT_ROOT / "diagnostics" / "hybridrag_diagnostic_v2.py",
-    "test_azure.py": PROJECT_ROOT / "test_azure.py",
     "_rebuild_toolkit.py": PROJECT_ROOT / "tools" / "_rebuild_toolkit.py",
 }
 
@@ -88,6 +86,16 @@ CORE_MODULES = [
     "src/core/chunker.py",
     "src/core/chunk_ids.py",
 ]
+
+
+# Directories to exclude from project-wide scans (not active source code)
+SCAN_EXCLUDE_DIRS = {".venv", "venv", "__pycache__", "AICodeReviewFindings"}
+
+
+def _is_excluded(py_file):
+    """Return True if py_file is in an excluded directory."""
+    parts = py_file.relative_to(PROJECT_ROOT).parts
+    return any(p in SCAN_EXCLUDE_DIRS for p in parts)
 
 
 # ============================================================================
@@ -133,7 +141,7 @@ section("SIM-02: KEYRING SCHEMA CONSISTENCY (every file, every call)")
 def _():
     violations = []
     for py_file in PROJECT_ROOT.rglob("*.py"):
-        if "__pycache__" in str(py_file) or ".bak" in py_file.suffix:
+        if _is_excluded(py_file) or ".bak" in py_file.suffix:
             continue
         if "virtual_test" in py_file.name:
             continue  # Test files reference the string in their assertions
@@ -157,7 +165,7 @@ def _():
 def _():
     violations = []
     for py_file in PROJECT_ROOT.rglob("*.py"):
-        if "__pycache__" in str(py_file) or ".bak" in py_file.suffix:
+        if _is_excluded(py_file) or ".bak" in py_file.suffix:
             continue
         if "virtual_test" in py_file.name:
             continue  # Skip test files that mention patterns in assertions
@@ -186,7 +194,7 @@ def _():
 def _():
     violations = []
     for py_file in PROJECT_ROOT.rglob("*.py"):
-        if "__pycache__" in str(py_file) or ".bak" in py_file.suffix:
+        if _is_excluded(py_file) or ".bak" in py_file.suffix:
             continue
         if "virtual_test" in py_file.name:
             continue
@@ -907,7 +915,7 @@ def _():
     count = 0
     files_with_calls = {}
     for py_file in PROJECT_ROOT.rglob("*.py"):
-        if "__pycache__" in str(py_file) or ".bak" in py_file.suffix:
+        if _is_excluded(py_file) or ".bak" in py_file.suffix:
             continue
         if "virtual_test" in py_file.name:
             continue
