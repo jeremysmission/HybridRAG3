@@ -252,6 +252,157 @@ if isinstance(payload, str):
 
 ---
 
+## 2B. HALLUCINATION GUARD BUGS
+
+The hallucination guard subsystem has its own set of bugs, some of which compromise the core safety guarantee.
+
+### GUARD-HIGH-001: `is_safe` logic diverges between verify() and build_safe_response()
+
+**Files:** `src/core/hallucination_guard/hallucination_guard.py:201-209`, `response_scoring.py:182`
+**Severity:** HIGH -- Core safety guarantee is broken
+
+In `verify()`:
+```python
+if contra_count > 0:
+    is_safe = False  # any contradiction = unsafe
+else:
+    is_safe = (faith_score >= self.config.faithfulness_threshold)
+```
+
+In `build_safe_response()` / `response_scoring.py`:
+```python
+is_safe = score >= config.faithfulness_threshold  # ignores contradictions
+```
+
+**Impact:** When `verify()` marks a response as `is_safe=False` due to contradictions, `build_safe_response()` independently re-computes safety using only the score threshold. If the score passes the threshold despite contradictions, the `safe_response` equals the original unmodified response. The user gets `result.is_safe = False` but `result.safe_response` contains the contradicted claims. **The safety filter fails to filter.**
+
+---
+
+### GUARD-HIGH-002: `_flag_claims` can't match cleaned text against citation-decorated original
+
+**File:** `src/core/hallucination_guard/response_scoring.py:260-274`
+**Severity:** HIGH -- Flagging silently fails
+
+```python
+flagged = flagged.replace(cr.claim_text, marker, 1)
+```
+
+`cr.claim_text` is the cleaned version (citations stripped). The `original` text still contains `[Source: chunk_1]` markers. So `.replace()` finds no match and flagging does nothing. Contradicted claims pass through unflagged.
+
+---
+
+### GUARD-HIGH-003: `run_self_test()` returns None -- self-test always reports failure
+
+**Files:** `src/core/hallucination_guard/self_test.py:41-195`, `__main__.py:17-18`
+**Severity:** HIGH -- Erodes trust in test infrastructure
+
+```python
+# __main__.py:
+passed = run_self_test()      # returns None (no return statement)
+sys.exit(0 if passed else 1)  # None is falsy -> always exits 1
+```
+
+**Impact:** `python -m hallucination_guard` always reports failure even when all tests pass.
+
+---
+
+### GUARD-HIGH-004: MD5 usage crashes on FIPS-compliant defense systems
+
+**File:** `src/core/hallucination_guard/hallucination_guard.py:134-136`
+**Severity:** HIGH for defense deployments
+
+```python
+vid = hashlib.md5(f"{llm_response[:100]}{time.time()}".encode()).hexdigest()[:12]
+```
+
+**Impact:** On FIPS-compliant systems (common in defense), `hashlib.md5()` raises `ValueError` because MD5 is not FIPS-approved. This crashes the entire guard on first use.
+
+**Fix:** Use `hashlib.sha256()` or `hashlib.md5(usedforsecurity=False)` (Python 3.9+).
+
+---
+
+### GUARD-MED-001: Singleton `get_guard()` ignores config on subsequent calls
+
+**File:** `src/core/hallucination_guard/hallucination_guard.py:316-321`
+**Severity:** MEDIUM
+
+```python
+def get_guard(config=None):
+    global _guard_instance
+    if _guard_instance is None:
+        _guard_instance = HallucinationGuard(config)
+    return _guard_instance  # subsequent calls with different config are silently ignored
+```
+
+---
+
+### GUARD-MED-002: NLI model loading has no thread safety
+
+**File:** `src/core/hallucination_guard/nli_verifier.py:91-152`
+**Severity:** MEDIUM -- Race condition, double model load
+
+Two threads calling `verify_claim_against_chunks()` simultaneously can both pass the `if self._model_loaded` check and load the 440MB model concurrently, wasting memory and potentially corrupting `self.model`.
+
+**Fix:** Add `threading.Lock()`.
+
+---
+
+### GUARD-MED-003: `verify_batch_with_earlyexit()` has type mismatch (dead code)
+
+**File:** `src/core/hallucination_guard/nli_verifier.py:206-287`
+**Severity:** MEDIUM
+
+Expects `list[str]` but callers pass `list[dict]` from `ClaimExtractor.extract_claims()`. The method is never called from production code, but if enabled, it would pass dict objects to NLI as text strings.
+
+---
+
+### GUARD-MED-004: `assert` statements in self_test.py are disabled by `python -O`
+
+**File:** `src/core/hallucination_guard/self_test.py:69, 80, 108, etc.`
+**Severity:** MEDIUM
+
+All test assertions use `assert`. Running `python -O -m hallucination_guard` silently skips all checks. Defense environments sometimes use `-O` for performance.
+
+---
+
+### GUARD-MED-005: No validation on env var threshold value
+
+**File:** `src/core/hallucination_guard/guard_types.py:308-310`
+**Severity:** MEDIUM
+
+```python
+gc.faithfulness_threshold = float(t)  # no range check, no error handling
+```
+
+Setting `HALLUCINATION_GUARD_THRESHOLD=5.0` makes every response fail. Setting it to `-1.0` disables all protection. A non-numeric value crashes on import.
+
+---
+
+### GUARD-MED-006: Re-splitting response may produce different sentence boundaries
+
+**File:** `src/core/hallucination_guard/response_scoring.py:285-315`
+**Severity:** MEDIUM
+
+`_strip_claims` re-splits the response into sentences, which may split differently than the original `extract_claims()` call. Mismatched boundaries mean bad claims can slip through the filter.
+
+---
+
+### GUARD-LOW Issues
+
+| # | File | Issue |
+|---|---|---|
+| GL-01 | `guard_types.py:251` | `timeout_seconds` defined but never enforced anywhere |
+| GL-02 | `hallucination_guard.py:166` | Multi-citation claims lose all but last `source_file` |
+| GL-03 | `nli_verifier.py:199` | `_prune_chunks` uses substring matching (`"bit"` matches `"orbit"`) |
+| GL-04 | `guard_types.py:90` | `HEDGE_WORDS` substring matching (`"may"` matches `"mayor"`) |
+| GL-05 | `dual_path.py:76` | `chunks` parameter accepted but never used |
+| GL-06 | `dual_path.py:139` | Semantic misuse of `verify_claim_against_chunks` for cross-claim comparison |
+| GL-07 | `__init__.py:91` | BIT runs on every import with no skip mechanism |
+| GL-08 | `hallucination_guard.py:94` | Logger missing `propagate = False`, causes duplicate log lines |
+| GL-09 | `nli_verifier.py:313` | Hardcoded Euler's number approximation instead of `math.exp` |
+
+---
+
 ## 3. LOW-SEVERITY ISSUES
 
 | # | File | Line | Issue |
@@ -336,18 +487,46 @@ These aspects of the codebase are solid and well-engineered:
 
 ## 6. PRIORITY FIX ORDER
 
-If addressing these in order of impact:
+### Tier 1: Safety-Critical (fix immediately)
 
-1. **BUG-HIGH-001** (boot.py Ollama key name) -- One-line fix, high impact
-2. **BUG-HIGH-003** (XLSX file handle leak) -- Small fix, prevents crashes during batch indexing
-3. **BUG-MED-001** (TimeoutError shadow) -- Rename to avoid confusion
-4. **BUG-MED-002** (empty choices guard) -- One-line guard prevents crashes
-5. **BUG-MED-003** (duplicate logger handlers) -- Prevents log noise
-6. **BUG-MED-005** (Tesseract env var inconsistency) -- Quick alignment fix
-7. **BUG-MED-006** (HTML entity decoding) -- Improves search quality
-8. **BUG-MED-009** (DOCX table extraction) -- Significant content improvement
-9. **BUG-HIGH-002** (OCR timeout) -- Requires design change, but prevents hangs
-10. **BUG-MED-004** (httpx client reuse) -- Performance improvement
+1. **GUARD-HIGH-001** (`is_safe` divergence) -- Core safety guarantee is broken. Contradicted claims pass through `safe_response` unmodified.
+2. **GUARD-HIGH-002** (`_flag_claims` text mismatch) -- Flagging silently fails due to citation-decorated text not matching cleaned claims.
+3. **GUARD-HIGH-004** (MD5 on FIPS systems) -- Crashes the guard on defense networks. One-line fix.
+
+### Tier 2: Functional Bugs (fix this session)
+
+4. **BUG-HIGH-001** (boot.py Ollama key name) -- One-line fix, high impact on offline mode detection.
+5. **GUARD-HIGH-003** (self_test returns None) -- Self-test always reports failure. Add `return` statement.
+6. **BUG-HIGH-003** (XLSX file handle leak) -- Small fix, prevents crashes during batch indexing.
+7. **BUG-MED-002** (empty API choices guard) -- One-line guard prevents crashes.
+
+### Tier 3: Correctness & Quality (fix soon)
+
+8. **BUG-MED-001** (TimeoutError shadow) -- Rename to avoid confusion.
+9. **BUG-MED-003** (duplicate logger handlers) -- Prevents log noise.
+10. **BUG-MED-005** (Tesseract env var inconsistency) -- Quick alignment fix.
+11. **BUG-MED-006** (HTML entity decoding) -- Improves search quality.
+12. **BUG-MED-009** (DOCX table extraction) -- Significant content improvement.
+13. **GUARD-MED-002** (NLI thread safety) -- Add threading lock for model loading.
+14. **GUARD-MED-005** (threshold validation) -- Add range check on env var.
+
+### Tier 4: Performance & Polish (fix when convenient)
+
+15. **BUG-HIGH-002** (OCR timeout) -- Requires design change, but prevents hangs.
+16. **BUG-MED-004** (httpx client reuse) -- Performance improvement.
+17. **GUARD-MED-001** (singleton config) -- Warn or recreate when config changes.
+
+---
+
+## 7. BUG COUNT SUMMARY
+
+| Category | HIGH | MEDIUM | LOW | Total |
+|---|---|---|---|---|
+| Core Pipeline | 3 | 10 | 12 | 25 |
+| Hallucination Guard | 4 | 6 | 9 | 19 |
+| **Total** | **7** | **16** | **21** | **44** |
+
+All 47 Python source files pass syntax compilation. No import errors detected.
 
 ---
 
