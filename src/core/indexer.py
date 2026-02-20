@@ -69,7 +69,6 @@ from __future__ import annotations
 import os
 import time
 import traceback
-import zipfile
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from datetime import datetime
@@ -79,6 +78,7 @@ from .vector_store import VectorStore, ChunkMetadata
 from .chunker import Chunker, ChunkerConfig
 from .embedder import Embedder
 from .chunk_ids import make_chunk_id
+from .file_validator import FileValidator
 import gc
 import hashlib
 
@@ -109,26 +109,6 @@ class IndexingProgressCallback:
 
     def on_error(self, file_path: str, error: str) -> None:
         pass
-
-
-# -------------------------------------------------------------------
-# Pre-flight check constants
-# -------------------------------------------------------------------
-# These match the thresholds in scan_source_files.py so the pre-flight
-# gate and the standalone scanner agree on what's bad.
-
-_ZIP_BASED_FORMATS = {".docx", ".pptx", ".xlsx"}
-
-_MIN_FILE_SIZES = {
-    ".pdf":  200,
-    ".docx": 2000,
-    ".pptx": 5000,
-    ".xlsx": 2000,
-    ".eml":  100,
-}
-
-_PREFLIGHT_SAMPLE_SIZE = 16384  # 16KB for null-byte sampling
-_NULL_BYTE_THRESHOLD = 0.20     # 20% null bytes = suspect
 
 
 # -------------------------------------------------------------------
@@ -180,6 +160,9 @@ class Indexer:
                 "node_modules", "_quarantine",
             ])
         )
+
+        # File validation (extracted from Indexer to keep class under 500 lines)
+        self._file_validator = FileValidator(excluded_dirs=self._excluded_dirs)
 
     # ------------------------------------------------------------------
     # Public API -- this is what you call to index a folder
@@ -454,113 +437,8 @@ class Indexer:
     # ------------------------------------------------------------------
 
     def _preflight_check(self, file_path: Path) -> Optional[str]:
-        """
-        Fast structural integrity check BEFORE parsing.
-
-        Runs <1ms per file (just stat() + small reads). Returns None
-        if the file looks OK, or a reason string if it should be
-        skipped.
-
-        CHECKS (in order):
-          1. Word/Office temp lock file (~$ prefix)
-          2. Zero-byte file
-          3. ZIP integrity for Office formats (.docx, .pptx, .xlsx)
-          4. PDF structure (header + %%EOF)
-          5. High null-byte ratio (incomplete torrent signature)
-          6. Too small for file type
-
-        WHY THIS EXISTS:
-          The parser + _validate_text() pipeline was the only defense
-          against corrupt files. But _validate_text() only checks the
-          first 2000 chars of parsed output. Files with valid headers
-          but garbage middles (incomplete torrents) sail through.
-          Pre-flight catches them before the parser even runs.
-        """
-        name = file_path.name
-        ext = file_path.suffix.lower()
-
-        # --- Check 1: Word/Office temp lock file ---
-        # These are ~162-byte files starting with "~$" that Word creates
-        # while a document is open. They contain the editor's username,
-        # not document content. They're never valid documents.
-        if name.startswith("~$"):
-            return "Office temp lock file (not a document)"
-
-        # --- Check 2: Zero-byte file ---
-        try:
-            size = file_path.stat().st_size
-        except OSError as e:
-            return f"Cannot stat file: {e}"
-
-        if size == 0:
-            return "Zero-byte file (empty)"
-
-        # --- Check 3: ZIP integrity for Office formats ---
-        # .docx, .pptx, .xlsx are ZIP archives internally. A broken ZIP
-        # means the file is corrupt -- the parser will either crash or
-        # produce garbage.
-        if ext in _ZIP_BASED_FORMATS:
-            try:
-                with zipfile.ZipFile(file_path, 'r') as zf:
-                    bad = zf.testzip()
-                    if bad:
-                        return f"Corrupt ZIP (bad entry: {bad})"
-            except zipfile.BadZipFile:
-                return "Invalid ZIP structure (not a valid Office doc)"
-            except Exception as e:
-                return f"Cannot verify ZIP: {type(e).__name__}"
-
-        # --- Check 4: PDF structure ---
-        # Valid PDFs must start with %PDF and end with %%EOF.
-        if ext == ".pdf":
-            try:
-                with open(file_path, "rb") as f:
-                    header = f.read(10)
-                    if not header.startswith(b"%PDF"):
-                        return "Not a valid PDF (missing %PDF header)"
-                    read_size = min(1024, size)
-                    f.seek(-read_size, 2)
-                    tail = f.read(read_size)
-                    if b"%%EOF" not in tail:
-                        return "Truncated PDF (missing %%EOF marker)"
-            except (PermissionError, OSError) as e:
-                return f"Cannot read PDF: {e}"
-
-        # --- Check 5: Null-byte ratio ---
-        # Incomplete torrent downloads have valid headers but long
-        # stretches of null bytes in the middle. We sample from the
-        # middle of the file to catch this.
-        if size > 1000:  # Only check files large enough to matter
-            try:
-                with open(file_path, "rb") as f:
-                    if size > _PREFLIGHT_SAMPLE_SIZE * 2:
-                        f.seek(size // 2 - _PREFLIGHT_SAMPLE_SIZE // 2)
-                        sample = f.read(_PREFLIGHT_SAMPLE_SIZE)
-                    else:
-                        sample = f.read(_PREFLIGHT_SAMPLE_SIZE)
-
-                null_count = sample.count(b'\x00')
-                ratio = null_count / len(sample) if sample else 0
-
-                if ratio > _NULL_BYTE_THRESHOLD:
-                    pct = f"{ratio * 100:.0f}%"
-                    return (
-                        f"High null-byte ratio ({pct}) -- "
-                        f"likely incomplete download"
-                    )
-            except (PermissionError, OSError):
-                pass  # Non-fatal, continue to parsing
-
-        # --- Check 6: Too small for file type ---
-        min_size = _MIN_FILE_SIZES.get(ext)
-        if min_size and size < min_size:
-            return (
-                f"Too small for {ext} ({size}B, "
-                f"min expected: {min_size}B)"
-            )
-
-        # All checks passed
-        return None
+        """Delegate to FileValidator. See file_validator.py for details."""
+        return self._file_validator.preflight_check(file_path)
 
     def _process_file_with_retry(self, file_path, max_retries=3):
         """Retry file processing up to max_retries times with backoff."""
@@ -636,67 +514,13 @@ class Indexer:
             except Exception:
                 return ""
 
-    # =================================================================
-    # BUG-004 FIX: Validate text before chunking to catch garbage
-    # =================================================================
     def _validate_text(self, text: str) -> bool:
-        """
-        Check if extracted text is actually readable, not binary garbage.
-
-        WHY THIS EXISTS (BUG-004):
-          Some corrupted PDFs don't crash the parser -- they just return
-          garbage like "\\x00\\x89PNG\\r\\n\\x1a\\x00..." as text. Without
-          this check, that garbage gets chunked, embedded, and stored,
-          polluting search results with nonsensical matches.
-
-        HOW IT WORKS:
-          1. Take a sample of the text (first 2000 chars is enough)
-          2. Count how many characters are "normal" (letters, digits,
-             spaces, common punctuation)
-          3. If less than 30% of characters are normal, it's garbage
-
-        WHY 30%?
-          - Pure English text: ~95% printable
-          - Technical docs with equations/symbols: ~70% printable
-          - Mixed language docs (CJK, Arabic, etc.): ~60% printable
-          - Binary garbage: typically < 10% printable
-          - 30% gives plenty of margin for all real document types
-
-        NOTE: The pre-flight check (_preflight_check) catches most
-        corrupt files before they reach this point. This is the second
-        safety net for files that have valid structure but produce
-        garbage text (e.g., encrypted PDFs, DRM-protected files).
-
-        Returns True if text looks valid, False if it looks like garbage.
-        """
-        if not text or len(text) < 20:
-            return False  # Too short to be useful
-
-        # Take a sample -- no need to scan millions of chars
-        sample = text[:2000]
-
-        # -- Fast-reject: null bytes never appear in real text documents --
-        # Binary formats (PNG, PDF internals, EXE headers) contain null bytes.
-        # Real text -- even multilingual or heavily symbolic -- does not.
-        # If more than 1% of the sample is null bytes, it's binary garbage.
-        null_count = sample.count('\x00')
-        if null_count / len(sample) > 0.01:
-            return False
-
-        # Count "normal" characters: letters, digits, spaces, newlines,
-        # and common punctuation that appears in real documents
-        normal_count = 0
-        for ch in sample:
-            if ch.isalnum() or ch in ' \t\n\r.,;:!?()-/\'"@#$%&*+=[]{}|<>~':
-                normal_count += 1
-
-        ratio = normal_count / len(sample)
-        return ratio >= 0.30
+        """Delegate to FileValidator. See file_validator.py for details."""
+        return self._file_validator.validate_text(text)
 
     def _is_excluded(self, file_path: Path) -> bool:
-        """Check if any parent directory is in the exclusion list."""
-        parts_lower = {p.lower() for p in file_path.parts}
-        return bool(parts_lower & {d.lower() for d in self._excluded_dirs})
+        """Delegate to FileValidator. See file_validator.py for details."""
+        return self._file_validator.is_excluded(file_path)
 
     def _iter_text_blocks(self, text: str):
         """
