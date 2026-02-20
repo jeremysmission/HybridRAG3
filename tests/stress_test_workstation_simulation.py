@@ -89,16 +89,21 @@ class HardwareProfile:
 
 # Pre-built hardware profiles
 WORKSTATION = HardwareProfile(
-    name="Desktop Workstation",
-    cpu_threads=16,           # 8-core / 16-thread
-    ram_gb=64.0,
-    gpu_vram_gb=12.0,         # RTX 3060/4070 class
-    gpu_name="NVIDIA 12GB",
+    name="Desktop Workstation (New)",
+    cpu_threads=28,           # Desktop Intel Core Ultra 7 (8P HT + 12E = 28 threads)
+    ram_gb=64.0,              # DDR5 6400+ MT/s
+    gpu_vram_gb=12.0,         # Desktop RTX Blackwell 12 GB GDDR7
+    gpu_name="RTX Blackwell Desktop 12GB",
     storage_type="NVMe SSD",
-    storage_model="Generic NVMe Gen3/4",
-    storage_read_mbps=3500,
-    storage_iops=500000,
+    storage_model="Samsung 990 EVO Plus 2TB (PCIe Gen5x2/Gen4x4)",
+    storage_read_mbps=7250,   # Samsung 990 EVO Plus sequential read
+    storage_iops=1000000,     # PCIe Gen5 class random IOPS
 )
+# Desktop Blackwell advantage over laptop variant:
+#   - Higher TDP (~250W vs 60W) = higher sustained GPU clocks
+#   - Same GDDR7 memory bandwidth (~672 GB/s) but better sustained
+#   - Desktop CPU runs at full power without thermal throttling
+#   - Samsung 990 EVO Plus: 7,250 MB/s vs laptop SN8000S: 5,545 MB/s
 
 WORK_LAPTOP = HardwareProfile(
     name="Work Laptop (Demo)",
@@ -333,9 +338,15 @@ def llm_inference_offline(
     # Blackwell GDDR7 at ~672 GB/s = ~2.6x bandwidth = ~2.3x actual throughput
     # (not perfectly linear due to compute overhead, but close)
     is_blackwell = "Blackwell" in hw.gpu_name or "RTX Pro 3000" in hw.gpu_name
-    bw_multiplier = 2.3 if is_blackwell else 1.0
+    # Desktop Blackwell has higher sustained clocks due to higher TDP (250W vs 60W)
+    if is_blackwell and "Desktop" in hw.gpu_name:
+        bw_multiplier = 2.5  # Desktop: higher sustained clocks + same GDDR7
+    elif is_blackwell:
+        bw_multiplier = 2.3  # Laptop: 60W TDP, slight thermal throttling
+    else:
+        bw_multiplier = 1.0
 
-    # Model-specific throughput (tokens per second on BASELINE desktop 12 GB GPU)
+    # Model-specific throughput (tokens per second on BASELINE older 12 GB GPU)
     model_throughput = {
         "qwen3:8b":          {"prompt_tps": 200, "gen_tps": 30, "note": "Primary for most profiles"},
         "phi4:14b-q4_K_M":   {"prompt_tps": 120, "gen_tps": 17, "note": "Tight fit in 12GB VRAM"},
@@ -452,7 +463,12 @@ def llm_inference_vllm_server(
     """
     # GPU architecture scaling (same as offline)
     is_blackwell = "Blackwell" in hw.gpu_name or "RTX Pro 3000" in hw.gpu_name
-    bw_multiplier = 2.3 if is_blackwell else 1.0
+    if is_blackwell and "Desktop" in hw.gpu_name:
+        bw_multiplier = 2.5
+    elif is_blackwell:
+        bw_multiplier = 2.3
+    else:
+        bw_multiplier = 1.0
 
     # Model throughput under vLLM continuous batching (BASELINE desktop 12 GB GPU)
     model_throughput = {

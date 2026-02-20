@@ -1,15 +1,15 @@
 # Workstation Stress Test Simulation Results
 
-**Date:** 2026-02-20T15:26:14.191829
+**Date:** 2026-02-20T15:30:57.186051
 
 ## Hardware Profile
 
 | Component | Spec |
 |-----------|------|
-| CPU | 16 threads |
+| CPU | 28 threads |
 | RAM | 64 GB |
-| GPU | NVIDIA 12GB (12 GB VRAM) |
-| Storage | 2 TB NVMe SSD (3500 MB/s) |
+| GPU | RTX Blackwell Desktop 12GB (12 GB VRAM) |
+| Storage | 2 TB NVMe SSD (7250 MB/s) |
 
 ## Index Profile
 
@@ -23,100 +23,100 @@
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
-| 10 | 1.8s | 114.6s | 116.4s | Poor |
-| 8 | 1.6s | 93.8s | 95.3s | Poor |
-| 6 | 1.4s | 72.9s | 74.3s | Slow |
-| 4 | 1.2s | 52.1s | 53.2s | Slow |
-| 3 | 1.2s | 41.7s | 42.8s | Acceptable |
-| 2 | 1.1s | 31.3s | 32.4s | Acceptable |
+| 10 | 1.5s | 45.8s | 47.3s | Slow |
+| 8 | 1.3s | 37.5s | 38.8s | Acceptable |
+| 6 | 1.1s | 29.2s | 30.2s | Acceptable |
+| 4 | 0.9s | 20.8s | 21.7s | Acceptable |
+| 3 | 0.9s | 16.7s | 17.5s | Good |
+| 2 | 0.8s | 12.5s | 13.3s | Good |
 
 ## Offline/Ollama (phi4:14b) -- 700 GB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
-| 10 | 1.8s | 198.2s | 199.9s | Unusable |
-| 8 | 1.6s | 162.1s | 163.7s | Poor |
-| 6 | 1.4s | 126.1s | 127.5s | Poor |
-| 4 | 1.2s | 90.1s | 91.2s | Poor |
-| 3 | 1.2s | 72.1s | 73.2s | Slow |
-| 2 | 1.1s | 54.0s | 55.2s | Slow |
+| 10 | 1.5s | 79.3s | 80.7s | Slow |
+| 8 | 1.3s | 64.9s | 66.1s | Slow |
+| 6 | 1.1s | 50.4s | 51.5s | Slow |
+| 4 | 0.9s | 36.0s | 36.9s | Acceptable |
+| 3 | 0.9s | 28.8s | 29.7s | Acceptable |
+| 2 | 0.8s | 21.6s | 22.5s | Acceptable |
 
 ## vLLM Server (qwen3:8b) -- 700 GB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
-| 10 | 1.8s | 21.1s | 22.9s | Acceptable |
-| 8 | 1.6s | 18.1s | 19.7s | Good |
-| 6 | 1.4s | 15.1s | 16.5s | Good |
-| 4 | 1.2s | 12.1s | 13.2s | Good |
-| 3 | 1.2s | 10.8s | 12.0s | Good |
-| 2 | 1.1s | 9.6s | 10.7s | Good |
+| 10 | 1.5s | 13.0s | 14.5s | Good |
+| 8 | 1.3s | 11.2s | 12.4s | Good |
+| 6 | 1.1s | 9.3s | 10.4s | Good |
+| 4 | 0.9s | 7.4s | 8.3s | Excellent |
+| 3 | 0.9s | 6.7s | 7.5s | Excellent |
+| 2 | 0.8s | 5.9s | 6.8s | Excellent |
 
 ## vLLM Server (phi4:14b) -- 700 GB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
-| 10 | 1.8s | 53.5s | 55.3s | Slow |
-| 8 | 1.6s | 44.6s | 46.2s | Slow |
-| 6 | 1.4s | 35.7s | 37.0s | Acceptable |
-| 4 | 1.2s | 26.8s | 27.9s | Acceptable |
-| 3 | 1.2s | 22.3s | 23.5s | Acceptable |
-| 2 | 1.1s | 17.8s | 19.0s | Good |
+| 10 | 1.5s | 29.2s | 30.6s | Acceptable |
+| 8 | 1.3s | 24.3s | 25.6s | Acceptable |
+| 6 | 1.1s | 19.4s | 20.5s | Acceptable |
+| 4 | 0.9s | 14.6s | 15.4s | Good |
+| 3 | 0.9s | 12.2s | 13.0s | Good |
+| 2 | 0.8s | 9.7s | 10.6s | Good |
 
 ## Online (gpt-4o) -- 700 GB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
-| 10 | 1.8s | 6.5s | 8.3s | Excellent |
-| 8 | 1.6s | 6.2s | 7.7s | Excellent |
-| 6 | 1.4s | 6.2s | 7.5s | Excellent |
-| 4 | 1.2s | 5.9s | 7.0s | Excellent |
-| 3 | 1.2s | 5.9s | 7.0s | Excellent |
-| 2 | 1.1s | 5.9s | 7.0s | Excellent |
+| 10 | 1.5s | 6.5s | 7.9s | Excellent |
+| 8 | 1.3s | 6.2s | 7.4s | Excellent |
+| 6 | 1.1s | 6.2s | 7.2s | Excellent |
+| 4 | 0.9s | 5.9s | 6.7s | Excellent |
+| 3 | 0.9s | 5.9s | 6.7s | Excellent |
+| 2 | 0.8s | 5.9s | 6.7s | Excellent |
 
 ## Online (gpt-4o-mini) -- 700 GB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
-| 10 | 1.8s | 4.2s | 6.0s | Excellent |
-| 8 | 1.6s | 4.0s | 5.6s | Excellent |
-| 6 | 1.4s | 4.0s | 5.4s | Excellent |
-| 4 | 1.2s | 3.8s | 5.0s | Excellent |
-| 3 | 1.2s | 3.8s | 5.0s | Excellent |
-| 2 | 1.1s | 3.8s | 5.0s | Excellent |
+| 10 | 1.5s | 4.2s | 5.7s | Excellent |
+| 8 | 1.3s | 4.0s | 5.3s | Excellent |
+| 6 | 1.1s | 4.0s | 5.1s | Excellent |
+| 4 | 0.9s | 3.8s | 4.7s | Excellent |
+| 3 | 0.9s | 3.8s | 4.7s | Excellent |
+| 2 | 0.8s | 3.8s | 4.7s | Excellent |
 
 ## Offline/Ollama (qwen3:8b) -- 2 TB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
-| 10 | 3.5s | 114.6s | 118.1s | Poor |
-| 8 | 3.2s | 93.8s | 97.0s | Poor |
-| 6 | 2.9s | 72.9s | 75.8s | Slow |
-| 4 | 2.6s | 52.1s | 54.6s | Slow |
-| 3 | 2.5s | 41.7s | 44.2s | Acceptable |
-| 2 | 2.5s | 31.3s | 33.8s | Acceptable |
+| 10 | 2.6s | 45.8s | 48.4s | Slow |
+| 8 | 2.3s | 37.5s | 39.8s | Acceptable |
+| 6 | 2.0s | 29.2s | 31.2s | Acceptable |
+| 4 | 1.7s | 20.8s | 22.5s | Acceptable |
+| 3 | 1.7s | 16.7s | 18.3s | Good |
+| 2 | 1.7s | 12.5s | 14.2s | Good |
 
 ## vLLM Server (qwen3:8b) -- 2 TB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
-| 10 | 3.5s | 21.1s | 24.7s | Acceptable |
-| 8 | 3.2s | 18.1s | 21.3s | Acceptable |
-| 6 | 2.9s | 15.1s | 18.0s | Good |
-| 4 | 2.6s | 12.1s | 14.6s | Good |
-| 3 | 2.5s | 10.8s | 13.4s | Good |
-| 2 | 2.5s | 9.6s | 12.1s | Good |
+| 10 | 2.6s | 13.0s | 15.6s | Good |
+| 8 | 2.3s | 11.2s | 13.5s | Good |
+| 6 | 2.0s | 9.3s | 11.3s | Good |
+| 4 | 1.7s | 7.4s | 9.1s | Excellent |
+| 3 | 1.7s | 6.7s | 8.4s | Excellent |
+| 2 | 1.7s | 5.9s | 7.6s | Excellent |
 
 ## Online (gpt-4o) -- 2 TB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
-| 10 | 3.5s | 6.5s | 10.0s | Excellent |
-| 8 | 3.2s | 6.2s | 9.4s | Excellent |
-| 6 | 2.9s | 6.2s | 9.1s | Excellent |
-| 4 | 2.6s | 5.9s | 8.4s | Excellent |
-| 3 | 2.5s | 5.9s | 8.4s | Excellent |
-| 2 | 2.5s | 5.9s | 8.4s | Excellent |
+| 10 | 2.6s | 6.5s | 9.1s | Excellent |
+| 8 | 2.3s | 6.2s | 8.5s | Excellent |
+| 6 | 2.0s | 6.2s | 8.2s | Excellent |
+| 4 | 1.7s | 5.9s | 7.6s | Excellent |
+| 3 | 1.7s | 5.9s | 7.6s | Excellent |
+| 2 | 1.7s | 5.9s | 7.6s | Excellent |
 
 ## Improvement Recommendations
 
