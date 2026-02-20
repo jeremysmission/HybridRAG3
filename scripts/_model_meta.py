@@ -50,31 +50,88 @@ import subprocess
 USE_CASES = {
     "sw":    {"letter": "S", "label": "Software Engineering",
               "desc": "Code generation, debugging, code review, algorithms",
-              "eng_w": 0.90, "gen_w": 0.10},
+              "eng_w": 0.90, "gen_w": 0.10,
+              "work_only": True},
 
     "eng":   {"letter": "E", "label": "Engineering / STEM",
               "desc": "Math, structured data, technical analysis, RAG queries",
-              "eng_w": 0.80, "gen_w": 0.20},
+              "eng_w": 0.80, "gen_w": 0.20,
+              "work_only": True},
 
     "sys":   {"letter": "Y", "label": "Systems Administration",
               "desc": "Scripts, configs, troubleshooting, security, networking",
-              "eng_w": 0.70, "gen_w": 0.30},
+              "eng_w": 0.70, "gen_w": 0.30,
+              "work_only": True},
 
     "draft": {"letter": "D", "label": "Drafting / AutoCAD",
               "desc": "Technical specs, structured output, precision documents",
-              "eng_w": 0.75, "gen_w": 0.25},
+              "eng_w": 0.75, "gen_w": 0.25,
+              "work_only": True},
 
     "log":   {"letter": "L", "label": "Logistics Analyst",
               "desc": "Data analysis, optimization, supply chain, spreadsheets",
-              "eng_w": 0.60, "gen_w": 0.40},
+              "eng_w": 0.60, "gen_w": 0.40,
+              "work_only": True},
 
     "pm":    {"letter": "P", "label": "Program Management",
               "desc": "Documentation, scheduling, reporting, communication",
-              "eng_w": 0.25, "gen_w": 0.75},
+              "eng_w": 0.25, "gen_w": 0.75,
+              "work_only": True},
 
     "gen":   {"letter": "G", "label": "General AI",
               "desc": "World knowledge, creative writing, broad reasoning",
-              "eng_w": 0.10, "gen_w": 0.90},
+              "eng_w": 0.10, "gen_w": 0.90,
+              "work_only": False},
+}
+
+
+# ============================================================================
+# RECOMMENDED OFFLINE MODELS PER USE CASE
+# ============================================================================
+# Vetted for WORK_ONLY use on 64GB RAM / 12GB VRAM hardware.
+# See docs/MODEL_SELECTION_RATIONALE.md for full research and benchmarks.
+#
+# Fields:
+#   primary:     Best model for the use case (must fit in 12GB VRAM)
+#   alt:         Alternative model for different strengths
+#   temperature: Recommended temperature for this use case
+#   context:     Recommended context window in tokens
+#   reranker:    Whether reranker should be enabled
+#   top_k:       Recommended retrieval top_k
+# ============================================================================
+
+RECOMMENDED_OFFLINE = {
+    "sw":    {"primary": "qwen3:8b", "alt": "deepseek-r1:8b",
+              "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
+
+    "eng":   {"primary": "qwen3:8b", "alt": "deepseek-r1:8b",
+              "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
+
+    "sys":   {"primary": "qwen3:8b", "alt": "deepseek-r1:8b",
+              "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
+
+    "draft": {"primary": "qwen3:8b", "alt": "phi4:14b-q4_K_M",
+              "temperature": 0.05, "context": 16384, "reranker": True, "top_k": 8},
+
+    "log":   {"primary": "phi4:14b-q4_K_M", "alt": "qwen3:8b",
+              "temperature": 0.0, "context": 8192, "reranker": True, "top_k": 10},
+
+    "pm":    {"primary": "qwen3:8b", "alt": "gemma3:4b",
+              "temperature": 0.25, "context": 8192, "reranker": False, "top_k": 5},
+
+    "gen":   {"primary": "qwen3:8b", "alt": "llama3.1:8b",
+              "temperature": 0.3, "context": 8192, "reranker": False, "top_k": 5},
+}
+
+# Recommended cloud API models per use case
+RECOMMENDED_ONLINE = {
+    "sw":    {"primary": "anthropic/claude-sonnet-4", "alt": "gpt-4.1"},
+    "eng":   {"primary": "anthropic/claude-sonnet-4", "alt": "gpt-4o"},
+    "sys":   {"primary": "anthropic/claude-sonnet-4", "alt": "gpt-4o"},
+    "draft": {"primary": "anthropic/claude-sonnet-4", "alt": "gpt-4o"},
+    "log":   {"primary": "gpt-4o",                    "alt": "gpt-4.1"},
+    "pm":    {"primary": "gpt-4o-mini",               "alt": "gpt-4.1-mini"},
+    "gen":   {"primary": "gpt-4o",                    "alt": "anthropic/claude-sonnet-4"},
 }
 
 # Reverse lookup: letter -> use case key  (e.g. "S" -> "sw")
@@ -135,6 +192,9 @@ KNOWN_MODELS = {
     "o4-mini":          {"ctx": 200000,  "price_in": 1.10,   "price_out": 4.40,   "tier_eng": 91, "tier_gen": 82, "family": "OpenAI",    "note": "Latest efficient reasoning"},
 
     # ---- Anthropic Claude Family ----
+    "claude-opus-4":      {"ctx": 200000, "price_in": 15.0,  "price_out": 75.0,   "tier_eng": 97, "tier_gen": 97, "family": "Anthropic", "note": "Most capable Claude, 200K ctx"},
+    "claude-sonnet-4":    {"ctx": 200000, "price_in": 3.0,   "price_out": 15.0,   "tier_eng": 95, "tier_gen": 96, "family": "Anthropic", "note": "Best value frontier, 200K ctx"},
+    "claude-haiku-4":     {"ctx": 200000, "price_in": 0.80,  "price_out": 4.0,    "tier_eng": 78, "tier_gen": 80, "family": "Anthropic", "note": "Fast Claude 4, 200K ctx"},
     "claude-3.7-sonnet":  {"ctx": 200000, "price_in": 3.0,   "price_out": 15.0,   "tier_eng": 94, "tier_gen": 95, "family": "Anthropic", "note": "Extended thinking, 200K ctx"},
     "claude-3.5-sonnet":  {"ctx": 200000, "price_in": 3.0,   "price_out": 15.0,   "tier_eng": 92, "tier_gen": 93, "family": "Anthropic", "note": "Strong all-around, 200K ctx"},
     "claude-3.5-haiku":   {"ctx": 200000, "price_in": 0.80,  "price_out": 4.0,    "tier_eng": 75, "tier_gen": 78, "family": "Anthropic", "note": "Fast and affordable, 200K ctx"},
@@ -272,8 +332,10 @@ _OFFLINE_FAMILY_SCORES = [
     ("llama3",   28, 33), ("llama-3", 28, 33),
     # Phi-4: punches above weight on STEM for its 14B size
     ("phi-4",    30, 24), ("phi4", 30, 24),
-    # Gemma 3: competitive all-around
-    ("gemma",    26, 28),
+    # Gemma 3: competitive all-around, strong summarization
+    ("gemma3",   28, 32), ("gemma-3", 28, 32),
+    # Gemma (older): decent baseline
+    ("gemma",    24, 26),
     # Mixtral MoE: good efficiency and capability
     ("mixtral",  25, 27),
     # Qwen 2 (older): still decent STEM
