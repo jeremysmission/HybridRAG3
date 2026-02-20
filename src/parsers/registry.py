@@ -27,6 +27,7 @@ from .office_xlsx_parser import XlsxParser
 # NEW in Step 5B
 from .eml_parser import EmlParser
 from .image_parser import ImageOCRParser
+from .html_file_parser import HtmlFileParser
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,10 @@ class ParserRegistry:
         self.register(".docx", "DocxParser", DocxParser)
         self.register(".pptx", "PptxParser", PptxParser)
         self.register(".xlsx", "XlsxParser", XlsxParser)
+
+        # --- HTML files ---
+        self.register(".html", "HtmlFileParser", HtmlFileParser)
+        self.register(".htm", "HtmlFileParser", HtmlFileParser)
 
         # --- Emails ---
         self.register(".eml", "EmlParser", EmlParser)
