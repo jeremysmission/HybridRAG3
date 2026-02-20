@@ -359,6 +359,7 @@ from scripts._model_meta import (
     USE_CASES,             # 7 use cases with work_only flag
     RECOMMENDED_OFFLINE,   # Per use-case offline model recommendations
     RECOMMENDED_ONLINE,    # Per use-case cloud API recommendations
+    PERSONAL_FUTURE,       # Models needing >12GB VRAM (recognized, not auto-selected)
     KNOWN_MODELS,          # 46 models with dual tier scores
     use_case_score,        # Compute blended score for a use case
     lookup_known_model,    # Look up model in knowledge base

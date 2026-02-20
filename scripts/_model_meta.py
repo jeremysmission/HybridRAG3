@@ -105,6 +105,7 @@ RECOMMENDED_OFFLINE = {
               "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
 
     "eng":   {"primary": "qwen3:8b", "alt": "deepseek-r1:8b",
+              "secondary_test": "phi4:14b-q4_K_M",  # Hardware margin rejection; test at 8K ctx
               "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
 
     "sys":   {"primary": "qwen3:8b", "alt": "deepseek-r1:8b",
@@ -121,6 +122,45 @@ RECOMMENDED_OFFLINE = {
 
     "gen":   {"primary": "qwen3:8b", "alt": "llama3.1:8b",
               "temperature": 0.3, "context": 8192, "reranker": False, "top_k": 5},
+}
+
+# ============================================================================
+# PERSONAL_FUTURE: Models that require more VRAM than 12 GB
+# ============================================================================
+# These are recognized in the registry but NEVER auto-selected on current
+# hardware (64 GB RAM / 12 GB VRAM). They become available when:
+#
+# Tier 1 (24 GB VRAM -- RTX 4090 / A5000 / RTX 5000 Ada):
+#   qwen3:32b          ~20 GB download, ~24 GB VRAM at Q4_K_M
+#   deepseek-r1:32b    ~20 GB download, ~24 GB VRAM at Q4_K_M
+#   gemma3:27b         ~17 GB download, ~20-24 GB VRAM at Q4_K_M
+#
+# Tier 2 (48 GB VRAM -- dual GPU or A6000 / RTX A6000):
+#   deepseek-r1:70b    ~43 GB download, ~48 GB VRAM at Q4_K_M
+#   llama3.1:70b       ~43 GB download, ~48 GB VRAM at Q4_K_M
+#
+# NOTE: qwen3:72b does NOT exist. Qwen3 jumps from 32B to 235B (MoE).
+#       Use qwen3:32b as the stepping stone above 8B.
+# ============================================================================
+
+PERSONAL_FUTURE = {
+    # Tier 1: 24 GB VRAM unlocks these
+    "qwen3:32b":        {"min_vram_gb": 24, "download_gb": 20,
+                          "tier": 1, "replaces": "qwen3:8b",
+                          "note": "Direct upgrade for eng/sw/sys/pm profiles"},
+    "deepseek-r1:32b":  {"min_vram_gb": 24, "download_gb": 20,
+                          "tier": 1, "replaces": "deepseek-r1:8b",
+                          "note": "Qwen-based 32B distill, stronger reasoning"},
+    "gemma3:27b":        {"min_vram_gb": 24, "download_gb": 17,
+                          "tier": 1, "replaces": "gemma3:4b",
+                          "note": "27B multimodal, strong summarization"},
+    # Tier 2: 48 GB VRAM unlocks these
+    "deepseek-r1:70b":  {"min_vram_gb": 48, "download_gb": 43,
+                          "tier": 2, "replaces": "deepseek-r1:8b",
+                          "note": "Llama-based 70B distill, near-frontier reasoning"},
+    "llama3.1:70b":      {"min_vram_gb": 48, "download_gb": 43,
+                          "tier": 2, "replaces": "llama3.1:8b",
+                          "note": "Meta 70B, 128K ctx, strong general knowledge"},
 }
 
 # Recommended cloud API models per use case

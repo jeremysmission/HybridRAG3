@@ -71,9 +71,15 @@ for model weights.
 | Context window   | 16384                        | Room for multi-chunk context |
 | Reranker         | Enabled                      | Precision matters for spec lookup |
 
-**Why not Phi-4 14B?** Fits at Q4_K_M (~10 GB) but leaves too little VRAM
-for KV cache at 16K context. Qwen3 8B at Q8_0 (~8 GB) gives better output
-quality with more headroom.
+**Why not Phi-4 14B as primary?** Fits at Q4_K_M (~10 GB) but leaves too
+little VRAM for KV cache at 16K context. Qwen3 8B at Q8_0 (~8 GB) gives
+better output quality with more headroom.
+
+**Secondary test candidate: `phi4:14b-q4_K_M`** -- Added as WORK_ONLY
+secondary because the rejection is purely hardware margin, not quality.
+On machines with >12 GB VRAM (e.g., RTX 4080 16GB), Phi-4 14B may
+outperform Qwen3 8B on structured STEM tasks. Validate on work laptop
+by testing at 8K context (where KV cache pressure is lower).
 
 ### 3.2 Program Manager (Use case key: `pm`)
 
@@ -91,6 +97,12 @@ quality with more headroom.
 
 **Why higher temperature?** PM work is narrative -- summaries and reports
 benefit from slight variation. Zero temp produces robotic output.
+
+**Why no 14B model?** PM tasks are summarization and report generation --
+short-form outputs where inference speed matters more than raw parameter
+count. Gemma3 4B at ~3.3 GB VRAM provides fast summarization with plenty
+of headroom. A 14B model would add 3x latency for marginal quality gains
+on narrative content. This is a qualitative decision, not a hardware limit.
 
 ### 3.3 Logistics / Supply Chain (Use case key: `log`)
 
@@ -143,17 +155,25 @@ when generating descriptions. 0.05 gives determinism without repetition.
 | Context window   | 16384                        | Config files and procedures can be long |
 | Reranker         | Enabled                      | Accurate command syntax matters |
 
+**Why no 14B model?** SysAdmin queries produce short outputs (commands,
+config snippets, troubleshooting steps). Qwen3 8B already scores 88.4 on
+HumanEval and handles shell/config syntax well. DeepSeek-R1 8B adds
+chain-of-thought for complex diagnostics. A 14B model would consume ~10 GB
+VRAM for outputs that are typically under 200 tokens -- the quality
+improvement does not justify the resource cost or latency increase.
+This is a qualitative decision, not a hardware limit.
+
 ---
 
 ## 4. Summary Matrix
 
-| Profile       | UC Key | Primary Ollama     | Alt Ollama       | Cloud API       | Temp | top_k | ctx   |
-|---------------|--------|--------------------|------------------|-----------------|------|-------|-------|
-| Engineer      | eng    | qwen3:8b           | deepseek-r1:8b   | Claude Sonnet   | 0.10 | 8     | 16384 |
-| PM            | pm     | qwen3:8b           | gemma3:4b        | gpt-4o-mini     | 0.25 | 5     | 8192  |
-| Logistics     | log    | phi4:14b-q4_K_M    | qwen3:8b         | gpt-4o          | 0.00 | 10    | 8192  |
-| CAD/Drafting  | draft  | qwen3:8b           | phi4:14b-q4_K_M  | Claude Sonnet   | 0.05 | 8     | 16384 |
-| SysAdmin      | sys    | qwen3:8b           | deepseek-r1:8b   | Claude Sonnet   | 0.10 | 8     | 16384 |
+| Profile       | UC Key | Primary Ollama     | Alt Ollama       | Secondary Test  | Cloud API       | Temp | top_k | ctx   |
+|---------------|--------|--------------------|------------------|-----------------|-----------------|------|-------|-------|
+| Engineer      | eng    | qwen3:8b           | deepseek-r1:8b   | phi4:14b-q4_K_M | Claude Sonnet   | 0.10 | 8     | 16384 |
+| PM            | pm     | qwen3:8b           | gemma3:4b        | --              | gpt-4o-mini     | 0.25 | 5     | 8192  |
+| Logistics     | log    | phi4:14b-q4_K_M    | qwen3:8b         | --              | gpt-4o          | 0.00 | 10    | 8192  |
+| CAD/Drafting  | draft  | qwen3:8b           | phi4:14b-q4_K_M  | --              | Claude Sonnet   | 0.05 | 8     | 16384 |
+| SysAdmin      | sys    | qwen3:8b           | deepseek-r1:8b   | --              | Claude Sonnet   | 0.10 | 8     | 16384 |
 
 ---
 
@@ -189,7 +209,34 @@ use cases.
 
 ---
 
-## 7. Embedding Model Upgrade Path
+## 7. PERSONAL_FUTURE Models (Aspirational Hardware)
+
+Models recognized in the registry but not auto-selected on current 12 GB
+VRAM hardware. These become available with GPU upgrades:
+
+### Tier 1: 24 GB VRAM (RTX 4090, A5000, RTX 5000 Ada)
+
+| Model Tag            | Download | VRAM   | Replaces          | Benefit |
+|----------------------|----------|--------|--------------------|---------|
+| `qwen3:32b`          | ~20 GB   | ~24 GB | `qwen3:8b`        | Direct upgrade for all profiles using Qwen3 |
+| `deepseek-r1:32b`    | ~20 GB   | ~24 GB | `deepseek-r1:8b`  | Stronger chain-of-thought reasoning |
+| `gemma3:27b`         | ~17 GB   | ~24 GB | `gemma3:4b`        | 27B multimodal, strong summarization |
+
+### Tier 2: 48 GB VRAM (Dual GPU, A6000, RTX A6000)
+
+| Model Tag            | Download | VRAM   | Replaces          | Benefit |
+|----------------------|----------|--------|--------------------|---------|
+| `deepseek-r1:70b`    | ~43 GB   | ~48 GB | `deepseek-r1:8b`  | Near-frontier reasoning |
+| `llama3.1:70b`       | ~43 GB   | ~48 GB | `llama3.1:8b`     | Meta 70B, 128K ctx, broad knowledge |
+
+**Note**: `qwen3:72b` does NOT exist. Qwen3 jumps from 32B to 235B (MoE).
+Use `qwen3:32b` as the stepping stone above 8B.
+
+All Ollama pull tags verified against live library (2026-02-20).
+
+---
+
+## 8. Embedding Model Upgrade Path
 
 The current `all-MiniLM-L6-v2` (384-dim) is adequate. Future upgrades:
 
@@ -203,7 +250,7 @@ cost is significant and the current model works well enough.
 
 ---
 
-## 8. Sources
+## 9. Sources
 
 - Ollama Model Library: https://ollama.com/library
 - Qwen3 Model Card: https://ollama.com/library/qwen3
