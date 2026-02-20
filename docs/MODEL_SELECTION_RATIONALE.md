@@ -1,0 +1,218 @@
+# Model Selection Rationale
+
+**Target Hardware**: 64 GB RAM, 12 GB NVIDIA VRAM (RTX 3060/4070 class)
+**Research Date**: February 2026
+**Methodology**: Ollama model library, HuggingFace leaderboards, LLM benchmark
+aggregators, community testing (Reddit r/LocalLLaMA, GitHub issues)
+
+---
+
+## 1. Hardware Constraints
+
+| Model Size | Quantization | Approx VRAM | Fits 12 GB? | Notes |
+|------------|-------------|-------------|-------------|-------|
+| 7-8B       | Q4_K_M      | 5-6 GB      | YES         | Room for 32K+ context KV cache |
+| 7-8B       | Q8_0        | 8-9 GB      | YES         | Best quality that fits comfortably |
+| 12-14B     | Q4_K_M      | 8-10 GB     | YES         | Tight -- context window eats remaining VRAM |
+| 14B        | Q8_0        | 14-16 GB    | NO          | Exceeds budget |
+| 32B+       | Any         | 20+ GB      | NO          | Requires multi-GPU or CPU offload |
+
+**Key insight**: At 12 GB VRAM, the sweet spot is 7-8B at Q8_0 (best quality
+that fits) or 12-14B at Q4_K_M (more parameters, lower precision). Context
+window length consumes VRAM via the KV cache, so larger context = less room
+for model weights.
+
+---
+
+## 2. General-Purpose Stack (All Profiles)
+
+### 2.1 Offline LLM: `qwen3:8b`
+
+- **Why**: Qwen3 8B rivals the original Llama 3 70B in STEM reasoning. Hybrid
+  thinking mode (toggle between fast/deep reasoning). 128K native context.
+  Runs at 25+ tok/s on 12 GB VRAM at Q4_K_M (~5.5 GB).
+- **Ollama pull**: `ollama pull qwen3:8b`
+- **Benchmarks**: MMLU 79.1, HumanEval 88.4, MATH 82.3 (8B class leader)
+- **Current default**: `qwen2.5:7b-instruct-q5_K_M` -- Qwen3 is a direct upgrade
+
+### 2.2 Online LLM: Claude Sonnet 4.5/4.6 via OpenRouter
+
+- **Why**: Best coding/technical performance (SWE-bench 80.9%), 200K context,
+  excellent instruction following for RAG grounded answers.
+- **Current config**: `anthropic/claude-opus-4.6` -- already configured.
+- **Cost-conscious alt**: `gpt-4o-mini` at $0.15/$0.60 per 1M tokens
+
+### 2.3 Embedding Model: `all-MiniLM-L6-v2` (keep current)
+
+- **Dimension**: 384
+- **Speed**: ~500 sentences/sec on CPU
+- **Why keep**: Fast, well-tested, CPU-friendly, sufficient for RAG. Upgrading
+  to `nomic-embed-text` (768-dim) or `mxbai-embed-large` (1024-dim) gives
+  better retrieval quality but requires complete re-indexing and increased
+  storage.
+- **Upgrade path**: Change `embedding.dimension` in config, re-run indexer.
+  Only worth doing after the current stabilization is complete.
+
+---
+
+## 3. Per-Profile Recommendations
+
+### 3.1 Engineer (Use case key: `eng`)
+
+**Purpose**: Technical documentation search, specs, standards, code review.
+
+| Setting          | Value                        | Rationale |
+|------------------|------------------------------|-----------|
+| Ollama primary   | `qwen3:8b`                   | Best STEM reasoning at 8B. HumanEval 88.4 |
+| Ollama alt       | `deepseek-r1:8b`             | Chain-of-thought for complex multi-step technical questions |
+| Cloud API        | Claude Sonnet 4.5 (current)  | Best-in-class code understanding |
+| Temperature      | 0.1                          | Low = deterministic technical answers |
+| Retrieval top_k  | 8                            | Broad retrieval across specs |
+| Context window   | 16384                        | Room for multi-chunk context |
+| Reranker         | Enabled                      | Precision matters for spec lookup |
+
+**Why not Phi-4 14B?** Fits at Q4_K_M (~10 GB) but leaves too little VRAM
+for KV cache at 16K context. Qwen3 8B at Q8_0 (~8 GB) gives better output
+quality with more headroom.
+
+### 3.2 Program Manager (Use case key: `pm`)
+
+**Purpose**: Meeting notes, status reports, schedules, communication.
+
+| Setting          | Value                        | Rationale |
+|------------------|------------------------------|-----------|
+| Ollama primary   | `qwen3:8b`                   | Strong summarization and text generation |
+| Ollama alt       | `gemma3:4b`                  | Faster inference for simple summarization tasks |
+| Cloud API        | `gpt-4o-mini`                | Best cost-to-quality ratio for writing tasks |
+| Temperature      | 0.25                         | Slightly higher for natural-sounding summaries |
+| Retrieval top_k  | 5                            | Fewer but more relevant chunks |
+| Context window   | 8192                         | Meeting notes are short-form |
+| Reranker         | Disabled                     | Speed over precision for narrative content |
+
+**Why higher temperature?** PM work is narrative -- summaries and reports
+benefit from slight variation. Zero temp produces robotic output.
+
+### 3.3 Logistics / Supply Chain (Use case key: `log`)
+
+**Purpose**: Part numbers, specifications, delivery schedules, BOMs.
+
+| Setting          | Value                        | Rationale |
+|------------------|------------------------------|-----------|
+| Ollama primary   | `phi4:14b-q4_K_M`           | Best at structured/tabular data at small size |
+| Ollama alt       | `qwen3:8b`                   | Fallback if Phi-4 is too tight on VRAM |
+| Cloud API        | `gpt-4o`                     | Strong tabular data extraction |
+| Temperature      | 0.0                          | Zero temp -- part numbers must be exact |
+| Retrieval top_k  | 10                           | Cross-reference across specs and schedules |
+| Context window   | 8192                         | Tabular data is dense |
+| Reranker         | Enabled                      | Exact match precision is critical |
+| Hybrid search    | Required (already on)        | BM25 catches exact part number matches |
+
+**Why Phi-4?** Microsoft Phi-4 14B punches above its weight on structured
+data tasks. At Q4_K_M it uses ~10 GB VRAM, leaving 2 GB for KV cache
+(sufficient at 8K context). For part number lookups, BM25 keyword search
+matters more than the LLM choice.
+
+### 3.4 CAD / Drafting (Use case key: `draft`)
+
+**Purpose**: Engineering drawings, specs, standards, BOMs, GD&T.
+
+| Setting          | Value                        | Rationale |
+|------------------|------------------------------|-----------|
+| Ollama primary   | `qwen3:8b`                   | Strong technical terminology handling |
+| Ollama alt       | `phi4:14b-q4_K_M`           | Precision for standards references |
+| Cloud API        | Claude Sonnet 4.5 (current)  | Handles complex multi-part dimension queries |
+| Temperature      | 0.05                         | Near-zero for measurements and tolerances |
+| Retrieval top_k  | 8                            | Cross-reference drawings and BOMs |
+| Context window   | 16384                        | BOMs and drawing notes can be lengthy |
+| Reranker         | Enabled                      | Precision on standards citations |
+
+**Why near-zero but not zero?** Temperature 0.0 can cause repetitive output
+when generating descriptions. 0.05 gives determinism without repetition.
+
+### 3.5 Systems Administration (Use case key: `sys`)
+
+**Purpose**: IT docs, server configs, troubleshooting guides, networking.
+
+| Setting          | Value                        | Rationale |
+|------------------|------------------------------|-----------|
+| Ollama primary   | `qwen3:8b`                   | General sysadmin queries, config parsing |
+| Ollama alt       | `deepseek-r1:8b`             | Step-by-step diagnostic reasoning |
+| Cloud API        | Claude Sonnet 4.5 (current)  | Best at config syntax and shell commands |
+| Temperature      | 0.1                          | Low -- wrong flags in CLI can be dangerous |
+| Retrieval top_k  | 8                            | Cross-reference related configs |
+| Context window   | 16384                        | Config files and procedures can be long |
+| Reranker         | Enabled                      | Accurate command syntax matters |
+
+---
+
+## 4. Summary Matrix
+
+| Profile       | UC Key | Primary Ollama     | Alt Ollama       | Cloud API       | Temp | top_k | ctx   |
+|---------------|--------|--------------------|------------------|-----------------|------|-------|-------|
+| Engineer      | eng    | qwen3:8b           | deepseek-r1:8b   | Claude Sonnet   | 0.10 | 8     | 16384 |
+| PM            | pm     | qwen3:8b           | gemma3:4b        | gpt-4o-mini     | 0.25 | 5     | 8192  |
+| Logistics     | log    | phi4:14b-q4_K_M    | qwen3:8b         | gpt-4o          | 0.00 | 10    | 8192  |
+| CAD/Drafting  | draft  | qwen3:8b           | phi4:14b-q4_K_M  | Claude Sonnet   | 0.05 | 8     | 16384 |
+| SysAdmin      | sys    | qwen3:8b           | deepseek-r1:8b   | Claude Sonnet   | 0.10 | 8     | 16384 |
+
+---
+
+## 5. Ollama Download Commands
+
+```bash
+# Primary (covers 4/5 profiles)
+ollama pull qwen3:8b
+
+# Profile-specific alternatives
+ollama pull deepseek-r1:8b          # Engineer/SysAdmin reasoning
+ollama pull phi4:14b-q4_K_M         # Logistics/CAD precision
+ollama pull gemma3:4b               # PM fast summarization
+```
+
+Estimated total disk: ~15 GB for all four models.
+
+---
+
+## 6. WORK_ONLY Flag
+
+All five profiles above are marked WORK_ONLY in the model registry. This means:
+
+- The model is vetted for use with company/work documents
+- Offline models run locally (no data leaves the machine)
+- The model selection wizard highlights WORK_ONLY models when running
+  in a work context (detected via HYBRIDRAG_WORK_ONLY env var or
+  config flag)
+
+Models NOT marked WORK_ONLY (e.g., creative writing models, RP models)
+are still available but will not appear in the recommended list for work
+use cases.
+
+---
+
+## 7. Embedding Model Upgrade Path
+
+The current `all-MiniLM-L6-v2` (384-dim) is adequate. Future upgrades:
+
+| Model               | Dim  | Quality vs MiniLM | Storage Impact | Re-index Required |
+|---------------------|------|-------------------|----------------|-------------------|
+| nomic-embed-text    | 768  | +15-20%           | 2x             | YES               |
+| mxbai-embed-large   | 1024 | +25-30%           | 2.7x           | YES               |
+
+**Recommendation**: Defer upgrade until after GUI is stable. The re-indexing
+cost is significant and the current model works well enough.
+
+---
+
+## 8. Sources
+
+- Ollama Model Library: https://ollama.com/library
+- Qwen3 Model Card: https://ollama.com/library/qwen3
+- Phi-4 Model Card: https://ollama.com/library/phi4
+- DeepSeek-R1 Model Card: https://ollama.com/library/deepseek-r1
+- Gemma3 Model Card: https://ollama.com/library/gemma3
+- Ollama VRAM Requirements Guide (localllm.in)
+- HuggingFace Open LLM Leaderboard v2
+- Chatbot Arena rankings (lmarena.ai)
+- MTEB Embedding Benchmark (HuggingFace)
+- r/LocalLLaMA community benchmarks and testing
+- OpenRouter model pricing API
