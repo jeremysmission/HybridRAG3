@@ -78,6 +78,16 @@ USE_CASES = {
               "eng_w": 0.25, "gen_w": 0.75,
               "work_only": True},
 
+    "fe":    {"letter": "F", "label": "Field Engineer",
+              "desc": "Site surveys, equipment install, field troubleshooting, safety",
+              "eng_w": 0.725, "gen_w": 0.275,
+              "work_only": True},
+
+    "cyber": {"letter": "C", "label": "Cybersecurity Analyst",
+              "desc": "Incident response, threat analysis, SIEM, vulnerability assessment",
+              "eng_w": 0.725, "gen_w": 0.275,
+              "work_only": True},
+
     "gen":   {"letter": "G", "label": "General AI",
               "desc": "World knowledge, creative writing, broad reasoning",
               "eng_w": 0.10, "gen_w": 0.90,
@@ -119,6 +129,12 @@ RECOMMENDED_OFFLINE = {
 
     "pm":    {"primary": "qwen3:8b", "alt": "gemma3:4b",
               "temperature": 0.25, "context": 8192, "reranker": False, "top_k": 5},
+
+    "fe":    {"primary": "qwen3:8b", "alt": "deepseek-r1:8b",
+              "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
+
+    "cyber": {"primary": "qwen3:8b", "alt": "deepseek-r1:8b",
+              "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
 
     "gen":   {"primary": "qwen3:8b", "alt": "llama3.1:8b",
               "temperature": 0.3, "context": 8192, "reranker": False, "top_k": 5},
@@ -173,6 +189,8 @@ RECOMMENDED_ONLINE = {
     "draft": {"primary": "anthropic/claude-sonnet-4", "alt": "gpt-4o"},
     "log":   {"primary": "gpt-4o",                    "alt": "gpt-4.1"},
     "pm":    {"primary": "gpt-4o-mini",               "alt": "gpt-4.1-mini"},
+    "fe":    {"primary": "anthropic/claude-sonnet-4", "alt": "gpt-4o"},
+    "cyber": {"primary": "anthropic/claude-sonnet-4", "alt": "gpt-4o"},
     "gen":   {"primary": "gpt-4o",                    "alt": "anthropic/claude-sonnet-4"},
 }
 
