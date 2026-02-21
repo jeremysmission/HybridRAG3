@@ -18,6 +18,8 @@
 #   Y = Systems Administration (70% eng, 30% gen)
 #   L = Logistics Analyst      (60% eng, 40% gen)
 #   D = Drafting / AutoCAD     (75% eng, 25% gen)
+#   F = Field Engineer         (72.5% eng, 27.5% gen)
+#   C = Cybersecurity Analyst  (72.5% eng, 27.5% gen)
 #   G = General AI             (10% eng, 90% gen)
 #
 # COLUMNS:
@@ -258,7 +260,7 @@ def prompt_use_case():
     print()
 
     # Display order (matches user preference)
-    order = ["sw", "eng", "pm", "sys", "log", "draft", "gen"]
+    order = ["sw", "eng", "pm", "sys", "log", "draft", "fe", "cyber", "gen"]
     for key in order:
         uc = USE_CASES[key]
         print(f"      {uc['letter']}  =  {uc['label']}")

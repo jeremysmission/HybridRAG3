@@ -75,3 +75,9 @@ master_resource_guide.md
 
 *.bak
 _temp_*
+
+# Evaluation output (runtime, not source)
+eval_out/
+scored_out/
+eval_baseline_*.jsonl
+eval_v2_*.jsonl

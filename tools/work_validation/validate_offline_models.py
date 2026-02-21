@@ -82,6 +82,22 @@ PROFILES = {
         "test_query": "How do you check which ports are listening on a Windows server?",
         "expected_keywords": ["netstat", "port", "listen", "tcp"],
     },
+    "fe": {
+        "label": "Field Engineer",
+        "primary": "qwen3:8b",
+        "alt": "deepseek-r1:8b",
+        "temperature": 0.1,
+        "test_query": "What safety precautions are required before performing high-voltage equipment inspection in the field?",
+        "expected_keywords": ["lockout", "ppe", "voltage", "safety"],
+    },
+    "cyber": {
+        "label": "Cybersecurity Analyst",
+        "primary": "qwen3:8b",
+        "alt": "deepseek-r1:8b",
+        "temperature": 0.1,
+        "test_query": "What are the key steps in responding to a suspected ransomware incident?",
+        "expected_keywords": ["isolate", "contain", "backup", "incident"],
+    },
 }
 
 OLLAMA_BASE = "http://127.0.0.1:11434"
