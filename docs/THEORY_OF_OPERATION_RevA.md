@@ -1,6 +1,6 @@
 # HybridRAG3 -- Theory of Operation (Management / Non-Technical)
 
-Last Updated: 2026-02-21
+Revision: A | Date: 2026-02-22
 
 ---
 
@@ -224,7 +224,8 @@ Two options:
 
 | Mode | Where It Runs | Speed | Internet Required? |
 |------|--------------|-------|--------------------|
-| **Offline** | On your computer via Ollama | 5-30 sec | No |
+| **Offline (Ollama)** | On your computer via Ollama | 5-30 sec | No |
+| **Offline (vLLM)** | On workstation via vLLM | 2-5 sec | No |
 | **Online** | Cloud API (company endpoint) | 2-5 sec | Yes (configured endpoint only) |
 
 **Approved offline models** (all open-source, US/EU publishers):
@@ -282,12 +283,13 @@ active and provides the first line of protection.
 | First-time indexing | A few hours | 1,345 documents, ~40,000 chunks |
 | Re-indexing (changed files only) | Seconds | Skips unchanged files automatically |
 | Query (online mode) | 2-5 seconds | Cloud AI, requires network |
-| Query (offline mode) | 5-30 seconds | Local AI, no network needed |
+| Query (offline / vLLM) | 2-5 seconds | Workstation GPU, no network |
+| Query (offline / Ollama) | 5-30 seconds | Local AI, no network needed |
 
 **Hardware requirements**:
 - Minimum: Any Windows 10/11 laptop with 8 GB RAM
 - Recommended: 16+ GB RAM for faster performance
-- Future: Dual-GPU workstation planned for large-scale deployment
+- Workstation: Dual RTX 3090 (48 GB GPU) with vLLM for production throughput
 
 ---
 

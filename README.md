@@ -18,7 +18,7 @@
 - **Online API Mode**: Optional mode routes queries to company GPT-3.5 Turbo for faster responses (2-5 seconds vs 180 seconds)
 - **Secure Credential Management**: API keys stored in Windows Credential Manager (DPAPI encrypted), never in files or git
 - **Performance Profiles**: Three hardware profiles (laptop_safe, desktop_power, server_max) for different machines
-- **Security Engineering**: 3-layer network lockdown, audit logging, defense-in-depth
+- **Security Engineering**: 3-layer network lockdown, audit logging, layered security
 - **Diagnostic Engineering**: Automated 3-tier test suite with hardware profiling, fault analysis, and security auditing
 - **Zero External Servers**: SQLite for storage, local embedding model, optional local LLM via Ollama
 
@@ -312,8 +312,8 @@ All packages sourced from PyPI (pypi.org) -- open-source with permissive license
 
 ## Documentation
 
-- `docs/THEORY_OF_OPERATION.md` -- High-level overview for non-programmers
-- `docs/TECHNICAL_THEORY_OF_OPERATION.md` -- Developer-focused technical reference
+- `docs/THEORY_OF_OPERATION_RevA.md` -- High-level overview for non-programmers
+- `docs/TECHNICAL_THEORY_OF_OPERATION_RevA.md` -- Developer-focused technical reference
 - `docs/SETUP.md` -- Detailed installation and deployment instructions
 - `docs/ARCHITECTURE.md` -- System design, security model, technical decisions
 - `docs/INTERFACES.md` -- Stable public API reference for all modules

@@ -44,6 +44,7 @@ if not os.environ.get("HYBRIDRAG_PROJECT_ROOT"):
 
 _preload_result = {}   # {"embedder": Embedder | None, "error": str | None}
 _preload_done = threading.Event()
+_preloaded_yaml_cfg = None  # raw YAML dict from default_config.yaml, cached for reuse
 
 
 def _read_embedding_model_from_config():
@@ -53,11 +54,13 @@ def _read_embedding_model_from_config():
     class-level DEFAULT_MODEL.  This is intentionally lightweight --
     just a YAML parse, no config object construction.
     """
+    global _preloaded_yaml_cfg
     try:
         import yaml
         cfg_path = os.path.join(_project_root, "config", "default_config.yaml")
         with open(cfg_path, "r") as f:
             cfg = yaml.safe_load(f)
+        _preloaded_yaml_cfg = cfg
         return cfg.get("embedding", {}).get("model_name") or None
     except Exception:
         return None
@@ -211,6 +214,23 @@ def _load_backends(app, logger):
             store = fut_store.result()
             embedder = fut_embedder.result()
             router = fut_router.result()
+
+        # -- Ollama warmup: pre-load model weights into memory --
+        if router and router.ollama.is_available():
+            _set_stage(app, "Warming up model...")
+            try:
+                router.ollama._client.post(
+                    "{}/api/generate".format(router.ollama.base_url),
+                    json={
+                        "model": config.ollama.model,
+                        "prompt": "hi",
+                        "stream": False,
+                    },
+                    timeout=10,
+                )
+                logger.info("[OK] Ollama model warmed up")
+            except Exception as e:
+                logger.debug("[WARN] Ollama warmup skipped: %s", e)
 
         # -- Sequential phase: assemble QueryEngine + Indexer --
         _set_stage(app, "QueryEngine...")

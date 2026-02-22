@@ -91,6 +91,16 @@ class FakeRetrievalConfig:
 
 
 @dataclass
+class FakeVLLMConfig:
+    """Fake config section for vLLM settings."""
+    base_url: str = "http://localhost:8000"
+    model: str = "phi4-mini"
+    timeout_seconds: int = 120
+    context_window: int = 16384
+    enabled: bool = False
+
+
+@dataclass
 class FakeIndexingConfig:
     """Fake config section for indexing settings."""
     max_chars_per_file: int = 2_000_000
@@ -117,6 +127,7 @@ class FakeConfig:
     """
     mode: str = "offline"
     ollama: FakeOllamaConfig = field(default_factory=FakeOllamaConfig)
+    vllm: FakeVLLMConfig = field(default_factory=FakeVLLMConfig)
     api: FakeAPIConfig = field(default_factory=FakeAPIConfig)
     cost: FakeCostConfig = field(default_factory=FakeCostConfig)
     chunking: FakeChunkingConfig = field(default_factory=FakeChunkingConfig)

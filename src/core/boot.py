@@ -316,13 +316,40 @@ def boot_hybridrag(config_path=None) -> BootResult:
 
     ollama_thread = threading.Thread(target=_check_ollama, daemon=True)
     ollama_thread.start()
-    ollama_thread.join(timeout=0.5)
+    ollama_thread.join(timeout=2.0)
 
     if ollama_thread.is_alive():
         # Ollama slow or down -- don't block boot any longer.
         # Status bar will verify availability within 30s.
         result.offline_available = True
         logger.info("BOOT Step 4: Ollama check timed out, assuming available")
+
+    # === STEP 4.5: Check vLLM (if enabled) ===
+    vllm_cfg = config.get("vllm", {}) if isinstance(config, dict) else {}
+    if vllm_cfg.get("enabled", False):
+        logger.info("BOOT Step 4.5: Checking vLLM...")
+        vllm_url = vllm_cfg.get("base_url", "http://localhost:8000").rstrip("/")
+        try:
+            import urllib.request
+            from src.core.network_gate import get_gate
+            get_gate().check_allowed(
+                f"{vllm_url}/health", "vllm_boot_check", "boot",
+            )
+            req = urllib.request.Request(f"{vllm_url}/health", method="GET")
+            response = urllib.request.urlopen(req, timeout=3)
+            if response.status == 200:
+                logger.info("[OK] vLLM available at %s", vllm_url)
+            else:
+                result.warnings.append(
+                    "vLLM responded with unexpected status (Ollama fallback)"
+                )
+        except Exception:
+            result.warnings.append(
+                "[WARN] vLLM not running at " + vllm_url + " (Ollama fallback)"
+            )
+            logger.info("BOOT Step 4.5: vLLM not reachable, Ollama fallback active")
+    else:
+        logger.info("BOOT Step 4.5: vLLM disabled in config, skipping")
 
     # === FINAL: Determine overall success ===
     result.success = result.online_available or result.offline_available

@@ -275,12 +275,41 @@ class _GUIProgressCallback:
 
     Methods are called from the indexing background thread,
     so all GUI updates use panel.after() to run on the main thread.
+
+    Throttling: GUI updates fire at most every _THROTTLE_SEC (100ms).
+    The latest state is always stored so the final update is never lost.
+    Without throttling, indexing 1000+ files queues 2000+ after() events,
+    flooding the tkinter event loop and freezing the UI.
     """
+
+    _THROTTLE_SEC = 0.1  # max 10 GUI updates per second
 
     def __init__(self, panel):
         self.panel = panel
         self._file_count = 0
         self._total_files = 0
+        self._last_gui_update = 0.0
+        self._pending_fname = None
+        self._pending_file_num = 0
+        self._pending_total = 0
+
+    def _should_update(self):
+        """Return True if enough time has passed since the last GUI update."""
+        now = time.monotonic()
+        if now - self._last_gui_update >= self._THROTTLE_SEC:
+            self._last_gui_update = now
+            return True
+        return False
+
+    def _flush_pending(self):
+        """Push the latest stored state to the GUI (called at end of indexing)."""
+        if self._pending_fname is not None:
+            self.panel.after(
+                0, self._update_file_start,
+                self._pending_fname, self._pending_file_num,
+                self._pending_total,
+            )
+            self.panel.after(0, self._update_file_complete)
 
     def on_file_start(self, file_path, file_num, total_files):
         """Called when a file starts processing."""
@@ -291,7 +320,13 @@ class _GUIProgressCallback:
         if self.panel._stop_flag.is_set():
             raise InterruptedError("Indexing stopped by user")
 
-        self.panel.after(0, self._update_file_start, fname, file_num, total_files)
+        # Always store latest state; only push to GUI if throttle allows
+        self._pending_fname = fname
+        self._pending_file_num = file_num
+        self._pending_total = total_files
+
+        if self._should_update():
+            self.panel.after(0, self._update_file_start, fname, file_num, total_files)
 
     def _update_file_start(self, fname, file_num, total_files):
         t = current_theme()
@@ -308,7 +343,8 @@ class _GUIProgressCallback:
     def on_file_complete(self, file_path, chunks_created):
         """Called when a file finishes processing."""
         self._file_count += 1
-        self.panel.after(0, self._update_file_complete)
+        if self._should_update():
+            self.panel.after(0, self._update_file_complete)
 
     def _update_file_complete(self):
         self.panel.progress_bar["value"] = self._file_count
@@ -316,15 +352,17 @@ class _GUIProgressCallback:
     def on_file_skipped(self, file_path, reason):
         """Called when a file is skipped."""
         self._file_count += 1
-        self.panel.after(0, self._update_file_complete)
+        if self._should_update():
+            self.panel.after(0, self._update_file_complete)
 
     def on_indexing_complete(self, total_chunks, elapsed_seconds):
-        """Called when indexing finishes."""
-        pass  # Handled by _on_indexing_done in the panel
+        """Called when indexing finishes. Flush final state to GUI."""
+        self._flush_pending()
 
     def on_discovery_progress(self, files_found):
         """Called periodically during folder discovery (before indexing starts)."""
-        self.panel.after(0, self._update_discovery, files_found)
+        if self._should_update():
+            self.panel.after(0, self._update_discovery, files_found)
 
     def _update_discovery(self, files_found):
         t = current_theme()
@@ -334,7 +372,7 @@ class _GUIProgressCallback:
         )
 
     def on_error(self, file_path, error):
-        """Called when a file has an error (continues to next file)."""
+        """Called when a file has an error -- always shown (errors are rare)."""
         t = current_theme()
         fname = os.path.basename(file_path)
         self.panel.after(

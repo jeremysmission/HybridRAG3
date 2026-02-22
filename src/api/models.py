@@ -119,6 +119,18 @@ class ModeResponse(BaseModel):
     message: str
 
 
+class StreamEvent(BaseModel):
+    """One SSE event from POST /query/stream."""
+    event: str = Field(
+        ...,
+        description="Event type: 'phase', 'token', 'done', or 'error'.",
+    )
+    data: str = Field(
+        "",
+        description="Event payload (token text, phase name, or JSON metadata).",
+    )
+
+
 class ErrorResponse(BaseModel):
     """Generic error response."""
     error: str

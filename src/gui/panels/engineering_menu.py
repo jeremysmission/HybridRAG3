@@ -393,7 +393,28 @@ class EngineeringMenu(tk.Toplevel):
         self.model_table.config(state=tk.DISABLED)
 
     def _on_profile_change(self, event=None):
-        """Apply profile switch: update YAML, reload config, rebuild backends.
+        """Apply profile switch in a background thread.
+
+        The subprocess + config reload + backend reset all happen off the
+        main thread so the GUI never freezes (previously 1-10s freeze).
+        """
+        t = current_theme()
+        profile = self.profile_var.get()
+
+        # Disable Apply button to prevent double-clicks
+        self.profile_apply_btn.config(state=tk.DISABLED)
+        self.profile_status_label.config(
+            text="Switching to {}...".format(profile), fg=t["gray"],
+        )
+
+        threading.Thread(
+            target=self._do_profile_switch,
+            args=(profile,),
+            daemon=True,
+        ).start()
+
+    def _do_profile_switch(self, profile):
+        """Background thread: run subprocess, reload config, reset backends.
 
         Full flow:
           1. Capture old embedding model name
@@ -405,9 +426,6 @@ class EngineeringMenu(tk.Toplevel):
           7. Reset backends (rebuild embedder/router/query engine)
           8. Refresh model table and info display
         """
-        from tkinter import messagebox
-        t = current_theme()
-        profile = self.profile_var.get()
         root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
 
         # 1. Capture old embedding model before the switch
@@ -416,11 +434,6 @@ class EngineeringMenu(tk.Toplevel):
         )
 
         # 2. Run profile switch subprocess (updates YAML on disk)
-        self.profile_status_label.config(
-            text="Switching to {}...".format(profile), fg=t["gray"],
-        )
-        self.update_idletasks()
-
         try:
             proc = subprocess.run(
                 [sys.executable,
@@ -430,15 +443,11 @@ class EngineeringMenu(tk.Toplevel):
                 cwd=root,
             )
             if proc.returncode != 0:
-                self.profile_status_label.config(
-                    text="[FAIL] {}".format(proc.stderr.strip()[:80]),
-                    fg=t["red"],
-                )
+                self.after(0, self._profile_switch_failed,
+                           proc.stderr.strip()[:80])
                 return
         except Exception as e:
-            self.profile_status_label.config(
-                text="[FAIL] {}".format(str(e)[:80]), fg=t["red"],
-            )
+            self.after(0, self._profile_switch_failed, str(e)[:80])
             return
 
         # 3. Reload Config from disk
@@ -446,10 +455,8 @@ class EngineeringMenu(tk.Toplevel):
             from src.core.config import load_config
             new_config = load_config(root)
         except Exception as e:
-            self.profile_status_label.config(
-                text="[FAIL] Config reload: {}".format(str(e)[:60]),
-                fg=t["red"],
-            )
+            self.after(0, self._profile_switch_failed,
+                       "Config reload: {}".format(str(e)[:60]))
             return
 
         # Preserve the runtime mode (online/offline) -- the YAML always
@@ -466,7 +473,28 @@ class EngineeringMenu(tk.Toplevel):
             and old_embed_model != new_embed_model
         )
 
+        # 5. Clear embedder cache if model changed
         if embedding_changed:
+            try:
+                from src.gui.launch_gui import clear_embedder_cache
+                clear_embedder_cache()
+                logger.info("Embedder cache cleared (model changed)")
+            except Exception as e:
+                logger.warning("Could not clear embedder cache: %s", e)
+
+        # Schedule GUI updates on main thread
+        self.after(0, self._profile_switch_done,
+                   new_config, profile, embedding_changed,
+                   old_embed_model, new_embed_model)
+
+    def _profile_switch_done(self, new_config, profile, embedding_changed,
+                             old_embed_model, new_embed_model):
+        """Main-thread callback after background profile switch succeeds."""
+        t = current_theme()
+
+        # 4b. Warn about re-index if embedding changed
+        if embedding_changed:
+            from tkinter import messagebox
             messagebox.showwarning(
                 "Re-Index Required",
                 "Embedding model changed:\n\n"
@@ -480,15 +508,6 @@ class EngineeringMenu(tk.Toplevel):
                 ),
             )
 
-        # 5. Clear embedder cache if model changed
-        if embedding_changed:
-            try:
-                from src.gui.launch_gui import clear_embedder_cache
-                clear_embedder_cache()
-                logger.info("Embedder cache cleared (model changed)")
-            except Exception as e:
-                logger.warning("Could not clear embedder cache: %s", e)
-
         # 6. Propagate new config to app + all panels
         self.config = new_config
         if hasattr(self._app, "reload_config"):
@@ -498,15 +517,9 @@ class EngineeringMenu(tk.Toplevel):
         if hasattr(self._app, "reset_backends"):
             self._app.reset_backends()
 
-        # NOTE: query_engine will be None here because reset_backends()
-        # launches a background thread. Our reference is refreshed lazily
-        # in _on_test_query() which re-reads app.query_engine at call time.
-
         # 8. Refresh displays
         self._refresh_profile_info()
         self._refresh_model_table()
-
-        # Update slider values to match new profile config
         self._sync_sliders_to_config()
 
         status_parts = ["[OK] Switched to {}".format(profile)]
@@ -515,6 +528,15 @@ class EngineeringMenu(tk.Toplevel):
         self.profile_status_label.config(
             text=" ".join(status_parts), fg=t["green"],
         )
+        self.profile_apply_btn.config(state=tk.NORMAL)
+
+    def _profile_switch_failed(self, error_msg):
+        """Main-thread callback when profile switch fails."""
+        t = current_theme()
+        self.profile_status_label.config(
+            text="[FAIL] {}".format(error_msg), fg=t["red"],
+        )
+        self.profile_apply_btn.config(state=tk.NORMAL)
 
     def _sync_sliders_to_config(self):
         """Sync slider values to match the newly loaded config."""

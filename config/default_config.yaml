@@ -1,9 +1,9 @@
 api:
   api_version: ''
   deployment: ''
-  endpoint: https://openrouter.ai/api/v1
+  endpoint: ''
   max_tokens: 2048
-  model: anthropic/claude-opus-4.6
+  model: ''
   temperature: 0.05
   timeout_seconds: 30
 chunking:
@@ -39,6 +39,12 @@ ollama:
   context_window: 8192
   model: phi4-mini
   timeout_seconds: 600
+vllm:
+  base_url: http://localhost:8000
+  model: phi4-mini
+  timeout_seconds: 120
+  context_window: 16384
+  enabled: false
 paths:
   database: ''
   embeddings_cache: ''

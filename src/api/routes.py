@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 import threading
@@ -30,6 +31,7 @@ import yaml
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 
 from src.api.models import (
     QueryRequest,
@@ -43,6 +45,7 @@ from src.api.models import (
     ModeRequest,
     ModeResponse,
     ErrorResponse,
+    StreamEvent,
 )
 
 logger = logging.getLogger(__name__)
@@ -156,6 +159,64 @@ async def query(req: QueryRequest):
         latency_ms=result.latency_ms,
         mode=result.mode,
         error=result.error,
+    )
+
+
+# -------------------------------------------------------------------
+# POST /query/stream  (Server-Sent Events)
+# -------------------------------------------------------------------
+@router.post("/query/stream")
+async def query_stream(req: QueryRequest):
+    """
+    Stream a query response as Server-Sent Events.
+
+    Event types:
+      event: phase   -- data is the current phase name
+      event: token   -- data is a partial text token
+      event: done    -- data is JSON with full QueryResponse fields
+      event: error   -- data is the error message
+    """
+    s = _state()
+    if not s.query_engine:
+        raise HTTPException(status_code=503, detail="Query engine not initialized")
+
+    if not hasattr(s.query_engine, "query_stream"):
+        raise HTTPException(status_code=501, detail="Streaming not supported")
+
+    def _generate():
+        try:
+            for chunk in s.query_engine.query_stream(req.question):
+                if "phase" in chunk:
+                    yield "event: phase\ndata: {}\n\n".format(chunk["phase"])
+                elif "token" in chunk:
+                    yield "event: token\ndata: {}\n\n".format(
+                        chunk["token"].replace("\n", "\ndata: ")
+                    )
+                elif chunk.get("done"):
+                    result = chunk.get("result")
+                    if result:
+                        payload = json.dumps({
+                            "answer": result.answer,
+                            "sources": result.sources,
+                            "chunks_used": result.chunks_used,
+                            "tokens_in": result.tokens_in,
+                            "tokens_out": result.tokens_out,
+                            "cost_usd": result.cost_usd,
+                            "latency_ms": result.latency_ms,
+                            "mode": result.mode,
+                            "error": result.error,
+                        })
+                        yield "event: done\ndata: {}\n\n".format(payload)
+        except Exception as e:
+            yield "event: error\ndata: {}\n\n".format(str(e))
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
     )
 
 

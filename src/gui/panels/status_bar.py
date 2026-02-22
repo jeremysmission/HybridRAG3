@@ -2,7 +2,7 @@
 # HybridRAG v3 -- Status Bar Panel (src/gui/panels/status_bar.py)
 # ============================================================================
 # Displays live system status: LLM backend, Ollama, and network gate state.
-# Updates every 5 seconds via a background timer.
+# Updates every 15 seconds via a background timer.
 #
 # INTERNET ACCESS: NONE (reads local state only)
 # ============================================================================
@@ -20,10 +20,10 @@ class StatusBar(tk.Frame):
     """
     Bottom status bar showing LLM, Ollama, and Gate status.
 
-    Updates every 5 seconds by calling router.get_status().
+    Updates every 15 seconds by calling router.get_status().
     """
 
-    REFRESH_MS = 5000  # 5 seconds
+    REFRESH_MS = 15000  # 15 seconds
 
     def __init__(self, parent, config, router=None):
         t = current_theme()

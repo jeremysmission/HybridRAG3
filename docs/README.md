@@ -101,9 +101,9 @@ rag-profile server_max        64GB+ RAM, batch=128, maximum throughput
 ## Modes of Operation
 
 ### Offline Mode (default)
-- Uses Ollama running locally (localhost:11434)
+- Uses vLLM (workstation) or Ollama (laptop) running locally
 - No internet required after setup
-- Response time: ~5-10 seconds (GPU) or ~180 seconds (CPU only)
+- Response time: ~2-5 seconds (vLLM/GPU) or ~5-10 seconds (Ollama/GPU) or ~180 seconds (CPU only)
 - Best for: Air-gapped environments, SCIFs, field use
 
 ### Online Mode
@@ -306,6 +306,7 @@ All packages sourced from PyPI (pypi.org) -- open-source with permissive license
 | Imaging | pillow | MIT-like | Image processing for OCR |
 | XML/HTML | lxml | BSD-3 | Document parsing |
 | HTTP Client | httpx | BSD-3 | API calls (online mode only) |
+| LLM Server | vllm | Apache 2.0 | GPU inference server (workstation) |
 | Credentials | keyring | MIT | Windows Credential Manager access |
 | Encryption | cryptography | Apache 2.0 / BSD-3 | Credential encryption |
 | Logging | structlog | Apache 2.0 | Structured event logging |
@@ -334,8 +335,8 @@ All packages sourced from PyPI (pypi.org) -- open-source with permissive license
 - `docs/STUDY_GUIDE.md` -- Learning guide for the codebase and concepts
 
 ### Architecture and Design
-- `docs/THEORY_OF_OPERATION.md` -- High-level overview for non-programmers
-- `docs/TECHNICAL_THEORY_OF_OPERATION.md` -- Developer-focused technical reference
+- `docs/THEORY_OF_OPERATION_RevA.md` -- High-level overview for non-programmers
+- `docs/TECHNICAL_THEORY_OF_OPERATION_RevA.md` -- Developer-focused technical reference
 - `docs/INTERFACES.md` -- Stable public API reference for all modules
 - `docs/GLOSSARY.md` -- Definitions of all technical terms and acronyms
 

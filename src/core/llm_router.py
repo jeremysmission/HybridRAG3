@@ -290,6 +290,216 @@ class OllamaRouter:
 
 
 # ============================================================================
+# VLLMRouter -- Talks to local vLLM server (workstation offline mode)
+# ============================================================================
+#
+# vLLM serves an OpenAI-compatible API on localhost. It provides:
+#   - Continuous batching (multiple concurrent queries)
+#   - Prefix caching (repeated prompt prefixes are free)
+#   - Tensor parallelism (split one model across both RTX 3090s)
+#   - 2-3x faster generation than Ollama for the same model
+#
+# The router uses raw httpx (same as OllamaRouter) to POST to the
+# OpenAI-compatible /v1/chat/completions endpoint. This avoids
+# coupling to the openai SDK version.
+#
+# INTERNET ACCESS: NONE (localhost only)
+# ============================================================================
+class VLLMRouter:
+    """Route queries to local vLLM server (workstation offline mode)."""
+
+    def __init__(self, config: Config):
+        """
+        Set up the vLLM router.
+
+        Args:
+            config: The HybridRAG configuration object. We read:
+                    - config.vllm.base_url (default: http://localhost:8000)
+                    - config.vllm.model (default: phi4-mini)
+                    - config.vllm.timeout_seconds (default: 120)
+        """
+        self.config = config
+        self.logger = get_app_logger("vllm_router")
+
+        self.base_url = config.vllm.base_url.rstrip("/")
+        self.model = config.vllm.model
+        self.timeout = config.vllm.timeout_seconds
+
+        # Persistent HTTP client -- reuses TCP connections across calls
+        self._client = httpx.Client()
+
+        # Health check cache: (available: bool, timestamp: float) with TTL
+        self._health_cache = None
+        self._health_ttl = 30  # seconds between live checks
+
+    def is_available(self) -> bool:
+        """
+        Check if vLLM is running and reachable.
+
+        Sends GET to /health. vLLM returns 200 when ready.
+        Result is cached for 30 seconds to avoid TCP roundtrips.
+        """
+        now = time.time()
+        if self._health_cache and (now - self._health_cache[1]) < self._health_ttl:
+            return self._health_cache[0]
+
+        try:
+            get_gate().check_allowed(
+                f"{self.base_url}/health", "vllm_health", "vllm_router",
+            )
+            resp = self._client.get(f"{self.base_url}/health", timeout=5)
+            result = resp.status_code == 200
+        except (NetworkBlockedError, Exception):
+            result = False
+
+        self._health_cache = (result, now)
+        return result
+
+    def query(self, prompt: str) -> Optional[LLMResponse]:
+        """
+        Send a prompt to the local vLLM server via OpenAI-compatible API.
+
+        Args:
+            prompt: The complete prompt (context + user question)
+
+        Returns:
+            LLMResponse with the answer, or None if the call failed
+        """
+        start_time = time.time()
+
+        try:
+            get_gate().check_allowed(
+                f"{self.base_url}/v1/chat/completions",
+                "vllm_query", "vllm_router",
+            )
+        except NetworkBlockedError as e:
+            self.logger.error("vllm_blocked_by_gate", error=str(e))
+            return None
+
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+        }
+
+        try:
+            resp = self._client.post(
+                f"{self.base_url}/v1/chat/completions",
+                json=payload,
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+
+            data = resp.json()
+            choice = data.get("choices", [{}])[0]
+            response_text = choice.get("message", {}).get("content", "")
+            usage = data.get("usage", {})
+            tokens_in = usage.get("prompt_tokens", 0)
+            tokens_out = usage.get("completion_tokens", 0)
+            latency_ms = (time.time() - start_time) * 1000
+
+            self.logger.info(
+                "vllm_query_success",
+                model=self.model,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                latency_ms=latency_ms,
+            )
+
+            return LLMResponse(
+                text=response_text,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                model=self.model,
+                latency_ms=latency_ms,
+            )
+
+        except httpx.HTTPError as e:
+            self.logger.error("vllm_http_error", error=str(e))
+            return None
+        except Exception as e:
+            self.logger.error("vllm_error", error=str(e))
+            return None
+
+    def query_stream(self, prompt: str) -> Generator[Dict[str, Any], None, None]:
+        """
+        Stream tokens from the local vLLM server via SSE.
+
+        Yields dicts with either:
+          {"token": str}        -- a partial text token
+          {"done": True, ...}   -- final metadata
+        """
+        start_time = time.time()
+
+        try:
+            get_gate().check_allowed(
+                f"{self.base_url}/v1/chat/completions",
+                "vllm_query_stream", "vllm_router",
+            )
+        except NetworkBlockedError as e:
+            self.logger.error("vllm_stream_blocked_by_gate", error=str(e))
+            return
+
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": True,
+        }
+
+        try:
+            tokens_in = 0
+            tokens_out = 0
+            with self._client.stream(
+                "POST",
+                f"{self.base_url}/v1/chat/completions",
+                json=payload,
+                timeout=self.timeout,
+            ) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if not line or not line.startswith("data: "):
+                        continue
+                    data_str = line[len("data: "):]
+                    if data_str.strip() == "[DONE]":
+                        break
+                    chunk = json.loads(data_str)
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    token_text = delta.get("content", "")
+                    if token_text:
+                        yield {"token": token_text}
+                    usage = chunk.get("usage")
+                    if usage:
+                        tokens_in = usage.get("prompt_tokens", 0)
+                        tokens_out = usage.get("completion_tokens", 0)
+
+            latency_ms = (time.time() - start_time) * 1000
+            self.logger.info(
+                "vllm_stream_complete",
+                model=self.model,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                latency_ms=latency_ms,
+            )
+            yield {
+                "done": True,
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
+                "model": self.model,
+                "latency_ms": latency_ms,
+            }
+
+        except httpx.HTTPError as e:
+            self.logger.error("vllm_stream_http_error", error=str(e))
+        except Exception as e:
+            self.logger.error("vllm_stream_error", error=str(e))
+
+    def close(self):
+        """Release the persistent HTTP client."""
+        if hasattr(self, "_client") and self._client:
+            self._client.close()
+
+
+# ============================================================================
 # APIRouter -- Talks to Azure OpenAI or standard OpenAI API
 # ============================================================================
 #
@@ -1040,6 +1250,15 @@ class LLMRouter:
         # This is lightweight and doesn't need any credentials
         self.ollama = OllamaRouter(config)
 
+        # -- Create vLLM router if enabled (workstation offline mode) --
+        # When enabled, offline queries prefer vLLM over Ollama.
+        # If vLLM is unreachable, queries fall back to Ollama silently.
+        if config.vllm.enabled:
+            self.vllm = VLLMRouter(config)
+            self.logger.info("llm_router_vllm_enabled", model=config.vllm.model)
+        else:
+            self.vllm = None
+
         # -- Resolve credentials -------------------------------------------
         # Use pre-resolved credentials from boot if available (saves the
         # 10-50ms keyring lookup). Otherwise resolve from scratch.
@@ -1125,6 +1344,12 @@ class LLMRouter:
             return self.api.query(prompt)
 
         else:
+            # Offline mode: prefer vLLM if enabled and available, else Ollama
+            if self.vllm and self.vllm.is_available():
+                result = self.vllm.query(prompt)
+                if result is not None:
+                    return result
+                self.logger.warning("vllm_query_failed_falling_back_to_ollama")
             return self.ollama.query(prompt)
 
     def query_stream(self, prompt: str) -> Generator[Dict[str, Any], None, None]:
@@ -1139,7 +1364,11 @@ class LLMRouter:
         mode = self.config.mode
 
         if mode == "offline":
-            yield from self.ollama.query_stream(prompt)
+            # Prefer vLLM if enabled and available, else Ollama
+            if self.vllm and self.vllm.is_available():
+                yield from self.vllm.query_stream(prompt)
+            else:
+                yield from self.ollama.query_stream(prompt)
         else:
             # Online mode: no streaming support, yield full response as one chunk
             result = self.query(prompt)
@@ -1161,6 +1390,8 @@ class LLMRouter:
         status = {
             "mode": self.config.mode,
             "ollama_available": self.ollama.is_available(),
+            "vllm_enabled": self.vllm is not None,
+            "vllm_available": self.vllm.is_available() if self.vllm else False,
             "api_configured": self.api is not None,
             "sdk_available": _openai_sdk_available(),
         }

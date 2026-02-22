@@ -10,6 +10,7 @@
 import tkinter as tk
 from tkinter import ttk, scrolledtext
 import threading
+import time
 import logging
 
 from scripts._model_meta import USE_CASES, select_best_model
@@ -35,6 +36,9 @@ class QueryPanel(tk.LabelFrame):
         self.config = config
         self.query_engine = query_engine
         self._query_thread = None
+        self._streaming = False
+        self._stream_start = 0.0
+        self._elapsed_timer_id = None
 
         self._build_widgets(t)
 
@@ -179,7 +183,12 @@ class QueryPanel(tk.LabelFrame):
             self.question_entry.delete(0, tk.END)
 
     def _on_use_case_change(self, event=None):
-        """Update model display when use case changes."""
+        """Update model display when use case changes.
+
+        Offline: instant (reads config).
+        Online: runs get_available_deployments() in a background thread
+        so the GUI never freezes on a network call.
+        """
         idx = self._uc_labels.index(self.uc_var.get()) if self.uc_var.get() in self._uc_labels else 0
         uc_key = self._uc_keys[idx]
 
@@ -191,13 +200,27 @@ class QueryPanel(tk.LabelFrame):
             ) or "phi4-mini"
             self.model_var.set("{} (offline)".format(ollama_model))
         else:
-            # Online: auto-select best from available API deployments
+            # Online: resolve deployments off the main thread to avoid
+            # freezing the GUI on a 1-3s network call.
+            self.model_var.set("(loading...)")
+            threading.Thread(
+                target=self._resolve_online_model,
+                args=(uc_key,),
+                daemon=True,
+            ).start()
+
+    def _resolve_online_model(self, uc_key):
+        """Background thread: fetch deployments and update model label."""
+        try:
             deployments = get_available_deployments()
             best = select_best_model(uc_key, deployments)
             if best:
-                self.model_var.set("{} (auto-selected)".format(best))
+                self.after(0, self.model_var.set,
+                           "{} (auto-selected)".format(best))
             else:
-                self.model_var.set("(no model available)")
+                self.after(0, self.model_var.set, "(no model available)")
+        except Exception:
+            self.after(0, self.model_var.set, "(discovery failed)")
 
     def _on_ask(self, event=None):
         """Handle Ask button click or Enter key."""
@@ -211,29 +234,142 @@ class QueryPanel(tk.LabelFrame):
 
         # Disable button during query
         self.ask_btn.config(state=tk.DISABLED)
+        self._stream_start = time.time()
 
-        # Show network indicator for online mode
+        # Clear answer area for fresh output
+        self.answer_text.config(state=tk.NORMAL)
+        self.answer_text.delete("1.0", tk.END)
+        self.answer_text.config(state=tk.DISABLED)
+        self.sources_label.config(text="Sources: (none)", fg=current_theme()["gray"])
+        self.metrics_label.config(text="")
+
+        # Phase 1: show immediate "Searching..." status
         t = current_theme()
-        mode = getattr(self.config, "mode", "offline")
-        if mode == "online":
-            self.network_label.config(text="Sending to API...", fg=t["gray"])
-        else:
-            self.network_label.config(text="Querying local model...", fg=t["gray"])
+        self.network_label.config(text="Searching documents...", fg=t["gray"])
 
-        # Run query in background thread to avoid freezing UI
-        self._query_thread = threading.Thread(
-            target=self._run_query, args=(question,), daemon=True,
-        )
+        # Choose streaming or fallback path
+        has_stream = hasattr(self.query_engine, "query_stream")
+        if has_stream:
+            self._query_thread = threading.Thread(
+                target=self._run_query_stream, args=(question,), daemon=True,
+            )
+        else:
+            self._query_thread = threading.Thread(
+                target=self._run_query, args=(question,), daemon=True,
+            )
         self._query_thread.start()
 
     def _run_query(self, question):
-        """Execute query in background thread."""
+        """Execute query in background thread (non-streaming fallback)."""
         try:
             result = self.query_engine.query(question)
             self.after(0, self._display_result, result)
         except Exception as e:
             error_msg = "[FAIL] {}: {}".format(type(e).__name__, e)
             self.after(0, self._show_error, error_msg)
+
+    def _run_query_stream(self, question):
+        """Execute streaming query in background thread."""
+        try:
+            for chunk in self.query_engine.query_stream(question):
+                if "phase" in chunk:
+                    if chunk["phase"] == "searching":
+                        self.after(0, self._set_status, "Searching documents...")
+                    elif chunk["phase"] == "generating":
+                        n = chunk.get("chunks", 0)
+                        ms = chunk.get("retrieval_ms", 0)
+                        msg = "Found {} chunks ({:.0f}ms) -- Generating answer...".format(n, ms)
+                        self.after(0, self._set_status, msg)
+                        self.after(0, self._start_elapsed_timer)
+                        self.after(0, self._prepare_streaming)
+                elif "token" in chunk:
+                    self.after(0, self._append_token, chunk["token"])
+                elif chunk.get("done"):
+                    result = chunk.get("result")
+                    if result:
+                        self.after(0, self._finish_stream, result)
+                    return
+            # If generator exhausted without "done", re-enable button
+            self.after(0, self._stop_elapsed_timer)
+            self.after(0, lambda: self.ask_btn.config(state=tk.NORMAL))
+        except Exception as e:
+            error_msg = "[FAIL] {}: {}".format(type(e).__name__, e)
+            self.after(0, self._stop_elapsed_timer)
+            self.after(0, self._show_error, error_msg)
+
+    def _set_status(self, text):
+        """Update the network/status label."""
+        t = current_theme()
+        self.network_label.config(text=text, fg=t["gray"])
+
+    def _prepare_streaming(self):
+        """Set answer area to NORMAL for live token insertion."""
+        self._streaming = True
+        self.answer_text.config(state=tk.NORMAL)
+        self.answer_text.delete("1.0", tk.END)
+
+    def _append_token(self, token):
+        """Append a single token to the answer area (main thread)."""
+        if not self._streaming:
+            return
+        self.answer_text.insert(tk.END, token)
+        self.answer_text.see(tk.END)
+
+    def _start_elapsed_timer(self):
+        """Start a 500ms timer that updates the status with elapsed time."""
+        self._stop_elapsed_timer()
+        self._update_elapsed()
+
+    def _update_elapsed(self):
+        """Update status line with elapsed seconds."""
+        if not self._streaming:
+            return
+        elapsed = time.time() - self._stream_start
+        t = current_theme()
+        self.network_label.config(
+            text="Generating... ({:.1f}s)".format(elapsed), fg=t["gray"],
+        )
+        self._elapsed_timer_id = self.after(500, self._update_elapsed)
+
+    def _stop_elapsed_timer(self):
+        """Cancel the elapsed timer if running."""
+        if self._elapsed_timer_id is not None:
+            self.after_cancel(self._elapsed_timer_id)
+            self._elapsed_timer_id = None
+
+    def _finish_stream(self, result):
+        """Finalize the UI after streaming completes."""
+        self._streaming = False
+        self._stop_elapsed_timer()
+        self.answer_text.config(state=tk.DISABLED)
+        self.ask_btn.config(state=tk.NORMAL)
+        self.network_label.config(text="")
+
+        # Display sources and metrics from the final result
+        t = current_theme()
+        if result.error:
+            self._show_error("[FAIL] {}".format(result.error))
+            return
+
+        if result.sources:
+            source_strs = []
+            for s in result.sources:
+                path = s.get("path", "unknown")
+                chunks = s.get("chunks", 0)
+                fname = path.rsplit("\\", 1)[-1].rsplit("/", 1)[-1]
+                source_strs.append("{} ({} chunks)".format(fname, chunks))
+            self.sources_label.config(
+                text="Sources: {}".format(", ".join(source_strs)),
+                fg=t["fg"],
+            )
+        else:
+            self.sources_label.config(text="Sources: (none)", fg=t["gray"])
+
+        self.metrics_label.config(
+            text="Latency: {:,.0f} ms | Tokens in: {} | Tokens out: {}".format(
+                result.latency_ms, result.tokens_in, result.tokens_out
+            ),
+        )
 
     def _display_result(self, result):
         """Display query result in the UI (called on main thread)."""

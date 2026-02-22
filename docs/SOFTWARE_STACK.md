@@ -261,7 +261,7 @@ chunking:
 | Alternative | Pros | Cons | Verdict |
 |---|---|---|---|
 | **llama.cpp directly** | Fastest, most control | No model management, CLI-only | Rejected -- Ollama wraps it better |
-| **vLLM** | Production-grade, batching | Requires Linux + NVIDIA GPU | Rejected -- no Windows support |
+| **vLLM** | Production-grade, batching, prefix caching | Requires NVIDIA GPU (WSL2 on Windows) | **Approved** -- workstation offline mode (v0.10.1) |
 | **HuggingFace Transformers (direct)** | Full control | Slow on CPU, complex setup, high RAM | Rejected -- Ollama is simpler |
 | **LM Studio** | Nice GUI | Not scriptable, no REST API for integration | Rejected -- can't automate |
 | **text-generation-inference** | Fast, Docker-based | Requires Docker + Linux + GPU | Rejected -- deployment complexity |
@@ -275,6 +275,51 @@ ollama:
   model: phi4-mini
   context_window: 8192
   timeout_seconds: 600
+```
+
+---
+
+## 6b. LLM Inference -- vLLM (Workstation)
+
+| | |
+|---|---|
+| **Chosen** | vLLM 0.10.1 |
+| **License** | Apache 2.0 (UC Berkeley/USA) |
+| **Usage** | Workstation offline mode (preferred over Ollama when available) |
+
+### Why vLLM
+
+- 2-3x faster generation than Ollama for the same model
+- Continuous batching: handles multiple concurrent queries efficiently
+- Prefix caching: repeated prompt prefixes (RAG context) are cached
+- Tensor parallelism: splits one model across both RTX 3090s (48 GB total)
+- OpenAI-compatible API: same /v1/chat/completions endpoint format
+
+### How It Integrates
+
+vLLM is an **upgrade, not a replacement** for Ollama. When `vllm.enabled: true`
+in config and the vLLM server is reachable, offline queries route to vLLM.
+If vLLM is not running, queries silently fall back to Ollama. Laptop users
+(where vLLM is not installed) are unaffected -- `enabled: false` by default.
+
+### Configuration
+
+```yaml
+vllm:
+  base_url: http://localhost:8000
+  model: phi4-mini
+  timeout_seconds: 120
+  context_window: 16384
+  enabled: false        # true on workstation, false on laptop
+```
+
+### Starting vLLM
+
+```bash
+python -m vllm.entrypoints.openai.api_server \
+  --model phi4-mini \
+  --port 8000 \
+  --tensor-parallel-size 2
 ```
 
 ---
@@ -744,6 +789,7 @@ PDF File
 | PyYAML | 6.0.2 | Configuration loading | MIT |
 | httpx | 0.28.1 | HTTP client (Ollama + discovery) | BSD |
 | openai | 1.45.1 | LLM API client SDK | Apache 2.0 |
+| vllm | 0.10.1 | GPU LLM inference (workstation) | Apache 2.0 |
 | structlog | 24.4.0 | Structured JSON logging | MIT |
 | cryptography | 44.0.2 | Credential encryption support | Apache 2.0 / BSD |
 

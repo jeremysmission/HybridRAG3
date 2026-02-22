@@ -32,7 +32,7 @@
 # ============================================================================
 
 import time
-from typing import Optional
+from typing import Optional, Dict, Any, Generator
 from dataclasses import dataclass
 
 from .config import Config
@@ -224,6 +224,116 @@ class QueryEngine:
                 mode=self.config.mode,
                 error=error_msg,
             )
+
+    def query_stream(self, user_query: str) -> Generator[Dict[str, Any], None, None]:
+        """
+        Stream a query response token-by-token.
+
+        Yields dicts in this order:
+          {"phase": "searching"}                   -- retrieval started
+          {"phase": "generating", "chunks": N,
+           "retrieval_ms": float}                  -- retrieval done, LLM starting
+          {"token": str}                           -- each LLM token
+          {"done": True, "result": QueryResult}    -- final result with metadata
+
+        Falls back to non-streaming query() if anything goes wrong.
+        """
+        start_time = time.time()
+
+        try:
+            # Phase 1: Retrieval (eager)
+            yield {"phase": "searching"}
+            search_results = self.retriever.search(user_query)
+            retrieval_ms = (time.time() - start_time) * 1000
+
+            if not search_results:
+                result = QueryResult(
+                    answer="No relevant information found in knowledge base.",
+                    sources=[], chunks_used=0, tokens_in=0, tokens_out=0,
+                    cost_usd=0.0, latency_ms=retrieval_ms, mode=self.config.mode,
+                )
+                yield {"done": True, "result": result}
+                return
+
+            context = self.retriever.build_context(search_results)
+            sources = self.retriever.get_sources(search_results)
+
+            if not context.strip():
+                result = QueryResult(
+                    answer="Relevant documents were found, but no usable context text was available.",
+                    sources=sources, chunks_used=len(search_results),
+                    tokens_in=0, tokens_out=0, cost_usd=0.0,
+                    latency_ms=retrieval_ms, mode=self.config.mode,
+                    error="empty_context",
+                )
+                yield {"done": True, "result": result}
+                return
+
+            prompt = self._build_prompt(user_query, context)
+
+            # Phase 2: LLM streaming
+            yield {
+                "phase": "generating",
+                "chunks": len(search_results),
+                "retrieval_ms": retrieval_ms,
+            }
+
+            full_text = []
+            tokens_in = 0
+            tokens_out = 0
+            model = ""
+            llm_latency_ms = 0.0
+
+            for chunk in self.llm_router.query_stream(prompt):
+                if "token" in chunk:
+                    full_text.append(chunk["token"])
+                    yield {"token": chunk["token"]}
+                elif chunk.get("done"):
+                    tokens_in = chunk.get("tokens_in", 0)
+                    tokens_out = chunk.get("tokens_out", 0)
+                    model = chunk.get("model", "")
+                    llm_latency_ms = chunk.get("latency_ms", 0.0)
+
+            answer = "".join(full_text)
+            elapsed_ms = (time.time() - start_time) * 1000
+
+            if not answer:
+                answer = "Error calling LLM. Please try again."
+
+            from .llm_router import LLMResponse
+            llm_response = LLMResponse(
+                text=answer, tokens_in=tokens_in, tokens_out=tokens_out,
+                model=model, latency_ms=llm_latency_ms,
+            )
+            cost_usd = self._calculate_cost(llm_response)
+
+            result = QueryResult(
+                answer=answer, sources=sources,
+                chunks_used=len(search_results),
+                tokens_in=tokens_in, tokens_out=tokens_out,
+                cost_usd=cost_usd, latency_ms=elapsed_ms,
+                mode=self.config.mode,
+            )
+
+            log_entry = QueryLogEntry.build(
+                query=user_query, mode=self.config.mode,
+                chunks_retrieved=len(search_results),
+                latency_ms=elapsed_ms, cost_usd=cost_usd,
+            )
+            self.logger.info("query_stream_complete", **log_entry)
+
+            yield {"done": True, "result": result}
+
+        except Exception as e:
+            error_msg = f"{type(e).__name__}: {str(e)}"
+            self.logger.error("query_stream_error", error=error_msg, query=user_query)
+            result = QueryResult(
+                answer=f"Error processing query: {error_msg}",
+                sources=[], chunks_used=0, tokens_in=0, tokens_out=0,
+                cost_usd=0.0, latency_ms=(time.time() - start_time) * 1000,
+                mode=self.config.mode, error=error_msg,
+            )
+            yield {"done": True, "result": result}
 
     def _build_prompt(self, user_query: str, context: str) -> str:
         """

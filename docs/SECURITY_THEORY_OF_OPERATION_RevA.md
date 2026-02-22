@@ -1,6 +1,6 @@
 # HybridRAG3 -- Security Theory of Operation
 
-Last Updated: 2026-02-22
+Revision: A | Date: 2026-02-22
 
 ---
 
@@ -150,7 +150,7 @@ application. The gate is configured once during boot and cannot be bypassed.
 
 | Mode     | Allowed Destinations              | Default? |
 |----------|-----------------------------------|----------|
-| OFFLINE  | localhost only (Ollama)            | YES      |
+| OFFLINE  | localhost only (Ollama + vLLM)     | YES      |
 | ONLINE   | localhost + one configured API     | No       |
 | ADMIN    | Unrestricted (logged + warned)     | No       |
 
@@ -558,6 +558,8 @@ Step 2.5: Configure network gate (BEFORE any network calls)
 Step 3: Create API client (only if credentials.is_online_ready)
    |
 Step 4: Ollama health check (non-blocking, 500ms timeout)
+   |
+Step 4.5: vLLM health check (if enabled, non-blocking)
    |
 READY
 ```

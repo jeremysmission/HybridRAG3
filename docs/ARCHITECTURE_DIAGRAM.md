@@ -43,7 +43,7 @@
               +-------------------+
               |  4. Probe         |
               |     backends      |
-              |     (Ollama+API)  |
+              | (Ollama+vLLM+API) |
               +-------------------+
                        |
                        v
@@ -85,11 +85,13 @@ flowchart TD
     CHUNKS --> PB["PROMPT BUILDER<br/>9-rule injection-resistant template"]:::generation
     PB --> LLM["LLM ROUTER"]:::generation
 
-    LLM --> OFF["OFFLINE<br/>Ollama<br/>localhost"]:::generation
+    LLM --> VLLM["OFFLINE (vLLM)<br/>localhost:8000<br/><i>preferred if enabled</i>"]:::generation
+    LLM --> OFF["OFFLINE (Ollama)<br/>localhost:11434<br/><i>fallback</i>"]:::generation
     LLM --> ON["ONLINE<br/>API endpoint"]:::generation
 
     ON --> GATE["NETWORK GATE<br/>check + audit log"]:::infra
 
+    VLLM --> RESULT
     OFF --> RESULT
     GATE --> RESULT
 
@@ -158,7 +160,8 @@ flowchart TD
      +----------------------------------------------------+
      |                 NETWORK GATE                        |
      |                                                    |
-     |   OFFLINE    localhost:11434 (Ollama) only          |
+     |   OFFLINE    localhost:11434 (Ollama) +             |
+     |              localhost:8000 (vLLM) only             |
      |   ONLINE     localhost + approved API endpoint      |
      +----------------------------------------------------+
                           |

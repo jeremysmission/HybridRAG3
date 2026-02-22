@@ -1,6 +1,6 @@
 # HybridRAG3 -- Technical Theory of Operation
 
-Last Updated: 2026-02-21
+Revision: A | Date: 2026-02-22
 
 ---
 
@@ -281,8 +281,14 @@ propagate.
 
 `src/core/llm_router.py` routes to the appropriate backend:
 
+- **Offline (VLLMRouter)**: HTTP POST to `localhost:8000/v1/chat/completions`.
+  OpenAI-compatible API served by vLLM. Preferred when `vllm.enabled=true`
+  and the server is reachable. Provides continuous batching, prefix caching,
+  and tensor parallelism across GPUs. Falls back to Ollama silently if
+  vLLM is not running.
 - **Offline (OllamaRouter)**: HTTP POST to `localhost:11434/api/generate`.
-  Default timeout 600s (CPU inference is slow).
+  Default timeout 600s (CPU inference is slow). Serves as fallback when
+  vLLM is unavailable or disabled.
 - **Online (APIRouter)**: HTTP POST to OpenAI-compatible
   `/v1/chat/completions`. Uses `openai` SDK (v1.45.1). Supports Azure
   OpenAI and standard OpenAI endpoints with deployment discovery.
@@ -453,6 +459,7 @@ Every exception includes `fix_suggestion: str` and `error_code: str`.
 - `EmbeddingConfig` -- model_name, dimension, batch_size, device
 - `ChunkingConfig` -- chunk_size, overlap, max_heading_len
 - `OllamaConfig` -- base_url, model, timeout_seconds, context_window
+- `VLLMConfig` -- base_url, model, timeout_seconds, context_window, enabled
 - `APIConfig` -- endpoint, model, max_tokens, temperature
 - `RetrievalConfig` -- top_k, min_score, hybrid_search, rrf_k
 - `CostConfig` -- track_enabled, daily_budget_usd
@@ -548,7 +555,8 @@ Injection trap: AES_RE regex catches "AES-512" anywhere in answer text.
 | RAM (search) | ~300 MB | Model + memmap overhead |
 | Disk per 1M chunks | ~0.75 GB | float16 embeddings only |
 | Online query latency | 2-5 sec | API via configured endpoint |
-| Offline query latency | 5-180 sec | Ollama, hardware dependent |
+| Offline query latency (vLLM) | 2-5 sec | Workstation GPU, vLLM serving |
+| Offline query latency (Ollama) | 5-180 sec | Ollama, hardware dependent |
 
 ---
 
@@ -589,3 +597,4 @@ Full analysis: `docs/research/FAISS_MIGRATION_PLAN.md`.
 | structlog | 24.4.0 | Apache 2.0 | Structured logging |
 | PyYAML | 6.0.2 | MIT | YAML parsing |
 | tiktoken | 0.8.0 | MIT | Token counting |
+| vllm | 0.10.1 | Apache 2.0 | GPU LLM inference (workstation) |

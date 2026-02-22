@@ -267,14 +267,14 @@ environment variable in `start_hybridrag.ps1` handles this).
 
 ## 5. Online vs Offline Mode
 
-| | Offline | Online |
-|-|---------|--------|
-| **LLM runs** | On your computer (Ollama) | In the cloud (API) |
-| **Internet needed** | No | Yes (configured endpoint only) |
-| **Answer speed** | 5-30 sec (GPU), 1-3 min (CPU) | 2-5 seconds |
-| **Data sent** | Nothing leaves machine | Question + top chunks only |
-| **Cost** | Free (your hardware) | Per-token API pricing |
-| **Requires** | Ollama running | API key + endpoint stored |
+| | Offline (Ollama) | Offline (vLLM) | Online |
+|-|---------|--------|--------|
+| **LLM runs** | On your computer (Ollama) | On workstation (vLLM) | In the cloud (API) |
+| **Internet needed** | No | No | Yes (configured endpoint only) |
+| **Answer speed** | 5-30 sec (GPU), 1-3 min (CPU) | 2-5 seconds | 2-5 seconds |
+| **Data sent** | Nothing leaves machine | Nothing leaves machine | Question + top chunks only |
+| **Cost** | Free (your hardware) | Free (your hardware) | Per-token API pricing |
+| **Requires** | Ollama running | vLLM running (auto-fallback to Ollama) | API key + endpoint stored |
 
 ### When to Use Offline
 
@@ -304,6 +304,15 @@ rag-mode-offline
 You can switch between modes at any time. The indexed documents and
 search database are the same regardless of mode -- only the answer
 generation step changes.
+
+### vLLM (Workstation Users)
+
+If you have the dual-GPU workstation with vLLM installed, offline mode
+automatically uses vLLM for faster inference. No mode switch is needed --
+vLLM is detected automatically when `vllm.enabled: true` in config.
+
+If vLLM is not running, queries silently fall back to Ollama. You can
+check which backend is active via `rag-status`.
 
 ---
 

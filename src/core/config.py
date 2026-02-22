@@ -159,7 +159,7 @@ class ChunkingConfig:
       - Predictable memory usage (1 char = 1 byte, always)
       - No dependency on a tokenizer (tiktoken adds complexity)
       - For retrieval quality, chunk SIZE matters more than exact token count
-      - Defence manuals have tables/diagrams that confuse tokenizers anyway
+      - Technical manuals have tables/diagrams that confuse tokenizers anyway
 
     Why 1200 chars with 200 overlap:
       - 1200 chars = about 200-300 tokens = a solid paragraph
@@ -183,6 +183,27 @@ class OllamaConfig:
     model: str = "phi4-mini"
     timeout_seconds: int = 120     # How long to wait for a response
     context_window: int = 8192     # Max tokens the model can see at once
+
+
+@dataclass
+class VLLMConfig:
+    """
+    vLLM inference server settings for workstation offline mode.
+
+    vLLM serves an OpenAI-compatible API on localhost with continuous
+    batching, prefix caching, and tensor parallelism across GPUs.
+
+    When enabled, offline-mode queries prefer vLLM over Ollama.
+    If vLLM is unreachable, queries fall back to Ollama silently.
+
+    Approved version: 0.10.1 (pinned).
+    License: Apache 2.0 (UC Berkeley/USA).
+    """
+    base_url: str = "http://localhost:8000"
+    model: str = "phi4-mini"
+    timeout_seconds: int = 120
+    context_window: int = 16384
+    enabled: bool = False
 
 
 @dataclass
@@ -373,6 +394,7 @@ class Config:
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     chunking: ChunkingConfig = field(default_factory=ChunkingConfig)
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
+    vllm: VLLMConfig = field(default_factory=VLLMConfig)
     api: APIConfig = field(default_factory=APIConfig)
     cost: CostConfig = field(default_factory=CostConfig)
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
@@ -507,6 +529,7 @@ def load_config(
         embedding=_dict_to_dataclass(EmbeddingConfig, yaml_data.get("embedding", {})),
         chunking=_dict_to_dataclass(ChunkingConfig, yaml_data.get("chunking", {})),
         ollama=_dict_to_dataclass(OllamaConfig, yaml_data.get("ollama", {})),
+        vllm=_dict_to_dataclass(VLLMConfig, yaml_data.get("vllm", {})),
         api=_dict_to_dataclass(APIConfig, yaml_data.get("api", {})),
         cost=_dict_to_dataclass(CostConfig, yaml_data.get("cost", {})),
         retrieval=_dict_to_dataclass(RetrievalConfig, yaml_data.get("retrieval", {})),
