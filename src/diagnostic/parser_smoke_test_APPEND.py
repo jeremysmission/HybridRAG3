@@ -1,12 +1,27 @@
 # ============================================================================
-# Parser Smoke Test -- add this to the end of component_tests.py
+# HybridRAG -- Parser Smoke Test (src/diagnostic/parser_smoke_test_APPEND.py)
 # ============================================================================
-# This function tests that every critical parser can actually import its
-# library AND parse a minimal test input. This catches the exact problem
-# we hit yesterday (python-docx and pdfplumber were in requirements.txt
-# but not installed in .venv).
 #
-# PASTE THIS AT THE END OF: src/diagnostic/component_tests.py
+# WHAT THIS FILE IS:
+#   A standalone test function that checks whether every document parser
+#   library is actually installed. This is NOT a complete runnable script --
+#   it contains one function meant to be added to component_tests.py.
+#
+# WHY THIS EXISTS:
+#   The #1 portability problem: requirements.txt lists a package (like
+#   python-docx for reading Word files) but it wasn't actually installed
+#   in the virtual environment. This test catches that before you try to
+#   parse a real file and get a confusing ImportError.
+#
+# WHAT IT TESTS:
+#   PDF (pdfplumber, pypdf), Word (python-docx), PowerPoint (python-pptx),
+#   Excel (openpyxl), HTTP (httpx), ML models (transformers,
+#   sentence-transformers), Config (PyYAML), Logging (structlog),
+#   Images (Pillow)
+#
+# HOW TO INTEGRATE:
+#   Copy the test_parser_smoke() function below and paste it at the end
+#   of src/diagnostic/component_tests.py
 # ============================================================================
 
 

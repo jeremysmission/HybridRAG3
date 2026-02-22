@@ -1,3 +1,26 @@
+# ============================================================================
+# HybridRAG -- Index Status (tools/py/index_status.py)
+# ============================================================================
+#
+# WHAT THIS DOES:
+#   Opens the SQLite database where HybridRAG stores its indexed document
+#   chunks and shows you a summary: how many chunks, how many source
+#   files, database size, and when the last indexing run happened.
+#
+# ANALOGY:
+#   Like checking the table of contents of a book -- it tells you how
+#   many entries are in the index without showing you all the content.
+#
+# HOW TO USE:
+#   python tools/py/index_status.py
+#
+# TYPICAL OUTPUT:
+#   Database: data/hybridrag.sqlite3
+#   Size:     45.2 MB
+#   Chunks:   39,602
+#   Files:    1,345
+#   Last indexed: 2026-02-15 14:30:00
+# ============================================================================
 import sys, os, sqlite3, glob
 sys.path.insert(0, os.getcwd())
 

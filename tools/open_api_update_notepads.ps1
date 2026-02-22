@@ -1,6 +1,20 @@
 ﻿# ============================================================================
-# Open Notepad windows for API update files
-# Run this from your HybridRAG directory on the WORK LAPTOP
+# HybridRAG -- API Code Update Helper (tools/open_api_update_notepads.ps1)
+# ============================================================================
+#
+# WHAT THIS DOES:
+#   Opens two blank Notepad windows so you can paste in updated code from
+#   a Claude session. This is a one-time helper for transferring code
+#   changes to the work laptop when you can't use git.
+#
+# HOW TO USE (on work laptop):
+#   1. Run this script: . .\tools\open_api_update_notepads.ps1
+#   2. Notepad 1: paste the updated llm_router.py code, save to
+#      D:\HybridRAG3\src\core\llm_router.py
+#   3. Notepad 2: paste API setup notes, save to your personal
+#      notes folder (NOT in the git repo)
+#   4. Reload: . .\start_hybridrag.ps1
+#   5. Test: rag-test-api
 # ============================================================================
 
 Write-Host ""

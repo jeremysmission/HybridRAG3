@@ -1,3 +1,32 @@
+# ============================================================================
+# HybridRAG -- Network Connectivity Check (tools/py/net_check.py)
+# ============================================================================
+#
+# WHAT THIS DOES:
+#   Tests whether your machine can reach the services HybridRAG needs.
+#   Like pinging a radio repeater to see if you have line-of-sight --
+#   this checks if you have a clear network path to each service.
+#
+# SERVICES TESTED:
+#   1. Azure API    -- Your configured AI endpoint (port 443/HTTPS)
+#   2. Ollama       -- Local AI model server (port 11434, localhost)
+#   3. HuggingFace  -- Model downloads (port 443/HTTPS)
+#   4. PyPI         -- Python package installs (port 443/HTTPS)
+#   5. GitHub       -- Code repository (port 443/HTTPS)
+#
+# OUTPUT:
+#   [OK]   = connection succeeded, shows latency in milliseconds
+#   [FAIL] = cannot reach the service (DNS failed or timeout)
+#   [DOWN] = service refused the connection (it's there but not listening)
+#
+# HOW TO USE:
+#   python tools/py/net_check.py
+#
+# COMMON RESULTS:
+#   - All [OK] except Ollama: normal if you haven't started Ollama yet
+#   - All [FAIL]: you're probably on a restricted network or VPN is down
+#   - Azure [FAIL], others [OK]: endpoint URL may be wrong
+# ============================================================================
 import keyring, socket, ssl, time
 
 endpoint = keyring.get_password("hybridrag", "azure_endpoint")

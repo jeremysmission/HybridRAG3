@@ -1,3 +1,29 @@
+# ============================================================================
+# HybridRAG -- SSL/TLS Certificate Check (tools/py/ssl_check.py)
+# ============================================================================
+#
+# WHAT THIS DOES:
+#   Tests the secure connection (HTTPS) to your Azure API endpoint by
+#   performing a full SSL/TLS handshake. Think of it like verifying that
+#   your encrypted radio channel is properly configured -- both sides
+#   need to agree on the encryption method and trust each other's ID.
+#
+# WHAT IT SHOWS:
+#   - Whether the SSL handshake succeeds
+#   - Which TLS version is being used (TLSv1.2 or TLSv1.3)
+#   - The encryption cipher in use
+#   - Who issued the server's certificate (should be Microsoft/DigiCert)
+#   - When the certificate expires
+#
+# MOST COMMON FAILURE:
+#   "Certificate verification failed" -- This almost always means a
+#   corporate proxy is intercepting your HTTPS traffic and replacing
+#   the real certificate with its own. The fix is to get the corporate
+#   CA certificate from IT and set REQUESTS_CA_BUNDLE to point to it.
+#
+# HOW TO USE:
+#   python tools/py/ssl_check.py
+# ============================================================================
 import ssl, socket, keyring
 from urllib.parse import urlparse
 
