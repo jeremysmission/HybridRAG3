@@ -60,6 +60,7 @@ def collect_hardware_fingerprint():
         "cpu": {"name": "Unknown", "physical_cores": os.cpu_count() or 0,
                 "logical_cores": os.cpu_count() or 0, "max_clock_mhz": 0},
         "ram_gb": 0.0, "disk": [], "gpu": "None detected",
+        "gpu_vram_gb": 0.0, "has_nvme": False,
     }
 
     if platform.system() == "Windows":
@@ -102,10 +103,39 @@ def collect_hardware_fingerprint():
                                        "size_gb": d.get("SizeGB", 0), "type": dtype})
             except Exception: pass
 
-        # --- GPU ---
-        out = _ps("(Get-CimInstance Win32_VideoController | "
-                  "Select-Object -First 1 Name).Name")
-        if out: hw["gpu"] = out
+        # --- GPU name + VRAM ---
+        out = _ps("Get-CimInstance Win32_VideoController | "
+                  "Select-Object Name,AdapterRAM | ConvertTo-Json")
+        if out:
+            try:
+                gpus = json.loads(out)
+                if isinstance(gpus, dict):
+                    gpus = [gpus]
+                # Find the discrete GPU (highest VRAM), skip integrated
+                best_vram = 0
+                best_name = "None detected"
+                for g in gpus:
+                    name = (g.get("Name", "") or "").strip()
+                    adapter_ram = g.get("AdapterRAM") or 0
+                    vram_gb = round(adapter_ram / (1024 ** 3), 1)
+                    if vram_gb > best_vram:
+                        best_vram = vram_gb
+                        best_name = name
+                hw["gpu"] = best_name
+                hw["gpu_vram_gb"] = best_vram
+            except Exception:
+                pass
+        if hw["gpu"] == "None detected":
+            out = _ps("(Get-CimInstance Win32_VideoController | "
+                      "Select-Object -First 1 Name).Name")
+            if out:
+                hw["gpu"] = out
+
+        # --- NVMe detection ---
+        for d in hw["disk"]:
+            if d.get("type") == "NVMe SSD":
+                hw["has_nvme"] = True
+                break
 
     else:
         # Linux fallback
@@ -132,7 +162,11 @@ def collect_hardware_fingerprint():
     print(f"  RAM:    {hw['ram_gb']} GB")
     for d in hw["disk"]:
         print(f"  Disk:   {d['model']} -- {d['size_gb']} GB ({d['type']})")
-    print(f"  GPU:    {hw['gpu']}")
+    vram = hw.get("gpu_vram_gb", 0)
+    vram_str = f" ({vram} GB VRAM)" if vram > 0 else ""
+    print(f"  GPU:    {hw['gpu']}{vram_str}")
+    if hw.get("has_nvme"):
+        print(f"  NVMe:   Detected (fast indexing)")
     print(f"  OS:     {hw['os']['system']} {hw['os']['release']}")
     print(f"  Python: {hw['python']['version']} ({hw['python']['architecture']})")
     return hw
@@ -141,16 +175,27 @@ def collect_hardware_fingerprint():
 # ===== SECTION 2: PROFILE RECOMMENDATION ===================================
 
 def recommend_profile(hw):
-    """Recommend laptop_safe / desktop_power / server_max based on RAM + cores."""
+    """Recommend laptop_safe / desktop_power / server_max based on RAM + cores + VRAM."""
     ram = hw.get("ram_gb", 0)
     cores = hw.get("cpu", {}).get("physical_cores", 0)
+    vram = hw.get("gpu_vram_gb", 0)
 
-    if ram >= 64 and cores >= 16:
-        name, reason = "server_max", f"{ram}GB RAM + {cores} cores"
+    if ram >= 64 and cores >= 16 and vram >= 24:
+        name = "server_max"
+        reason = f"{ram}GB RAM + {cores} cores + {vram}GB VRAM"
+    elif ram >= 32 and cores >= 8 and vram >= 8:
+        name = "desktop_power"
+        reason = f"{ram}GB RAM + {cores} cores + {vram}GB VRAM"
     elif ram >= 32 and cores >= 8:
-        name, reason = "desktop_power", f"{ram}GB RAM + {cores} cores"
+        # Enough RAM/cores but no discrete GPU -- still desktop_power for CPU inference
+        name = "desktop_power"
+        reason = f"{ram}GB RAM + {cores} cores (no discrete GPU)"
     else:
-        name, reason = "laptop_safe", f"{ram}GB RAM + {cores} cores"
+        name = "laptop_safe"
+        parts = [f"{ram}GB RAM", f"{cores} cores"]
+        if vram > 0:
+            parts.append(f"{vram}GB VRAM")
+        reason = " + ".join(parts)
 
     profiles = {
         "laptop_safe": {

@@ -38,8 +38,9 @@ class QueryPanel(tk.LabelFrame):
 
         self._build_widgets(t)
 
-        # Trigger initial model selection
-        self._on_use_case_change()
+        # Defer initial model selection so GUI renders immediately.
+        # get_available_deployments() may do a network call on first use.
+        self.after(100, self._on_use_case_change)
 
     def _build_widgets(self, t):
         """Build all child widgets with theme colors."""
@@ -174,12 +175,21 @@ class QueryPanel(tk.LabelFrame):
         idx = self._uc_labels.index(self.uc_var.get()) if self.uc_var.get() in self._uc_labels else 0
         uc_key = self._uc_keys[idx]
 
-        deployments = get_available_deployments()
-        best = select_best_model(uc_key, deployments)
-        if best:
-            self.model_var.set("{} (auto-selected)".format(best))
+        mode = getattr(self.config, "mode", "offline")
+        if mode == "offline":
+            # Offline: show the configured Ollama model directly
+            ollama_model = getattr(
+                getattr(self.config, "ollama", None), "model", ""
+            ) or "phi4-mini"
+            self.model_var.set("{} (offline)".format(ollama_model))
         else:
-            self.model_var.set("(no model available)")
+            # Online: auto-select best from available API deployments
+            deployments = get_available_deployments()
+            best = select_best_model(uc_key, deployments)
+            if best:
+                self.model_var.set("{} (auto-selected)".format(best))
+            else:
+                self.model_var.set("(no model available)")
 
     def _on_ask(self, event=None):
         """Handle Ask button click or Enter key."""
