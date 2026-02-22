@@ -88,7 +88,7 @@ class HybridRAGApp(tk.Tk):
     # ----------------------------------------------------------------
 
     def _build_menu_bar(self):
-        """Build File | Engineering | Help menu bar."""
+        """Build File | Admin | Help menu bar."""
         t = self._theme
         menubar = tk.Menu(self, bg=t["menu_bg"], fg=t["menu_fg"],
                           activebackground=t["accent"],
@@ -103,16 +103,16 @@ class HybridRAGApp(tk.Tk):
         file_menu.add_command(label="Exit", command=self._on_close)
         menubar.add_cascade(label="File", menu=file_menu)
 
-        # Engineering menu
-        eng_menu = tk.Menu(menubar, tearoff=0,
-                           bg=t["menu_bg"], fg=t["menu_fg"],
-                           activebackground=t["accent"],
-                           activeforeground=t["accent_fg"], font=FONT)
-        eng_menu.add_command(
-            label="Engineering Settings...",
+        # Admin menu
+        admin_menu = tk.Menu(menubar, tearoff=0,
+                             bg=t["menu_bg"], fg=t["menu_fg"],
+                             activebackground=t["accent"],
+                             activeforeground=t["accent_fg"], font=FONT)
+        admin_menu.add_command(
+            label="Admin Settings...",
             command=self._open_engineering_menu,
         )
-        menubar.add_cascade(label="Engineering", menu=eng_menu)
+        menubar.add_cascade(label="Admin", menu=admin_menu)
 
         # Help menu
         help_menu = tk.Menu(menubar, tearoff=0,
