@@ -104,32 +104,51 @@ def collect_hardware_fingerprint():
             except Exception: pass
 
         # --- GPU name + VRAM ---
-        out = _ps("Get-CimInstance Win32_VideoController | "
-                  "Select-Object Name,AdapterRAM | ConvertTo-Json")
-        if out:
-            try:
-                gpus = json.loads(out)
-                if isinstance(gpus, dict):
-                    gpus = [gpus]
-                # Find the discrete GPU (highest VRAM), skip integrated
-                best_vram = 0
-                best_name = "None detected"
-                for g in gpus:
-                    name = (g.get("Name", "") or "").strip()
-                    adapter_ram = g.get("AdapterRAM") or 0
-                    vram_gb = round(adapter_ram / (1024 ** 3), 1)
-                    if vram_gb > best_vram:
-                        best_vram = vram_gb
-                        best_name = name
-                hw["gpu"] = best_name
-                hw["gpu_vram_gb"] = best_vram
-            except Exception:
-                pass
-        if hw["gpu"] == "None detected":
-            out = _ps("(Get-CimInstance Win32_VideoController | "
-                      "Select-Object -First 1 Name).Name")
+        # Strategy: nvidia-smi first (accurate for all NVIDIA GPUs), then
+        # WMI fallback. WMI AdapterRAM is a 32-bit uint that wraps to 0
+        # for GPUs with >4GB VRAM.
+        nvsmi_vram = 0
+        try:
+            r = subprocess.run(
+                ["nvidia-smi", "--query-gpu=name,memory.total",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=10)
+            if r.returncode == 0 and r.stdout.strip():
+                line = r.stdout.strip().splitlines()[0]
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) >= 2:
+                    hw["gpu"] = parts[0]
+                    nvsmi_vram = round(int(parts[1]) / 1024, 1)
+                    hw["gpu_vram_gb"] = nvsmi_vram
+        except Exception:
+            pass
+
+        # WMI fallback for GPU name (and VRAM if nvidia-smi unavailable)
+        if hw["gpu"] == "None detected" or nvsmi_vram == 0:
+            out = _ps("Get-CimInstance Win32_VideoController | "
+                      "Select-Object Name,AdapterRAM | ConvertTo-Json")
             if out:
-                hw["gpu"] = out
+                try:
+                    gpus = json.loads(out)
+                    if isinstance(gpus, dict):
+                        gpus = [gpus]
+                    best_vram = 0
+                    best_name = "None detected"
+                    for g in gpus:
+                        name = (g.get("Name", "") or "").strip()
+                        adapter_ram = g.get("AdapterRAM") or 0
+                        vram_gb = round(adapter_ram / (1024 ** 3), 1)
+                        if vram_gb > best_vram:
+                            best_vram = vram_gb
+                            best_name = name
+                        elif name and best_name == "None detected":
+                            best_name = name
+                    if hw["gpu"] == "None detected":
+                        hw["gpu"] = best_name
+                    if nvsmi_vram == 0 and best_vram > 0:
+                        hw["gpu_vram_gb"] = best_vram
+                except Exception:
+                    pass
 
         # --- NVMe detection ---
         for d in hw["disk"]:
