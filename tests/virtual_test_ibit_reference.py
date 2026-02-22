@@ -431,9 +431,16 @@ def _():
     referenced = re.findall(r'"([A-Z_]+\.md)"', content)
     missing = []
     for doc in referenced:
-        if not (docs_dir / doc).exists():
+        # Search flat and in numbered subfolders (post docs reorg)
+        found = (docs_dir / doc).exists()
+        if not found:
+            for sub in docs_dir.iterdir():
+                if sub.is_dir() and (sub / doc).exists():
+                    found = True
+                    break
+        if not found:
             missing.append(doc)
-    # Allow some docs to be missing (they may be in subdirs or planned)
+    # Allow aliases like MODEL_AUDIT.md (mapped via _DOC_ALIASES)
     assert len(missing) <= 3, \
         "Referenced docs not found: {}".format(missing)
 
@@ -457,18 +464,18 @@ def _():
         "Admin menu must have a 'Ref' menu item"
 
 
-@test("_open_reference method exists and reuses existing window")
+@test("Admin menu Ref item switches to reference view")
 def _():
     content = APP_PATH.read_text(encoding="utf-8")
-    assert "def _open_reference" in content
-    assert "winfo_exists" in content, \
-        "_open_reference should reuse existing window"
+    assert 'show_view("reference")' in content, \
+        "Admin menu should switch to reference view via show_view"
 
 
-@test("_reference_panel initialized to None in __init__")
+@test("show_view method exists for NavBar view switching")
 def _():
     content = APP_PATH.read_text(encoding="utf-8")
-    assert "_reference_panel = None" in content
+    assert "def show_view" in content, \
+        "app.py must have show_view for NavBar integration"
 
 
 @test("Sticky notes round-trip (write, read back)")
