@@ -114,6 +114,7 @@ SKIP_PATTERNS = [
     "waiver_cheat_sheet",         # work-specific waiver docs
     "Product_Roadmap",            # internal roadmap docs
     "Software_Audit",             # internal audit docs
+    "DEFENSE_MODEL_AUDIT",        # filename contains banned word "defense"
 ]
 
 # Text replacements (case-insensitive where noted)
