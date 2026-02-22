@@ -52,6 +52,7 @@ COPY_DIRS = [
     "tests",
     "config",
     "tools/py",
+    "tools/work_validation",  # model validation scripts (defense-cleared stack)
     "diagnostics",
     "scripts",              # model wizard (_set_model.py, _model_meta.py)
 ]
@@ -104,6 +105,15 @@ SKIP_PATTERNS = [
     "02_vscode_ai_completion_comparison.md",  # defense environment refs
     "03_python_learning_curriculum_12weeks.md",  # personal career details
     "*.lnk",                       # Windows shortcut files (personal/machine-specific)
+    "*.docx",                      # Binary Office docs (cannot sanitize text inside)
+    "*.xlsx",                      # Binary Office spreadsheets (cannot sanitize)
+    "~$*",                         # Word/Excel temp lock files
+    "Handover",                    # case variant of HANDOVER (session-specific docs)
+    "SESSION11",                   # session-specific detailed reports
+    "WORK_LAPTOP_DEPLOY",         # work-specific deployment session docs
+    "waiver_cheat_sheet",         # work-specific waiver docs
+    "Product_Roadmap",            # internal roadmap docs
+    "Software_Audit",             # internal audit docs
 ]
 
 # Text replacements (case-insensitive where noted)
