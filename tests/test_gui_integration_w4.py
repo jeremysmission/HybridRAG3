@@ -1,7 +1,7 @@
 # ============================================================================
 # HybridRAG v3 -- GUI Integration Tests (tests/test_gui_integration_w4.py)
 # ============================================================================
-# 14 tests covering all GUI panels and settings view with mocked backends.
+# 17 tests covering all GUI panels, settings view, and API admin tab with mocked backends.
 # No real indexing or API calls. Works offline with no API key.
 #
 # INTERNET ACCESS: NONE
@@ -521,7 +521,7 @@ def test_13_profile_dropdown_calls_switch():
 
     from src.gui.panels.settings_view import SettingsView
 
-    with patch("src.gui.panels.settings_view.subprocess.run") as mock_run:
+    with patch("src.gui.panels.tuning_tab.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0, stdout="Applied", stderr="")
         app_ref = MagicMock()
         view = SettingsView(root, config=config, app_ref=app_ref)
@@ -569,6 +569,152 @@ def test_14_settings_view_reset_defaults():
     assert view.topk_var.get() == 8
     assert abs(view.temp_var.get() - 0.1) < 0.01
     assert config.retrieval.top_k == 8
+
+    view.destroy()
+    root.destroy()
+
+
+# ============================================================================
+# TEST 15: API Admin tab credential fields exist and populated from mock
+# ============================================================================
+
+def test_15_api_admin_tab_credential_fields():
+    """API Admin tab has endpoint and key entry fields populated from creds."""
+    root = _make_root()
+    config = FakeGUIConfig()
+
+    mock_creds = MagicMock()
+    mock_creds.endpoint = "https://test.example.com"
+    mock_creds.api_key = "sk-test1234567890"
+    mock_creds.has_key = True
+    mock_creds.has_endpoint = True
+    mock_creds.is_online_ready = True
+    mock_creds.key_preview = "sk-t...7890"
+    mock_creds.source_key = "keyring"
+    mock_creds.source_endpoint = "keyring"
+
+    with patch("src.gui.panels.api_admin_tab.resolve_credentials", return_value=mock_creds):
+        from src.gui.panels.settings_view import SettingsView
+        app_ref = MagicMock()
+        app_ref._views = {}
+        view = SettingsView(root, config=config, app_ref=app_ref)
+        _pump_events(root, 50)
+
+        # Verify credential fields exist and are populated
+        tab = view._api_admin_tab
+        assert tab.endpoint_var.get() == "https://test.example.com"
+        assert tab.key_var.get() == "sk-test1234567890"
+
+        # Verify status label shows green (online ready)
+        status_text = tab.cred_status_label.cget("text")
+        assert "Key:" in status_text
+        assert "Endpoint:" in status_text
+
+    view.destroy()
+    root.destroy()
+
+
+# ============================================================================
+# TEST 16: Save credentials calls store_api_key and store_endpoint
+# ============================================================================
+
+def test_16_save_credentials_calls_store():
+    """Save Credentials button calls store_api_key and store_endpoint."""
+    root = _make_root()
+    config = FakeGUIConfig()
+
+    mock_creds = MagicMock()
+    mock_creds.endpoint = None
+    mock_creds.api_key = None
+    mock_creds.has_key = False
+    mock_creds.has_endpoint = False
+    mock_creds.is_online_ready = False
+    mock_creds.key_preview = "(not set)"
+    mock_creds.source_key = None
+    mock_creds.source_endpoint = None
+
+    with patch("src.gui.panels.api_admin_tab.resolve_credentials", return_value=mock_creds):
+        from src.gui.panels.settings_view import SettingsView
+        app_ref = MagicMock()
+        app_ref._views = {}
+        view = SettingsView(root, config=config, app_ref=app_ref)
+
+    tab = view._api_admin_tab
+
+    # Set test values
+    tab.endpoint_var.set("https://api.example.com")
+    tab.key_var.set("sk-testkey123")
+
+    with patch("src.gui.panels.api_admin_tab.store_endpoint") as mock_ep, \
+         patch("src.gui.panels.api_admin_tab.store_api_key") as mock_key, \
+         patch("src.gui.panels.api_admin_tab.validate_endpoint",
+               return_value="https://api.example.com"), \
+         patch("src.gui.panels.api_admin_tab.resolve_credentials",
+               return_value=mock_creds):
+        tab._on_save_credentials()
+
+    mock_ep.assert_called_once_with("https://api.example.com")
+    mock_key.assert_called_once_with("sk-testkey123")
+
+    view.destroy()
+    root.destroy()
+
+
+# ============================================================================
+# TEST 17: Admin defaults save/restore round-trip
+# ============================================================================
+
+def test_17_admin_defaults_round_trip(tmp_path):
+    """Save and restore admin defaults round-trips config values."""
+    root = _make_root()
+    config = FakeGUIConfig()
+    config.retrieval.top_k = 15
+    config.api.temperature = 0.3
+    config.api.model = "gpt-4o"
+
+    mock_creds = MagicMock()
+    mock_creds.endpoint = None
+    mock_creds.api_key = None
+    mock_creds.has_key = False
+    mock_creds.has_endpoint = False
+    mock_creds.is_online_ready = False
+    mock_creds.key_preview = "(not set)"
+    mock_creds.source_key = None
+    mock_creds.source_endpoint = None
+
+    defaults_file = str(tmp_path / "admin_defaults.json")
+
+    with patch("src.gui.panels.api_admin_tab.resolve_credentials", return_value=mock_creds), \
+         patch("src.gui.panels.api_admin_tab._DEFAULTS_PATH", defaults_file):
+        from src.gui.panels.settings_view import SettingsView
+        app_ref = MagicMock()
+        app_ref._views = {}
+        view = SettingsView(root, config=config, app_ref=app_ref)
+
+        tab = view._api_admin_tab
+
+        # Save defaults
+        tab._on_save_defaults()
+        assert os.path.isfile(defaults_file)
+
+        # Read back to verify
+        import json
+        with open(defaults_file, "r") as f:
+            saved = json.load(f)
+        assert saved["retrieval"]["top_k"] == 15
+        assert abs(saved["api"]["temperature"] - 0.3) < 0.01
+        assert saved["api"]["model"] == "gpt-4o"
+
+        # Mutate config
+        config.retrieval.top_k = 99
+        config.api.temperature = 0.9
+        config.api.model = "changed"
+
+        # Restore defaults
+        tab._on_restore_defaults()
+        assert config.retrieval.top_k == 15
+        assert abs(config.api.temperature - 0.3) < 0.01
+        assert config.api.model == "gpt-4o"
 
     view.destroy()
     root.destroy()

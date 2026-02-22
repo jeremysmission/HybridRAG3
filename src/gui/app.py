@@ -424,6 +424,12 @@ class HybridRAGApp(tk.Tk):
         self.status_bar.force_refresh()
         if hasattr(self, "query_panel"):
             self.query_panel._on_use_case_change()
+
+        # Refresh credential display in settings if it exists
+        settings = self._views.get("settings")
+        if settings is not None and hasattr(settings, "refresh_credential_status"):
+            settings.refresh_credential_status()
+
         logger.info("Switched to ONLINE mode")
 
     def _switch_to_offline(self):
@@ -504,10 +510,14 @@ class HybridRAGApp(tk.Tk):
             self.status_bar.config = new_config
             self.status_bar.force_refresh()
 
-        # Propagate to settings view if it exists
+        # Propagate to settings view (both tabs) if it exists
         settings = self._views.get("settings")
         if settings is not None:
             settings.config = new_config
+            if hasattr(settings, "_tuning_tab"):
+                settings._tuning_tab.config = new_config
+            if hasattr(settings, "_api_admin_tab"):
+                settings._api_admin_tab.config = new_config
 
         self._update_mode_buttons()
         logger.info("Config reloaded and propagated to all panels")
