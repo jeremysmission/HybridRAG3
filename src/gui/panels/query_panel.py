@@ -14,6 +14,7 @@ import logging
 
 from scripts._model_meta import USE_CASES, select_best_model
 from src.core.llm_router import get_available_deployments
+from src.gui.theme import current_theme, FONT, FONT_BOLD
 
 logger = logging.getLogger(__name__)
 
@@ -27,46 +28,63 @@ class QueryPanel(tk.LabelFrame):
     """
 
     def __init__(self, parent, config, query_engine=None):
-        super().__init__(parent, text="Query Panel", padx=8, pady=8)
+        t = current_theme()
+        super().__init__(parent, text="Query Panel", padx=8, pady=8,
+                         bg=t["panel_bg"], fg=t["accent"],
+                         font=FONT_BOLD)
         self.config = config
         self.query_engine = query_engine
         self._query_thread = None
 
+        self._build_widgets(t)
+
+        # Trigger initial model selection
+        self._on_use_case_change()
+
+    def _build_widgets(self, t):
+        """Build all child widgets with theme colors."""
         # -- Row 0: Use case selector --
-        row0 = tk.Frame(self)
+        row0 = tk.Frame(self, bg=t["panel_bg"])
         row0.pack(fill=tk.X, pady=(0, 4))
 
-        tk.Label(row0, text="Use case:").pack(side=tk.LEFT)
+        self.uc_label = tk.Label(row0, text="Use case:", bg=t["panel_bg"],
+                                 fg=t["fg"], font=FONT)
+        self.uc_label.pack(side=tk.LEFT)
 
         self._uc_keys = list(USE_CASES.keys())
         self._uc_labels = [USE_CASES[k]["label"] for k in self._uc_keys]
-        self.uc_var = tk.StringVar(value=self._uc_labels[1])  # Default: Engineering / STEM
+        self.uc_var = tk.StringVar(value=self._uc_labels[1])
 
         self.uc_dropdown = ttk.Combobox(
             row0, textvariable=self.uc_var, values=self._uc_labels,
-            state="readonly", width=30,
+            state="readonly", width=30, font=FONT,
         )
         self.uc_dropdown.pack(side=tk.LEFT, padx=(8, 0))
         self.uc_dropdown.bind("<<ComboboxSelected>>", self._on_use_case_change)
 
         # -- Row 1: Model display (read-only) --
-        row1 = tk.Frame(self)
+        row1 = tk.Frame(self, bg=t["panel_bg"])
         row1.pack(fill=tk.X, pady=(0, 4))
 
-        tk.Label(row1, text="Model:").pack(side=tk.LEFT)
+        self.model_text_label = tk.Label(row1, text="Model:", bg=t["panel_bg"],
+                                         fg=t["fg"], font=FONT)
+        self.model_text_label.pack(side=tk.LEFT)
 
         self.model_var = tk.StringVar(value="(auto-selected)")
         self.model_label = tk.Label(
             row1, textvariable=self.model_var, anchor=tk.W,
-            fg="blue", padx=8,
+            fg=t["accent"], bg=t["panel_bg"], padx=8, font=FONT,
         )
         self.model_label.pack(side=tk.LEFT, fill=tk.X)
 
         # -- Row 2: Question entry --
-        row2 = tk.Frame(self)
+        row2 = tk.Frame(self, bg=t["panel_bg"])
         row2.pack(fill=tk.X, pady=(0, 4))
 
-        self.question_entry = tk.Entry(row2, font=("TkDefaultFont", 10))
+        self.question_entry = tk.Entry(
+            row2, font=FONT, bg=t["input_bg"], fg=t["input_fg"],
+            insertbackground=t["fg"], relief=tk.FLAT, bd=2,
+        )
         self.question_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.question_entry.insert(0, "Ask a question...")
         self.question_entry.bind("<FocusIn>", self._on_entry_focus)
@@ -74,36 +92,73 @@ class QueryPanel(tk.LabelFrame):
 
         self.ask_btn = tk.Button(
             row2, text="Ask", command=self._on_ask, width=8,
+            bg=t["accent"], fg=t["accent_fg"], font=FONT,
+            relief=tk.FLAT, bd=0, padx=6, pady=2,
+            activebackground=t["accent_hover"],
+            activeforeground=t["accent_fg"],
         )
         self.ask_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         # -- Network activity indicator --
         self.network_label = tk.Label(
-            self, text="", fg="gray", anchor=tk.W,
+            self, text="", fg=t["gray"], anchor=tk.W,
+            bg=t["panel_bg"], font=FONT,
         )
         self.network_label.pack(fill=tk.X)
 
         # -- Answer area (scrollable, selectable) --
         self.answer_text = scrolledtext.ScrolledText(
             self, height=10, wrap=tk.WORD, state=tk.DISABLED,
-            font=("TkDefaultFont", 10),
+            font=FONT, bg=t["input_bg"], fg=t["input_fg"],
+            insertbackground=t["fg"], relief=tk.FLAT, bd=2,
+            selectbackground=t["accent"],
+            selectforeground=t["accent_fg"],
         )
         self.answer_text.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
 
         # -- Sources line --
         self.sources_label = tk.Label(
-            self, text="Sources: (none)", anchor=tk.W, fg="gray",
+            self, text="Sources: (none)", anchor=tk.W, fg=t["gray"],
+            bg=t["panel_bg"], font=FONT,
         )
         self.sources_label.pack(fill=tk.X, pady=(4, 0))
 
         # -- Metrics line --
         self.metrics_label = tk.Label(
-            self, text="", anchor=tk.W, fg="gray",
+            self, text="", anchor=tk.W, fg=t["gray"],
+            bg=t["panel_bg"], font=FONT,
         )
         self.metrics_label.pack(fill=tk.X)
 
-        # Trigger initial model selection
-        self._on_use_case_change()
+    def apply_theme(self, t):
+        """Re-apply theme colors to all widgets."""
+        self.configure(bg=t["panel_bg"], fg=t["accent"])
+
+        for row in self.winfo_children():
+            if isinstance(row, tk.Frame):
+                row.configure(bg=t["panel_bg"])
+                for child in row.winfo_children():
+                    if isinstance(child, tk.Label):
+                        child.configure(bg=t["panel_bg"], fg=t["fg"])
+                    elif isinstance(child, tk.Entry):
+                        child.configure(bg=t["input_bg"], fg=t["input_fg"],
+                                        insertbackground=t["fg"])
+                    elif isinstance(child, tk.Button):
+                        child.configure(bg=t["accent"], fg=t["accent_fg"],
+                                        activebackground=t["accent_hover"])
+
+        self.model_label.configure(fg=t["accent"], bg=t["panel_bg"])
+        self.network_label.configure(bg=t["panel_bg"], fg=t["gray"])
+        self.answer_text.configure(bg=t["input_bg"], fg=t["input_fg"],
+                                   insertbackground=t["fg"],
+                                   selectbackground=t["accent"])
+        self.sources_label.configure(bg=t["panel_bg"])
+        self.metrics_label.configure(bg=t["panel_bg"])
+        # Preserve gray/colored state of sources/metrics
+        if "none" in self.sources_label.cget("text"):
+            self.sources_label.configure(fg=t["gray"])
+        else:
+            self.sources_label.configure(fg=t["fg"])
 
     def _on_entry_focus(self, event=None):
         """Clear placeholder text on first focus."""
@@ -136,11 +191,12 @@ class QueryPanel(tk.LabelFrame):
         self.ask_btn.config(state=tk.DISABLED)
 
         # Show network indicator for online mode
+        t = current_theme()
         mode = getattr(self.config, "mode", "offline")
         if mode == "online":
-            self.network_label.config(text="Sending to API...", fg="gray")
+            self.network_label.config(text="Sending to API...", fg=t["gray"])
         else:
-            self.network_label.config(text="Querying local model...", fg="gray")
+            self.network_label.config(text="Querying local model...", fg=t["gray"])
 
         # Run query in background thread to avoid freezing UI
         self._query_thread = threading.Thread(
@@ -159,6 +215,7 @@ class QueryPanel(tk.LabelFrame):
 
     def _display_result(self, result):
         """Display query result in the UI (called on main thread)."""
+        t = current_theme()
         self.ask_btn.config(state=tk.NORMAL)
         self.network_label.config(text="")
 
@@ -184,10 +241,10 @@ class QueryPanel(tk.LabelFrame):
                 source_strs.append("{} ({} chunks)".format(fname, chunks))
             self.sources_label.config(
                 text="Sources: {}".format(", ".join(source_strs)),
-                fg="black",
+                fg=t["fg"],
             )
         else:
-            self.sources_label.config(text="Sources: (none)", fg="gray")
+            self.sources_label.config(text="Sources: (none)", fg=t["gray"])
 
         # Display metrics
         latency = result.latency_ms
@@ -201,6 +258,7 @@ class QueryPanel(tk.LabelFrame):
 
     def _show_error(self, error_msg):
         """Display an error message in the answer area."""
+        t = current_theme()
         self.ask_btn.config(state=tk.NORMAL)
         self.network_label.config(text="")
 
@@ -208,10 +266,10 @@ class QueryPanel(tk.LabelFrame):
         self.answer_text.delete("1.0", tk.END)
         self.answer_text.insert("1.0", error_msg)
         self.answer_text.tag_add("error", "1.0", tk.END)
-        self.answer_text.tag_config("error", foreground="red")
+        self.answer_text.tag_config("error", foreground=t["red"])
         self.answer_text.config(state=tk.DISABLED)
 
-        self.sources_label.config(text="Sources: (none)", fg="gray")
+        self.sources_label.config(text="Sources: (none)", fg=t["gray"])
         self.metrics_label.config(text="")
 
     def get_current_use_case_key(self):

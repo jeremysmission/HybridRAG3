@@ -16,6 +16,8 @@ import os
 import threading
 import logging
 
+from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_SMALL
+
 logger = logging.getLogger(__name__)
 
 
@@ -27,11 +29,13 @@ class EngineeringMenu(tk.Toplevel):
 
     def __init__(self, parent, config, query_engine=None):
         super().__init__(parent)
+        t = current_theme()
         self.title("Engineering Settings")
         self.geometry("520x680")
         self.resizable(True, True)
         self.config = config
         self.query_engine = query_engine
+        self.configure(bg=t["bg"])
 
         # Store original values for reset
         self._original_values = self._capture_values()
@@ -63,59 +67,76 @@ class EngineeringMenu(tk.Toplevel):
 
     def _build_retrieval_section(self):
         """Build retrieval settings section."""
-        frame = tk.LabelFrame(self, text="Retrieval Settings", padx=8, pady=4)
+        t = current_theme()
+        frame = tk.LabelFrame(self, text="Retrieval Settings", padx=8, pady=4,
+                               bg=t["panel_bg"], fg=t["accent"],
+                               font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=8, pady=(8, 4))
 
         retrieval = getattr(self.config, "retrieval", None)
 
         # top_k slider
-        row_tk = tk.Frame(frame)
+        row_tk = tk.Frame(frame, bg=t["panel_bg"])
         row_tk.pack(fill=tk.X, pady=2)
-        tk.Label(row_tk, text="top_k:", width=14, anchor=tk.W).pack(side=tk.LEFT)
+        tk.Label(row_tk, text="top_k:", width=14, anchor=tk.W,
+                 bg=t["panel_bg"], fg=t["fg"], font=FONT).pack(side=tk.LEFT)
         self.topk_var = tk.IntVar(
             value=getattr(retrieval, "top_k", 8) if retrieval else 8
         )
         self.topk_scale = tk.Scale(
             row_tk, from_=1, to=50, orient=tk.HORIZONTAL,
             variable=self.topk_var, command=lambda v: self._on_retrieval_change(),
+            bg=t["panel_bg"], fg=t["fg"], troughcolor=t["input_bg"],
+            highlightthickness=0, font=FONT,
         )
         self.topk_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # min_score slider
-        row_ms = tk.Frame(frame)
+        row_ms = tk.Frame(frame, bg=t["panel_bg"])
         row_ms.pack(fill=tk.X, pady=2)
-        tk.Label(row_ms, text="min_score:", width=14, anchor=tk.W).pack(side=tk.LEFT)
+        tk.Label(row_ms, text="min_score:", width=14, anchor=tk.W,
+                 bg=t["panel_bg"], fg=t["fg"], font=FONT).pack(side=tk.LEFT)
         self.minscore_var = tk.DoubleVar(
             value=getattr(retrieval, "min_score", 0.20) if retrieval else 0.20
         )
         self.minscore_scale = tk.Scale(
             row_ms, from_=0.0, to=1.0, resolution=0.01, orient=tk.HORIZONTAL,
             variable=self.minscore_var, command=lambda v: self._on_retrieval_change(),
+            bg=t["panel_bg"], fg=t["fg"], troughcolor=t["input_bg"],
+            highlightthickness=0, font=FONT,
         )
         self.minscore_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # Hybrid search toggle
-        row_hs = tk.Frame(frame)
+        row_hs = tk.Frame(frame, bg=t["panel_bg"])
         row_hs.pack(fill=tk.X, pady=2)
-        tk.Label(row_hs, text="Hybrid search:", width=14, anchor=tk.W).pack(side=tk.LEFT)
+        tk.Label(row_hs, text="Hybrid search:", width=14, anchor=tk.W,
+                 bg=t["panel_bg"], fg=t["fg"], font=FONT).pack(side=tk.LEFT)
         self.hybrid_var = tk.BooleanVar(
             value=getattr(retrieval, "hybrid_search", True) if retrieval else True
         )
         tk.Checkbutton(
             row_hs, variable=self.hybrid_var,
             command=self._on_retrieval_change,
+            bg=t["panel_bg"], fg=t["fg"],
+            selectcolor=t["input_bg"], activebackground=t["panel_bg"],
+            activeforeground=t["fg"], font=FONT,
         ).pack(side=tk.LEFT)
 
         # Reranker toggle
-        row_rr = tk.Frame(frame)
+        row_rr = tk.Frame(frame, bg=t["panel_bg"])
         row_rr.pack(fill=tk.X, pady=2)
-        tk.Label(row_rr, text="Reranker:", width=14, anchor=tk.W).pack(side=tk.LEFT)
+        tk.Label(row_rr, text="Reranker:", width=14, anchor=tk.W,
+                 bg=t["panel_bg"], fg=t["fg"], font=FONT).pack(side=tk.LEFT)
         self.reranker_var = tk.BooleanVar(
             value=getattr(retrieval, "reranker_enabled", False) if retrieval else False
         )
         tk.Checkbutton(
             row_rr, variable=self.reranker_var,
             command=self._on_retrieval_change,
+            bg=t["panel_bg"], fg=t["fg"],
+            selectcolor=t["input_bg"], activebackground=t["panel_bg"],
+            activeforeground=t["fg"], font=FONT,
         ).pack(side=tk.LEFT)
 
     def _on_retrieval_change(self):
@@ -133,47 +154,59 @@ class EngineeringMenu(tk.Toplevel):
 
     def _build_llm_section(self):
         """Build LLM settings section."""
-        frame = tk.LabelFrame(self, text="LLM Settings", padx=8, pady=4)
+        t = current_theme()
+        frame = tk.LabelFrame(self, text="LLM Settings", padx=8, pady=4,
+                               bg=t["panel_bg"], fg=t["accent"],
+                               font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=8, pady=4)
 
         api = getattr(self.config, "api", None)
 
         # Max tokens slider
-        row_mt = tk.Frame(frame)
+        row_mt = tk.Frame(frame, bg=t["panel_bg"])
         row_mt.pack(fill=tk.X, pady=2)
-        tk.Label(row_mt, text="Max tokens:", width=14, anchor=tk.W).pack(side=tk.LEFT)
+        tk.Label(row_mt, text="Max tokens:", width=14, anchor=tk.W,
+                 bg=t["panel_bg"], fg=t["fg"], font=FONT).pack(side=tk.LEFT)
         self.maxtokens_var = tk.IntVar(
             value=getattr(api, "max_tokens", 2048) if api else 2048
         )
         self.maxtokens_scale = tk.Scale(
             row_mt, from_=256, to=4096, orient=tk.HORIZONTAL,
             variable=self.maxtokens_var, command=lambda v: self._on_llm_change(),
+            bg=t["panel_bg"], fg=t["fg"], troughcolor=t["input_bg"],
+            highlightthickness=0, font=FONT,
         )
         self.maxtokens_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # Temperature slider
-        row_temp = tk.Frame(frame)
+        row_temp = tk.Frame(frame, bg=t["panel_bg"])
         row_temp.pack(fill=tk.X, pady=2)
-        tk.Label(row_temp, text="Temperature:", width=14, anchor=tk.W).pack(side=tk.LEFT)
+        tk.Label(row_temp, text="Temperature:", width=14, anchor=tk.W,
+                 bg=t["panel_bg"], fg=t["fg"], font=FONT).pack(side=tk.LEFT)
         self.temp_var = tk.DoubleVar(
             value=getattr(api, "temperature", 0.1) if api else 0.1
         )
         self.temp_scale = tk.Scale(
             row_temp, from_=0.0, to=1.0, resolution=0.01, orient=tk.HORIZONTAL,
             variable=self.temp_var, command=lambda v: self._on_llm_change(),
+            bg=t["panel_bg"], fg=t["fg"], troughcolor=t["input_bg"],
+            highlightthickness=0, font=FONT,
         )
         self.temp_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # Timeout slider
-        row_to = tk.Frame(frame)
+        row_to = tk.Frame(frame, bg=t["panel_bg"])
         row_to.pack(fill=tk.X, pady=2)
-        tk.Label(row_to, text="Timeout (s):", width=14, anchor=tk.W).pack(side=tk.LEFT)
+        tk.Label(row_to, text="Timeout (s):", width=14, anchor=tk.W,
+                 bg=t["panel_bg"], fg=t["fg"], font=FONT).pack(side=tk.LEFT)
         self.timeout_var = tk.IntVar(
             value=getattr(api, "timeout_seconds", 30) if api else 30
         )
         self.timeout_scale = tk.Scale(
             row_to, from_=10, to=120, orient=tk.HORIZONTAL,
             variable=self.timeout_var, command=lambda v: self._on_llm_change(),
+            bg=t["panel_bg"], fg=t["fg"], troughcolor=t["input_bg"],
+            highlightthickness=0, font=FONT,
         )
         self.timeout_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
@@ -191,25 +224,30 @@ class EngineeringMenu(tk.Toplevel):
 
     def _build_profile_section(self):
         """Build performance profile section."""
-        frame = tk.LabelFrame(self, text="Performance Profile", padx=8, pady=4)
+        t = current_theme()
+        frame = tk.LabelFrame(self, text="Performance Profile", padx=8, pady=4,
+                               bg=t["panel_bg"], fg=t["accent"],
+                               font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=8, pady=4)
 
-        row = tk.Frame(frame)
+        row = tk.Frame(frame, bg=t["panel_bg"])
         row.pack(fill=tk.X, pady=2)
 
-        tk.Label(row, text="Profile:", width=14, anchor=tk.W).pack(side=tk.LEFT)
+        tk.Label(row, text="Profile:", width=14, anchor=tk.W,
+                 bg=t["panel_bg"], fg=t["fg"], font=FONT).pack(side=tk.LEFT)
 
         profiles = ["laptop_safe", "desktop_power", "server_max"]
         self.profile_var = tk.StringVar(value="laptop_safe")
         self.profile_dropdown = ttk.Combobox(
             row, textvariable=self.profile_var, values=profiles,
-            state="readonly", width=20,
+            state="readonly", width=20, font=FONT,
         )
         self.profile_dropdown.pack(side=tk.LEFT, padx=(8, 0))
         self.profile_dropdown.bind("<<ComboboxSelected>>", self._on_profile_change)
 
         self.profile_status_label = tk.Label(
-            frame, text="", anchor=tk.W, fg="gray",
+            frame, text="", anchor=tk.W, fg=t["gray"],
+            bg=t["panel_bg"], font=FONT,
         )
         self.profile_status_label.pack(fill=tk.X, pady=2)
 
@@ -242,6 +280,7 @@ class EngineeringMenu(tk.Toplevel):
 
     def _on_profile_change(self, event=None):
         """Call _profile_switch.py when profile changes."""
+        t = current_theme()
         profile = self.profile_var.get()
         root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
         try:
@@ -252,15 +291,16 @@ class EngineeringMenu(tk.Toplevel):
             )
             if result.returncode == 0:
                 self.profile_status_label.config(
-                    text="[OK] Switched to {}".format(profile), fg="green",
+                    text="[OK] Switched to {}".format(profile), fg=t["green"],
                 )
             else:
                 self.profile_status_label.config(
-                    text="[FAIL] {}".format(result.stderr.strip()[:60]), fg="red",
+                    text="[FAIL] {}".format(result.stderr.strip()[:60]),
+                    fg=t["red"],
                 )
         except Exception as e:
             self.profile_status_label.config(
-                text="[FAIL] {}".format(str(e)[:60]), fg="red",
+                text="[FAIL] {}".format(str(e)[:60]), fg=t["red"],
             )
 
     # ----------------------------------------------------------------
@@ -269,43 +309,59 @@ class EngineeringMenu(tk.Toplevel):
 
     def _build_test_section(self):
         """Build test query section."""
-        frame = tk.LabelFrame(self, text="Test Query", padx=8, pady=4)
+        t = current_theme()
+        frame = tk.LabelFrame(self, text="Test Query", padx=8, pady=4,
+                               bg=t["panel_bg"], fg=t["accent"],
+                               font=FONT_BOLD)
         frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
 
         # Input row
-        row = tk.Frame(frame)
+        row = tk.Frame(frame, bg=t["panel_bg"])
         row.pack(fill=tk.X, pady=2)
 
-        self.test_entry = tk.Entry(row, font=("TkDefaultFont", 9))
+        self.test_entry = tk.Entry(
+            row, font=FONT_SMALL, bg=t["input_bg"], fg=t["input_fg"],
+            insertbackground=t["fg"], relief=tk.FLAT, bd=2,
+        )
         self.test_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.test_entry.bind("<Return>", self._on_test_query)
 
         self.test_btn = tk.Button(
             row, text="Run Test", command=self._on_test_query, width=10,
+            bg=t["accent"], fg=t["accent_fg"], font=FONT,
+            relief=tk.FLAT, bd=0, padx=6, pady=2,
+            activebackground=t["accent_hover"],
+            activeforeground=t["accent_fg"],
         )
         self.test_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         # Network indicator for test query
         self.test_network_label = tk.Label(
-            frame, text="", anchor=tk.W, fg="gray",
+            frame, text="", anchor=tk.W, fg=t["gray"],
+            bg=t["panel_bg"], font=FONT,
         )
         self.test_network_label.pack(fill=tk.X)
 
         # Result area
         self.test_result = scrolledtext.ScrolledText(
             frame, height=4, wrap=tk.WORD, state=tk.DISABLED,
-            font=("TkDefaultFont", 9),
+            font=FONT_SMALL, bg=t["input_bg"], fg=t["input_fg"],
+            insertbackground=t["fg"], relief=tk.FLAT, bd=2,
+            selectbackground=t["accent"],
+            selectforeground=t["accent_fg"],
         )
         self.test_result.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
 
         # Latency
         self.test_latency_label = tk.Label(
-            frame, text="", anchor=tk.W, fg="gray",
+            frame, text="", anchor=tk.W, fg=t["gray"],
+            bg=t["panel_bg"], font=FONT,
         )
         self.test_latency_label.pack(fill=tk.X)
 
     def _on_test_query(self, event=None):
         """Run a test query with current settings."""
+        t = current_theme()
         question = self.test_entry.get().strip()
         if not question:
             return
@@ -322,9 +378,11 @@ class EngineeringMenu(tk.Toplevel):
         # Show network indicator
         mode = getattr(self.config, "mode", "offline")
         if mode == "online":
-            self.test_network_label.config(text="Network: ACTIVE", fg="#CC8800")
+            self.test_network_label.config(text="Network: ACTIVE",
+                                           fg=t["orange"])
         else:
-            self.test_network_label.config(text="Network: offline", fg="gray")
+            self.test_network_label.config(text="Network: offline",
+                                           fg=t["gray"])
 
         thread = threading.Thread(
             target=self._run_test_query, args=(question,), daemon=True,
@@ -372,15 +430,22 @@ class EngineeringMenu(tk.Toplevel):
 
     def _build_buttons(self):
         """Build Reset and Close buttons."""
-        btn_frame = tk.Frame(self)
+        t = current_theme()
+        btn_frame = tk.Frame(self, bg=t["bg"])
         btn_frame.pack(fill=tk.X, padx=8, pady=8)
 
         tk.Button(
-            btn_frame, text="Reset to Defaults", command=self._on_reset, width=16,
+            btn_frame, text="Reset to Defaults", command=self._on_reset,
+            width=16, bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"],
+            font=FONT, relief=tk.FLAT, bd=0, padx=6, pady=2,
         ).pack(side=tk.LEFT)
 
         tk.Button(
             btn_frame, text="Close", command=self.destroy, width=10,
+            bg=t["accent"], fg=t["accent_fg"], font=FONT,
+            relief=tk.FLAT, bd=0, padx=6, pady=2,
+            activebackground=t["accent_hover"],
+            activeforeground=t["accent_fg"],
         ).pack(side=tk.RIGHT)
 
     def _on_reset(self):
