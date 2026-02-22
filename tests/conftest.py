@@ -18,9 +18,19 @@
 # ============================================================================
 
 import sys
+import warnings
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional, List
+
+# Suppress import-time warnings before any other imports
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="requests")
+warnings.filterwarnings("ignore", message=".*urllib3.*charset.*")
+try:
+    from requests.exceptions import RequestsDependencyWarning
+    warnings.filterwarnings("ignore", category=RequestsDependencyWarning)
+except ImportError:
+    pass
 
 # -- sys.path setup --
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
