@@ -137,7 +137,7 @@ class TransferManifest:
                 -- Think of this as the "header page" of the logbook.
                 -- =====================================================
                 CREATE TABLE IF NOT EXISTS transfer_runs (
-                    run_id         TEXT PRIMARY KEY,   -- Timestamp-based ID
+                    run_id         TEXT NOT NULL PRIMARY KEY,  -- Timestamp-based ID
                     started_at     TEXT NOT NULL,       -- When did it start
                     finished_at    TEXT,                -- When did it finish
                     source_paths   TEXT,                -- JSON list of source dirs
@@ -584,6 +584,63 @@ class TransferManifest:
         if self._pending_writes >= 50:
             self.conn.commit()
             self._pending_writes = 0
+
+    def rotate_old_runs(self, keep: int = 10) -> int:
+        """
+        Delete data from runs older than the most recent `keep` runs.
+        Returns the number of runs deleted.
+
+        NON-PROGRAMMER NOTE:
+          Over time, the manifest database grows with every transfer run.
+          This method keeps only the last N runs and deletes older data,
+          then compacts the database file (VACUUM). Call this after
+          finish_run() to keep the DB lean.
+        """
+        with self._lock:
+            # Find runs to keep (most recent N completed + any running)
+            keep_ids = self.conn.execute(
+                "SELECT run_id FROM transfer_runs "
+                "ORDER BY run_id DESC LIMIT ?",
+                (keep,),
+            ).fetchall()
+            if not keep_ids:
+                return 0
+            keep_set = {r[0] for r in keep_ids}
+
+            # Find runs to delete
+            all_ids = self.conn.execute(
+                "SELECT run_id FROM transfer_runs",
+            ).fetchall()
+            delete_ids = [r[0] for r in all_ids if r[0] not in keep_set]
+            if not delete_ids:
+                return 0
+
+            placeholders = ",".join("?" * len(delete_ids))
+            self.conn.execute(
+                f"DELETE FROM source_manifest WHERE run_id IN ({placeholders})",
+                delete_ids,
+            )
+            self.conn.execute(
+                f"DELETE FROM transfer_log WHERE run_id IN ({placeholders})",
+                delete_ids,
+            )
+            self.conn.execute(
+                f"DELETE FROM skipped_files WHERE run_id IN ({placeholders})",
+                delete_ids,
+            )
+            self.conn.execute(
+                f"DELETE FROM transfer_runs WHERE run_id IN ({placeholders})",
+                delete_ids,
+            )
+            self.conn.commit()
+
+            # Compact the database file
+            try:
+                self.conn.execute("VACUUM")
+            except Exception:
+                pass  # VACUUM may fail if another connection is open
+
+            return len(delete_ids)
 
     def flush(self) -> None:
         """Force all pending writes to disk immediately."""

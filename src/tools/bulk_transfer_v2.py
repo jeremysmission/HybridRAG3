@@ -211,14 +211,22 @@ class TransferStats:
         # Per-extension counts (e.g., {".pdf": 150, ".docx": 80})
         self.ext_counts: Dict[str, int] = {}
 
+        # Per-source-root stats for multi-source breakdown
+        self.source_stats: Dict[str, Dict[str, int]] = {}
+
         # Rolling speed window: list of (timestamp, bytes) samples
         self._speed_samples: List[Tuple[float, int]] = []
+
+        # Speed-over-time history: sampled every 30s for final report
+        self._speed_history: List[Tuple[float, float]] = []  # (elapsed, bps)
 
         # Phase 1 discovery counters (updated from walk thread)
         self.current_source_root: str = ""
         self.dirs_walked: int = 0
 
-    def record_copy(self, file_size: int, ext: str) -> None:
+    def record_copy(
+        self, file_size: int, ext: str, source_root: str = "",
+    ) -> None:
         """Record a successful file copy (called from worker threads)."""
         with self._lock:
             self.files_copied += 1
@@ -226,6 +234,13 @@ class TransferStats:
             self.ext_counts[ext] = self.ext_counts.get(ext, 0) + 1
             now = time.time()
             self._speed_samples.append((now, file_size))
+            # Per-source tracking
+            if source_root:
+                sr = self.source_stats.setdefault(source_root, {
+                    "copied": 0, "bytes": 0, "failed": 0, "skipped": 0,
+                })
+                sr["copied"] += 1
+                sr["bytes"] += file_size
             # Prevent unbounded growth: prune entries older than 30s,
             # then hard-cap at 500 to handle bursts within the window.
             if len(self._speed_samples) > 500:
@@ -237,10 +252,30 @@ class TransferStats:
                 if len(self._speed_samples) > 500:
                     self._speed_samples = self._speed_samples[-500:]
 
+    def record_source_event(
+        self, source_root: str, event: str, count: int = 1,
+    ) -> None:
+        """Record a skip/fail event for a source root."""
+        with self._lock:
+            sr = self.source_stats.setdefault(source_root, {
+                "copied": 0, "bytes": 0, "failed": 0, "skipped": 0,
+            })
+            sr[event] = sr.get(event, 0) + count
+
     @property
     def elapsed(self) -> float:
         """Seconds since transfer started."""
         return time.time() - self.start_time
+
+    @property
+    def eta_seconds(self) -> float:
+        """Estimated seconds remaining based on current speed."""
+        speed = self.speed_bps
+        if speed <= 0:
+            return float("inf")
+        with self._lock:
+            remaining = self.bytes_source_total - self.bytes_copied
+        return max(0, remaining / speed)
 
     @property
     def speed_bps(self) -> float:
@@ -294,11 +329,14 @@ class TransferStats:
     def summary_line(self) -> str:
         """One-line progress summary for the live display."""
         speed = self.speed_bps
+        eta = self.eta_seconds
         s = _fmt_size
+        eta_str = _fmt_dur(eta) if eta < 86400 else "???"
         with self._lock:
             return (
                 f"[{self.files_copied}/{self.files_manifest}] "
                 f"{s(self.bytes_copied)} | {s(speed)}/s | "
+                f"ETA {eta_str} | "
                 f"dedup:{self.files_deduplicated} "
                 f"skip:{self.files_skipped_unchanged} "
                 f"err:{self.files_failed} quar:{self.files_quarantined}"
@@ -353,6 +391,37 @@ class TransferStats:
                 self.ext_counts.items(), key=lambda x: x[1], reverse=True
             )[:15]:
                 lines.append(f"    {ext:8s} {cnt:>8,}")
+
+        if self.source_stats:
+            lines.extend(["", "  Per-source breakdown:"])
+            lines.append(
+                f"    {'Source':<40s} {'Copied':>8s} {'Data':>10s} "
+                f"{'Failed':>8s} {'Skipped':>8s}"
+            )
+            lines.append("    " + "-" * 78)
+            for root, sr in sorted(self.source_stats.items()):
+                label = root if len(root) <= 40 else "..." + root[-37:]
+                lines.append(
+                    f"    {label:<40s} {sr.get('copied', 0):>8,} "
+                    f"{s(sr.get('bytes', 0)):>10s} "
+                    f"{sr.get('failed', 0):>8,} "
+                    f"{sr.get('skipped', 0):>8,}"
+                )
+
+        # Speed-over-time sparkline (if we have history samples)
+        if self._speed_history:
+            lines.extend(["", "  Speed over time:"])
+            speeds = [bps for _, bps in self._speed_history]
+            peak = max(speeds) if speeds else 1
+            for i, (elapsed_t, bps) in enumerate(self._speed_history):
+                bar_len = int(40 * bps / max(peak, 1))
+                bar = "#" * bar_len
+                lines.append(
+                    f"    {_fmt_dur(elapsed_t):>8s} | {s(bps):>10s}/s | {bar}"
+                )
+                if i >= 29:  # Max 30 rows
+                    break
+
         lines.extend(["", "=" * 70])
         return "\n".join(lines)
 
@@ -510,6 +579,12 @@ class BulkTransferV2:
             print()
             print("[PHASE 3] Finalizing...")
             self.manifest.finish_run(self.run_id)
+
+            # Rotate old runs (keep last 10) to prevent unbounded DB growth
+            rotated = self.manifest.rotate_old_runs(keep=10)
+            if rotated:
+                print(f"  [OK] Rotated {rotated} old run(s) from manifest DB")
+
             report = self.manifest.get_verification_report(self.run_id)
             print(report)
 
@@ -1154,7 +1229,7 @@ class BulkTransferV2:
                 pass  # Non-critical: timestamps are nice-to-have
 
             # Record success in manifest
-            self.stats.record_copy(file_size, ext)
+            self.stats.record_copy(file_size, ext, source_root)
             self.manifest.record_transfer(
                 self.run_id, source, dest_path=str(final),
                 file_size_source=file_size,
@@ -1174,6 +1249,7 @@ class BulkTransferV2:
             # Catch-all for unexpected errors. The file is NOT copied,
             # but the manifest records what happened.
             self.stats.files_failed += 1
+            self.stats.record_source_event(source_root, "failed")
             self.manifest.record_transfer(
                 self.run_id, source, result="failed",
                 error_message=f"{type(e).__name__}: {e}",
@@ -1198,8 +1274,16 @@ class BulkTransferV2:
 
     def _progress_loop(self) -> None:
         """Print live progress every 2 seconds until transfer completes."""
+        sample_interval = 30.0
+        last_sample = 0.0
         while not self._stop.is_set():
             print(f"\r  {self.stats.summary_line()}", end="", flush=True)
+            # Sample speed history for final report graph
+            elapsed = self.stats.elapsed
+            if elapsed - last_sample >= sample_interval:
+                speed = self.stats.speed_bps
+                self.stats._speed_history.append((elapsed, speed))
+                last_sample = elapsed
             self._stop.wait(timeout=2.0)
         print()  # Final newline after progress line
 

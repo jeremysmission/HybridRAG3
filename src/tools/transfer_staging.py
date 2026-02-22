@@ -50,7 +50,7 @@ import os
 import shutil
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,9 @@ class StagingManager:
         self.verified = self.base / "verified"
         self.quarantine = self.base / "quarantine"
         self._promote_lock = threading.Lock()
+        # In-memory collision counters: {relative_path: next_counter}
+        # Avoids O(n^2) filesystem scans when many files share a name
+        self._collision_counters: Dict[str, int] = {}
         self._ensure_dirs()
 
     def _ensure_dirs(self) -> None:
@@ -146,13 +149,17 @@ class StagingManager:
         # exists() simultaneously all see False, then all rename to
         # the same path, silently overwriting each other's files.
         with self._promote_lock:
-            if final.exists():
+            if final.exists() or relative_path in self._collision_counters:
                 stem = final.stem
                 suffix = final.suffix
-                counter = 1
-                while final.exists():
-                    final = final.parent / f"{stem}_{counter}{suffix}"
-                    counter += 1
+                # O(1) lookup: use in-memory counter instead of scanning disk
+                counter = self._collision_counters.get(relative_path, 1)
+                final = final.parent / f"{stem}_{counter}{suffix}"
+                self._collision_counters[relative_path] = counter + 1
+            else:
+                # First use of this relative_path -- mark it as "seen"
+                # so the next file with the same name gets _1 appended.
+                self._collision_counters[relative_path] = 1
 
             try:
                 os.replace(str(tmp_path), str(final))
