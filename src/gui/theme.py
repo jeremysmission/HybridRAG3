@@ -20,7 +20,7 @@ FONT_FAMILY = "Segoe UI"
 FONT_SIZE = 10
 FONT = (FONT_FAMILY, FONT_SIZE)
 FONT_BOLD = (FONT_FAMILY, FONT_SIZE, "bold")
-FONT_TITLE = (FONT_FAMILY, 14, "bold")
+FONT_TITLE = (FONT_FAMILY, 13, "bold")
 FONT_SMALL = (FONT_FAMILY, 9)
 
 DARK = {
@@ -32,23 +32,23 @@ DARK = {
     "input_fg": "#ffffff",
     "accent": "#0078d4",
     "accent_fg": "#ffffff",
-    "accent_hover": "#1a8ae8",
+    "accent_hover": "#106ebe",
     "border": "#555555",
-    "label_fg": "#cccccc",
+    "label_fg": "#a0a0a0",
     "disabled_fg": "#777777",
-    "green": "#2ea043",
-    "red": "#f85149",
-    "orange": "#d29922",
-    "gray": "#888888",
+    "green": "#4caf50",
+    "red": "#f44336",
+    "orange": "#ff9800",
+    "gray": "#a0a0a0",
     "menu_bg": "#2d2d2d",
     "menu_fg": "#ffffff",
     "scrollbar_bg": "#3c3c3c",
     "scrollbar_fg": "#666666",
     "separator": "#555555",
-    "active_btn_bg": "#2ea043",
+    "active_btn_bg": "#4caf50",
     "active_btn_fg": "#ffffff",
     "inactive_btn_bg": "#3c3c3c",
-    "inactive_btn_fg": "#cccccc",
+    "inactive_btn_fg": "#a0a0a0",
 }
 
 LIGHT = {
@@ -60,23 +60,23 @@ LIGHT = {
     "input_fg": "#000000",
     "accent": "#0078d4",
     "accent_fg": "#ffffff",
-    "accent_hover": "#1a8ae8",
+    "accent_hover": "#106ebe",
     "border": "#cccccc",
-    "label_fg": "#333333",
+    "label_fg": "#555555",
     "disabled_fg": "#999999",
-    "green": "#008000",
-    "red": "#cc0000",
-    "orange": "#cc8800",
-    "gray": "#888888",
+    "green": "#388e3c",
+    "red": "#d32f2f",
+    "orange": "#f57c00",
+    "gray": "#757575",
     "menu_bg": "#f0f0f0",
     "menu_fg": "#000000",
     "scrollbar_bg": "#e0e0e0",
     "scrollbar_fg": "#b0b0b0",
     "separator": "#cccccc",
-    "active_btn_bg": "#008000",
+    "active_btn_bg": "#388e3c",
     "active_btn_fg": "#ffffff",
     "inactive_btn_bg": "#e0e0e0",
-    "inactive_btn_fg": "#333333",
+    "inactive_btn_fg": "#555555",
 }
 
 # Default theme
