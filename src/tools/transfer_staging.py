@@ -45,10 +45,14 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
+import threading
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 class StagingManager:
@@ -80,6 +84,7 @@ class StagingManager:
         self.incoming = self.base / "incoming"
         self.verified = self.base / "verified"
         self.quarantine = self.base / "quarantine"
+        self._promote_lock = threading.Lock()
         self._ensure_dirs()
 
     def _ensure_dirs(self) -> None:
@@ -137,24 +142,29 @@ class StagingManager:
         final = self.verified / relative_path
         final.parent.mkdir(parents=True, exist_ok=True)
 
-        # Handle name collision in verified/ (e.g., two source dirs both
-        # have "readme.txt"). We append _1, _2, etc. to avoid overwriting.
-        if final.exists():
-            stem = final.stem
-            suffix = final.suffix
-            counter = 1
-            while final.exists():
-                final = final.parent / f"{stem}_{counter}{suffix}"
-                counter += 1
+        # Lock prevents TOCTOU race: without this, 8 threads checking
+        # exists() simultaneously all see False, then all rename to
+        # the same path, silently overwriting each other's files.
+        with self._promote_lock:
+            if final.exists():
+                stem = final.stem
+                suffix = final.suffix
+                counter = 1
+                while final.exists():
+                    final = final.parent / f"{stem}_{counter}{suffix}"
+                    counter += 1
 
-        # Atomic rename (same filesystem = atomic at OS level)
-        try:
-            os.rename(str(tmp_path), str(final))
-        except OSError:
-            # Cross-device: fall back to copy+delete (not atomic but
-            # the hash has already been verified at this point, so
-            # the file content is guaranteed correct)
-            shutil.move(str(tmp_path), str(final))
+            try:
+                os.replace(str(tmp_path), str(final))
+            except OSError:
+                try:
+                    shutil.move(str(tmp_path), str(final))
+                except Exception as e:
+                    logger.error(
+                        "promote_to_verified failed for %s: %s",
+                        relative_path, e,
+                    )
+                    raise
 
         return final
 
@@ -184,27 +194,33 @@ class StagingManager:
         dest = self.quarantine / relative_path
         dest.parent.mkdir(parents=True, exist_ok=True)
 
-        # Handle name collisions in quarantine/
-        if dest.exists():
-            stem = dest.stem
-            suffix = dest.suffix
-            counter = 1
-            while dest.exists():
-                dest = dest.parent / f"{stem}_{counter}{suffix}"
-                counter += 1
+        with self._promote_lock:
+            if dest.exists():
+                stem = dest.stem
+                suffix = dest.suffix
+                counter = 1
+                while dest.exists():
+                    dest = dest.parent / f"{stem}_{counter}{suffix}"
+                    counter += 1
 
-        try:
-            os.rename(str(file_path), str(dest))
-        except OSError:
-            shutil.move(str(file_path), str(dest))
+            try:
+                os.replace(str(file_path), str(dest))
+            except OSError:
+                try:
+                    shutil.move(str(file_path), str(dest))
+                except Exception as e:
+                    logger.error(
+                        "quarantine_file failed for %s: %s",
+                        relative_path, e,
+                    )
+                    raise
 
-        # Write reason file alongside quarantined file
         if reason:
             reason_path = dest.with_suffix(dest.suffix + ".reason")
             try:
                 reason_path.write_text(reason, encoding="utf-8")
             except Exception:
-                pass  # Non-critical: the file itself is preserved
+                pass
 
         return dest
 

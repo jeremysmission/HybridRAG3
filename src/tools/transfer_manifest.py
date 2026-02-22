@@ -220,6 +220,8 @@ class TransferManifest:
                     ON transfer_log(run_id);
                 CREATE INDEX IF NOT EXISTS idx_skipped_reason
                     ON skipped_files(reason);
+                CREATE INDEX IF NOT EXISTS idx_skipped_run
+                    ON skipped_files(run_id);
             """)
             self.conn.commit()
 
@@ -321,6 +323,17 @@ class TransferManifest:
         """
         hash_match = 1 if (hash_source and hash_source == hash_dest) else 0
         with self._lock:
+            # Guard: never overwrite a 'success' record with a failure.
+            # This prevents a retry or duplicate call from corrupting
+            # the transfer log. If a success record exists, skip.
+            existing = self.conn.execute(
+                "SELECT result FROM transfer_log "
+                "WHERE source_path=? AND run_id=?",
+                (source_path, run_id),
+            ).fetchone()
+            if existing and existing[0] == "success" and result != "success":
+                return  # Do not overwrite success with failure
+
             self.conn.execute(
                 "INSERT OR REPLACE INTO transfer_log "
                 "(source_path, dest_path, run_id, file_size_source, "
@@ -395,18 +408,39 @@ class TransferManifest:
             ).fetchall()
             return {r[0]: r[1] for r in rows}
 
-    def is_already_transferred(self, source_path: str) -> bool:
+    def is_already_transferred(
+        self, source_path: str, current_mtime: float = 0,
+    ) -> bool:
         """
         Check if this exact file was already successfully transferred
-        in a previous run. Used for resume/restart scenarios.
+        in a previous run AND has not been modified since.
+
+        If current_mtime > 0, also checks that the source file's mtime
+        has not changed since the last successful transfer. This prevents
+        silently skipping files that were modified between runs.
         """
         with self._lock:
-            row = self.conn.execute(
-                "SELECT 1 FROM transfer_log "
-                "WHERE source_path=? AND result='success' LIMIT 1",
-                (source_path,),
-            ).fetchone()
-            return row is not None
+            if current_mtime > 0:
+                # Check both success AND that mtime matches what we recorded
+                row = self.conn.execute(
+                    "SELECT sm.file_mtime FROM transfer_log tl "
+                    "JOIN source_manifest sm ON "
+                    "  tl.source_path = sm.source_path AND tl.run_id = sm.run_id "
+                    "WHERE tl.source_path=? AND tl.result='success' "
+                    "ORDER BY tl.run_id DESC LIMIT 1",
+                    (source_path,),
+                ).fetchone()
+                if row is None:
+                    return False
+                # Allow 2-second tolerance for filesystem timestamp precision
+                return abs(row[0] - current_mtime) < 2.0
+            else:
+                row = self.conn.execute(
+                    "SELECT 1 FROM transfer_log "
+                    "WHERE source_path=? AND result='success' LIMIT 1",
+                    (source_path,),
+                ).fetchone()
+                return row is not None
 
     def find_by_hash(self, content_hash: str) -> Optional[str]:
         """
@@ -560,8 +594,12 @@ class TransferManifest:
     def close(self) -> None:
         """Commit any remaining writes and close the database."""
         with self._lock:
-            self.conn.commit()
-            self.conn.close()
+            try:
+                self.conn.commit()
+            except Exception:
+                pass  # Best-effort flush before close
+            finally:
+                self.conn.close()
 
 
 # ============================================================================

@@ -67,9 +67,11 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
+import random
 import shutil
 import stat
 import sys
@@ -136,7 +138,7 @@ class TransferConfig:
     """
     source_paths: List[str] = field(default_factory=list)
     dest_path: str = ""
-    workers: int = 8
+    workers: int = 8                   # Capped at 32 by engine
     extensions: Set[str] = field(default_factory=lambda: _RAG_EXTENSIONS.copy())
     excluded_dirs: Set[str] = field(default_factory=lambda: _EXCLUDED_DIRS.copy())
     min_file_size: int = 100            # Skip files smaller than 100 bytes
@@ -222,7 +224,18 @@ class TransferStats:
             self.files_copied += 1
             self.bytes_copied += file_size
             self.ext_counts[ext] = self.ext_counts.get(ext, 0) + 1
-            self._speed_samples.append((time.time(), file_size))
+            now = time.time()
+            self._speed_samples.append((now, file_size))
+            # Prevent unbounded growth: prune entries older than 30s,
+            # then hard-cap at 500 to handle bursts within the window.
+            if len(self._speed_samples) > 500:
+                cutoff = now - 30.0
+                self._speed_samples = [
+                    (t, b) for t, b in self._speed_samples if t >= cutoff
+                ]
+                # Hard cap: if all entries are within 30s, keep newest 500
+                if len(self._speed_samples) > 500:
+                    self._speed_samples = self._speed_samples[-500:]
 
     @property
     def elapsed(self) -> float:
@@ -367,6 +380,8 @@ class BulkTransferV2:
     """
 
     def __init__(self, config: TransferConfig) -> None:
+        # Cap workers to prevent thread explosion (1000 OS threads = bad)
+        config.workers = min(max(config.workers, 1), 32)
         self.config = config
 
         # Run ID: timestamp-based so runs sort chronologically.
@@ -381,6 +396,13 @@ class BulkTransferV2:
         # All worker threads check this flag and stop gracefully.
         self._stop = threading.Event()
         self._log_lock = threading.Lock()
+
+        # Dedup guard: in-memory set of content hashes that have been
+        # claimed by a worker thread. Prevents the race where 8 threads
+        # all check find_by_hash() simultaneously, all see "not found",
+        # and all copy the same file.
+        self._dedup_seen: Set[str] = set()
+        self._dedup_lock = threading.Lock()
 
         # Symlink loop guard: tracks which real directory paths we've
         # already visited. If a symlink points back to a parent directory,
@@ -607,7 +629,7 @@ class BulkTransferV2:
                 self.stats.files_discovered += 1
                 try:
                     self._process_discovery(full, source_root, queue)
-                except OSError:
+                except (OSError, UnicodeEncodeError):
                     self.stats.files_skipped_inaccessible += 1
 
         if walk_warnings:
@@ -687,15 +709,25 @@ class BulkTransferV2:
         # in UTF-8 (e.g., certain Japanese, Chinese, or legacy Windows
         # encoding characters). These cause problems in SQLite, JSON,
         # and most web APIs. We flag them for manual handling.
+        #
+        # IMPORTANT: This check MUST happen BEFORE record_source_file()
+        # because SQLite cannot store strings with surrogate characters.
+        # If we detect surrogates, we sanitize the path for logging and
+        # skip immediately.
         encoding_issue = False
         try:
             full.encode("utf-8")
         except UnicodeEncodeError:
             encoding_issue = True
 
+        # Sanitize the path for SQLite (replace surrogates with U+FFFD)
+        safe_path = full
+        if encoding_issue:
+            safe_path = full.encode("utf-8", errors="replace").decode("utf-8")
+
         # --- Record in manifest (EVERY file, even ones we skip) ---
         self.manifest.record_source_file(
-            self.run_id, full, file_size=file_size,
+            self.run_id, safe_path, file_size=file_size,
             file_mtime=file_mtime, file_ctime=file_ctime,
             extension=ext, is_hidden=is_hidden, is_system=is_system,
             is_readonly=is_readonly, is_symlink=is_symlink,
@@ -724,7 +756,7 @@ class BulkTransferV2:
         if encoding_issue:
             self.stats.files_skipped_encoding += 1
             self.manifest.record_skip(
-                self.run_id, full, file_size, ext,
+                self.run_id, safe_path, file_size, ext,
                 "encoding_issue", "Filename contains non-UTF-8 characters",
             )
             return
@@ -740,6 +772,15 @@ class BulkTransferV2:
                     "path_too_long", f"{path_len} chars (MAX_PATH=260)",
                 )
                 return
+
+        if ext in _ALWAYS_SKIP:
+            self.stats.files_skipped_ext += 1
+            self.manifest.record_skip(
+                self.run_id, full, file_size, ext,
+                "always_skip",
+                f"Extension {ext} is in the always-skip blocklist",
+            )
+            return
 
         if ext not in cfg.extensions:
             self.stats.files_skipped_ext += 1
@@ -777,9 +818,17 @@ class BulkTransferV2:
 
         # --- Resume check ---
         # If this file was already successfully transferred in a
-        # previous run, skip it.
-        if cfg.resume and self.manifest.is_already_transferred(full):
+        # previous run, skip it. Log to skipped_files so the
+        # zero-gap verification report stays accurate.
+        if cfg.resume and self.manifest.is_already_transferred(
+            full, current_mtime=file_mtime,
+        ):
             self.stats.files_skipped_unchanged += 1
+            self.manifest.record_skip(
+                self.run_id, full, file_size, ext,
+                "already_transferred",
+                "Successfully transferred in a previous run",
+            )
             return
 
         queue.append((full, source_root, rel, file_size))
@@ -794,7 +843,7 @@ class BulkTransferV2:
         prev_manifest: Dict[str, str],
     ) -> None:
         """
-        Compare current manifest against previous run.
+        Compare current FULL manifest against previous run.
 
         NON-PROGRAMMER NOTE:
           This answers "what changed since last time?"
@@ -804,12 +853,17 @@ class BulkTransferV2:
                          orphaned chunks in the RAG index that should
                          be cleaned up.
 
-          This information is purely diagnostic in V2 -- the actual
-          skip/copy decision is handled by resume logic and hash
-          comparison. But knowing the delta helps you understand
-          what happened between runs.
+          Uses the full source_manifest (all discovered files) rather
+          than just the filtered transfer queue, so deletion detection
+          works for ALL file types, not just RAG-parseable ones.
         """
-        current_paths = {item[0] for item in queue}
+        # Get ALL discovered paths from the current run's manifest
+        with self.manifest._lock:
+            rows = self.manifest.conn.execute(
+                "SELECT source_path FROM source_manifest WHERE run_id=?",
+                (self.run_id,),
+            ).fetchall()
+        current_paths = {r[0] for r in rows}
 
         # Deletion detection: files that existed before but are gone now
         for prev_path in prev_manifest:
@@ -834,13 +888,19 @@ class BulkTransferV2:
         self, queue: List[Tuple[str, str, str, int]]
     ) -> None:
         """
-        Transfer all files in the queue using a thread pool.
+        Transfer all files in the queue using a thread pool with
+        backpressure to limit memory usage.
 
         NON-PROGRAMMER NOTE:
           A ThreadPoolExecutor is like a team of workers at a loading
           dock. Instead of one worker moving boxes one at a time, you
           have 8 workers moving boxes simultaneously. The "pool" manages
           the workers, assigns them tasks, and collects results.
+
+          Backpressure: instead of submitting all 100K files at once
+          (creating 100K Future objects in memory), we feed the pool in
+          batches of workers*4. This keeps memory bounded while still
+          keeping all workers busy.
 
           The progress thread prints a live status line every 2 seconds
           showing how many files have been copied, the current speed,
@@ -850,12 +910,19 @@ class BulkTransferV2:
         t = threading.Thread(target=self._progress_loop, daemon=True)
         t.start()
 
+        max_inflight = self.config.workers * 4
         with ThreadPoolExecutor(max_workers=self.config.workers) as pool:
-            futures = {
-                pool.submit(self._transfer_one, *item): item
-                for item in queue
-                if not self._stop.is_set()
-            }
+            futures: dict = {}
+            q_iter = iter(queue)
+
+            # Seed the pool with initial batch
+            for item in queue[:max_inflight]:
+                if self._stop.is_set():
+                    break
+                futures[pool.submit(self._transfer_one, *item)] = item
+            remaining = queue[max_inflight:]
+            r_idx = 0
+
             for fut in as_completed(futures):
                 if self._stop.is_set():
                     break
@@ -863,6 +930,13 @@ class BulkTransferV2:
                     fut.result()
                 except Exception:
                     pass  # Errors are handled inside _transfer_one
+                del futures[fut]
+
+                # Feed next item to keep the pool saturated
+                if r_idx < len(remaining) and not self._stop.is_set():
+                    item = remaining[r_idx]
+                    r_idx += 1
+                    futures[pool.submit(self._transfer_one, *item)] = item
 
         self._stop.set()  # Signal progress thread to stop
 
@@ -913,6 +987,9 @@ class BulkTransferV2:
 
         try:
             # Step 1: Hash source BEFORE transfer
+            # Also check mtime stability: if the file is being written to
+            # by another process, the hash will be of partial content.
+            pre_stat = _stat_with_timeout(source)
             hash_src = _hash_file(source)
             if not hash_src:
                 self.stats.files_failed += 1
@@ -922,18 +999,49 @@ class BulkTransferV2:
                     transfer_start=t_start,
                 )
                 return
-
-            # Step 2: Deduplication check
-            if cfg.deduplicate:
-                existing = self.manifest.find_by_hash(hash_src)
-                if existing:
-                    self.stats.files_deduplicated += 1
+            # Re-check mtime after hashing: if it changed, the file was
+            # modified during our read and the hash is unreliable.
+            try:
+                post_stat = _stat_with_timeout(source)
+                if post_stat.st_mtime != pre_stat.st_mtime or \
+                   post_stat.st_size != pre_stat.st_size:
+                    self.stats.files_quarantined += 1
                     self.manifest.record_transfer(
-                        self.run_id, source, dest_path=existing,
-                        hash_source=hash_src, result="skipped_duplicate",
+                        self.run_id, source, result="failed",
+                        hash_source=hash_src,
+                        error_message="Source file modified during hashing "
+                                      "(mtime or size changed)",
                         transfer_start=t_start,
                     )
                     return
+            except (OSError, TimeoutError):
+                pass  # If re-stat fails, proceed with existing hash
+
+            # Step 2: Deduplication check (thread-safe)
+            # Use in-memory set + DB check to prevent race where
+            # concurrent threads all bypass find_by_hash simultaneously.
+            if cfg.deduplicate:
+                with self._dedup_lock:
+                    if hash_src in self._dedup_seen:
+                        self.stats.files_deduplicated += 1
+                        self.manifest.record_transfer(
+                            self.run_id, source,
+                            hash_source=hash_src, result="skipped_duplicate",
+                            transfer_start=t_start,
+                        )
+                        return
+                    existing = self.manifest.find_by_hash(hash_src)
+                    if existing:
+                        self._dedup_seen.add(hash_src)
+                        self.stats.files_deduplicated += 1
+                        self.manifest.record_transfer(
+                            self.run_id, source, dest_path=existing,
+                            hash_source=hash_src, result="skipped_duplicate",
+                            transfer_start=t_start,
+                        )
+                        return
+                    # Claim this hash so other threads skip it
+                    self._dedup_seen.add(hash_src)
 
             # Step 3: Locked file detection
             # Try to open the file for reading. If another process has
@@ -966,20 +1074,31 @@ class BulkTransferV2:
             copied = False
             last_err = ""
             retries = 0
+            # Timeout: at least 60s, scaled by file size assuming
+            # minimum 512 KB/s throughput on a bad connection.
+            copy_timeout = max(60.0, file_size / (512 * 1024))
             for attempt in range(1, cfg.max_retries + 1):
                 try:
                     _buffered_copy(
                         source, str(tmp_path),
                         cfg.copy_buffer_size, cfg.bandwidth_limit,
+                        timeout=copy_timeout,
                     )
                     copied = True
                     break
                 except Exception as e:
                     last_err = f"{type(e).__name__}: {e}"
-                    retries = attempt
+                    retries = attempt - 1
+                    # Disk full or timeout: retrying is futile
+                    if isinstance(e, (TimeoutError,)):
+                        break
+                    if isinstance(e, OSError) and getattr(e, "errno", 0) == errno.ENOSPC:
+                        break
                     if attempt < cfg.max_retries:
-                        # Exponential backoff: wait 2^attempt seconds
-                        time.sleep(cfg.retry_backoff ** attempt)
+                        # Jitter prevents thundering herd when all workers
+                        # fail on the same network hiccup and retry together.
+                        base = cfg.retry_backoff ** attempt
+                        time.sleep(base * random.uniform(0.5, 1.5))
 
             if not copied:
                 self.stats.files_failed += 1
@@ -1129,36 +1248,53 @@ def _hash_file(path: str, timeout: float = 120.0) -> str:
       timeout seconds (default 120s), returns empty string to avoid
       hanging on stalled network reads.
 
-      Each individual f.read() is wrapped in a thread with a 30-second
-      timeout so a single stalled SMB read cannot hang the worker forever.
+      The cancel_event tells the inner thread to stop reading when the
+      outer timeout fires, preventing abandoned daemon threads from
+      accumulating over long transfers.
 
     Returns empty string if the file cannot be read.
     """
     result_holder = [None]
     error_holder = [None]
+    cancel = threading.Event()
 
     def _do_hash():
-        h = hashlib.sha256()
-        t0 = time.monotonic()
-        try:
-            with open(path, "rb") as f:
-                while True:
-                    chunk = f.read(131072)  # 128 KB chunks
-                    if not chunk:
-                        break
-                    h.update(chunk)
-                    if time.monotonic() - t0 > timeout:
-                        error_holder[0] = "timeout"
-                        return
-            result_holder[0] = h.hexdigest()
-        except (OSError, PermissionError) as e:
-            error_holder[0] = str(e)
+        # Retry once on transient OSError (e.g., brief network hiccup).
+        # PermissionError is not retried -- it means access denied.
+        for attempt in range(2):
+            h = hashlib.sha256()
+            t0 = time.monotonic()
+            try:
+                with open(path, "rb") as f:
+                    while not cancel.is_set():
+                        chunk = f.read(131072)  # 128 KB chunks
+                        if not chunk:
+                            break
+                        h.update(chunk)
+                        if time.monotonic() - t0 > timeout:
+                            error_holder[0] = "timeout"
+                            return
+                if cancel.is_set():
+                    error_holder[0] = "cancelled"
+                    return
+                result_holder[0] = h.hexdigest()
+                error_holder[0] = None  # Clear prior transient error on success
+                return
+            except PermissionError as e:
+                error_holder[0] = str(e)
+                return  # Not retryable
+            except OSError as e:
+                error_holder[0] = str(e)
+                if attempt == 0 and not cancel.is_set():
+                    time.sleep(0.5)  # Brief pause before retry
 
     t = threading.Thread(target=_do_hash, daemon=True)
     t.start()
     t.join(timeout=timeout + 5.0)
     if t.is_alive():
-        # Thread is stuck on a stalled f.read() -- abandon it
+        # Signal the thread to stop reading and give it a moment
+        cancel.set()
+        t.join(timeout=2.0)
         return ""
     if error_holder[0] is not None:
         return ""
@@ -1194,27 +1330,47 @@ def _can_read_file(path: str, timeout: float = 5.0) -> bool:
 
 def _buffered_copy(
     src: str, dst: str, buf_size: int = 1_048_576,
-    bw_limit: int = 0,
+    bw_limit: int = 0, timeout: float = 0,
 ) -> None:
     """
     Copy a file using buffered reads with optional bandwidth limiting.
 
-    NON-PROGRAMMER NOTE:
-      Instead of reading the entire file into memory (which would fail
-      for a 10 GB file), we read and write in 1 MB chunks. This keeps
-      memory usage constant regardless of file size.
-
-      If bandwidth_limit is set (e.g., 50 MB/s), the function inserts
-      small pauses (time.sleep) between chunks to stay under the limit.
-      This is useful when you don't want to saturate the network and
-      slow down other users.
+    If timeout > 0, the entire copy runs in a daemon thread with a
+    hard deadline. If the copy exceeds the deadline (e.g., stalled
+    SMB read), TimeoutError is raised and the partial .tmp file is
+    left for the caller to quarantine.
     """
+    if timeout > 0:
+        error_holder = [None]
+
+        def _do_copy():
+            try:
+                _buffered_copy_inner(src, dst, buf_size, bw_limit)
+            except Exception as e:
+                error_holder[0] = e
+
+        t = threading.Thread(target=_do_copy, daemon=True)
+        t.start()
+        t.join(timeout=timeout)
+        if t.is_alive():
+            raise TimeoutError(
+                f"_buffered_copy timed out after {timeout:.0f}s: {src}"
+            )
+        if error_holder[0] is not None:
+            raise error_holder[0]
+    else:
+        _buffered_copy_inner(src, dst, buf_size, bw_limit)
+
+
+def _buffered_copy_inner(
+    src: str, dst: str, buf_size: int = 1_048_576,
+    bw_limit: int = 0,
+) -> None:
+    """Inner copy logic (no timeout wrapper)."""
     with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
         if bw_limit <= 0:
-            # No bandwidth limit: copy as fast as possible
             shutil.copyfileobj(fsrc, fdst, length=buf_size)
         else:
-            # Bandwidth-limited: pace the copy
             while True:
                 t0 = time.monotonic()
                 data = fsrc.read(buf_size)
@@ -1225,6 +1381,12 @@ def _buffered_copy(
                 expected = len(data) / bw_limit
                 if expected > elapsed:
                     time.sleep(expected - elapsed)
+        # Flush OS buffers to disk. If the system crashes between
+        # close() and the OS flushing, the .tmp file is truncated.
+        # The hash check would catch it on re-read, but fsync
+        # eliminates the window entirely.
+        fdst.flush()
+        os.fsync(fdst.fileno())
 
 
 def _fmt_size(b) -> str:
