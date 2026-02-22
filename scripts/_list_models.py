@@ -35,6 +35,9 @@ import yaml
 
 sys.path.insert(0, os.environ.get("HYBRIDRAG_PROJECT_ROOT", "."))
 
+from src.core.llm_router import get_available_deployments
+from src.security.credentials import resolve_credentials as canonical_resolve
+
 
 def get_ollama_models():
     """Auto-detect installed Ollama models. Returns list of dicts."""
@@ -69,87 +72,20 @@ def get_ollama_models():
         return []
 
 
-def get_online_models(endpoint, api_key, max_display=25):
+def get_online_models(max_display=25):
     """
-    Fetch available models from the API provider.
+    Fetch available models from the API provider via centralized discovery.
 
-    Makes one GET request to {endpoint}/models using stored credentials.
-    Returns list of model ID strings (sorted, truncated to max_display).
-    Returns empty list if no key, no connectivity, or provider error.
+    Delegates to get_available_deployments() in llm_router.py, which
+    auto-detects Azure vs OpenAI and uses the correct API path.
+
+    Returns (model_id_list, total_count) for backward-compatible display.
     """
-    if not api_key or not endpoint:
+    all_models = get_available_deployments()
+    if not all_models:
         return [], 0
-
-    try:
-        import httpx
-    except ImportError:
-        return [], 0
-
-    url = endpoint.rstrip("/") + "/models"
-
-    try:
-        with httpx.Client(timeout=10) as client:
-            resp = client.get(
-                url,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-            )
-
-        if resp.status_code != 200:
-            return [], 0
-
-        data = resp.json()
-
-        # Standard OpenAI format
-        if "data" in data and isinstance(data["data"], list):
-            all_models = sorted(
-                [m.get("id", "") for m in data["data"] if m.get("id")]
-            )
-        elif isinstance(data, list):
-            all_models = sorted(
-                [m.get("id", "") for m in data if m.get("id")]
-            )
-        else:
-            return [], 0
-
-        total = len(all_models)
-        return all_models[:max_display], total
-
-    except Exception:
-        return [], 0
-
-
-def resolve_credentials():
-    """Resolve API key and endpoint via 3-layer system."""
-    api_key = None
-    endpoint = None
-
-    try:
-        from src.security.credentials import get_api_key, get_api_endpoint
-        api_key = get_api_key()
-        endpoint = get_api_endpoint()
-    except ImportError:
-        pass
-
-    if not api_key:
-        for var in ["HYBRIDRAG_API_KEY", "AZURE_OPENAI_API_KEY",
-                     "AZURE_OPEN_AI_KEY", "OPENAI_API_KEY"]:
-            val = os.environ.get(var, "").strip()
-            if val:
-                api_key = val
-                break
-
-    if not endpoint:
-        for var in ["HYBRIDRAG_API_ENDPOINT", "AZURE_OPENAI_ENDPOINT",
-                     "OPENAI_API_ENDPOINT", "OPENAI_BASE_URL"]:
-            val = os.environ.get(var, "").strip()
-            if val:
-                endpoint = val
-                break
-
-    return api_key, endpoint
+    total = len(all_models)
+    return all_models[:max_display], total
 
 
 def main():
@@ -205,17 +141,17 @@ def main():
     print("  ONLINE API MODELS")
     print("  " + "-" * 55)
 
-    # Resolve credentials to try fetching models
-    api_key, resolved_endpoint = resolve_credentials()
-    if not resolved_endpoint:
-        resolved_endpoint = online_endpoint
+    # Resolve credentials via canonical resolver
+    creds = canonical_resolve()
+    resolved_endpoint = creds.endpoint or online_endpoint
+    has_creds = creds.has_key and bool(resolved_endpoint)
 
-    if api_key and resolved_endpoint:
+    if has_creds:
         print(f"    Endpoint: {resolved_endpoint}")
         print(f"    Fetching available models...")
         print()
 
-        models, total = get_online_models(resolved_endpoint, api_key)
+        models, total = get_online_models()
 
         if models:
             for m in models:
@@ -239,11 +175,14 @@ def main():
     else:
         print(f"    Current model: {online_model}")
         print(f"    Endpoint: {online_endpoint}")
-        if not api_key:
+        if not creds.has_key:
             print(f"    (no API key stored -- run rag-store-key to enable model listing)")
 
-    if online_deployment:
-        print(f"    Deployment: {online_deployment} (Azure)")
+    # Show deployment from credentials (keyring/env) or config fallback
+    resolved_deployment = creds.deployment or online_deployment
+    if resolved_deployment:
+        dep_source = creds.source_deployment or "config"
+        print(f"    Deployment: {resolved_deployment} ({dep_source})")
 
     print()
     print("    Change model: rag-mode-online")

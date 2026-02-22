@@ -4,7 +4,7 @@ This document defines the public APIs that the GUI and external tools may
 depend on. Interfaces marked **STABLE** will not change without a version
 bump. Interfaces marked **UNSTABLE** may change between sessions.
 
-Last updated: 2026-02-20
+Last updated: 2026-02-21
 
 ---
 
@@ -194,6 +194,17 @@ response: Optional[LLMResponse] = router.query("prompt text")
 
 status: dict = router.get_status()
 # Keys: mode, api_configured, api_endpoint, ollama_available
+
+# Deployment discovery (auto-detects Azure vs OpenAI)
+from src.core.llm_router import get_available_deployments, refresh_deployments
+
+deployments: list = get_available_deployments()
+# Azure: GET {base}/openai/deployments -> list of deployment IDs
+# OpenAI: GET {endpoint}/models -> list of model IDs
+# Returns [] on failure. Results are cached until refresh_deployments().
+
+fresh: list = refresh_deployments()
+# Clears cache, re-probes endpoint, returns fresh list
 ```
 
 ---
@@ -301,19 +312,46 @@ text, details = parser.fetch_and_parse(url, purpose="intranet_fetch")
 **Status:** STABLE
 
 ```python
-from src.security.credentials import resolve_credentials, ApiCredentials
+from src.security.credentials import (
+    resolve_credentials, ApiCredentials,
+    credential_status, store_api_key, store_endpoint,
+    store_deployment, store_api_version, clear_credentials,
+    validate_endpoint,
+    KEYRING_SERVICE, KEYRING_KEY_NAME, KEYRING_ENDPOINT_NAME,
+    KEYRING_DEPLOYMENT_NAME, KEYRING_API_VERSION_NAME,
+    KEY_ENV_ALIASES, ENDPOINT_ENV_ALIASES,
+    DEPLOYMENT_ENV_ALIASES, API_VERSION_ENV_ALIASES,
+)
 
 creds: ApiCredentials = resolve_credentials(config_dict=None)
 
 # ApiCredentials fields:
 #   api_key: str              -- The API key (or empty)
 #   endpoint: str             -- The API endpoint URL (or empty)
+#   deployment: str           -- Azure deployment name (or empty)
+#   api_version: str          -- Azure API version (or empty)
 #   has_key: bool             -- True if api_key is non-empty
 #   has_endpoint: bool        -- True if endpoint is non-empty
 #   is_online_ready: bool     -- True if both key and endpoint are set
 #   key_preview: str          -- Masked key for logging ("sk-...xxxx")
 #   source_key: str           -- Where key was found (keyring/env/config)
 #   source_endpoint: str      -- Where endpoint was found
+#   source_deployment: str    -- Where deployment was found
+#   source_api_version: str   -- Where api_version was found
+
+# Status check (for PowerShell wrappers)
+status: dict = credential_status()
+# Keys: api_key_set, api_endpoint_set, deployment_set, api_version_set,
+#        api_key_source, api_endpoint_source, deployment_source, api_version_source
+
+# Store individual values
+store_api_key("sk-...")
+store_endpoint("https://company.openai.azure.com")
+store_deployment("gpt-4o")
+store_api_version("2024-02-02")
+
+# Clear all four keyring entries
+clear_credentials()
 ```
 
 ---
@@ -357,13 +395,15 @@ recent: List[FaultEvent] = engine.get_recent_faults(n=10)
 
 ```python
 from scripts._model_meta import (
-    USE_CASES,             # 7 use cases with work_only flag
+    USE_CASES,             # 9 use cases with work_only flag
     RECOMMENDED_OFFLINE,   # Per use-case offline model recommendations
     RECOMMENDED_ONLINE,    # Per use-case cloud API recommendations
     PERSONAL_FUTURE,       # Models needing >12GB VRAM (recognized, not auto-selected)
     KNOWN_MODELS,          # 46 models with dual tier scores
     use_case_score,        # Compute blended score for a use case
     lookup_known_model,    # Look up model in knowledge base
+    select_best_model,     # Pick best model from live deployment list
+    get_routing_table,     # Map all use cases to best available models
 )
 
 # Use case score (blended eng + gen weights)
@@ -372,6 +412,14 @@ score: int = use_case_score(tier_eng=85, tier_gen=70, uc_key="eng")
 # Recommended model for a use case
 rec = RECOMMENDED_OFFLINE["eng"]
 # {primary, alt, temperature, context, reranker, top_k}
+
+# Select best model from live deployments (auto-excludes banned families)
+best: str = select_best_model("sw", ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"])
+# Returns "gpt-4o" (highest eng score for SW use case)
+
+# Build complete routing table (use_case_key -> model_id)
+table: dict = get_routing_table(["gpt-4o", "gpt-4o-mini"])
+# {"sw": "gpt-4o", "eng": "gpt-4o", "pm": "gpt-4o", ...}
 ```
 
 ---

@@ -207,6 +207,8 @@ API_VERSION_ENV_ALIASES = [
 KEYRING_SERVICE = "hybridrag"
 KEYRING_KEY_NAME = "azure_api_key"
 KEYRING_ENDPOINT_NAME = "azure_endpoint"
+KEYRING_DEPLOYMENT_NAME = "azure_deployment"
+KEYRING_API_VERSION_NAME = "azure_api_version"
 
 # Backward-compatible aliases (underscore versions still work)
 _KEY_ENV_ALIASES = KEY_ENV_ALIASES
@@ -216,6 +218,8 @@ _API_VERSION_ENV_ALIASES = API_VERSION_ENV_ALIASES
 _KEYRING_SERVICE = KEYRING_SERVICE
 _KEYRING_KEY_NAME = KEYRING_KEY_NAME
 _KEYRING_ENDPOINT_NAME = KEYRING_ENDPOINT_NAME
+_KEYRING_DEPLOYMENT_NAME = KEYRING_DEPLOYMENT_NAME
+_KEYRING_API_VERSION_NAME = KEYRING_API_VERSION_NAME
 
 
 # ---------------------------------------------------------------------------
@@ -410,45 +414,62 @@ def resolve_credentials(config_dict=None):
                 logger.debug("Endpoint loaded from config file")
 
     # --- Resolve Deployment Name ---
-    # Check URL first (may contain /deployments/name)
-    if creds.endpoint and "/deployments/" in creds.endpoint:
-        match = re.search(r"/deployments/([^/?]+)", creds.endpoint)
-        if match:
-            creds.deployment = match.group(1)
-            creds.source_deployment = "extracted_from_url"
-            logger.debug("Deployment extracted from URL: %s", creds.deployment)
-
-    # If not in URL, check env vars
-    if not creds.deployment:
+    # Priority 1: Keyring (most secure, IT-managed)
+    dep_from_keyring = _read_keyring(_KEYRING_DEPLOYMENT_NAME)
+    if dep_from_keyring:
+        creds.deployment = dep_from_keyring
+        creds.source_deployment = "keyring"
+        logger.debug("Deployment loaded from keyring")
+    else:
+        # Priority 2: Environment variables
         dep_val, dep_var = _resolve_env_var(_DEPLOYMENT_ENV_ALIASES)
         if dep_val:
             creds.deployment = dep_val
             creds.source_deployment = f"env:{dep_var}"
             logger.debug("Deployment loaded from env: %s", dep_var)
-        elif config_dict:
-            cfg_dep = _nested_get(config_dict, "api", "deployment")
-            if cfg_dep:
-                creds.deployment = cfg_dep
-                creds.source_deployment = "config"
+        else:
+            # Priority 3: URL extraction (may contain /deployments/name)
+            if creds.endpoint and "/deployments/" in creds.endpoint:
+                match = re.search(r"/deployments/([^/?]+)", creds.endpoint)
+                if match:
+                    creds.deployment = match.group(1)
+                    creds.source_deployment = "extracted_from_url"
+                    logger.debug("Deployment extracted from URL: %s", creds.deployment)
+
+            # Priority 4: Config file
+            if not creds.deployment and config_dict:
+                cfg_dep = _nested_get(config_dict, "api", "deployment")
+                if cfg_dep:
+                    creds.deployment = cfg_dep
+                    creds.source_deployment = "config"
 
     # --- Resolve API Version ---
-    # Check URL first (may contain ?api-version=xxx)
-    if creds.endpoint and "api-version=" in creds.endpoint:
-        match = re.search(r"api-version=([^&]+)", creds.endpoint)
-        if match:
-            creds.api_version = match.group(1)
-            creds.source_api_version = "extracted_from_url"
-
-    if not creds.api_version:
+    # Priority 1: Keyring (most secure, IT-managed)
+    ver_from_keyring = _read_keyring(_KEYRING_API_VERSION_NAME)
+    if ver_from_keyring:
+        creds.api_version = ver_from_keyring
+        creds.source_api_version = "keyring"
+        logger.debug("API version loaded from keyring")
+    else:
+        # Priority 2: Environment variables
         ver_val, ver_var = _resolve_env_var(_API_VERSION_ENV_ALIASES)
         if ver_val:
             creds.api_version = ver_val
             creds.source_api_version = f"env:{ver_var}"
-        elif config_dict:
-            cfg_ver = _nested_get(config_dict, "api", "api_version")
-            if cfg_ver:
-                creds.api_version = cfg_ver
-                creds.source_api_version = "config"
+        else:
+            # Priority 3: URL extraction (may contain ?api-version=xxx)
+            if creds.endpoint and "api-version=" in creds.endpoint:
+                match = re.search(r"api-version=([^&]+)", creds.endpoint)
+                if match:
+                    creds.api_version = match.group(1)
+                    creds.source_api_version = "extracted_from_url"
+
+            # Priority 4: Config file
+            if not creds.api_version and config_dict:
+                cfg_ver = _nested_get(config_dict, "api", "api_version")
+                if cfg_ver:
+                    creds.api_version = cfg_ver
+                    creds.source_api_version = "config"
 
     # --- Validate endpoint if present ---
     if creds.endpoint:
@@ -480,10 +501,25 @@ def store_endpoint(endpoint):
     logger.info("Endpoint stored in keyring")
 
 
-def clear_credentials():
-    """Remove all stored credentials from keyring."""
+def store_deployment(name):
+    """Store Azure deployment name in Windows Credential Manager."""
     import keyring
-    for name in [_KEYRING_KEY_NAME, _KEYRING_ENDPOINT_NAME]:
+    keyring.set_password(_KEYRING_SERVICE, _KEYRING_DEPLOYMENT_NAME, name)
+    logger.info("Deployment name stored in keyring")
+
+
+def store_api_version(version):
+    """Store Azure API version in Windows Credential Manager."""
+    import keyring
+    keyring.set_password(_KEYRING_SERVICE, _KEYRING_API_VERSION_NAME, version)
+    logger.info("API version stored in keyring")
+
+
+def clear_credentials():
+    """Remove all stored credentials from keyring (all four values)."""
+    import keyring
+    for name in [_KEYRING_KEY_NAME, _KEYRING_ENDPOINT_NAME,
+                 _KEYRING_DEPLOYMENT_NAME, _KEYRING_API_VERSION_NAME]:
         try:
             keyring.delete_password(_KEYRING_SERVICE, name)
         except Exception:
@@ -551,18 +587,20 @@ def credential_status():
     Check what credentials are currently stored/available.
 
     Returns:
-        dict with keys:
-            api_key_set (bool): True if an API key was found anywhere
-            api_endpoint_set (bool): True if an endpoint was found anywhere
-            api_key_source (str): Where the key came from ('keyring', 'env:VAR', 'config', 'none')
-            api_endpoint_source (str): Where the endpoint came from
+        dict with keys for all four credential values:
+            api_key_set, api_endpoint_set, deployment_set, api_version_set (bool)
+            api_key_source, api_endpoint_source, deployment_source, api_version_source (str)
     """
     creds = resolve_credentials()
     return {
         'api_key_set': creds.has_key,
         'api_endpoint_set': creds.has_endpoint,
+        'deployment_set': bool(creds.deployment),
+        'api_version_set': bool(creds.api_version),
         'api_key_source': creds.source_key or 'none',
         'api_endpoint_source': creds.source_endpoint or 'none',
+        'deployment_source': creds.source_deployment or 'none',
+        'api_version_source': creds.source_api_version or 'none',
     }
 
 
@@ -636,6 +674,38 @@ if __name__ == "__main__":
         store_endpoint(endpoint)
         print(f"Endpoint stored: {endpoint}")
 
+    elif command == "deployment":
+        # Store Azure deployment name
+        print("Enter your Azure deployment name (e.g., gpt-4o, gpt-35-turbo):")
+        try:
+            dep = input("Deployment: ")
+        except EOFError:
+            dep = ""
+
+        if not dep or not dep.strip():
+            print("ERROR: No deployment name entered. Nothing stored.")
+            sys.exit(1)
+
+        dep = dep.strip()
+        store_deployment(dep)
+        print(f"[OK] Deployment name stored: {dep}")
+
+    elif command == "version":
+        # Store Azure API version
+        print("Enter your Azure API version (e.g., 2024-02-02):")
+        try:
+            ver = input("API Version: ")
+        except EOFError:
+            ver = ""
+
+        if not ver or not ver.strip():
+            print("ERROR: No API version entered. Nothing stored.")
+            sys.exit(1)
+
+        ver = ver.strip()
+        store_api_version(ver)
+        print(f"[OK] API version stored: {ver}")
+
     elif command == "status":
         # rag-cred-status calls this
         status = credential_status()
@@ -644,18 +714,22 @@ if __name__ == "__main__":
         print("")
         print("  Credential Status:")
         print("  ------------------")
-        print(f"  API Key:    {'STORED' if status['api_key_set'] else 'NOT SET'}"
+        print(f"  API Key:      {'STORED' if status['api_key_set'] else 'NOT SET'}"
               f"  (source: {status['api_key_source']})")
         if status['api_key_set']:
-            print(f"  Key preview: {creds.key_preview}")
-        print(f"  Endpoint:   {'STORED' if status['api_endpoint_set'] else 'NOT SET'}"
+            print(f"  Key preview:  {creds.key_preview}")
+        print(f"  Endpoint:     {'STORED' if status['api_endpoint_set'] else 'NOT SET'}"
               f"  (source: {status['api_endpoint_source']})")
         if status['api_endpoint_set']:
-            print(f"  Endpoint:   {creds.endpoint}")
-        if creds.deployment:
-            print(f"  Deployment: {creds.deployment} (source: {creds.source_deployment})")
-        if creds.api_version:
-            print(f"  API Ver:    {creds.api_version} (source: {creds.source_api_version})")
+            print(f"  Endpoint:     {creds.endpoint}")
+        print(f"  Deployment:   {'STORED' if status['deployment_set'] else 'NOT SET'}"
+              f"  (source: {status['deployment_source']})")
+        if status['deployment_set']:
+            print(f"  Deployment:   {creds.deployment}")
+        print(f"  API Version:  {'STORED' if status['api_version_set'] else 'NOT SET'}"
+              f"  (source: {status['api_version_source']})")
+        if status['api_version_set']:
+            print(f"  API Version:  {creds.api_version}")
         print(f"  Online ready: {creds.is_online_ready}")
         print("")
 
@@ -666,5 +740,6 @@ if __name__ == "__main__":
 
     else:
         print(f"Unknown command: {command}")
-        print("Usage: python -m src.security.credentials [store|endpoint|status|delete]")
+        print("Usage: python -m src.security.credentials "
+              "[store|endpoint|deployment|version|status|delete]")
         sys.exit(1)

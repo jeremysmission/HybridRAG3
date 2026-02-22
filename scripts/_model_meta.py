@@ -262,14 +262,9 @@ KNOWN_MODELS = {
     "claude-3-haiku":     {"ctx": 200000, "price_in": 0.25,  "price_out": 1.25,   "tier_eng": 60, "tier_gen": 65, "family": "Anthropic", "note": "Previous fast model"},
     "claude-3-opus":      {"ctx": 200000, "price_in": 15.0,  "price_out": 75.0,   "tier_eng": 90, "tier_gen": 92, "family": "Anthropic", "note": "Most capable Claude 3"},
 
-    # ---- Meta Llama Family ----
-    # Llama: strong general knowledge (MMLU), competitive on STEM
-    "meta-llama/llama-3.3-70b-instruct":  {"ctx": 131072, "price_in": 0.10, "price_out": 0.25, "tier_eng": 80, "tier_gen": 84, "family": "Meta", "note": "70B, 128K ctx"},
-    "meta-llama/llama-3.1-405b-instruct": {"ctx": 131072, "price_in": 1.00, "price_out": 1.00, "tier_eng": 88, "tier_gen": 92, "family": "Meta", "note": "405B, largest open model"},
-    "meta-llama/llama-3.1-70b-instruct":  {"ctx": 131072, "price_in": 0.10, "price_out": 0.25, "tier_eng": 78, "tier_gen": 82, "family": "Meta", "note": "70B, open weights"},
-    "meta-llama/llama-3.1-8b-instruct":   {"ctx": 131072, "price_in": 0.02, "price_out": 0.05, "tier_eng": 55, "tier_gen": 62, "family": "Meta", "note": "8B, MMLU 77.5"},
-    "meta-llama/llama-3-8b-instruct":     {"ctx": 8192,   "price_in": 0.03, "price_out": 0.06, "tier_eng": 52, "tier_gen": 60, "family": "Meta", "note": "8B, 8K ctx"},
-    "meta-llama/llama-3-70b-instruct":    {"ctx": 8192,   "price_in": 0.20, "price_out": 0.20, "tier_eng": 76, "tier_gen": 80, "family": "Meta", "note": "70B, 8K ctx"},
+    # ---- Meta Llama Family (BANNED) ----
+    # Meta Acceptable Use Policy explicitly prohibits weapons/military use.
+    # Retained in knowledge base for identification only; never auto-selected.
 
     # ---- Mistral Family ----
     "mistralai/mistral-large":           {"ctx": 128000, "price_in": 2.0,  "price_out": 6.0,  "tier_eng": 82, "tier_gen": 85, "family": "Mistral", "note": "Flagship Mistral"},
@@ -383,8 +378,8 @@ _OFFLINE_FAMILY_SCORES = [
     ("qwen2.5",  0, 0),   # EXCLUDED
     # DeepSeek: EXCLUDED
     ("deepseek", 0, 0),   # EXCLUDED
-    # Llama 3: MMLU 77.5 (7B class leader), HumanEval 80.5, MATH 69.9
-    ("llama3",   28, 33), ("llama-3", 28, 33),
+    # Llama: BANNED (Meta AUP prohibits weapons/military use)
+    ("llama3",   0, 0), ("llama-3", 0, 0),   # BANNED
     # Phi-4: punches above weight on STEM for its 14B size
     ("phi-4",    30, 24), ("phi4", 30, 24),
     # Gemma 3: competitive all-around, strong summarization
@@ -401,8 +396,8 @@ _OFFLINE_FAMILY_SCORES = [
     ("phi-3",    22, 18), ("phi3", 22, 18), ("phi", 18, 16),
     # Code-specialized models
     ("code",     24, 15),
-    # Llama 2: a generation behind on everything
-    ("llama2",   12, 15), ("llama-2", 12, 15),
+    # Llama 2: BANNED (Meta AUP prohibits weapons/military use)
+    ("llama2",   0, 0), ("llama-2", 0, 0),    # BANNED
 ]
 
 
@@ -564,8 +559,8 @@ _ONLINE_FAMILY_PATTERNS = [
     # DeepSeek: EXCLUDED
     ("deepseek",   0,   0),   # EXCLUDED
 
-    # Llama family: balanced, slight GEN advantage
-    ("llama",      -2,  +3),
+    # Llama family: BANNED (Meta AUP prohibits weapons/military use)
+    ("llama",       0,   0),   # BANNED
 
     # Gemma: balanced, slight GEN advantage
     ("gemma",      -1,  +2),
@@ -749,3 +744,109 @@ def format_price(price_per_million):
     if price_per_million < 0.01:
         return f"${price_per_million:.4f}"
     return f"${price_per_million:.2f}"
+
+
+# ============================================================================
+# MODEL SELECTION -- Connect live deployment lists to scoring
+# ============================================================================
+#
+# WHY THIS EXISTS:
+#   get_available_deployments() returns a flat list of model ID strings.
+#   The scoring system (use_case_score, KNOWN_MODELS) knows how to rank
+#   models. These two functions bridge the gap: given what's actually
+#   deployed, which model is best for each use case?
+#
+# POLICY: BANNED FAMILIES
+#   Per standing rules, certain vendor families must never be auto-selected.
+#   They remain in KNOWN_MODELS for identification/display but are skipped
+#   by select_best_model(). Manual override is still possible via config.
+# ============================================================================
+
+# Substrings that trigger auto-selection ban (case-insensitive match)
+_BANNED_AUTOSELECT = ["llama", "ollama", "qwen", "deepseek"]
+
+# Fallback scores for models not in KNOWN_MODELS (conservative estimate)
+_UNKNOWN_MODEL_ENG = 45
+_UNKNOWN_MODEL_GEN = 45
+
+
+def _is_banned_model(model_id):
+    """Check if a model ID matches a banned family for auto-selection."""
+    lower = model_id.lower()
+    for banned in _BANNED_AUTOSELECT:
+        if banned in lower:
+            return True
+    return False
+
+
+def select_best_model(use_case_key, available_deployments):
+    """
+    Pick the best model for a use case from a list of available deployments.
+
+    Scores each non-banned deployment using use_case_score() and returns
+    the highest-scoring model ID.
+
+    Args:
+        use_case_key: Key from USE_CASES (e.g., "sw", "eng", "pm")
+        available_deployments: List of model ID strings from
+            get_available_deployments()
+
+    Returns:
+        str or None: Best model ID, or None if no eligible models found.
+    """
+    if not available_deployments:
+        return None
+
+    if use_case_key not in USE_CASES:
+        return None
+
+    best_id = None
+    best_score = -1
+
+    for model_id in available_deployments:
+        if _is_banned_model(model_id):
+            continue
+
+        # Look up in knowledge base for accurate tier scores
+        kb = lookup_known_model(model_id)
+        if kb:
+            tier_eng = kb["tier_eng"]
+            tier_gen = kb["tier_gen"]
+        else:
+            # Unknown model: use conservative fallback scores
+            tier_eng = _UNKNOWN_MODEL_ENG
+            tier_gen = _UNKNOWN_MODEL_GEN
+
+        score = use_case_score(tier_eng, tier_gen, use_case_key)
+        if score > best_score:
+            best_score = score
+            best_id = model_id
+
+    return best_id
+
+
+def get_routing_table(available_deployments):
+    """
+    Build a complete routing table mapping each use case to its best model.
+
+    Args:
+        available_deployments: List of model ID strings from
+            get_available_deployments()
+
+    Returns:
+        dict: {use_case_key: model_id_or_None} for every key in USE_CASES.
+            Value is None if no eligible model exists for that use case.
+
+    Example return:
+        {
+            "sw": "gpt-4.1",
+            "eng": "gpt-4.1",
+            "pm": "gpt-4o-mini",
+            "gen": "gpt-4o",
+            ...
+        }
+    """
+    table = {}
+    for uc_key in USE_CASES:
+        table[uc_key] = select_best_model(uc_key, available_deployments)
+    return table
