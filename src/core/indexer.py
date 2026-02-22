@@ -205,14 +205,29 @@ class Indexer:
         # Lazy iteration avoids materializing the full rglob list,
         # saving memory on large directories and providing live
         # feedback via the discovery callback.
+        #
+        # The rglob generator can raise PermissionError or OSError
+        # mid-iteration (e.g., on network paths with restricted
+        # subdirectories). We catch these so a single inaccessible
+        # folder does not abort the entire discovery.
         supported_files: List[Path] = []
         _discovery_count = 0
         _glob_iter = folder.rglob("*") if recursive else folder.glob("*")
-        for f in _glob_iter:
+        while True:
+            try:
+                f = next(_glob_iter)
+            except StopIteration:
+                break
+            except (PermissionError, OSError) as e:
+                logger.warning("[WARN] Discovery skipped inaccessible path: %s", e)
+                continue
             _discovery_count += 1
             if _discovery_count % 500 == 0:
                 progress_callback.on_discovery_progress(_discovery_count)
-            if not f.is_file():
+            try:
+                if not f.is_file():
+                    continue
+            except (PermissionError, OSError):
                 continue
             if self._is_excluded(f):
                 continue

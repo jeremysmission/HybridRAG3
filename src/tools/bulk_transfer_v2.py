@@ -525,7 +525,9 @@ class BulkTransferV2:
         queue: List[Tuple[str, str, str, int]] = []
 
         # Start live discovery counter
-        self._stop.clear()
+        # Use a dedicated Event for the discovery thread so stopping it
+        # cannot race with the Phase 2 progress thread.
+        self._discovery_stop = threading.Event()
         t = threading.Thread(target=self._discovery_progress_loop, daemon=True)
         t.start()
 
@@ -537,10 +539,9 @@ class BulkTransferV2:
             self.stats.current_source_root = str(root)
             self._walk_source(root, str(root), queue)
 
-        # Stop discovery progress thread; clear for Phase 2 reuse
-        self._stop.set()
-        t.join(timeout=5.0)
-        self._stop.clear()
+        # Stop discovery progress thread and wait for it to exit
+        self._discovery_stop.set()
+        t.join(timeout=10.0)
 
         return queue
 
@@ -952,7 +953,13 @@ class BulkTransferV2:
                 return
 
             # Step 4: Atomic copy (source -> incoming/.tmp)
+            # When multiple sources share the same leaf name (e.g., two
+            # "Documents" dirs on different shares), disambiguate by
+            # appending a hash of the full source root path.
             root_name = Path(source_root).name
+            if len(cfg.source_paths) > 1:
+                root_key = hashlib.md5(source_root.encode()).hexdigest()[:6]
+                root_name = f"{root_name}_{root_key}"
             dest_rel = os.path.join(root_name, rel)
             tmp_path = self.staging.incoming_path(dest_rel)
 
@@ -1065,9 +1072,9 @@ class BulkTransferV2:
 
     def _discovery_progress_loop(self) -> None:
         """Print live discovery count every 2 seconds during Phase 1."""
-        while not self._stop.is_set():
+        while not self._discovery_stop.is_set():
             print(f"\r  {self.stats.discovery_line()}", end="", flush=True)
-            self._stop.wait(timeout=2.0)
+            self._discovery_stop.wait(timeout=2.0)
         print()  # Final newline after progress line
 
     def _progress_loop(self) -> None:
@@ -1122,22 +1129,40 @@ def _hash_file(path: str, timeout: float = 120.0) -> str:
       timeout seconds (default 120s), returns empty string to avoid
       hanging on stalled network reads.
 
+      Each individual f.read() is wrapped in a thread with a 30-second
+      timeout so a single stalled SMB read cannot hang the worker forever.
+
     Returns empty string if the file cannot be read.
     """
-    h = hashlib.sha256()
-    t0 = time.monotonic()
-    try:
-        with open(path, "rb") as f:
-            while True:
-                chunk = f.read(131072)  # 128 KB chunks
-                if not chunk:
-                    break
-                h.update(chunk)
-                if time.monotonic() - t0 > timeout:
-                    return ""
-    except (OSError, PermissionError):
+    result_holder = [None]
+    error_holder = [None]
+
+    def _do_hash():
+        h = hashlib.sha256()
+        t0 = time.monotonic()
+        try:
+            with open(path, "rb") as f:
+                while True:
+                    chunk = f.read(131072)  # 128 KB chunks
+                    if not chunk:
+                        break
+                    h.update(chunk)
+                    if time.monotonic() - t0 > timeout:
+                        error_holder[0] = "timeout"
+                        return
+            result_holder[0] = h.hexdigest()
+        except (OSError, PermissionError) as e:
+            error_holder[0] = str(e)
+
+    t = threading.Thread(target=_do_hash, daemon=True)
+    t.start()
+    t.join(timeout=timeout + 5.0)
+    if t.is_alive():
+        # Thread is stuck on a stalled f.read() -- abandon it
         return ""
-    return h.hexdigest()
+    if error_holder[0] is not None:
+        return ""
+    return result_holder[0] or ""
 
 
 def _can_read_file(path: str, timeout: float = 5.0) -> bool:
