@@ -1,6 +1,6 @@
 # HybridRAG v3 -- Setup Guide
 
-Last Updated: 2026-02-10
+Last Updated: 2026-02-21
 
 ## Prerequisites
 
@@ -129,10 +129,16 @@ connected machine.
 
 ### Step 9: Install Ollama (optional, for offline mode)
 
-Download from https://ollama.com and install. Then pull the model:
+Download from https://ollama.com and install. Then pull the approved models:
 ```powershell
-ollama pull phi4-mini
+ollama pull phi4-mini              # Primary for 7/9 profiles (2.3 GB)
+ollama pull mistral:7b             # Alt for eng/sys/fe/cyber (4.1 GB)
+ollama pull phi4:14b-q4_K_M        # Logistics primary, CAD alt (9.1 GB)
+ollama pull gemma3:4b              # PM fast summarization (3.3 GB)
+ollama pull mistral-nemo:12b       # Upgrade for sw/eng/sys/cyber/gen, 128K ctx (7.1 GB)
 ```
+
+Total disk for all five models: ~26 GB.
 
 Start the Ollama server (needs its own terminal window):
 ```powershell

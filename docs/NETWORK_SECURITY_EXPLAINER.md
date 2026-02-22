@@ -1,5 +1,5 @@
 # HybridRAG v3 — Network, Security & Architecture Explainer
-**Last Updated: 2026-02-08**
+**Last Updated: 2026-02-21**
 **Distribution: Internal / Briefing Use**
 
 ---
@@ -127,7 +127,7 @@ The HF lockdown and the API mode are completely independent controls.
 
 ### Offline Mode (Default)
 
-- LLM: Ollama running locally (phi4-mini, mistral:7b)
+- LLM: Ollama running locally (phi4-mini, mistral:7b, phi4:14b-q4_K_M, gemma3:4b, mistral-nemo:12b)
 - Network: Zero outbound connections
 - Speed: ~2-3 minutes per query (CPU-bound LLM generation)
 - Quality: Good for 7B parameter models
@@ -184,7 +184,11 @@ not scattered in your user profile. This makes the project portable.
 |-------|---------|------|--------------|
 | all-MiniLM-L6-v2 | Embedding (text to vectors) | ~87MB | Auto-cached on first rag-index |
 | cross-encoder/ms-marco-MiniLM-L-6-v2 | Reranker (re-score results) | ~80MB | rag-download-models |
-| phi4-mini (Ollama) | Answer generation (offline) | ~2.5GB | ollama pull phi4-mini |
+| phi4-mini (Ollama) | Primary LLM, 7/9 profiles | ~2.3 GB | ollama pull phi4-mini |
+| mistral:7b (Ollama) | Alt for eng/sys/fe/cyber | ~4.1 GB | ollama pull mistral:7b |
+| phi4:14b-q4_K_M (Ollama) | Logistics primary, CAD alt | ~9.1 GB | ollama pull phi4:14b-q4_K_M |
+| gemma3:4b (Ollama) | PM fast summarization | ~3.3 GB | ollama pull gemma3:4b |
+| mistral-nemo:12b (Ollama) | Upgrade for sw/eng/sys/cyber/gen (128K ctx) | ~7.1 GB | ollama pull mistral-nemo:12b |
 
 ### First-Time Setup (One Time, With Internet)
 
@@ -204,9 +208,15 @@ print('All models cached')
 # 3. Re-enable lockdown (or just re-source the startup script)
 . .\start_hybridrag.ps1
 
-# 4. Cache Ollama model (separate from HuggingFace)
+# 4. Cache Ollama models (separate from HuggingFace)
 ollama pull phi4-mini
+ollama pull mistral:7b
+ollama pull phi4:14b-q4_K_M
+ollama pull gemma3:4b
+ollama pull mistral-nemo:12b
 ```
+
+Total Ollama disk: ~26 GB for all five models.
 
 After this, the system never needs internet again unless you switch to API mode.
 
@@ -214,17 +224,19 @@ After this, the system never needs internet again unless you switch to API mode.
 
 ## Available Offline LLM Models
 
-These are already downloaded and ready to use with Ollama:
+The approved 5-model workstation stack (~26 GB total disk):
 
-| Model | Size | Best For | How to Select |
-|-------|------|----------|---------------|
-| phi4-mini (3.8B) | 2.3 GB | Primary for STEM/RAG, MIT license (Microsoft/USA) | Default in config |
-| mistral:7b (7B) | 4.1 GB | General knowledge, writing (Apache 2.0, Mistral/France) | Change ollama model in YAML |
-| phi4:14b (14B) | 9.1 GB | Logistics/precision (MIT, workstation only) | Requires 16GB+ RAM |
+| Model | Size | License | Origin | Best For | How to Select |
+|-------|------|---------|--------|----------|---------------|
+| phi4-mini (3.8B) | 2.3 GB | MIT | Microsoft/USA | Primary for 7/9 profiles | Default in config |
+| mistral:7b (7B) | 4.1 GB | Apache 2.0 | Mistral/France | Alt for eng/sys/fe/cyber | Change ollama model in YAML |
+| phi4:14b-q4_K_M (14B) | 9.1 GB | MIT | Microsoft/USA | Logistics primary, CAD alt | Requires 12GB+ VRAM |
+| gemma3:4b (4B) | 3.3 GB | Apache 2.0 | Google/USA | PM fast summarization | Change ollama model in YAML |
+| mistral-nemo:12b (12B) | 7.1 GB | Apache 2.0 | Mistral+NVIDIA | Upgrade for sw/eng/sys/cyber/gen (128K ctx) | Change ollama model in YAML |
 
 To change which model Ollama uses, edit config/default_config.yaml:
 ```yaml
-ollama_model: "phi4-mini"       # or "mistral:7b"
+ollama_model: "phi4-mini"       # or "mistral:7b", "gemma3:4b", etc.
 ```
 
 ---
