@@ -8,7 +8,7 @@
 #   OFFLINE MODE (no internet needed):
 #     Query --> Ollama (local model on your machine) --> Answer
 #
-#   ONLINE MODE (needs corporate network or home API key):
+#   ONLINE MODE (needs enterprise network or home API key):
 #     Query --> Azure OpenAI API (or standard OpenAI) --> Answer
 #
 #   The rest of HybridRAG only talks to LLMRouter. It never needs
@@ -40,6 +40,8 @@ import time
 import logging
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 import httpx
 
@@ -360,7 +362,7 @@ class APIRouter:
                     api_key=self.api_key,
                     api_version=self.api_version,
                     # http_client with verify=True ensures SSL works
-                    # through corporate proxy (with pip-system-certs installed)
+                    # through enterprise proxy (with pip-system-certs installed)
                     http_client=httpx.Client(verify=True),
                 )
 
@@ -685,7 +687,7 @@ class APIRouter:
                     hint=(
                         "TROUBLESHOOTING SSL: "
                         "(1) Is pip-system-certs installed? "
-                        "(2) Are you on corporate LAN (not VPN)? "
+                        "(2) Are you on enterprise LAN (not VPN)? "
                         "(3) Run: pip install pip-system-certs"
                     ),
                 )
@@ -794,11 +796,11 @@ def get_available_deployments():
         from ..security.credentials import resolve_credentials
         creds = resolve_credentials()
     except Exception:
-        print("  [FAIL] Could not resolve credentials for deployment discovery")
+        logger.error("[FAIL] Could not resolve credentials for deployment discovery")
         return []
 
     if not creds.has_key or not creds.has_endpoint:
-        print("  [FAIL] Credentials incomplete -- need both API key and endpoint")
+        logger.error("[FAIL] Credentials incomplete -- need both API key and endpoint")
         return []
 
     endpoint = creds.endpoint.rstrip("/")
@@ -831,7 +833,7 @@ def get_available_deployments():
                 )
 
             if resp.status_code != 200:
-                print(f"  [WARN] Azure deployment list returned HTTP {resp.status_code}")
+                logger.warning("[WARN] Azure deployment list returned HTTP %s", resp.status_code)
                 _deployment_cache = []
                 return []
 
@@ -850,7 +852,7 @@ def get_available_deployments():
                     deployments.append(dep_id)
 
             _deployment_cache = deployments
-            print(f"  [OK] Found {len(deployments)} Azure deployments")
+            logger.info("[OK] Found %d Azure deployments", len(deployments))
             return list(deployments)
 
         else:
@@ -867,7 +869,7 @@ def get_available_deployments():
                 )
 
             if resp.status_code != 200:
-                print(f"  [WARN] Model list returned HTTP {resp.status_code}")
+                logger.warning("[WARN] Model list returned HTTP %s", resp.status_code)
                 _deployment_cache = []
                 return []
 
@@ -883,11 +885,11 @@ def get_available_deployments():
                 return []
 
             _deployment_cache = sorted(models)
-            print(f"  [OK] Found {len(models)} models")
+            logger.info("[OK] Found %d models", len(models))
             return list(_deployment_cache)
 
     except Exception as e:
-        print(f"  [WARN] Deployment discovery failed: {e}")
+        logger.warning("[WARN] Deployment discovery failed: %s", e)
         _deployment_cache = []
         return []
 
@@ -902,7 +904,7 @@ def refresh_deployments():
     global _deployment_cache
     _deployment_cache = None
     result = get_available_deployments()
-    print(f"  [OK] Deployment cache refreshed: {len(result)} deployments")
+    logger.info("[OK] Deployment cache refreshed: %d deployments", len(result))
     return result
 
 

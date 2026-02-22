@@ -54,7 +54,7 @@ added).
 
 What happens during indexing:
 
-1. **Read** -- Opens each file and extracts the text. It handles 24+
+1. **Read** -- Opens each file and extracts the text. It handles 49+
    file formats: PDFs, Word (.docx), PowerPoint (.pptx), Excel (.xlsx),
    emails (.eml), images (via OCR), plain text, and more.
 
@@ -65,8 +65,9 @@ What happens during indexing:
 
 3. **Understand meaning** -- Each chunk is converted into a mathematical
    fingerprint (called an "embedding") by a small AI model running on
-   your computer. Chunks with similar meanings get similar fingerprints,
-   even if they use completely different words.
+   your computer. Think of it like a GPS coordinate for meaning: two
+   sentences about the same topic get coordinates that are close together
+   on a map, even if the words are completely different.
 
 4. **Store** -- The text and its fingerprints are saved to a local
    database. Nothing leaves your computer.
@@ -86,7 +87,8 @@ When you ask a question:
    - A *keyword search* that finds exact terms, part numbers, and
      acronyms
    - Results are merged so the best matches from both methods rise
-     to the top
+     to the top (like combining Google results with a Ctrl+F search
+     and keeping the best of both)
 
 2. **Answer** -- The top matching passages are sent to an AI language
    model along with your question. The AI reads only those passages and
@@ -148,7 +150,8 @@ enforce this:
    offline-only mode
 
 All three layers must fail simultaneously before any data could leave
-the machine.
+the machine. Think of it like a building with three locked doors between
+you and the exit -- all three locks would have to break at the same time.
 
 ### Optional Online Mode
 
@@ -243,8 +246,10 @@ Two options:
 ## The Hallucination Guard
 
 "Hallucination" is when an AI makes up information that sounds plausible
-but is not in the source documents. HybridRAG has a 5-layer defense
-system to prevent this:
+but is not in the source documents. Think of it like an employee who
+confidently gives you an answer that is not in any manual -- it sounds
+right, but it is fabricated. HybridRAG has a 5-layer protection system to
+prevent this:
 
 1. **Prompt instructions** -- The AI is explicitly told: "Only use
    information from the provided documents. If the answer is not in the
@@ -263,6 +268,10 @@ system to prevent this:
 5. **Dual-path consensus** -- For critical questions, the query can be
    sent to two different AI models. If they disagree, the system returns
    a conservative, safe response.
+
+**Note:** Layers 2-5 require an online connection and are active only in
+online mode. In offline mode, Layer 1 (prompt instructions) is always
+active and provides the first line of protection.
 
 ---
 
@@ -316,7 +325,7 @@ Switching profiles is one command: `rag-profile desktop_power`
 | Handles synonyms | Yes ("RF band" finds "frequency range") | No |
 | Gives direct answers | Yes, with citations | No, returns document list |
 | Works offline | Yes (default) | Depends |
-| Handles 24+ file formats | Yes (PDF, DOCX, PPTX, XLSX, EML, images...) | Limited |
+| Handles 49+ file formats | Yes (PDF, DOCX, PPTX, XLSX, EML, images...) | Limited |
 | Audit trail | Yes (every operation logged) | Rarely |
 | Crash recovery | Yes (automatic) | Rarely |
 
@@ -326,7 +335,7 @@ Switching profiles is one command: `rag-profile desktop_power`
 
 - **Documents indexed**: ~1,345 files
 - **Text chunks stored**: ~39,602
-- **File formats supported**: 24+
+- **File formats supported**: 49+
 - **Evaluation accuracy**: 98% on a 400-question test set
 - **Test coverage**: 135+ automated tests passing
 

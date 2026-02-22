@@ -75,12 +75,16 @@ parsers/registry.py  (extension -> parser class mapping)
   |-- plain_text_parser.py   (direct UTF-8 read)
   +-- text_parser.py         (routing parser, delegates by extension)
 
-gui/                         (tkinter desktop application)
+gui/                         (tkinter desktop application, dark/light theme)
   |-- app.py                 (main window, panel composition)
-  |-- query_panel.py         (question input, answer display, metrics)
-  |-- index_panel.py         (folder picker, progress bar, start/stop)
-  |-- status_bar.py          (live system health indicators)
-  +-- launch_gui.py          (entry point, boot + background loading)
+  |-- theme.py               (dark/light theme definitions, toggle logic)
+  |-- stubs.py               (temporary stubs for Window 2 model routing)
+  |-- launch_gui.py          (entry point, boot + background loading)
+  +-- panels/
+      |-- query_panel.py     (question input, answer display, metrics)
+      |-- index_panel.py     (folder picker, progress bar, start/stop)
+      |-- status_bar.py      (live system health indicators)
+      +-- engineering_menu.py (tuning sliders, profile switch, test query)
 
 api/                         (FastAPI REST server)
   |-- server.py              (lifespan management, app factory)
@@ -137,7 +141,9 @@ for the nearest section heading (ALL CAPS line, numbered section like
 
 `src/core/embedder.py` wraps `sentence-transformers/all-MiniLM-L6-v2`.
 
-- Output: 384-dimensional normalized float32 vectors
+- Output: 384-dimensional normalized float32 vectors (each chunk becomes
+  a list of 384 numbers that act like GPS coordinates in "meaning space"
+  -- similar meanings land at nearby coordinates)
 - Dimension read from model at load time (never hardcoded)
 - Batch embedding for indexing (`embed_batch`), single for queries
   (`embed_query`)
@@ -159,7 +165,8 @@ for the nearest section heading (ALL CAPS line, numbered section like
 
 **Memmap** (`embeddings.f16.dat` + `embeddings_meta.json`):
 - Raw float16 matrix of shape `[N, 384]` memory-mapped via numpy
-- Disk-backed: only active rows loaded into RAM during search
+- Disk-backed: the OS loads only the pages being read, like reading
+  specific pages from a book without loading the entire book into memory
 - 8 GB RAM laptop can search 10M+ embeddings
 - JSONDecodeError guard on meta file load: corrupted JSON triggers
   reinitialization instead of crash
@@ -168,7 +175,9 @@ for the nearest section heading (ALL CAPS line, numbered section like
 millions of vectors without loading them all into RAM.
 
 **Why float16**: Halves storage (0.75 GB vs 1.5 GB per million chunks)
-with negligible quality loss for cosine similarity on normalized vectors.
+with negligible quality loss. Like rounding GPS coordinates to 3 decimal
+places instead of 6 -- you lose sub-meter precision but still find the
+right neighborhood.
 
 **Why memmap over FAISS**: Simpler, no C++ dependencies, sufficient for
 < 500K chunks. Migration to FAISS IVF planned for scale-out (see
@@ -209,8 +218,10 @@ Block-based scanning avoids loading the full embedding matrix.
 OR-logic (not AND) ensures partial matches are returned. Critical for
 exact terms: part numbers, acronyms, technical jargon.
 
-**Hybrid search (default)**: Both run, results merged via Reciprocal
-Rank Fusion:
+**Hybrid search (default)**: Both searches run, then results are merged
+via Reciprocal Rank Fusion (RRF). RRF works like combining two judges'
+rankings: if Judge A ranks a chunk #1 and Judge B ranks it #3, that chunk
+scores higher than one ranked #5 by both. The formula:
 
 ```
 rrf_score(chunk) = sum( 1 / (k + rank_i) )  for each list i
@@ -316,7 +327,9 @@ network). Validates all guard components are importable and intact.
 | `admin` | Unrestricted (with logging) | Maintenance only |
 
 `gate.check_allowed(url, purpose, caller)` raises `NetworkBlockedError`
-if URL is not in allowlist. Every attempt (allowed AND denied) is logged.
+if URL is not in allowlist. Works like a building security desk: every
+visitor (URL) is checked against the guest list, and every visit
+(allowed or denied) is written in the log book.
 
 ### 6.2 Three-Layer Network Lockdown
 
@@ -357,7 +370,8 @@ Extended credential fields: api_key, endpoint, deployment, api_version.
    `offline_available`, `warnings[]`, `errors[]`, and `summary()`
 
 Never crashes on missing credentials -- marks mode as unavailable and
-continues. Offline mode always works even without API configuration.
+continues. Like a car that starts even if the GPS is not connected.
+Offline mode always works even without API configuration.
 
 ---
 

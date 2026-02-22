@@ -109,7 +109,8 @@ class StatusBar(tk.Frame):
         t = current_theme()
         try:
             status = self.router.get_status()
-        except Exception:
+        except Exception as e:
+            logger.debug("Router status error: %s", e)
             self.llm_label.config(text="LLM: Error reading status", fg=t["fg"])
             self.ollama_label.config(text="Ollama: Unknown", fg=t["fg"])
             return

@@ -130,7 +130,10 @@ class FakeBootResult:
 
 def _make_root():
     """Create a Tk root that we can destroy after each test."""
-    root = tk.Tk()
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("Tk runtime unavailable")
     root.withdraw()  # Don't show the window
     return root
 

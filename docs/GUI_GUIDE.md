@@ -1,7 +1,12 @@
-# HybridRAG v3 -- GUI User Guide
+# HybridRAG v3 -- GUI User Guide (Dark-Mode Prototype)
+
+Last Updated: 2026-02-21
 
 This guide covers every panel, button, slider, and toggle in the HybridRAG
 GUI. It is written for someone who has never seen the application before.
+
+The GUI ships with a **dark theme** (default) and a **light theme**, toggled
+with one click.
 
 ---
 
@@ -9,22 +14,52 @@ GUI. It is written for someone who has never seen the application before.
 
 1. [Launching the GUI](#1-launching-the-gui)
 2. [Window Layout Overview](#2-window-layout-overview)
-3. [Title Bar and Mode Toggle](#3-title-bar-and-mode-toggle)
+3. [Title Bar, Mode Toggle, and Theme Switch](#3-title-bar-mode-toggle-and-theme-switch)
 4. [Query Panel](#4-query-panel)
 5. [Index Panel](#5-index-panel)
 6. [Status Bar](#6-status-bar)
 7. [Engineering Menu](#7-engineering-menu)
 8. [Menu Bar](#8-menu-bar)
-9. [How to Run Your First Query](#9-how-to-run-your-first-query)
-10. [How to Index a New Folder](#10-how-to-index-a-new-folder)
-11. [Online vs Offline Mode](#11-online-vs-offline-mode)
-12. [Common Problems and What They Mean](#12-common-problems-and-what-they-mean)
+9. [Dark Mode and Light Mode](#9-dark-mode-and-light-mode)
+10. [How to Run Your First Query](#10-how-to-run-your-first-query)
+11. [How to Index a New Folder](#11-how-to-index-a-new-folder)
+12. [Online vs Offline Mode](#12-online-vs-offline-mode)
+13. [Keyboard Shortcuts](#13-keyboard-shortcuts)
+14. [Common Problems and What They Mean](#14-common-problems-and-what-they-mean)
+
+---
+
+## Before You Start: Opening PowerShell
+
+If you have never used PowerShell before, follow these steps exactly:
+
+1. Press **Win+X** on your keyboard (hold the Windows key, tap X).
+   A menu appears in the bottom-left corner.
+2. Click **Terminal** (or **Windows PowerShell**).
+   A dark window with a blinking cursor appears. This is PowerShell.
+3. Type the following and press **Enter**:
+   ```
+   cd "D:\HybridRAG3"
+   ```
+   This tells PowerShell to go to the project folder.
+4. Type the following and press **Enter**:
+   ```
+   . .\start_hybridrag.ps1
+   ```
+   Note the **dot-space-dot** at the start. This loads the HybridRAG
+   environment (paths, security, command aliases). You will see several
+   `[OK]` messages scroll past.
+5. You are now ready to launch the GUI (Section 1 below) or run any
+   `rag-` command.
+
+**Tip:** After step 4, the PowerShell window stays open in the
+background. Do not close it -- the GUI needs it running.
 
 ---
 
 ## 1. Launching the GUI
 
-Open a terminal in the project folder and run:
+From the PowerShell terminal you opened above, run:
 
 ```
 python src/gui/launch_gui.py
@@ -55,37 +90,44 @@ into memory. On a 64 GB workstation this is nearly instant.
 
 ## 2. Window Layout Overview
 
-The window has four regions stacked top to bottom:
+The window is 780 x 720 pixels by default (minimum 640 x 500, resizable).
+It has five regions stacked top to bottom:
 
 ```
-+----------------------------------------------------------+
-|  TITLE BAR  --  "HybridRAG v3"   [OFFLINE]  [ONLINE]    |
-+----------------------------------------------------------+
-|  QUERY PANEL                                             |
-|  Use case dropdown, model display, question box,         |
-|  answer area, sources, latency metrics                   |
-+----------------------------------------------------------+
-|  INDEX PANEL                                             |
-|  Folder picker, Start/Stop, progress bar, last run info  |
-+----------------------------------------------------------+
-|  STATUS BAR                                              |
-|  LLM | Ollama | Gate                                     |
-+----------------------------------------------------------+
++--------------------------------------------------------------+
+| Menu bar:  File | Engineering | Help                         |
++--------------------------------------------------------------+
+| TITLE BAR                                                    |
+| "HybridRAG v3"  Mode: [OFFLINE] [ONLINE]   Theme: [Light]   |
++--------------------------------------------------------------+
+| QUERY PANEL                                                  |
+| Use case dropdown, model display, question box,              |
+| answer area, sources, latency metrics                        |
++--------------------------------------------------------------+
+| INDEX PANEL                                                  |
+| Folder picker, Start/Stop, progress bar, last run info       |
++--------------------------------------------------------------+
+| STATUS BAR                                                   |
+| LLM: phi4-mini (Ollama) | Ollama: Ready | [*] Gate: OFFLINE |
++--------------------------------------------------------------+
 ```
 
-Across the top is a menu bar: **File** | **Engineering** | **Help**.
+The default appearance is **dark mode**: dark gray backgrounds (#1e1e1e),
+white text, and blue accent buttons (#0078d4). Click the Theme button in
+the title bar to switch to light mode.
 
 ---
 
-## 3. Title Bar and Mode Toggle
+## 3. Title Bar, Mode Toggle, and Theme Switch
 
-At the top of the window you see:
+At the top of the window you see, left to right:
 
-- **"HybridRAG v3"** -- the application name.
-- **Mode:** with two buttons: **OFFLINE** and **ONLINE**.
+- **"HybridRAG v3"** -- the application name (13pt bold).
+- **Mode:** with two toggle buttons: **OFFLINE** and **ONLINE**.
+- **Theme:** with a toggle button showing **"Light"** or **"Dark"** (right side).
 
-The active mode button is green with a pressed-in appearance. The inactive
-button is the normal gray color.
+The active mode button is green (#4caf50 dark theme, #388e3c light theme).
+The inactive mode button is gray.
 
 ### OFFLINE button
 
@@ -122,12 +164,28 @@ If credentials are present, the switch succeeds. In online mode:
 
 Switching back to offline is always one click with no confirmation needed.
 
+### Theme toggle button
+
+On the right side of the title bar, a button labeled **"Light"** (when in
+dark mode) or **"Dark"** (when in light mode). Click to switch themes.
+
+- **Dark mode** (default): Dark gray background (#1e1e1e), white text,
+  blue accent buttons. Easier on the eyes in low-light environments.
+- **Light mode**: White/light gray background (#f0f0f0), black text, same
+  blue accent buttons. Better for brightly lit offices or projector demos.
+
+The theme switches instantly. All panels, menus, the status bar, and the
+engineering menu (if open) update in place without rebuilding the window.
+
+See [Section 9: Dark Mode and Light Mode](#9-dark-mode-and-light-mode) for
+the full color reference.
+
 ---
 
 ## 4. Query Panel
 
 This is the largest panel in the window and the one you use most. It has
-six parts from top to bottom.
+seven parts from top to bottom.
 
 ### Use case dropdown
 
@@ -454,7 +512,7 @@ where you want the model to stick to what the documents say.
 How many seconds to wait for the LLM to respond before giving up.
 
 - 30 seconds is enough for online API calls.
-- For offline mode on CPU, Ollama can take 60-180 seconds for a single
+- For offline mode on CPU, Ollama can take 30-180 seconds for a single
   answer. If you get timeout errors in offline mode, raise this to 120.
 
 ### Performance Profile
@@ -534,14 +592,101 @@ Closes the engineering menu window. Your changes are already applied.
 - **About** -- Shows a dialog with the application name, description, and
   technology stack.
 
+The menu bar itself follows the active theme: dark background with white
+text in dark mode, light background with black text in light mode. The
+active (hovered) menu item uses the blue accent color (#0078d4).
+
 ---
 
-## 9. How to Run Your First Query
+## 9. Dark Mode and Light Mode
+
+The GUI ships with two visual themes defined in `src/gui/theme.py`. Dark
+mode is the default. Toggle between them with the Theme button in the
+title bar (top right).
+
+### When to use which
+
+- **Dark mode**: Default. Best for daily use, low-light environments, and
+  reducing eye strain during long sessions. Most screen elements use dark
+  grays with white text.
+- **Light mode**: Best for projector demos, brightly lit offices, and
+  screenshots for documentation. Uses white/light gray backgrounds with
+  black text.
+
+### Typography
+
+All text uses **Segoe UI** (the Windows 11 system font):
+
+| Style | Font | Used for |
+|-------|------|----------|
+| Regular | Segoe UI 10pt | Most text, labels, buttons |
+| Bold | Segoe UI 10pt bold | Panel titles, active labels |
+| Title | Segoe UI 13pt bold | Application title |
+| Small | Segoe UI 9pt | Test query area, secondary info |
+
+### Color Reference
+
+Every color in the GUI is defined by the active theme. The accent color
+(#0078d4, Windows blue) is the same in both themes.
+
+| Element | Dark Mode | Light Mode |
+|---------|-----------|------------|
+| Main background | #1e1e1e (near-black) | #f0f0f0 (light gray) |
+| Panel background | #2d2d2d (dark gray) | #ffffff (white) |
+| Primary text | #ffffff (white) | #000000 (black) |
+| Secondary text | #a0a0a0 (gray) | #555555 (medium gray) |
+| Input field background | #3c3c3c (charcoal) | #ffffff (white) |
+| Input field text | #ffffff (white) | #000000 (black) |
+| Accent (buttons, links) | #0078d4 (blue) | #0078d4 (blue) |
+| Accent hover | #106ebe (darker blue) | #106ebe (darker blue) |
+| Border lines | #555555 (gray) | #cccccc (light gray) |
+| Disabled text | #777777 (dim gray) | #999999 (dim gray) |
+| Success indicator | #4caf50 (green) | #388e3c (dark green) |
+| Error indicator | #f44336 (red) | #d32f2f (dark red) |
+| Warning indicator | #ff9800 (orange) | #f57c00 (dark orange) |
+| Active button (ON) | #4caf50 (green bg) | #388e3c (green bg) |
+| Inactive button (OFF) | #3c3c3c (gray bg) | #e0e0e0 (light gray bg) |
+| Menu background | #2d2d2d (dark gray) | #f0f0f0 (light gray) |
+| Scrollbar track | #3c3c3c (charcoal) | #e0e0e0 (light gray) |
+| Scrollbar thumb | #666666 (medium gray) | #b0b0b0 (gray) |
+| Separator lines | #555555 (gray) | #cccccc (light gray) |
+
+### Status Indicator Colors
+
+These are consistent across both themes (the indicator colors are the same,
+only the surrounding backgrounds change):
+
+| Indicator | Color | Meaning |
+|-----------|-------|---------|
+| Green dot/text | #4caf50 / #388e3c | Active, ready, success |
+| Gray dot/text | #a0a0a0 / #757575 | Inactive, offline, neutral |
+| Red text | #f44336 / #d32f2f | Error, failure |
+| Orange text | #ff9800 / #f57c00 | Warning, in-progress caution |
+
+### How the Theme Switch Works
+
+When you click the Theme button:
+
+1. The theme dictionary switches from `DARK_THEME` to `LIGHT_THEME` (or
+   vice versa).
+2. Every widget in the window has its colors updated in place -- no window
+   rebuild, no flicker.
+3. The menu bar is rebuilt with new background and text colors.
+4. The ttk styles (used by comboboxes, progress bars) are reapplied.
+5. If the Engineering Menu window is open, it updates too.
+6. The Theme button label flips: "Light" becomes "Dark" and vice versa.
+
+The theme preference is not persisted to disk. On next launch, the GUI
+always starts in dark mode.
+
+---
+
+## 10. How to Run Your First Query
 
 Step by step, starting from nothing:
 
 1. **Have documents indexed.** If you have not indexed yet, follow section
-   10 first. You cannot query without an index.
+   11 first. You cannot query without an index.
 
 2. **Launch the GUI.** Run `python src/gui/launch_gui.py` and wait for the
    window to appear. The status bar will show "LLM: Not initialized" until
@@ -575,7 +720,7 @@ Step by step, starting from nothing:
 
 ---
 
-## 10. How to Index a New Folder
+## 11. How to Index a New Folder
 
 Step by step:
 
@@ -611,7 +756,7 @@ later by clicking Start Indexing again -- it picks up where it left off.
 
 ---
 
-## 11. Online vs Offline Mode
+## 12. Online vs Offline Mode
 
 ### What changes when you go online
 
@@ -664,7 +809,42 @@ remain blocked in both modes.
 
 ---
 
-## 12. Common Problems and What They Mean
+## 13. Keyboard Shortcuts
+
+The GUI responds to the following keyboard shortcuts.
+
+### Global shortcuts (work from any panel)
+
+| Shortcut | Action |
+|----------|--------|
+| **Tab** | Move focus to the next widget (standard Windows navigation) |
+| **Shift+Tab** | Move focus to the previous widget |
+| **Alt+F4** | Close the application |
+| **Escape** | Close the Engineering Menu window (if open) |
+
+### Query Panel shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| **Enter** (in question box) | Submit the query (same as clicking Ask) |
+| **Ctrl+C** (in answer area) | Copy selected text |
+| **Ctrl+A** (in answer area) | Select all answer text |
+
+### Engineering Menu shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| **Escape** | Close the Engineering Menu window |
+| **Tab / Shift+Tab** | Navigate between sliders and controls |
+
+**Note:** There is no global hotkey to open the Engineering Menu from the
+keyboard. Use the menu bar: **Alt** to activate the menu bar, then arrow
+keys to navigate to **Engineering > Engineering Settings...** and press
+**Enter**.
+
+---
+
+## 14. Common Problems and What They Mean
 
 ### "Query engine not initialized. Run boot first."
 

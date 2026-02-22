@@ -399,6 +399,15 @@ class EngineeringMenu(tk.Toplevel):
 
     def _display_test_result(self, result):
         """Show test query result."""
+        try:
+            self._display_test_result_inner(result)
+        except Exception as e:
+            logger.error("Test result display failed: %s", e)
+            self.test_btn.config(state=tk.NORMAL)
+            self.test_network_label.config(text="")
+
+    def _display_test_result_inner(self, result):
+        """Inner handler (separated so outer can catch and re-enable)."""
         self.test_btn.config(state=tk.NORMAL)
         self.test_network_label.config(text="")
 

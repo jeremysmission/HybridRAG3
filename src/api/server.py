@@ -24,10 +24,13 @@ import sys
 import time
 import threading
 import argparse
+import logging
 from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI
+
+logger = logging.getLogger(__name__)
 
 # Ensure project root is on the path so imports work
 _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -110,23 +113,23 @@ class APIProgressCallback(IndexingProgressCallback):
 async def lifespan(app: FastAPI):
     """Initialize RAG pipeline on startup, clean up on shutdown."""
     # -- Startup --
-    print("[OK] Loading configuration...")
+    logger.info("[OK] Loading configuration...")
     state.config = load_config(".")
 
-    print("[OK] Connecting to vector store...")
+    logger.info("[OK] Connecting to vector store...")
     state.vector_store = VectorStore(
         state.config.paths.database,
         state.config.embedding.dimension,
     )
     state.vector_store.connect()
 
-    print("[OK] Loading embedding model...")
+    logger.info("[OK] Loading embedding model...")
     state.embedder = Embedder(state.config.embedding.model_name)
 
-    print("[OK] Initializing LLM router...")
+    logger.info("[OK] Initializing LLM router...")
     state.llm_router = LLMRouter(state.config)
 
-    print("[OK] Building query engine...")
+    logger.info("[OK] Building query engine...")
     state.query_engine = QueryEngine(
         state.config,
         state.vector_store,
@@ -134,16 +137,16 @@ async def lifespan(app: FastAPI):
         state.llm_router,
     )
 
-    print("[OK] FastAPI server ready.")
+    logger.info("[OK] FastAPI server ready.")
     yield
 
     # -- Shutdown --
-    print("[OK] Shutting down...")
+    logger.info("[OK] Shutting down...")
     if state.vector_store:
         state.vector_store.close()
     if state.embedder:
         state.embedder.close()
-    print("[OK] Cleanup complete.")
+    logger.info("[OK] Cleanup complete.")
 
 
 # -------------------------------------------------------------------
@@ -182,8 +185,8 @@ def main():
     parser.add_argument("--reload", action="store_true", help="Auto-reload on changes")
     args = parser.parse_args()
 
-    print(f"[OK] Starting HybridRAG API on http://{args.host}:{args.port}")
-    print(f"[OK] API docs at http://{args.host}:{args.port}/docs")
+    logger.info("[OK] Starting HybridRAG API on http://%s:%s", args.host, args.port)
+    logger.info("[OK] API docs at http://%s:%s/docs", args.host, args.port)
 
     uvicorn.run(
         "src.api.server:app",

@@ -215,6 +215,15 @@ class QueryPanel(tk.LabelFrame):
 
     def _display_result(self, result):
         """Display query result in the UI (called on main thread)."""
+        try:
+            self._display_result_inner(result)
+        except Exception as e:
+            logger.error("Display result failed: %s", e)
+            self.ask_btn.config(state=tk.NORMAL)
+            self.network_label.config(text="")
+
+    def _display_result_inner(self, result):
+        """Inner display logic (separated so outer can catch and re-enable)."""
         t = current_theme()
         self.ask_btn.config(state=tk.NORMAL)
         self.network_label.config(text="")

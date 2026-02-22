@@ -25,6 +25,7 @@ from __future__ import annotations
 import os
 import time
 import threading
+import logging
 import yaml
 from pathlib import Path
 
@@ -43,6 +44,8 @@ from src.api.models import (
     ModeResponse,
     ErrorResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -206,7 +209,7 @@ async def start_indexing(req: IndexRequest = None):
             indexer.index_folder(source_folder, callback)
             indexer.close()
         except Exception as e:
-            print(f"[FAIL] Indexing error: {e}")
+            logger.error("[FAIL] Indexing error: %s", e)
         finally:
             s.indexing_active = False
 

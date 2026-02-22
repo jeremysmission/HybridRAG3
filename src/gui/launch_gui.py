@@ -98,8 +98,8 @@ def _load_backends(app, logger):
 
     try:
         app.after(0, _attach)
-    except Exception:
-        pass  # GUI may have been closed
+    except Exception as e:
+        logger.debug("after() failed during backend attach: %s", e)
 
 
 def main():

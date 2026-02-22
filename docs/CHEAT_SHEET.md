@@ -56,15 +56,38 @@ rag-diag
 
 ## 2. DAILY USE
 
+### Opening PowerShell (If You Have Never Used It)
+
+1. Press **Win+X** on your keyboard (hold the Windows key, tap X).
+   A menu appears in the bottom-left corner.
+2. Click **Terminal** (or **Windows PowerShell**).
+   A dark window with a blinking cursor appears. This is PowerShell.
+3. Type the following and press **Enter**:
+   ```
+   cd "D:\HybridRAG3"
+   ```
+4. You are now in the project folder. Continue with "Starting Up" below.
+
 ### Starting Up
 ```powershell
 # Always run this first (sets paths, security, aliases)
+# Note the dot-space-dot at the start -- this is required
 . .\start_hybridrag.ps1
 
-# Or double-click start_rag.bat from File Explorer
+# Or double-click start_rag.bat from File Explorer (does the same thing)
 ```
 
-### Core Commands
+### Launching the GUI
+```powershell
+# Option A: PowerShell script
+.\tools\launch_gui.ps1
+
+# Option B: Python directly
+python src/gui/launch_gui.py
+```
+Wait for `[OK] Backends attached to GUI` in the terminal before querying.
+
+### Core Commands (CLI)
 ```
 rag-paths              Show configured paths + network status
 rag-index              Index all documents in source folder

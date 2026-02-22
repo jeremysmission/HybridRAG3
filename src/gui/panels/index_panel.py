@@ -220,6 +220,15 @@ class IndexPanel(tk.LabelFrame):
 
     def _on_indexing_done(self, result):
         """Handle indexing completion (called on main thread)."""
+        try:
+            self._on_indexing_done_inner(result)
+        except Exception as e:
+            logger.error("Indexing done handler failed: %s", e)
+            self.start_btn.config(state=tk.NORMAL)
+            self.stop_btn.config(state=tk.DISABLED)
+
+    def _on_indexing_done_inner(self, result):
+        """Inner handler (separated so outer can catch and re-enable)."""
         t = current_theme()
         self.start_btn.config(state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
