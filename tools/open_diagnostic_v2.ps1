@@ -1,10 +1,23 @@
 ﻿# ============================================================================
-# HybridRAG Diagnostic v2.0 -- Quick Launcher
+# HybridRAG -- Diagnostic Quick Launcher (tools/open_diagnostic_v2.ps1)
 # ============================================================================
-# Save this in your project root alongside hybridrag_diagnostic_v2.py
 #
-# USAGE:
-#   . .\open_diagnostic_v2.ps1     # Opens file in notepad + shows commands
+# WHAT THIS DOES:
+#   Prints a cheat sheet of diagnostic commands to your terminal and
+#   opens the diagnostic Python file in Notepad for review. This is a
+#   quick-reference card for running the 28-test health check suite.
+#
+# THE DIAGNOSTIC LEVELS:
+#   Level 1 (Power-On):    Python, venv, packages, disk, structure
+#   Level 2 (Initiated):   Config, database, schema, credentials
+#   Level 3 (Continuous):  Embedder, chunker, Ollama, API, security
+#   Level 4 (Maintenance): Code bugs, URL check, git, PowerShell
+#
+# HOW TO USE:
+#   . .\tools\open_diagnostic_v2.ps1
+#
+# NOTE: References hybridrag_diagnostic_v2.py in project root.
+#   If that file has moved, update the path on line 30 below.
 # ============================================================================
 
 Write-Host ""

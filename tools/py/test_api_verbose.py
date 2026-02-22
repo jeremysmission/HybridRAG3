@@ -1,3 +1,35 @@
+# ============================================================================
+# HybridRAG -- Verbose API Test (tools/py/test_api_verbose.py)
+# ============================================================================
+#
+# WHAT THIS DOES:
+#   Sends a real test message ("Say hello in exactly 3 words") to your
+#   configured AI endpoint and shows every detail of the request and
+#   response. This is the definitive test of whether your API setup works.
+#
+# WHAT IT SHOWS ON SUCCESS:
+#   - Provider type (Azure or OpenAI)
+#   - The exact URL it called
+#   - HTTP status (200 = success)
+#   - Response latency
+#   - The AI's response text
+#   - Token usage (how many words the AI processed)
+#
+# WHAT IT SHOWS ON FAILURE:
+#   - 401: Wrong API key or wrong auth header format
+#   - 403: Key doesn't have permission for this deployment
+#   - 404: Wrong deployment name or API version
+#   - 429: Rate limited (too many requests, wait a minute)
+#   - Connection error: VPN/proxy/network issue
+#
+# HOW TO USE:
+#   python tools/py/test_api_verbose.py
+#
+# PREREQUISITES:
+#   Run these first if you haven't:
+#     rag-store-endpoint    (saves your API URL)
+#     rag-store-key         (saves your API key)
+# ============================================================================
 import sys, os, json, time
 sys.path.insert(0, os.getcwd())
 

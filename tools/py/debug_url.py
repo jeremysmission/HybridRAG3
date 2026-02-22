@@ -1,3 +1,33 @@
+# ============================================================================
+# HybridRAG -- Debug API URL Builder (tools/py/debug_url.py)
+# ============================================================================
+#
+# WHAT THIS DOES:
+#   Reads your stored Azure endpoint and API key from Windows Credential
+#   Manager, then shows you EXACTLY how HybridRAG will build the URL
+#   for API calls. This is the first thing to run when API calls fail.
+#
+# WHY THIS EXISTS:
+#   Azure API URLs are complicated. They have a base endpoint, a
+#   deployment name, an API version, and different auth headers depending
+#   on whether you're using Azure or plain OpenAI. Getting any piece
+#   wrong gives you a cryptic 401 or 404 error. This script shows you
+#   every piece so you can spot the problem.
+#
+# WHAT IT CHECKS:
+#   - Your stored endpoint (from rag-store-endpoint)
+#   - Your stored API key (from rag-store-key)
+#   - Whether it detects Azure vs OpenAI from the URL
+#   - What deployment name and API version it will use
+#   - The final constructed URL
+#   - Common problems (double slashes, wrong path format)
+#
+# HOW TO USE:
+#   python tools/py/debug_url.py
+#
+# NEXT STEP IF THIS LOOKS OK:
+#   python tools/py/test_api_verbose.py   (makes an actual live API call)
+# ============================================================================
 import sys
 import os
 sys.path.insert(0, os.getcwd())

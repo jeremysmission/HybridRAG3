@@ -1,3 +1,20 @@
+# ============================================================================
+# HybridRAG -- Installed Package Versions (tools/py/versions.py)
+# ============================================================================
+#
+# WHAT THIS DOES:
+#   Prints the version of Python and every key library HybridRAG depends
+#   on. This is the first thing to check when something that "used to
+#   work" suddenly breaks -- a package may have been upgraded or is
+#   missing entirely.
+#
+# HOW TO USE:
+#   python tools/py/versions.py
+#
+# WHAT "NOT INSTALLED" MEANS:
+#   That package is missing from your virtual environment. Fix with:
+#   pip install -r requirements.txt
+# ============================================================================
 import sys
 print(f"  Python:             {sys.version.split()[0]}")
 
