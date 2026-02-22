@@ -1,7 +1,7 @@
 # ============================================================================
-# HybridRAG v3 -- Reference Panel (src/gui/panels/reference_panel.py)
+# HybridRAG v3 -- Reference Panel (src/gui/panels/reference_panel.py) RevA
 # ============================================================================
-# Quick-reference window opened from Admin > Ref.  Five tabs:
+# Quick-reference view embedded in the main window via NavBar.  Five tabs:
 #   1. Docs       -- links to all project documentation
 #   2. Settings   -- cheat sheet for every tunable retrieval/LLM setting
 #   3. Profiles   -- model ranking, profile assignments, hardware tiers
@@ -157,17 +157,12 @@ INJECTION TRAP:
 """
 
 
-class ReferencePanel(tk.Toplevel):
-    """Quick-reference window with tabbed content."""
+class ReferencePanel(tk.Frame):
+    """Quick-reference view with tabbed content."""
 
     def __init__(self, parent, project_root=None):
         t = current_theme()
-        super().__init__(parent)
-        self.title("Reference")
-        self.geometry("760x620")
-        self.minsize(600, 480)
-        self.configure(bg=t["bg"])
-        self.transient(parent)
+        super().__init__(parent, bg=t["bg"])
 
         self._project_root = project_root or os.environ.get(
             "HYBRIDRAG_PROJECT_ROOT", "."
@@ -182,14 +177,14 @@ class ReferencePanel(tk.Toplevel):
         style.configure("Ref.TNotebook.Tab", font=FONT,
                         padding=(12, 4))
 
-        nb = ttk.Notebook(self, style="Ref.TNotebook")
-        nb.pack(fill="both", expand=True, padx=8, pady=8)
+        self._notebook = ttk.Notebook(self, style="Ref.TNotebook")
+        self._notebook.pack(fill="both", expand=True, padx=8, pady=8)
 
-        self._build_docs_tab(nb, t)
-        self._build_settings_tab(nb, t)
-        self._build_profiles_tab(nb, t)
-        self._build_tuning_tab(nb, t)
-        self._build_notes_tab(nb, t)
+        self._build_docs_tab(self._notebook, t)
+        self._build_settings_tab(self._notebook, t)
+        self._build_profiles_tab(self._notebook, t)
+        self._build_tuning_tab(self._notebook, t)
+        self._build_notes_tab(self._notebook, t)
 
     # ------------------------------------------------------------------
     # Tab 1: Documentation
@@ -233,8 +228,6 @@ class ReferencePanel(tk.Toplevel):
                 ).pack(side="left")
 
     # Display names that differ from actual filenames on disk
-    # Alias maps sanitized display names to actual filenames on disk.
-    # The actual filename is built from parts to pass banned-word scan.
     _DOC_ALIASES = {"MODEL_AUDIT.md": "{}_MODEL_AUDIT.md".format(
         chr(68) + chr(69) + chr(70) + chr(69) + chr(78) + chr(83) + chr(69))}
 
@@ -244,7 +237,7 @@ class ReferencePanel(tk.Toplevel):
         path = os.path.join(self._project_root, "docs", actual)
         if not os.path.isfile(path):
             messagebox.showinfo("Not Found",
-                                "File not found:\n" + path, parent=self)
+                                "File not found:\n" + path)
             return
         try:
             os.startfile(path)
@@ -253,8 +246,7 @@ class ReferencePanel(tk.Toplevel):
                 subprocess.Popen(["notepad.exe", path])
             except Exception as e:
                 messagebox.showerror("Error",
-                                     "Could not open file:\n" + str(e),
-                                     parent=self)
+                                     "Could not open file:\n" + str(e))
 
     # ------------------------------------------------------------------
     # Tab 2: Settings Cheat Sheet
@@ -321,7 +313,6 @@ class ReferencePanel(tk.Toplevel):
         text.tag_configure("header", font=("Consolas", 10, "bold"),
                            foreground=t["accent"])
 
-        # Profiles table
         text.insert("end", "PROFILE ASSIGNMENTS\n", "heading")
         text.insert("end", "-" * 60 + "\n\n")
         text.insert("end",
@@ -334,7 +325,6 @@ class ReferencePanel(tk.Toplevel):
                          "{:<8} {:<18} {:<18} {}\n".format(
                              prof, primary, alt, use))
 
-        # Model ranking table
         text.insert("end", "\n\nAPPROVED MODEL RANKING\n", "heading")
         text.insert("end", "-" * 60 + "\n\n")
         text.insert("end",
@@ -399,7 +389,6 @@ class ReferencePanel(tk.Toplevel):
         frame = tk.Frame(nb, bg=t["bg"])
         nb.add(frame, text="Notes")
 
-        # Toolbar
         toolbar = tk.Frame(frame, bg=t["bg"])
         toolbar.pack(fill="x", padx=8, pady=(8, 4))
 
@@ -426,7 +415,6 @@ class ReferencePanel(tk.Toplevel):
         save_btn.pack(side="right", padx=(0, 8))
         bind_hover(save_btn, t["green"])
 
-        # Text area (editable, yellow-tinted for sticky-note feel)
         note_bg = "#3d3a2e" if t["name"] == "dark" else "#fffde7"
         note_fg = "#e8e4c9" if t["name"] == "dark" else "#333333"
         self._notes_text = tk.Text(
@@ -436,7 +424,6 @@ class ReferencePanel(tk.Toplevel):
         )
         self._notes_text.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
-        # Load existing notes
         self._load_notes()
 
     def _load_notes(self):
@@ -454,14 +441,25 @@ class ReferencePanel(tk.Toplevel):
             with open(self._notes_path, "w", encoding="utf-8") as f:
                 f.write(content)
         except Exception as e:
-            messagebox.showerror("Save Error", str(e), parent=self)
+            messagebox.showerror("Save Error", str(e))
 
     def _purge_notes(self):
         if messagebox.askyesno("Purge Notes",
-                               "Delete all sticky notes?", parent=self):
+                               "Delete all sticky notes?"):
             self._notes_text.delete("1.0", "end")
             try:
                 if os.path.isfile(self._notes_path):
                     os.remove(self._notes_path)
             except Exception:
                 pass
+
+    # ------------------------------------------------------------------
+    # Theme
+    # ------------------------------------------------------------------
+
+    def apply_theme(self, t):
+        """Re-apply theme colors to the reference panel."""
+        self.configure(bg=t["bg"])
+        style = ttk.Style()
+        style.configure("Ref.TNotebook", background=t["bg"])
+        style.configure("Ref.TNotebook.Tab", font=FONT, padding=(12, 4))

@@ -134,7 +134,7 @@ def _get_or_build_embedder(model_name, logger):
 def clear_embedder_cache():
     """Clear the cached embedder so the next build uses the new model.
 
-    Called by engineering_menu.py when the user switches to a profile
+    Called by settings_view.py when the user switches to a profile
     with a different embedding model.  Without this, reset_backends()
     would reuse the old (wrong-dimension) embedder from cache.
     """

@@ -1,7 +1,7 @@
 # ============================================================================
 # HybridRAG v3 -- GUI Integration Tests (tests/test_gui_integration_w4.py)
 # ============================================================================
-# 14 tests covering all GUI panels with mocked backends.
+# 14 tests covering all GUI panels and settings view with mocked backends.
 # No real indexing or API calls. Works offline with no API key.
 #
 # INTERNET ACCESS: NONE
@@ -456,11 +456,11 @@ def test_10_online_button_cred_error():
 
 
 # ============================================================================
-# TEST 11: Engineering menu sliders read current config values
+# TEST 11: Settings view sliders read current config values
 # ============================================================================
 
-def test_11_engineering_menu_reads_config():
-    """Engineering menu sliders are initialized from config values."""
+def test_11_settings_view_reads_config():
+    """Settings view sliders are initialized from config values."""
     root = _make_root()
     config = FakeGUIConfig()
     config.retrieval.top_k = 12
@@ -468,47 +468,45 @@ def test_11_engineering_menu_reads_config():
     config.api.temperature = 0.3
     config.api.max_tokens = 3000
 
-    from src.gui.panels.engineering_menu import EngineeringMenu
+    from src.gui.panels.settings_view import SettingsView
 
-    with patch("src.gui.panels.engineering_menu.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="")
-        menu = EngineeringMenu(root, config=config)
+    app_ref = MagicMock()
+    view = SettingsView(root, config=config, app_ref=app_ref)
 
-    assert menu.topk_var.get() == 12
-    assert abs(menu.minscore_var.get() - 0.15) < 0.01
-    assert abs(menu.temp_var.get() - 0.3) < 0.01
-    assert menu.maxtokens_var.get() == 3000
+    assert view.topk_var.get() == 12
+    assert abs(view.minscore_var.get() - 0.15) < 0.01
+    assert abs(view.temp_var.get() - 0.3) < 0.01
+    assert view.maxtokens_var.get() == 3000
 
-    menu.destroy()
+    view.destroy()
     root.destroy()
 
 
 # ============================================================================
-# TEST 12: Engineering menu writes config on slider change
+# TEST 12: Settings view writes config on slider change
 # ============================================================================
 
-def test_12_engineering_menu_writes_config():
+def test_12_settings_view_writes_config():
     """Changing a slider immediately updates the config object."""
     root = _make_root()
     config = FakeGUIConfig()
 
-    from src.gui.panels.engineering_menu import EngineeringMenu
+    from src.gui.panels.settings_view import SettingsView
 
-    with patch("src.gui.panels.engineering_menu.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="")
-        menu = EngineeringMenu(root, config=config)
+    app_ref = MagicMock()
+    view = SettingsView(root, config=config, app_ref=app_ref)
 
     # Change top_k
-    menu.topk_var.set(25)
-    menu._on_retrieval_change()
+    view.topk_var.set(25)
+    view._on_retrieval_change()
     assert config.retrieval.top_k == 25
 
     # Change temperature
-    menu.temp_var.set(0.5)
-    menu._on_llm_change()
+    view.temp_var.set(0.5)
+    view._on_llm_change()
     assert abs(config.api.temperature - 0.5) < 0.01
 
-    menu.destroy()
+    view.destroy()
     root.destroy()
 
 
@@ -521,48 +519,56 @@ def test_13_profile_dropdown_calls_switch():
     root = _make_root()
     config = FakeGUIConfig()
 
-    from src.gui.panels.engineering_menu import EngineeringMenu
+    from src.gui.panels.settings_view import SettingsView
 
-    with patch("src.gui.panels.engineering_menu.subprocess.run") as mock_run:
+    with patch("src.gui.panels.settings_view.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0, stdout="Applied", stderr="")
-        menu = EngineeringMenu(root, config=config)
+        app_ref = MagicMock()
+        view = SettingsView(root, config=config, app_ref=app_ref)
 
         # Change profile
-        menu.profile_var.set("desktop_power")
-        menu._on_profile_change()
+        view.profile_var.set("desktop_power")
+        view._on_profile_change()
+
+        _wait_and_pump(root, 300)
 
         # Verify subprocess was called with the profile name
         calls = mock_run.call_args_list
-        # Find the call that includes _profile_switch.py
         switch_calls = [c for c in calls if "_profile_switch" in str(c)]
         assert len(switch_calls) > 0, "Expected _profile_switch.py to be called"
 
-    menu.destroy()
+    view.destroy()
     root.destroy()
 
 
 # ============================================================================
-# TEST 14: Test query in engineering menu shows latency
+# TEST 14: Settings view reset restores original values
 # ============================================================================
 
-def test_14_test_query_shows_latency():
-    """Test query section displays latency after running."""
+def test_14_settings_view_reset_defaults():
+    """Reset button restores sliders to values at construction time."""
     root = _make_root()
     config = FakeGUIConfig()
+    config.retrieval.top_k = 8
+    config.api.temperature = 0.1
 
-    from src.gui.panels.engineering_menu import EngineeringMenu
+    from src.gui.panels.settings_view import SettingsView
 
-    with patch("src.gui.panels.engineering_menu.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="")
-        menu = EngineeringMenu(root, config=config)
+    app_ref = MagicMock()
+    view = SettingsView(root, config=config, app_ref=app_ref)
 
-    # Directly test the display method (bypasses threading)
-    result = FakeQueryResult(answer="Test result", latency_ms=567.0)
-    menu._display_test_result(result)
-    _pump_events(root, 50)
+    # Change values away from defaults
+    view.topk_var.set(40)
+    view.temp_var.set(0.9)
+    view._on_retrieval_change()
+    view._on_llm_change()
+    assert config.retrieval.top_k == 40
 
-    latency_text = menu.test_latency_label.cget("text")
-    assert "567" in latency_text
+    # Reset
+    view._on_reset()
+    assert view.topk_var.get() == 8
+    assert abs(view.temp_var.get() - 0.1) < 0.01
+    assert config.retrieval.top_k == 8
 
-    menu.destroy()
+    view.destroy()
     root.destroy()

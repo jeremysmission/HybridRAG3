@@ -122,7 +122,7 @@
 ### Q15. "What models are you running? Have they been vetted?"
 **Who asks**: Cybersecurity, Chief Engineer, compliance
 **Why it recurs**: Supply chain security. Model provenance is an emerging compliance requirement.
-**Your answer**: "phi4-mini: 3.8 billion parameters, MIT license, Microsoft, US-origin. All models passed our compliance audit -- no Chinese-origin software (NDAA), no restrictive licenses. Here's the audit document." [Hand them docs/DEFENSE_MODEL_AUDIT.md.]
+**Your answer**: "phi4-mini: 3.8 billion parameters, MIT license, Microsoft, US-origin. All models passed our compliance audit -- no Chinese-origin software (NDAA), no restrictive licenses. Here's the audit document." [Hand them docs/05_security/DEFENSE_MODEL_AUDIT.md.]
 
 ---
 

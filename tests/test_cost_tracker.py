@@ -310,7 +310,7 @@ def test_12_singleton_pattern(tmp_path):
 # ============================================================================
 
 def test_13_dashboard_opens(tmp_path):
-    """PM Cost Dashboard Toplevel window creates successfully."""
+    """PM Cost Dashboard Frame creates successfully."""
     root = _make_root()
     tracker = _make_tracker(tmp_path)
 
@@ -318,9 +318,8 @@ def test_13_dashboard_opens(tmp_path):
     dashboard = CostDashboard(root, tracker)
 
     assert dashboard.winfo_exists()
-    assert "PM Cost Dashboard" in dashboard.title()
 
-    dashboard._on_close()
+    dashboard.cleanup()
     tracker.shutdown()
     root.destroy()
 
@@ -349,7 +348,7 @@ def test_14_dashboard_displays_session(tmp_path):
     queries_text = dashboard._queries_label.cget("text")
     assert queries_text == "1"
 
-    dashboard._on_close()
+    dashboard.cleanup()
     tracker.shutdown()
     root.destroy()
 
@@ -374,7 +373,7 @@ def test_15_rate_editor_updates(tmp_path):
     assert abs(rates.input_rate_per_1m - 7.5) < 0.01
     assert abs(rates.output_rate_per_1m - 30.0) < 0.01
 
-    dashboard._on_close()
+    dashboard.cleanup()
     tracker.shutdown()
     root.destroy()
 
@@ -468,12 +467,13 @@ def test_16_app_has_cost_dashboard_menu(tmp_path):
     assert hasattr(app, "cost_tracker")
     assert app.cost_tracker is not None
 
-    # Verify dashboard can open
-    app._open_cost_dashboard()
-    assert app._cost_dashboard is not None
-    assert app._cost_dashboard.winfo_exists()
+    # Verify dashboard can open via show_view
+    app.show_view("cost")
+    cost_view = app._views.get("cost")
+    assert cost_view is not None
+    assert cost_view.winfo_exists()
 
-    app._cost_dashboard._on_close()
+    cost_view.cleanup()
     app.cost_tracker.shutdown()
     app.status_bar.stop()
     app.destroy()
@@ -503,7 +503,7 @@ def test_17_roi_time_saved(tmp_path):
     time_text = dashboard._roi_time_label.cget("text")
     assert "1h" in time_text and "0m" in time_text
 
-    dashboard._on_close()
+    dashboard.cleanup()
     tracker.shutdown()
     root.destroy()
 
@@ -530,7 +530,7 @@ def test_18_roi_value_calculation(tmp_path):
     val = float(value_text.replace("$", "").replace(",", ""))
     assert abs(val - 8.07) < 0.10
 
-    dashboard._on_close()
+    dashboard.cleanup()
     tracker.shutdown()
     root.destroy()
 
@@ -566,6 +566,6 @@ def test_19_roi_param_update(tmp_path):
     val = float(value_text.replace("$", "").replace(",", ""))
     assert abs(val - 25.0) < 0.10
 
-    dashboard._on_close()
+    dashboard.cleanup()
     tracker.shutdown()
     root.destroy()

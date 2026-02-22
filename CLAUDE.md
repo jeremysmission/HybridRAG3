@@ -15,9 +15,9 @@ Web/forum research permitted without asking.
 - Never commit API keys, secrets, model cache files, or zips (except releases/)
 
 # Git Rules
-<!-- detailed: docs/GIT_REPO_RULES.md -->
+<!-- detailed: docs/05_security/GIT_REPO_RULES.md -->
 - Commit/push only from home machine
-- Run sanitization check (docs/GIT_REPO_RULES.md) before every commit
+- Run sanitization check (docs/05_security/GIT_REPO_RULES.md) before every commit
 - Banned words in repo: defense, contractor, classified, NGC, Northrop, NIST, DoD, Claude, Anthropic
 - deploy_comments.ps1 and .claude/ are intentionally untracked
 - Sync to educational: tools/sync_to_educational.py (one-way, sanitized)
@@ -30,7 +30,7 @@ Web/forum research permitted without asking.
 - Educational clone: separate repo, never direct-push from here
 
 # Banned Models (NDAA / ITAR)
-<!-- detailed: docs/DEFENSE_MODEL_AUDIT.md -->
+<!-- detailed: docs/05_security/DEFENSE_MODEL_AUDIT.md -->
 - NO China-origin: Qwen/Alibaba, DeepSeek, BGE/BAAI
 - NO Meta/Llama (ITAR ban)
 - Approved stack: phi4-mini, mistral:7b, phi4:14b-q4_K_M, gemma3:4b, mistral-nemo:12b

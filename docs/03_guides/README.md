@@ -325,28 +325,28 @@ All packages sourced from PyPI (pypi.org) -- open-source with permissive license
 ## Documentation
 
 ### Getting Started
-- `docs/INSTALL_AND_SETUP.md` -- Complete installation and setup guide (Parts 1-10)
-- `docs/SHORTCUT_SHEET.md` -- Quick reference for setup, daily use, errors, and scaling
+- `docs/01_setup/INSTALL_AND_SETUP.md` -- Complete installation and setup guide (Parts 1-10)
+- `docs/03_guides/SHORTCUT_SHEET.md` -- Quick reference for setup, daily use, errors, and scaling
 
 ### User Guides
-- `docs/USER_GUIDE.md` -- End-user guide for CLI and daily workflows
-- `docs/GUI_GUIDE.md` -- GUI user guide (dark-mode prototype)
-- `docs/DEMO_PREP.md` -- Demo script, Q&A, and presentation prep
-- `docs/STUDY_GUIDE.md` -- Learning guide for the codebase and concepts
+- `docs/03_guides/USER_GUIDE.md` -- End-user guide for CLI and daily workflows
+- `docs/03_guides/GUI_GUIDE.md` -- GUI user guide (dark-mode prototype)
+- `docs/04_demo/DEMO_PREP.md` -- Demo script, Q&A, and presentation prep
+- `docs/08_learning/STUDY_GUIDE.md` -- Learning guide for the codebase and concepts
 
 ### Architecture and Design
-- `docs/THEORY_OF_OPERATION_RevA.md` -- High-level overview for non-programmers
-- `docs/TECHNICAL_THEORY_OF_OPERATION_RevA.md` -- Developer-focused technical reference
-- `docs/INTERFACES.md` -- Stable public API reference for all modules
-- `docs/GLOSSARY.md` -- Definitions of all technical terms and acronyms
+- `docs/02_architecture/THEORY_OF_OPERATION_RevA.md` -- High-level overview for non-programmers
+- `docs/02_architecture/TECHNICAL_THEORY_OF_OPERATION_RevA.md` -- Developer-focused technical reference
+- `docs/02_architecture/INTERFACES.md` -- Stable public API reference for all modules
+- `docs/03_guides/GLOSSARY.md` -- Definitions of all technical terms and acronyms
 
 ### Security and Compliance
-- `docs/DEFENSE_MODEL_AUDIT.md` -- Model procurement audit (approved/banned publishers)
-- `docs/HYBRIDRAG3_SECURITY_AUDIT.md` -- Security compliance audit
-- `docs/GIT_REPO_RULES.md` -- Git sanitization and commit rules
+- `docs/05_security/DEFENSE_MODEL_AUDIT.md` -- Model procurement audit (approved/banned publishers)
+- `docs/05_security/HYBRIDRAG3_SECURITY_AUDIT_NIST_800_171.md` -- Security compliance audit
+- `docs/05_security/GIT_REPO_RULES.md` -- Git sanitization and commit rules
 
 ### Reference
-- `docs/FORMAT_SUPPORT.md` -- Supported file formats
+- `docs/02_architecture/FORMAT_SUPPORT.md` -- Supported file formats
 - `config/profiles.yaml` -- Hardware performance profiles
 
 ## Multi-Machine Deployment

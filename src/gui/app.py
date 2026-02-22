@@ -1,5 +1,5 @@
 # ============================================================================
-# HybridRAG v3 -- Main GUI Application (src/gui/app.py)
+# HybridRAG v3 -- Main GUI Application (src/gui/app.py)              RevA
 # ============================================================================
 # Technology Decision: tkinter (Python standard library)
 #
@@ -10,10 +10,14 @@
 #   - Suitable for prototype / human review before production UI
 #   - PyQt5/PySide6/wx/Dear PyGui are NOT in requirements.txt
 #
-# LAYOUT: Single window, four regions top to bottom:
+# LAYOUT: Single window with NavBar-driven view switching:
 #   1. Title bar with mode toggle (OFFLINE / ONLINE) + theme toggle
-#   2. Query panel (use case, model, question, answer, sources, metrics)
-#   3. Index panel (folder picker, progress bar, start/stop)
+#   2. NavBar [Query] [Settings] [Cost] [Ref]
+#   3. Content Frame (swaps views via pack_forget/pack, <1ms)
+#      - QueryView (QueryPanel + IndexPanel) -- default, eager-built
+#      - SettingsView -- lazy-built on first access
+#      - CostView (CostDashboard) -- lazy-built on first access
+#      - ReferenceView (ReferencePanel) -- lazy-built on first access
 #   4. Status bar (LLM, Ollama, Gate indicators)
 #
 # Menu bar: File | Admin | Help
@@ -31,7 +35,7 @@ import threading
 from src.gui.panels.query_panel import QueryPanel
 from src.gui.panels.index_panel import IndexPanel
 from src.gui.panels.status_bar import StatusBar
-from src.gui.panels.engineering_menu import EngineeringMenu
+from src.gui.panels.nav_bar import NavBar
 from src.gui.panels.cost_dashboard import CostDashboard
 from src.gui.panels.reference_panel import ReferencePanel
 from src.core.cost_tracker import get_cost_tracker
@@ -48,7 +52,7 @@ class HybridRAGApp(tk.Tk):
     Main application window for HybridRAG v3.
 
     Owns all panels and coordinates mode switching, boot state,
-    and backend references.
+    view switching, and backend references.
     """
 
     def __init__(self, boot_result=None, config=None, query_engine=None,
@@ -66,8 +70,6 @@ class HybridRAGApp(tk.Tk):
         self.indexer = indexer
         self.router = router
         self.cost_tracker = get_cost_tracker()
-        self._cost_dashboard = None
-        self._reference_panel = None
 
         # Apply initial theme
         self._theme = current_theme()
@@ -77,9 +79,9 @@ class HybridRAGApp(tk.Tk):
         # Build UI
         self._build_menu_bar()
         self._build_title_bar()
-        self._build_query_panel()
-        self._build_index_panel()
+        self._build_nav_bar()
         self._build_status_bar()
+        self._build_content_frame()
 
         # Show boot warnings if any
         if boot_result and boot_result.warnings:
@@ -109,23 +111,23 @@ class HybridRAGApp(tk.Tk):
         file_menu.add_command(label="Exit", command=self._on_close)
         menubar.add_cascade(label="File", menu=file_menu)
 
-        # Admin menu
+        # Admin menu -- commands switch views in-place
         admin_menu = tk.Menu(menubar, tearoff=0,
                              bg=t["menu_bg"], fg=t["menu_fg"],
                              activebackground=t["accent"],
                              activeforeground=t["accent_fg"], font=FONT)
         admin_menu.add_command(
             label="Admin Settings...",
-            command=self._open_engineering_menu,
+            command=lambda: self.show_view("settings"),
         )
         admin_menu.add_command(
             label="PM Cost Dashboard...",
-            command=self._open_cost_dashboard,
+            command=lambda: self.show_view("cost"),
         )
         admin_menu.add_separator()
         admin_menu.add_command(
             label="Ref",
-            command=self._open_reference,
+            command=lambda: self.show_view("reference"),
         )
         menubar.add_cascade(label="Admin", menu=admin_menu)
 
@@ -224,6 +226,78 @@ class HybridRAGApp(tk.Tk):
                                    relief=tk.FLAT)
 
     # ----------------------------------------------------------------
+    # NAV BAR
+    # ----------------------------------------------------------------
+
+    def _build_nav_bar(self):
+        """Build the horizontal navigation bar for view switching."""
+        self.nav_bar = NavBar(self, on_switch=self.show_view, theme=self._theme)
+        self.nav_bar.pack(fill=tk.X)
+
+    # ----------------------------------------------------------------
+    # CONTENT FRAME + VIEW SWITCHING
+    # ----------------------------------------------------------------
+
+    def _build_status_bar(self):
+        """Build and pack the status bar at the bottom."""
+        self.status_bar = StatusBar(
+            self, config=self.config, router=self.router,
+        )
+        self.status_bar.pack(fill=tk.X, side=tk.BOTTOM)
+
+    def _build_content_frame(self):
+        """Build the content container and the default Query view."""
+        self._content = tk.Frame(self, bg=self._theme["bg"])
+        self._content.pack(fill=tk.BOTH, expand=True)
+        self._views = {}
+        self._current_view = None
+
+        # Build Query view eagerly (startup view)
+        self._build_query_view()
+        self.show_view("query")
+
+    def _build_query_view(self):
+        """Build QueryPanel + IndexPanel inside a container frame."""
+        view = tk.Frame(self._content, bg=self._theme["bg"])
+        self.query_panel = QueryPanel(
+            view, config=self.config, query_engine=self.query_engine,
+        )
+        self.query_panel.pack(fill=tk.BOTH, expand=True, padx=16, pady=(8, 4))
+        self.index_panel = IndexPanel(
+            view, config=self.config, indexer=self.indexer,
+        )
+        self.index_panel.pack(fill=tk.X, padx=16, pady=4)
+        self._views["query"] = view
+
+    def show_view(self, name):
+        """Switch to the named view. Lazy-builds on first access."""
+        # Hide current view
+        if self._current_view and self._current_view in self._views:
+            self._views[self._current_view].pack_forget()
+
+        # Build if not yet created (lazy)
+        if name not in self._views:
+            self._build_view(name)
+
+        # Show target view
+        self._views[name].pack(in_=self._content, fill=tk.BOTH, expand=True)
+        self._current_view = name
+        self.nav_bar.select(name)
+
+    def _build_view(self, name):
+        """Lazy-build a view the first time it is requested."""
+        if name == "settings":
+            from src.gui.panels.settings_view import SettingsView
+            view = SettingsView(self._content, config=self.config, app_ref=self)
+            self._views["settings"] = view
+        elif name == "cost":
+            view = CostDashboard(self._content, self.cost_tracker)
+            self._views["cost"] = view
+        elif name == "reference":
+            view = ReferencePanel(self._content)
+            self._views["reference"] = view
+
+    # ----------------------------------------------------------------
     # THEME TOGGLE
     # ----------------------------------------------------------------
 
@@ -264,6 +338,12 @@ class HybridRAGApp(tk.Tk):
         # Rebuild menus
         self._build_menu_bar()
 
+        # Nav bar
+        self.nav_bar.apply_theme(t)
+
+        # Content frame
+        self._content.configure(bg=t["bg"])
+
         # Propagate to panels
         if hasattr(self, "query_panel"):
             self.query_panel.apply_theme(t)
@@ -272,30 +352,10 @@ class HybridRAGApp(tk.Tk):
         if hasattr(self, "status_bar"):
             self.status_bar.apply_theme(t)
 
-    # ----------------------------------------------------------------
-    # PANELS
-    # ----------------------------------------------------------------
-
-    def _build_query_panel(self):
-        """Build and pack the query panel."""
-        self.query_panel = QueryPanel(
-            self, config=self.config, query_engine=self.query_engine,
-        )
-        self.query_panel.pack(fill=tk.BOTH, expand=True, padx=16, pady=(8, 4))
-
-    def _build_index_panel(self):
-        """Build and pack the index panel."""
-        self.index_panel = IndexPanel(
-            self, config=self.config, indexer=self.indexer,
-        )
-        self.index_panel.pack(fill=tk.X, padx=16, pady=4)
-
-    def _build_status_bar(self):
-        """Build and pack the status bar."""
-        self.status_bar = StatusBar(
-            self, config=self.config, router=self.router,
-        )
-        self.status_bar.pack(fill=tk.X, side=tk.BOTTOM)
+        # Propagate to all cached views
+        for view in self._views.values():
+            if hasattr(view, "apply_theme"):
+                view.apply_theme(t)
 
     # ----------------------------------------------------------------
     # MODE TOGGLING
@@ -315,7 +375,6 @@ class HybridRAGApp(tk.Tk):
 
     def _switch_to_online(self):
         """Attempt to switch to online mode."""
-        # Check credentials
         try:
             from src.security.credentials import credential_status
             status = credential_status()
@@ -343,11 +402,9 @@ class HybridRAGApp(tk.Tk):
             )
             return
 
-        # Switch mode
         if self.config:
             self.config.mode = "online"
 
-        # Reconfigure network gate
         try:
             from src.core.network_gate import configure_gate
             from src.security.credentials import resolve_credentials
@@ -374,7 +431,6 @@ class HybridRAGApp(tk.Tk):
         if self.config:
             self.config.mode = "offline"
 
-        # Reconfigure network gate
         try:
             from src.core.network_gate import configure_gate
             configure_gate(mode="offline")
@@ -392,19 +448,11 @@ class HybridRAGApp(tk.Tk):
     # ----------------------------------------------------------------
 
     def reset_backends(self):
-        """Tear down backends, show loading state, and reload in background.
-
-        The Embedder is cached at module level in launch_gui.py so the
-        expensive model-load (~8s) is paid only once per process.  Reset
-        rebuilds VectorStore, Router, QueryEngine, and Indexer but reuses
-        the cached Embedder -- making Reset near-instant.
-        """
-        # Clear backend references (embedder stays in module cache)
+        """Tear down backends, show loading state, and reload in background."""
         self.query_engine = None
         self.indexer = None
         self.router = None
 
-        # Propagate to panels
         if hasattr(self, "query_panel"):
             self.query_panel.query_engine = None
             self.query_panel.set_ready(False)
@@ -416,7 +464,6 @@ class HybridRAGApp(tk.Tk):
             self.status_bar.set_loading_stage("Restarting...")
             self.status_bar.force_refresh()
 
-        # Launch reload in a new daemon thread
         from src.gui.launch_gui import _load_backends
         reload_thread = threading.Thread(
             target=_load_backends,
@@ -443,12 +490,7 @@ class HybridRAGApp(tk.Tk):
     # ----------------------------------------------------------------
 
     def reload_config(self, new_config):
-        """Replace the running config and propagate to all panels.
-
-        Called after a profile switch rewrites default_config.yaml.
-        The new Config is loaded from disk by the caller; this method
-        just stores it and pushes the reference to every component.
-        """
+        """Replace the running config and propagate to all panels."""
         self.config = new_config
 
         if hasattr(self, "query_panel"):
@@ -462,36 +504,13 @@ class HybridRAGApp(tk.Tk):
             self.status_bar.config = new_config
             self.status_bar.force_refresh()
 
+        # Propagate to settings view if it exists
+        settings = self._views.get("settings")
+        if settings is not None:
+            settings.config = new_config
+
         self._update_mode_buttons()
         logger.info("Config reloaded and propagated to all panels")
-
-    # ----------------------------------------------------------------
-    # ENGINEERING MENU
-    # ----------------------------------------------------------------
-
-    def _open_engineering_menu(self):
-        """Open the engineering settings child window."""
-        EngineeringMenu(self, config=self.config, query_engine=self.query_engine)
-
-    def _open_cost_dashboard(self):
-        """Open the PM Cost Dashboard child window."""
-        # Reuse existing window if still open
-        if (self._cost_dashboard is not None
-                and self._cost_dashboard.winfo_exists()):
-            self._cost_dashboard.lift()
-            self._cost_dashboard.focus_force()
-            return
-        self._cost_dashboard = CostDashboard(self, self.cost_tracker)
-
-    def _open_reference(self):
-        """Open the Reference panel child window."""
-        if (hasattr(self, "_reference_panel")
-                and self._reference_panel is not None
-                and self._reference_panel.winfo_exists()):
-            self._reference_panel.lift()
-            self._reference_panel.focus_force()
-            return
-        self._reference_panel = ReferencePanel(self)
 
     # ----------------------------------------------------------------
     # HELP
@@ -516,6 +535,10 @@ class HybridRAGApp(tk.Tk):
         """Clean up and close the application."""
         if hasattr(self, "status_bar"):
             self.status_bar.stop()
+        # Clean up cost dashboard listener if it was built
+        cost_view = self._views.get("cost") if hasattr(self, "_views") else None
+        if cost_view is not None and hasattr(cost_view, "cleanup"):
+            cost_view.cleanup()
         if hasattr(self, "cost_tracker") and self.cost_tracker:
             self.cost_tracker.shutdown()
         self.destroy()

@@ -773,7 +773,7 @@ PDF File
 | **PyMuPDF (fitz)** | AGPL license (viral) |
 | **Apache Tika** | Requires Java runtime |
 
-### Full audit documentation: docs/MODEL_AUDIT.md
+### Full audit documentation: docs/05_security/DEFENSE_MODEL_AUDIT.md
 
 ---
 

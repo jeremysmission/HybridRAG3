@@ -11,15 +11,15 @@ Your documents are never modified, moved, or sent anywhere.
 
 STEP 1: Understand what this does (10 minutes)
 -----------------------------------------------
-Open docs/THEORY_OF_OPERATION_RevA.md in your browser or text editor.
+Open docs/02_architecture/THEORY_OF_OPERATION_RevA.md in your browser or text editor.
 This explains the whole system in plain language with no jargon.
 
-If you see a term you do not understand, check docs/GLOSSARY.md.
+If you see a term you do not understand, check docs/03_guides/GLOSSARY.md.
 
 
 STEP 2: Install (30-60 minutes, one-time)
 ------------------------------------------
-Follow docs/INSTALL_AND_SETUP.md from Part 1 through Part 6.
+Follow docs/01_setup/INSTALL_AND_SETUP.md from Part 1 through Part 6.
 
 The short version:
   1. Install Python 3.11 from python.org (check "Add to PATH")
@@ -65,7 +65,7 @@ Or launch the graphical interface:
   python src/gui/launch_gui.py
 
 The GUI has a dark theme, a query box, an index panel, and a status
-bar. See docs/GUI_GUIDE.md for the full walkthrough.
+bar. See docs/03_guides/GUI_GUIDE.md for the full walkthrough.
 
 
 STEP 6 (optional): Set up Ollama or a cloud API for answers
@@ -95,18 +95,18 @@ DAILY USE (after setup is done)
   4. Type:  rag-query "your question here"
 
 Or double-click start_rag.bat (CLI) or start_gui.bat (GUI) from
-File Explorer. See docs/SHORTCUT_SHEET.md, section 2.
+File Explorer. See docs/03_guides/SHORTCUT_SHEET.md, section 2.
 
 
 KEY DOCUMENTS
 -------------
-  docs/THEORY_OF_OPERATION_RevA.md   What the system does (plain English)
-  docs/INSTALL_AND_SETUP.md          Full installation walkthrough
-  docs/USER_GUIDE.md                 Daily use, all commands explained
-  docs/SHORTCUT_SHEET.md             Quick reference (phone-friendly)
-  docs/GUI_GUIDE.md                  Graphical interface walkthrough
-  docs/GLOSSARY.md                   Every acronym and term defined
-  docs/FORMAT_SUPPORT.md             All 49+ supported file types
+  docs/02_architecture/THEORY_OF_OPERATION_RevA.md  What the system does (plain English)
+  docs/01_setup/INSTALL_AND_SETUP.md               Full installation walkthrough
+  docs/03_guides/USER_GUIDE.md                     Daily use, all commands explained
+  docs/03_guides/SHORTCUT_SHEET.md                 Quick reference (phone-friendly)
+  docs/03_guides/GUI_GUIDE.md                      Graphical interface walkthrough
+  docs/03_guides/GLOSSARY.md                       Every acronym and term defined
+  docs/02_architecture/FORMAT_SUPPORT.md           All 49+ supported file types
 
 
 COMMON FIRST-TIME PROBLEMS

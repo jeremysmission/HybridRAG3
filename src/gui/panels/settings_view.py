@@ -1,15 +1,22 @@
 # ============================================================================
-# HybridRAG v3 -- Admin Menu (src/gui/panels/engineering_menu.py)
+# HybridRAG v3 -- Settings View (src/gui/panels/settings_view.py)    RevA
 # ============================================================================
-# Separate child window for tuning retrieval, LLM, profile, and model settings.
+# Embeddable Frame for tuning retrieval, LLM, and profile/model settings.
+# Replaces the old EngineeringMenu with an in-place embedded view.
+#
+# Sections:
+#   1. Retrieval Settings (top_k, min_score, hybrid_search, reranker)
+#   2. LLM Settings (max_tokens, temperature, timeout)
+#   3. Profile & Model Ranking (dropdown, apply, model table)
+#   4. Reset to Defaults
+#
 # Changes take effect immediately and are written to config.
 #
-# INTERNET ACCESS: Test query may use API if in online mode.
-#   Shows "Network: ACTIVE" indicator when online test queries run.
+# INTERNET ACCESS: NONE (profile switch runs a local subprocess)
 # ============================================================================
 
 import tkinter as tk
-from tkinter import ttk, scrolledtext
+from tkinter import ttk
 import subprocess
 import sys
 import os
@@ -21,32 +28,146 @@ from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_SMALL, FONT_MONO,
 logger = logging.getLogger(__name__)
 
 
-class EngineeringMenu(tk.Toplevel):
+# ====================================================================
+# Module-level helpers (extracted to keep SettingsView under 500 lines)
+# ====================================================================
+
+def _load_profile_names():
+    """Read profile names from profiles.yaml."""
+    try:
+        import yaml
+        root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
+        path = os.path.join(root, "config", "profiles.yaml")
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        if isinstance(data, dict):
+            return list(data.keys())
+    except Exception:
+        pass
+    return ["laptop_safe", "desktop_power", "server_max"]
+
+
+def _detect_profile_name(config):
+    """Return the best-matching profile name for the given config."""
+    try:
+        import yaml
+        root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
+        path = os.path.join(root, "config", "profiles.yaml")
+        with open(path, "r", encoding="utf-8") as f:
+            profiles_data = yaml.safe_load(f) or {}
+
+        current_model = getattr(
+            getattr(config, "embedding", None), "model_name", ""
+        )
+        current_device = getattr(
+            getattr(config, "embedding", None), "device", "cpu"
+        )
+
+        for name, pdata in profiles_data.items():
+            p_model = pdata.get("embedding", {}).get("model_name", "")
+            p_device = pdata.get("embedding", {}).get("device", "cpu")
+            if p_model == current_model and p_device == current_device:
+                return name
+
+        current_llm = getattr(
+            getattr(config, "ollama", None), "model", ""
+        )
+        for name, pdata in profiles_data.items():
+            p_llm = pdata.get("ollama", {}).get("model", "")
+            p_device = pdata.get("embedding", {}).get("device", "cpu")
+            if p_llm == current_llm and p_device == current_device:
+                return name
+    except Exception:
+        pass
+    return "laptop_safe"
+
+
+def _build_ranking_text(profile):
+    """Build the ranked model table text for a given profile."""
+    try:
+        from scripts._model_meta import (
+            get_profile_ranking_table, USE_CASES,
+        )
+
+        table = get_profile_ranking_table(profile)
+        lines = []
+        lines.append(
+            "  {:<22s} {:<22s} {}".format(
+                "Use Case", "#1 (default)", "#2 (fallback)")
+        )
+        lines.append(
+            "  {:<22s} {:<22s} {}".format("-" * 22, "-" * 22, "-" * 22)
+        )
+
+        display_order = [
+            "sw", "eng", "sys", "draft", "log", "pm", "fe", "cyber", "gen",
+        ]
+        for uc_key in display_order:
+            if uc_key not in table:
+                continue
+            ranked = table[uc_key]
+            label = USE_CASES[uc_key]["label"]
+            col1 = ranked[0]["model"] if len(ranked) > 0 else "---"
+            col2 = ranked[1]["model"] if len(ranked) > 1 else "---"
+            lines.append(
+                "  {:<22s} {:<22s} {}".format(label, col1, col2)
+            )
+
+        return "\n".join(lines)
+    except Exception as e:
+        return "  [WARN] Could not load rankings: {}".format(e)
+
+
+def _theme_widget(widget, t):
+    """Recursively apply theme to a widget and its children."""
+    try:
+        wclass = widget.winfo_class()
+        if wclass == "Frame":
+            widget.configure(bg=t["panel_bg"])
+        elif wclass == "Label":
+            widget.configure(bg=t["panel_bg"], fg=t["fg"])
+        elif wclass == "Scale":
+            widget.configure(
+                bg=t["panel_bg"], fg=t["fg"],
+                troughcolor=t["input_bg"])
+        elif wclass == "Checkbutton":
+            widget.configure(
+                bg=t["panel_bg"], fg=t["fg"],
+                selectcolor=t["input_bg"],
+                activebackground=t["panel_bg"],
+                activeforeground=t["fg"])
+        elif wclass == "Text":
+            widget.configure(bg=t["input_bg"], fg=t["input_fg"])
+        elif wclass == "Button":
+            widget.configure(bg=t["accent"], fg=t["accent_fg"])
+    except Exception:
+        pass
+    for child in widget.winfo_children():
+        _theme_widget(child, t)
+
+
+class SettingsView(tk.Frame):
     """
-    Admin settings window with sliders for retrieval and LLM tuning,
-    profile/model ranking, and a test query runner.
+    Admin settings view with sliders for retrieval and LLM tuning,
+    profile/model ranking, and reset to defaults.
+
+    Embeddable Frame -- replaces the old separate-window EngineeringMenu.
     """
 
-    def __init__(self, parent, config, query_engine=None):
-        super().__init__(parent)
+    def __init__(self, parent, config, app_ref):
         t = current_theme()
-        self.title("Admin Settings")
-        self.geometry("620x780")
-        self.resizable(True, True)
+        super().__init__(parent, bg=t["bg"])
         self.config = config
-        self.query_engine = query_engine
-        self._app = parent  # HybridRAGApp -- used for reload_config / reset_backends
-        self.configure(bg=t["bg"])
+        self._app = app_ref
 
         # Store original values for reset
         self._original_values = self._capture_values()
 
         # Build sections
-        self._build_retrieval_section()
-        self._build_llm_section()
-        self._build_profile_section()
-        self._build_test_section()
-        self._build_buttons()
+        self._build_retrieval_section(t)
+        self._build_llm_section(t)
+        self._build_profile_section(t)
+        self._build_reset_button(t)
 
     def _capture_values(self):
         """Capture current config values for reset."""
@@ -66,21 +187,23 @@ class EngineeringMenu(tk.Toplevel):
     # RETRIEVAL SETTINGS
     # ----------------------------------------------------------------
 
-    def _build_retrieval_section(self):
+    def _build_retrieval_section(self, t):
         """Build retrieval settings section."""
-        t = current_theme()
         frame = tk.LabelFrame(self, text="Retrieval Settings", padx=16, pady=8,
                                bg=t["panel_bg"], fg=t["accent"],
                                font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=16, pady=(8, 4))
+        self._retrieval_frame = frame
 
         retrieval = getattr(self.config, "retrieval", None)
 
         # top_k slider
         row_tk = tk.Frame(frame, bg=t["panel_bg"])
         row_tk.pack(fill=tk.X, pady=4)
-        tk.Label(row_tk, text="top_k:", width=14, anchor=tk.W,
-                 bg=t["panel_bg"], fg=t["fg"], font=FONT).pack(side=tk.LEFT)
+        self._topk_label = tk.Label(
+            row_tk, text="top_k:", width=14, anchor=tk.W,
+            bg=t["panel_bg"], fg=t["fg"], font=FONT)
+        self._topk_label.pack(side=tk.LEFT)
         self.topk_var = tk.IntVar(
             value=getattr(retrieval, "top_k", 8) if retrieval else 8
         )
@@ -95,8 +218,10 @@ class EngineeringMenu(tk.Toplevel):
         # min_score slider
         row_ms = tk.Frame(frame, bg=t["panel_bg"])
         row_ms.pack(fill=tk.X, pady=4)
-        tk.Label(row_ms, text="min_score:", width=14, anchor=tk.W,
-                 bg=t["panel_bg"], fg=t["fg"], font=FONT).pack(side=tk.LEFT)
+        self._minscore_label = tk.Label(
+            row_ms, text="min_score:", width=14, anchor=tk.W,
+            bg=t["panel_bg"], fg=t["fg"], font=FONT)
+        self._minscore_label.pack(side=tk.LEFT)
         self.minscore_var = tk.DoubleVar(
             value=getattr(retrieval, "min_score", 0.20) if retrieval else 0.20
         )
@@ -111,34 +236,40 @@ class EngineeringMenu(tk.Toplevel):
         # Hybrid search toggle
         row_hs = tk.Frame(frame, bg=t["panel_bg"])
         row_hs.pack(fill=tk.X, pady=4)
-        tk.Label(row_hs, text="Hybrid search:", width=14, anchor=tk.W,
-                 bg=t["panel_bg"], fg=t["fg"], font=FONT).pack(side=tk.LEFT)
+        self._hybrid_label = tk.Label(
+            row_hs, text="Hybrid search:", width=14, anchor=tk.W,
+            bg=t["panel_bg"], fg=t["fg"], font=FONT)
+        self._hybrid_label.pack(side=tk.LEFT)
         self.hybrid_var = tk.BooleanVar(
             value=getattr(retrieval, "hybrid_search", True) if retrieval else True
         )
-        tk.Checkbutton(
+        self._hybrid_cb = tk.Checkbutton(
             row_hs, variable=self.hybrid_var,
             command=self._on_retrieval_change,
             bg=t["panel_bg"], fg=t["fg"],
             selectcolor=t["input_bg"], activebackground=t["panel_bg"],
             activeforeground=t["fg"], font=FONT,
-        ).pack(side=tk.LEFT)
+        )
+        self._hybrid_cb.pack(side=tk.LEFT)
 
         # Reranker toggle
         row_rr = tk.Frame(frame, bg=t["panel_bg"])
         row_rr.pack(fill=tk.X, pady=4)
-        tk.Label(row_rr, text="Reranker:", width=14, anchor=tk.W,
-                 bg=t["panel_bg"], fg=t["fg"], font=FONT).pack(side=tk.LEFT)
+        self._reranker_label = tk.Label(
+            row_rr, text="Reranker:", width=14, anchor=tk.W,
+            bg=t["panel_bg"], fg=t["fg"], font=FONT)
+        self._reranker_label.pack(side=tk.LEFT)
         self.reranker_var = tk.BooleanVar(
             value=getattr(retrieval, "reranker_enabled", False) if retrieval else False
         )
-        tk.Checkbutton(
+        self._reranker_cb = tk.Checkbutton(
             row_rr, variable=self.reranker_var,
             command=self._on_retrieval_change,
             bg=t["panel_bg"], fg=t["fg"],
             selectcolor=t["input_bg"], activebackground=t["panel_bg"],
             activeforeground=t["fg"], font=FONT,
-        ).pack(side=tk.LEFT)
+        )
+        self._reranker_cb.pack(side=tk.LEFT)
 
     def _on_retrieval_change(self):
         """Write retrieval settings to config immediately."""
@@ -153,21 +284,23 @@ class EngineeringMenu(tk.Toplevel):
     # LLM SETTINGS
     # ----------------------------------------------------------------
 
-    def _build_llm_section(self):
+    def _build_llm_section(self, t):
         """Build LLM settings section."""
-        t = current_theme()
         frame = tk.LabelFrame(self, text="LLM Settings", padx=16, pady=8,
                                bg=t["panel_bg"], fg=t["accent"],
                                font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=16, pady=8)
+        self._llm_frame = frame
 
         api = getattr(self.config, "api", None)
 
         # Max tokens slider
         row_mt = tk.Frame(frame, bg=t["panel_bg"])
         row_mt.pack(fill=tk.X, pady=4)
-        tk.Label(row_mt, text="Max tokens:", width=14, anchor=tk.W,
-                 bg=t["panel_bg"], fg=t["fg"], font=FONT).pack(side=tk.LEFT)
+        self._maxtokens_label = tk.Label(
+            row_mt, text="Max tokens:", width=14, anchor=tk.W,
+            bg=t["panel_bg"], fg=t["fg"], font=FONT)
+        self._maxtokens_label.pack(side=tk.LEFT)
         self.maxtokens_var = tk.IntVar(
             value=getattr(api, "max_tokens", 2048) if api else 2048
         )
@@ -182,8 +315,10 @@ class EngineeringMenu(tk.Toplevel):
         # Temperature slider
         row_temp = tk.Frame(frame, bg=t["panel_bg"])
         row_temp.pack(fill=tk.X, pady=4)
-        tk.Label(row_temp, text="Temperature:", width=14, anchor=tk.W,
-                 bg=t["panel_bg"], fg=t["fg"], font=FONT).pack(side=tk.LEFT)
+        self._temp_label = tk.Label(
+            row_temp, text="Temperature:", width=14, anchor=tk.W,
+            bg=t["panel_bg"], fg=t["fg"], font=FONT)
+        self._temp_label.pack(side=tk.LEFT)
         self.temp_var = tk.DoubleVar(
             value=getattr(api, "temperature", 0.1) if api else 0.1
         )
@@ -198,8 +333,10 @@ class EngineeringMenu(tk.Toplevel):
         # Timeout slider
         row_to = tk.Frame(frame, bg=t["panel_bg"])
         row_to.pack(fill=tk.X, pady=4)
-        tk.Label(row_to, text="Timeout (s):", width=14, anchor=tk.W,
-                 bg=t["panel_bg"], fg=t["fg"], font=FONT).pack(side=tk.LEFT)
+        self._timeout_label = tk.Label(
+            row_to, text="Timeout (s):", width=14, anchor=tk.W,
+            bg=t["panel_bg"], fg=t["fg"], font=FONT)
+        self._timeout_label.pack(side=tk.LEFT)
         self.timeout_var = tk.IntVar(
             value=getattr(api, "timeout_seconds", 30) if api else 30
         )
@@ -223,23 +360,24 @@ class EngineeringMenu(tk.Toplevel):
     # PERFORMANCE PROFILE
     # ----------------------------------------------------------------
 
-    def _build_profile_section(self):
+    def _build_profile_section(self, t):
         """Build performance profile section with ranked model table."""
-        t = current_theme()
         frame = tk.LabelFrame(self, text="Profile & Model Ranking", padx=16, pady=8,
                                bg=t["panel_bg"], fg=t["accent"],
                                font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=16, pady=8)
+        self._profile_frame = frame
 
         # Profile selector row
         row = tk.Frame(frame, bg=t["panel_bg"])
         row.pack(fill=tk.X, pady=4)
 
-        tk.Label(row, text="Profile:", width=14, anchor=tk.W,
-                 bg=t["panel_bg"], fg=t["fg"], font=FONT).pack(side=tk.LEFT)
+        self._profile_label = tk.Label(
+            row, text="Profile:", width=14, anchor=tk.W,
+            bg=t["panel_bg"], fg=t["fg"], font=FONT)
+        self._profile_label.pack(side=tk.LEFT)
 
-        # Read profile names from profiles.yaml (fall back to hardcoded)
-        profile_names = self._load_profile_names()
+        profile_names = _load_profile_names()
         self.profile_var = tk.StringVar(value="laptop_safe")
         self.profile_dropdown = ttk.Combobox(
             row, textvariable=self.profile_var, values=profile_names,
@@ -256,7 +394,7 @@ class EngineeringMenu(tk.Toplevel):
         )
         self.profile_apply_btn.pack(side=tk.LEFT, padx=(8, 0))
 
-        # Profile info line (shows embedder + LLM for current selection)
+        # Profile info line
         self.profile_info_label = tk.Label(
             frame, text="", anchor=tk.W, fg=t["fg"],
             bg=t["panel_bg"], font=FONT_SMALL,
@@ -282,59 +420,9 @@ class EngineeringMenu(tk.Toplevel):
         self._refresh_profile_info()
         self._refresh_model_table()
 
-    @staticmethod
-    def _load_profile_names():
-        """Read profile names from profiles.yaml."""
-        try:
-            import yaml
-            root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
-            path = os.path.join(root, "config", "profiles.yaml")
-            with open(path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-            if isinstance(data, dict):
-                return list(data.keys())
-        except Exception:
-            pass
-        return ["laptop_safe", "desktop_power", "server_max"]
-
     def _detect_current_profile(self):
         """Infer current profile from config by matching embedding model."""
-        try:
-            import yaml
-            root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
-            path = os.path.join(root, "config", "profiles.yaml")
-            with open(path, "r", encoding="utf-8") as f:
-                profiles_data = yaml.safe_load(f) or {}
-
-            current_model = getattr(
-                getattr(self.config, "embedding", None), "model_name", ""
-            )
-            current_device = getattr(
-                getattr(self.config, "embedding", None), "device", "cpu"
-            )
-
-            # Match by embedding model_name + device (most reliable)
-            for name, pdata in profiles_data.items():
-                p_model = pdata.get("embedding", {}).get("model_name", "")
-                p_device = pdata.get("embedding", {}).get("device", "cpu")
-                if p_model == current_model and p_device == current_device:
-                    self.profile_var.set(name)
-                    return
-
-            # Fallback: match by LLM model + device
-            current_llm = getattr(
-                getattr(self.config, "ollama", None), "model", ""
-            )
-            for name, pdata in profiles_data.items():
-                p_llm = pdata.get("ollama", {}).get("model", "")
-                p_device = pdata.get("embedding", {}).get("device", "cpu")
-                if p_llm == current_llm and p_device == current_device:
-                    self.profile_var.set(name)
-                    return
-
-            self.profile_var.set("laptop_safe")
-        except Exception:
-            self.profile_var.set("laptop_safe")
+        self.profile_var.set(_detect_profile_name(self.config))
 
     def _refresh_profile_info(self):
         """Show embedder + LLM info for the currently detected profile."""
@@ -352,56 +440,17 @@ class EngineeringMenu(tk.Toplevel):
 
     def _refresh_model_table(self):
         """Populate the ranked model table for the current profile."""
-        profile = self.profile_var.get()
-        try:
-            from scripts._model_meta import (
-                get_profile_ranking_table, USE_CASES, use_case_score,
-                WORK_ONLY_MODELS,
-            )
-
-            table = get_profile_ranking_table(profile)
-            lines = []
-            lines.append(
-                "  {:<22s} {:<22s} {}".format(
-                    "Use Case", "#1 (default)", "#2 (fallback)")
-            )
-            lines.append(
-                "  {:<22s} {:<22s} {}".format("-" * 22, "-" * 22, "-" * 22)
-            )
-
-            display_order = [
-                "sw", "eng", "sys", "draft", "log", "pm", "fe", "cyber", "gen",
-            ]
-            for uc_key in display_order:
-                if uc_key not in table:
-                    continue
-                ranked = table[uc_key]
-                label = USE_CASES[uc_key]["label"]
-                col1 = ranked[0]["model"] if len(ranked) > 0 else "---"
-                col2 = ranked[1]["model"] if len(ranked) > 1 else "---"
-                lines.append(
-                    "  {:<22s} {:<22s} {}".format(label, col1, col2)
-                )
-
-            text = "\n".join(lines)
-        except Exception as e:
-            text = "  [WARN] Could not load rankings: {}".format(e)
-
+        text = _build_ranking_text(self.profile_var.get())
         self.model_table.config(state=tk.NORMAL)
         self.model_table.delete("1.0", tk.END)
         self.model_table.insert("1.0", text)
         self.model_table.config(state=tk.DISABLED)
 
     def _on_profile_change(self, event=None):
-        """Apply profile switch in a background thread.
-
-        The subprocess + config reload + backend reset all happen off the
-        main thread so the GUI never freezes (previously 1-10s freeze).
-        """
+        """Apply profile switch in a background thread."""
         t = current_theme()
         profile = self.profile_var.get()
 
-        # Disable Apply button to prevent double-clicks
         self.profile_apply_btn.config(state=tk.DISABLED)
         self.profile_status_label.config(
             text="Switching to {}...".format(profile), fg=t["gray"],
@@ -414,26 +463,13 @@ class EngineeringMenu(tk.Toplevel):
         ).start()
 
     def _do_profile_switch(self, profile):
-        """Background thread: run subprocess, reload config, reset backends.
-
-        Full flow:
-          1. Capture old embedding model name
-          2. Run _profile_switch.py to update YAML on disk
-          3. Reload Config from disk
-          4. Detect embedding model change -> warn about re-index
-          5. Clear embedder cache if model changed
-          6. Propagate new config to app + all panels
-          7. Reset backends (rebuild embedder/router/query engine)
-          8. Refresh model table and info display
-        """
+        """Background thread: run subprocess, reload config, reset backends."""
         root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
 
-        # 1. Capture old embedding model before the switch
         old_embed_model = getattr(
             getattr(self.config, "embedding", None), "model_name", ""
         )
 
-        # 2. Run profile switch subprocess (updates YAML on disk)
         try:
             proc = subprocess.run(
                 [sys.executable,
@@ -450,7 +486,6 @@ class EngineeringMenu(tk.Toplevel):
             self.after(0, self._profile_switch_failed, str(e)[:80])
             return
 
-        # 3. Reload Config from disk
         try:
             from src.core.config import load_config
             new_config = load_config(root)
@@ -459,11 +494,8 @@ class EngineeringMenu(tk.Toplevel):
                        "Config reload: {}".format(str(e)[:60]))
             return
 
-        # Preserve the runtime mode (online/offline) -- the YAML always
-        # says "offline" but the user may have toggled to online.
         new_config.mode = self.config.mode
 
-        # 4. Detect embedding model change
         new_embed_model = getattr(
             getattr(new_config, "embedding", None), "model_name", ""
         )
@@ -473,7 +505,6 @@ class EngineeringMenu(tk.Toplevel):
             and old_embed_model != new_embed_model
         )
 
-        # 5. Clear embedder cache if model changed
         if embedding_changed:
             try:
                 from src.gui.launch_gui import clear_embedder_cache
@@ -482,7 +513,6 @@ class EngineeringMenu(tk.Toplevel):
             except Exception as e:
                 logger.warning("Could not clear embedder cache: %s", e)
 
-        # Schedule GUI updates on main thread
         self.after(0, self._profile_switch_done,
                    new_config, profile, embedding_changed,
                    old_embed_model, new_embed_model)
@@ -492,7 +522,6 @@ class EngineeringMenu(tk.Toplevel):
         """Main-thread callback after background profile switch succeeds."""
         t = current_theme()
 
-        # 4b. Warn about re-index if embedding changed
         if embedding_changed:
             from tkinter import messagebox
             messagebox.showwarning(
@@ -508,16 +537,13 @@ class EngineeringMenu(tk.Toplevel):
                 ),
             )
 
-        # 6. Propagate new config to app + all panels
         self.config = new_config
         if hasattr(self._app, "reload_config"):
             self._app.reload_config(new_config)
 
-        # 7. Reset backends (rebuilds embedder/router/query engine)
         if hasattr(self._app, "reset_backends"):
             self._app.reset_backends()
 
-        # 8. Refresh displays
         self._refresh_profile_info()
         self._refresh_model_table()
         self._sync_sliders_to_config()
@@ -553,173 +579,22 @@ class EngineeringMenu(tk.Toplevel):
             self.timeout_var.set(getattr(api, "timeout_seconds", 30))
 
     # ----------------------------------------------------------------
-    # TEST QUERY
+    # RESET TO DEFAULTS
     # ----------------------------------------------------------------
 
-    def _build_test_section(self):
-        """Build test query section."""
-        t = current_theme()
-        frame = tk.LabelFrame(self, text="Test Query", padx=16, pady=8,
-                               bg=t["panel_bg"], fg=t["accent"],
-                               font=FONT_BOLD)
-        frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=8)
-
-        # Persistent label above input
-        self.test_query_label = tk.Label(
-            frame, text="Test query:", bg=t["panel_bg"],
-            fg=t["fg"], font=FONT, anchor=tk.W,
-        )
-        self.test_query_label.pack(fill=tk.X, pady=(0, 4))
-
-        # Input row
-        row = tk.Frame(frame, bg=t["panel_bg"])
-        row.pack(fill=tk.X, pady=(0, 8))
-
-        self.test_entry = tk.Entry(
-            row, font=FONT_SMALL, bg=t["input_bg"], fg=t["input_fg"],
-            insertbackground=t["fg"], relief=tk.FLAT, bd=2,
-        )
-        self.test_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=4)
-        self.test_entry.bind("<Return>", self._on_test_query)
-
-        self.test_btn = tk.Button(
-            row, text="Run Test", command=self._on_test_query, width=10,
-            bg=t["accent"], fg=t["accent_fg"], font=FONT,
-            relief=tk.FLAT, bd=0, padx=16, pady=8,
-            activebackground=t["accent_hover"],
-            activeforeground=t["accent_fg"],
-        )
-        self.test_btn.pack(side=tk.LEFT, padx=(8, 0))
-        bind_hover(self.test_btn, normal_bg=t["accent"])
-
-        # Network indicator for test query
-        self.test_network_label = tk.Label(
-            frame, text="", anchor=tk.W, fg=t["gray"],
-            bg=t["panel_bg"], font=FONT,
-        )
-        self.test_network_label.pack(fill=tk.X)
-
-        # Result area
-        self.test_result = scrolledtext.ScrolledText(
-            frame, height=4, wrap=tk.WORD, state=tk.DISABLED,
-            font=FONT_SMALL, bg=t["input_bg"], fg=t["input_fg"],
-            insertbackground=t["fg"], relief=tk.FLAT, bd=1,
-            selectbackground=t["accent"],
-            selectforeground=t["accent_fg"],
-        )
-        self.test_result.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
-
-        # Latency (monospace for aligned numbers)
-        self.test_latency_label = tk.Label(
-            frame, text="", anchor=tk.W, fg=t["gray"],
-            bg=t["panel_bg"], font=FONT_MONO,
-        )
-        self.test_latency_label.pack(fill=tk.X, pady=(4, 0))
-
-    def _on_test_query(self, event=None):
-        """Run a test query with current settings."""
-        t = current_theme()
-        question = self.test_entry.get().strip()
-        if not question:
-            return
-
-        # Refresh from app (reset_backends rebuilds it asynchronously)
-        self.query_engine = getattr(self._app, "query_engine", None)
-
-        if self.query_engine is None:
-            self.test_result.config(state=tk.NORMAL)
-            self.test_result.delete("1.0", tk.END)
-            self.test_result.insert("1.0", "[FAIL] Query engine not initialized")
-            self.test_result.config(state=tk.DISABLED)
-            return
-
-        self.test_btn.config(state=tk.DISABLED)
-
-        # Show network indicator
-        mode = getattr(self.config, "mode", "offline")
-        if mode == "online":
-            self.test_network_label.config(text="Network: ACTIVE",
-                                           fg=t["orange"])
-        else:
-            self.test_network_label.config(text="Network: offline",
-                                           fg=t["gray"])
-
-        thread = threading.Thread(
-            target=self._run_test_query, args=(question,), daemon=True,
-        )
-        thread.start()
-
-    def _run_test_query(self, question):
-        """Execute test query in background."""
-        try:
-            result = self.query_engine.query(question)
-            self.after(0, self._display_test_result, result)
-        except Exception as e:
-            self.after(0, self._display_test_error, str(e))
-
-    def _display_test_result(self, result):
-        """Show test query result."""
-        try:
-            self._display_test_result_inner(result)
-        except Exception as e:
-            logger.error("Test result display failed: %s", e)
-            self.test_btn.config(state=tk.NORMAL)
-            self.test_network_label.config(text="")
-
-    def _display_test_result_inner(self, result):
-        """Inner handler (separated so outer can catch and re-enable)."""
-        self.test_btn.config(state=tk.NORMAL)
-        self.test_network_label.config(text="")
-
-        self.test_result.config(state=tk.NORMAL)
-        self.test_result.delete("1.0", tk.END)
-        if result.error:
-            self.test_result.insert("1.0", "[FAIL] {}".format(result.error))
-        else:
-            self.test_result.insert("1.0", result.answer[:500])
-        self.test_result.config(state=tk.DISABLED)
-
-        self.test_latency_label.config(
-            text="Latency: {:,.0f} ms".format(result.latency_ms),
-        )
-
-    def _display_test_error(self, error_msg):
-        """Show test query error."""
-        self.test_btn.config(state=tk.NORMAL)
-        self.test_network_label.config(text="")
-
-        self.test_result.config(state=tk.NORMAL)
-        self.test_result.delete("1.0", tk.END)
-        self.test_result.insert("1.0", "[FAIL] {}".format(error_msg))
-        self.test_result.config(state=tk.DISABLED)
-
-    # ----------------------------------------------------------------
-    # BOTTOM BUTTONS
-    # ----------------------------------------------------------------
-
-    def _build_buttons(self):
-        """Build Reset and Close buttons."""
-        t = current_theme()
+    def _build_reset_button(self, t):
+        """Build Reset to Defaults button."""
         btn_frame = tk.Frame(self, bg=t["bg"])
         btn_frame.pack(fill=tk.X, padx=16, pady=16)
+        self._reset_frame = btn_frame
 
-        reset_btn = tk.Button(
+        self._reset_btn = tk.Button(
             btn_frame, text="Reset to Defaults", command=self._on_reset,
             width=16, bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"],
             font=FONT, relief=tk.FLAT, bd=0, padx=12, pady=8,
         )
-        reset_btn.pack(side=tk.LEFT)
-        bind_hover(reset_btn)
-
-        close_btn = tk.Button(
-            btn_frame, text="Close", command=self.destroy, width=10,
-            bg=t["accent"], fg=t["accent_fg"], font=FONT,
-            relief=tk.FLAT, bd=0, padx=16, pady=8,
-            activebackground=t["accent_hover"],
-            activeforeground=t["accent_fg"],
-        )
-        close_btn.pack(side=tk.RIGHT)
-        bind_hover(close_btn, normal_bg=t["accent"])
+        self._reset_btn.pack(side=tk.LEFT)
+        bind_hover(self._reset_btn)
 
     def _on_reset(self):
         """Reset all sliders to original values."""
@@ -732,6 +607,26 @@ class EngineeringMenu(tk.Toplevel):
         self.temp_var.set(orig["temperature"])
         self.timeout_var.set(orig["timeout_seconds"])
 
-        # Write reset values to config
         self._on_retrieval_change()
         self._on_llm_change()
+
+    # ----------------------------------------------------------------
+    # THEME
+    # ----------------------------------------------------------------
+
+    def apply_theme(self, t):
+        """Re-apply theme colors to all widgets."""
+        self.config_bg = t["bg"]
+        self.configure(bg=t["bg"])
+
+        for frame_attr in ("_retrieval_frame", "_llm_frame", "_profile_frame"):
+            frame = getattr(self, frame_attr, None)
+            if frame:
+                frame.configure(bg=t["panel_bg"], fg=t["accent"])
+                for child in frame.winfo_children():
+                    _theme_widget(child, t)
+
+        if hasattr(self, "_reset_frame"):
+            self._reset_frame.configure(bg=t["bg"])
+            self._reset_btn.configure(
+                bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"])

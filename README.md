@@ -46,7 +46,7 @@ rag-diag
 
 After initial setup, steps 2-4 are never needed again. Daily use starts at step 5.
 
-See `docs/INSTALL_AND_SETUP.md` for detailed first-time installation instructions.
+See `docs/01_setup/INSTALL_AND_SETUP.md` for detailed first-time installation instructions.
 
 ## Daily Use
 
@@ -355,33 +355,33 @@ All packages sourced from PyPI (pypi.org) -- open-source with permissive license
 
 ### Getting Started
 - `START_HERE.txt` -- Read this first (plain-language walkthrough, no jargon)
-- `docs/INSTALL_AND_SETUP.md` -- Full installation and deployment guide (10 parts)
-- `docs/USER_GUIDE.md` -- Daily use, all commands, tuning, troubleshooting
-- `docs/SHORTCUT_SHEET.md` -- Quick reference card (phone-friendly)
+- `docs/01_setup/INSTALL_AND_SETUP.md` -- Full installation and deployment guide (10 parts)
+- `docs/03_guides/USER_GUIDE.md` -- Daily use, all commands, tuning, troubleshooting
+- `docs/03_guides/SHORTCUT_SHEET.md` -- Quick reference card (phone-friendly)
 
 ### Understanding the System
-- `docs/THEORY_OF_OPERATION_RevA.md` -- High-level overview for non-programmers
-- `docs/TECHNICAL_THEORY_OF_OPERATION_RevA.md` -- Developer-focused technical reference
-- `docs/SECURITY_THEORY_OF_OPERATION_RevA.md` -- Security design and threat model
-- `docs/ARCHITECTURE_DIAGRAM.md` -- System architecture diagram
+- `docs/02_architecture/THEORY_OF_OPERATION_RevA.md` -- High-level overview for non-programmers
+- `docs/02_architecture/TECHNICAL_THEORY_OF_OPERATION_RevA.md` -- Developer-focused technical reference
+- `docs/02_architecture/SECURITY_THEORY_OF_OPERATION_RevA.md` -- Security design and threat model
+- `docs/02_architecture/ARCHITECTURE_DIAGRAM.md` -- System architecture diagram
 
 ### Reference
-- `docs/GUI_GUIDE.md` -- Graphical interface walkthrough
-- `docs/INTERFACES.md` -- Stable public API reference for all modules
-- `docs/FORMAT_SUPPORT.md` -- All 49+ supported file formats
-- `docs/GLOSSARY.md` -- Every acronym and term defined
-- `docs/SOFTWARE_STACK.md` -- Full dependency list with licenses
+- `docs/03_guides/GUI_GUIDE.md` -- Graphical interface walkthrough
+- `docs/02_architecture/INTERFACES.md` -- Stable public API reference for all modules
+- `docs/02_architecture/FORMAT_SUPPORT.md` -- All 49+ supported file formats
+- `docs/03_guides/GLOSSARY.md` -- Every acronym and term defined
+- `docs/02_architecture/SOFTWARE_STACK.md` -- Full dependency list with licenses
 
 ### Configuration
 - `config/default_config.yaml` -- All runtime settings
 - `config/profiles.yaml` -- Hardware performance profiles (laptop / desktop / server)
 
 ### Additional Guides
-- `docs/DEMO_PREP.md` -- Demo preparation checklist
-- `docs/DEMO_GUIDE.md` -- Demo walkthrough script
-- `docs/STACK_LAPTOP.md` / `STACK_WORKSTATION.md` -- Per-machine setup notes
-- `docs/GIT_REPO_RULES.md` -- Git workflow and sync rules
-- `docs/DEFENSE_MODEL_AUDIT.md` -- Approved model stack and audit trail
+- `docs/04_demo/DEMO_PREP.md` -- Demo preparation checklist
+- `docs/04_demo/DEMO_GUIDE.md` -- Demo walkthrough script
+- `docs/06_hardware/STACK_LAPTOP.md` / `STACK_WORKSTATION.md` -- Per-machine setup notes
+- `docs/05_security/GIT_REPO_RULES.md` -- Git workflow and sync rules
+- `docs/05_security/DEFENSE_MODEL_AUDIT.md` -- Approved model stack and audit trail
 
 Older documents that have been superseded live in `docs/archive/`.
 

@@ -1,12 +1,15 @@
 # ============================================================================
-# HybridRAG v3 -- PM Cost Dashboard (src/gui/panels/cost_dashboard.py)
+# HybridRAG v3 -- PM Cost Dashboard (src/gui/panels/cost_dashboard.py) RevA
 # ============================================================================
 # Program Manager dashboard for tracking API token costs across a team.
-# Opens as a Toplevel child window from the Admin menu.
+# Embeddable Frame view -- switched in-place via the NavBar.
 #
 # LAYOUT: Header | Big Numbers | Budget Gauge | Token Breakdown |
 #         Data Volume | Cumulative Team | ROI Calculator | Rate Editor |
-#         Citations | Footer
+#         Citations | Export/Refresh footer
+#
+# All content is inside a scrollable Canvas+Frame wrapper because the
+# dashboard is taller than a typical window.
 #
 # INTERNET ACCESS: NONE -- reads from CostTracker only
 # ============================================================================
@@ -34,26 +37,43 @@ def _label(parent, t, **kw):
     return tk.Label(parent, **defaults)
 
 
-class CostDashboard(tk.Toplevel):
-    """PM Cost Dashboard window. Updates live as queries execute."""
+class CostDashboard(tk.Frame):
+    """PM Cost Dashboard view. Updates live as queries execute."""
 
     def __init__(self, parent, cost_tracker):
         t = current_theme()
-        super().__init__(parent)
-        self.title("PM Cost Dashboard")
-        self.geometry("720x920")
-        self.minsize(640, 700)
-        self.configure(bg=t["bg"])
-        self.transient(parent)
+        super().__init__(parent, bg=t["bg"])
 
         self._tracker = cost_tracker
-        self._parent = parent
         self._refresh_id = None
         # ROI calculator defaults (BLS May 2024 median PM: $48.44/hr)
         self._roi_hourly = 48.44
         self._roi_team = 10
         self._roi_min_saved = 10
 
+        # Scrollable canvas wrapper
+        self._canvas = tk.Canvas(self, bg=t["bg"], highlightthickness=0)
+        self._scrollbar = ttk.Scrollbar(
+            self, orient="vertical", command=self._canvas.yview)
+        self._inner = tk.Frame(self._canvas, bg=t["bg"])
+        self._inner.bind(
+            "<Configure>",
+            lambda e: self._canvas.configure(
+                scrollregion=self._canvas.bbox("all")))
+        self._canvas_window = self._canvas.create_window(
+            (0, 0), window=self._inner, anchor="nw", tags="inner")
+        self._canvas.configure(yscrollcommand=self._scrollbar.set)
+        self._scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self._canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Resize inner frame width with canvas
+        self._canvas.bind("<Configure>", self._on_canvas_resize)
+
+        # Mousewheel scrolling
+        self._canvas.bind("<Enter>", self._bind_mousewheel)
+        self._canvas.bind("<Leave>", self._unbind_mousewheel)
+
+        # Build all sections into self._inner
         self._build_header(t)
         self._build_big_numbers(t)
         self._build_budget_gauge(t)
@@ -68,10 +88,24 @@ class CostDashboard(tk.Toplevel):
 
         self._listener = lambda event: self.after(0, self._refresh_all)
         self._tracker.add_listener(self._listener)
-        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _on_canvas_resize(self, event):
+        """Keep inner frame width matched to canvas width."""
+        self._canvas.itemconfig("inner", width=event.width)
+
+    def _bind_mousewheel(self, event):
+        self._canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+
+    def _unbind_mousewheel(self, event):
+        self._canvas.unbind_all("<MouseWheel>")
+
+    def _on_mousewheel(self, event):
+        self._canvas.yview_scroll(-1 * (event.delta // 120), "units")
+
+    # -- Build sections (all into self._inner) ----------------------------
 
     def _build_header(self, t):
-        frame = tk.Frame(self, bg=t["panel_bg"], padx=16, pady=12)
+        frame = tk.Frame(self._inner, bg=t["panel_bg"], padx=16, pady=12)
         frame.pack(fill=tk.X)
         _label(frame, t, text="PM Cost Dashboard", font=FONT_TITLE).pack(side=tk.LEFT)
         self._session_label = _label(frame, t, text="Session: ---",
@@ -79,7 +113,7 @@ class CostDashboard(tk.Toplevel):
         self._session_label.pack(side=tk.RIGHT)
 
     def _build_big_numbers(self, t):
-        frame = tk.Frame(self, bg=t["bg"], padx=16, pady=4)
+        frame = tk.Frame(self._inner, bg=t["bg"], padx=16, pady=4)
         frame.pack(fill=tk.X)
 
         col1 = tk.Frame(frame, bg=t["panel_bg"], padx=16, pady=12)
@@ -101,7 +135,7 @@ class CostDashboard(tk.Toplevel):
         self._avg_label.pack()
 
     def _build_budget_gauge(self, t):
-        frame = tk.LabelFrame(self, text="Daily Budget", padx=16, pady=8,
+        frame = tk.LabelFrame(self._inner, text="Daily Budget", padx=16, pady=8,
                               bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=16, pady=4)
 
@@ -114,7 +148,7 @@ class CostDashboard(tk.Toplevel):
         self._savings_label.pack()
 
     def _build_token_breakdown(self, t):
-        frame = tk.LabelFrame(self, text="Token Breakdown (Session)", padx=16, pady=8,
+        frame = tk.LabelFrame(self._inner, text="Token Breakdown (Session)", padx=16, pady=8,
                               bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=16, pady=4)
 
@@ -158,7 +192,7 @@ class CostDashboard(tk.Toplevel):
         self._ttotal_cost.pack(side=tk.LEFT)
 
     def _build_data_volume(self, t):
-        frame = tk.LabelFrame(self, text="Data Volume (Session)", padx=16, pady=8,
+        frame = tk.LabelFrame(self._inner, text="Data Volume (Session)", padx=16, pady=8,
                               bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=16, pady=4)
         row = tk.Frame(frame, bg=t["panel_bg"])
@@ -175,20 +209,19 @@ class CostDashboard(tk.Toplevel):
         self._data_total_label.pack(side=tk.LEFT, padx=4)
 
     def _build_cumulative(self, t):
-        frame = tk.LabelFrame(self, text="Cumulative (All Sessions / Team)", padx=16, pady=8,
-                              bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
+        frame = tk.LabelFrame(self._inner, text="Cumulative (All Sessions / Team)", padx=16,
+                              pady=8, bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=16, pady=4)
         self._cum_text = _label(frame, t, text="Loading...", font=FONT_MONO,
                                 justify=tk.LEFT, anchor=tk.W)
         self._cum_text.pack(fill=tk.X)
 
     def _build_roi_calculator(self, t):
-        frame = tk.LabelFrame(self, text="ROI Calculator -- Productivity Savings *",
+        frame = tk.LabelFrame(self._inner, text="ROI Calculator -- Productivity Savings *",
                               padx=16, pady=8, bg=t["panel_bg"], fg=t["accent"],
                               font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=16, pady=4)
 
-        # Big numbers: TIME SAVED | VALUE SAVED | NET ROI
         nums = tk.Frame(frame, bg=t["panel_bg"])
         nums.pack(fill=tk.X, pady=(0, 4))
 
@@ -210,7 +243,6 @@ class CostDashboard(tk.Toplevel):
         self._roi_net_label = _label(c3, t, text="$0.00", font=FONT_MED, fg=t["accent"])
         self._roi_net_label.pack()
 
-        # Parameter row
         prow = tk.Frame(frame, bg=t["panel_bg"])
         prow.pack(fill=tk.X, pady=(4, 2))
         _label(prow, t, text="Hourly rate *3: $", font=FONT_SMALL).pack(side=tk.LEFT)
@@ -234,13 +266,12 @@ class CostDashboard(tk.Toplevel):
         upd_btn.pack(side=tk.LEFT)
         bind_hover(upd_btn)
 
-        # Team monthly projection
         self._roi_projection = _label(frame, t, text="", font=FONT_MONO, fg=t["fg"])
         self._roi_projection.pack(fill=tk.X, pady=(4, 0))
 
     def _build_rate_editor(self, t):
-        frame = tk.LabelFrame(self, text="Token Pricing (per 1M tokens)", padx=16, pady=8,
-                              bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
+        frame = tk.LabelFrame(self._inner, text="Token Pricing (per 1M tokens)", padx=16,
+                              pady=8, bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=16, pady=4)
         row = tk.Frame(frame, bg=t["panel_bg"])
         row.pack(fill=tk.X)
@@ -267,7 +298,7 @@ class CostDashboard(tk.Toplevel):
         self._rate_status.pack(anchor=tk.W, pady=(4, 0))
 
     def _build_citations(self, t):
-        frame = tk.Frame(self, bg=t["bg"], padx=16, pady=2)
+        frame = tk.Frame(self._inner, bg=t["bg"], padx=16, pady=2)
         frame.pack(fill=tk.X)
         citations = (
             "*1 McKinsey Global Institute, \"The Social Economy,\" 2012"
@@ -285,8 +316,8 @@ class CostDashboard(tk.Toplevel):
         self._citations_label.pack(fill=tk.X)
 
     def _build_footer(self, t):
-        frame = tk.Frame(self, bg=t["bg"], padx=16, pady=8)
-        frame.pack(fill=tk.X, side=tk.BOTTOM)
+        frame = tk.Frame(self._inner, bg=t["bg"], padx=16, pady=8)
+        frame.pack(fill=tk.X)
 
         self._export_btn = tk.Button(frame, text="Export CSV", font=FONT, width=14,
                                      command=self._on_export_csv, bg=t["accent"],
@@ -300,12 +331,6 @@ class CostDashboard(tk.Toplevel):
                                       fg=t["fg"], relief=tk.FLAT, bd=0, padx=12, pady=6)
         self._refresh_btn.pack(side=tk.LEFT, padx=8)
         bind_hover(self._refresh_btn)
-
-        self._close_btn = tk.Button(frame, text="Close", font=FONT, width=10,
-                                    command=self._on_close, bg=t["input_bg"],
-                                    fg=t["fg"], relief=tk.FLAT, bd=0, padx=12, pady=6)
-        self._close_btn.pack(side=tk.RIGHT)
-        bind_hover(self._close_btn)
 
     # -- Refresh methods --------------------------------------------------
 
@@ -369,11 +394,16 @@ class CostDashboard(tk.Toplevel):
         t = current_theme()
 
         budget = 5.0
-        parent_config = getattr(self._parent, "config", None)
-        if parent_config:
-            cost_cfg = getattr(parent_config, "cost", None)
-            if cost_cfg:
-                budget = getattr(cost_cfg, "daily_budget_usd", 5.0)
+        # Walk up to find the app's config for budget setting
+        try:
+            app = self.winfo_toplevel()
+            parent_config = getattr(app, "config", None)
+            if parent_config:
+                cost_cfg = getattr(parent_config, "cost", None)
+                if cost_cfg:
+                    budget = getattr(cost_cfg, "daily_budget_usd", 5.0)
+        except Exception:
+            pass
 
         spent = s.total_cost_usd
         pct = min(spent / budget, 1.0) if budget > 0 else 0.0
@@ -437,12 +467,10 @@ class CostDashboard(tk.Toplevel):
         self._roi_net_label.config(text="${:,.2f}".format(net_roi))
         self._roi_net_label.config(fg=t["green"] if net_roi >= 0 else t["red"])
 
-        # Team monthly projection (use session query count as daily estimate)
         qpd = max(s.query_count, 1)
         monthly_queries = qpd * team * 22
         monthly_value = monthly_queries * value_per_query
         monthly_cost = monthly_queries * s.avg_cost_per_query
-        monthly_net = monthly_value - monthly_cost
         if monthly_cost > 0:
             roi_pct = ((monthly_value / monthly_cost) - 1) * 100
             self._roi_projection.config(
@@ -489,7 +517,7 @@ class CostDashboard(tk.Toplevel):
     def _on_export_csv(self):
         """Export all cost events to CSV file."""
         filepath = filedialog.asksaveasfilename(
-            parent=self, defaultextension=".csv",
+            defaultextension=".csv",
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
             initialfile="hybridrag_cost_export_{}.csv".format(
                 datetime.now().strftime("%Y%m%d_%H%M%S")))
@@ -498,21 +526,28 @@ class CostDashboard(tk.Toplevel):
         count = self._tracker.export_csv(filepath)
         if count > 0:
             messagebox.showinfo("Export Complete",
-                                "Exported {:,} cost events to:\n{}".format(count, filepath),
-                                parent=self)
+                                "Exported {:,} cost events to:\n{}".format(count, filepath))
         else:
             messagebox.showwarning("No Data",
-                                   "No cost events to export yet.\nRun some queries first.",
-                                   parent=self)
+                                   "No cost events to export yet.\nRun some queries first.")
 
-    def _on_close(self):
-        """Unregister listener and close window."""
-        self._tracker.remove_listener(self._listener)
+    # -- Lifecycle ---------------------------------------------------------
+
+    def cleanup(self):
+        """Unregister listener and cancel pending refreshes."""
+        try:
+            self._tracker.remove_listener(self._listener)
+        except Exception:
+            pass
         if self._refresh_id:
-            self.after_cancel(self._refresh_id)
-        self.destroy()
+            try:
+                self.after_cancel(self._refresh_id)
+            except Exception:
+                pass
 
     def apply_theme(self, t):
         """Re-apply theme to dashboard."""
         self.configure(bg=t["bg"])
+        self._canvas.configure(bg=t["bg"])
+        self._inner.configure(bg=t["bg"])
         self._refresh_all()

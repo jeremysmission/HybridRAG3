@@ -592,7 +592,7 @@ logs/cost_tracking.db
 ## 14. Model Compliance
 
 All offline models must pass regulatory review before deployment.
-Full audit: `docs/MODEL_AUDIT.md`.
+Full audit: `docs/05_security/DEFENSE_MODEL_AUDIT.md`.
 
 **Approved publishers**: Microsoft (MIT), Mistral AI (Apache 2.0),
 Google (Apache 2.0), NVIDIA (Apache 2.0).
