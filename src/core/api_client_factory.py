@@ -245,7 +245,7 @@ class ApiClient:
 
         # --- Error handling ---
         if response.error and response.status_code == 0:
-            # Network-level failure (already classified by HttpClient)
+            # Network-level failure (already categorized by HttpClient)
             raise ConnectionFailedError(response.error)
 
         # HTTP error -- raise typed exception
@@ -409,7 +409,7 @@ class ApiClientFactory:
 
         DESIGN NOTE:
           Explicit config is preferred because URL pattern matching
-          is inherently fragile. Corporate URLs don't always contain
+          is inherently fragile. Enterprise URLs don't always contain
           "azure" in the name. Setting api.provider: "azure" in
           config.yaml eliminates all guessing.
         """
@@ -563,6 +563,8 @@ class ApiClientFactory:
             # OpenAI format
             if "/chat/completions" in base:
                 return base
+            if base.endswith("/v1"):
+                return f"{base}/chat/completions"
             return f"{base}/v1/chat/completions"
 
     # -----------------------------------------------------------------------

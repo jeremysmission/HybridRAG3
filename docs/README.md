@@ -15,7 +15,7 @@
 - **RAG Pipeline Architecture**: Document parsing, chunking, embedding, vector storage, semantic retrieval, LLM-augmented answers
 - **Hybrid Search**: Combining vector similarity (semantic) with keyword matching (FTS5) via Reciprocal Rank Fusion
 - **Offline-First Design**: Runs entirely on a local machine with no internet dependency after initial setup
-- **Online API Mode**: Optional mode routes queries to company GPT-3.5 Turbo for faster responses (2-5 seconds vs 180 seconds)
+- **Online API Mode**: Optional mode routes queries to a configured cloud API for faster responses (2-5 seconds vs 30+ seconds)
 - **Secure Credential Management**: API keys stored in Windows Credential Manager (DPAPI encrypted), never in files or git
 - **Performance Profiles**: Three hardware profiles (laptop_safe, desktop_power, server_max) for different machines
 - **Security Engineering**: 3-layer network lockdown, audit logging, layered security
@@ -46,7 +46,7 @@ rag-diag
 
 After initial setup, steps 2-4 are never needed again. Daily use starts at step 5.
 
-See `docs/SETUP.md` for detailed first-time installation instructions.
+See `docs/INSTALL_AND_SETUP.md` for detailed first-time installation instructions.
 
 ## Daily Use
 
@@ -107,11 +107,11 @@ rag-profile server_max        64GB+ RAM, batch=128, maximum throughput
 - Best for: Air-gapped environments, SCIFs, field use
 
 ### Online Mode
-- Uses company GPT-3.5 Turbo API via intranet
-- Requires API key stored in Windows Credential Manager
+- Routes queries to a configured API endpoint (Azure OpenAI, OpenRouter, etc.)
+- Requires API key + endpoint stored in Windows Credential Manager
 - Response time: ~2-5 seconds
-- Best for: Daily use when on company network
-- Cost: ~$0.002 per query ($1 buys ~500 queries)
+- Best for: Daily use when network access is available
+- Network gate allows only the single configured endpoint
 
 ## Configuration
 
@@ -217,14 +217,25 @@ HybridRAG3/
 |   |   |-- logger.py              Structured logging setup
 |   |   +-- run_tracker.py         Indexing run audit trail
 |   |
-|   +-- gui/                        GUI (placeholder for future)
-|       +-- __init__.py            Package marker
+|   |-- api/                        REST API (FastAPI)
+|   |   |-- server.py              Uvicorn entry point (localhost:8000)
+|   |   |-- routes.py              /health, /query, /index, /status, /config, /mode
+|   |   +-- models.py              Pydantic request/response schemas
+|   |
+|   +-- gui/                        Desktop GUI (tkinter, dark/light theme)
+|       |-- app.py                 Main application window (HybridRAGApp)
+|       |-- theme.py               Dark/light theme definitions and toggle
+|       |-- stubs.py               Temporary stubs (pending Window 2 merge)
+|       |-- launch_gui.py          Entry point with boot pipeline
+|       +-- panels/                Panel widgets (query, index, status, engineering)
 |
 |-- scripts/                        Helper scripts for PowerShell commands
 |   |-- _check_creds.py           Check credential status
 |   |-- _set_online.py            Set config mode to online
 |   |-- _set_offline.py           Set config mode to offline
 |   |-- _test_api.py              API connectivity test
+|   |-- _model_meta.py            Model metadata, use cases, routing tables
+|   |-- _set_model.py             Model selection and switching
 |   |-- _profile_status.py        Show current performance profile
 |   +-- _profile_switch.py        Switch performance profile
 |
@@ -233,7 +244,7 @@ HybridRAG3/
 |
 |-- docs/                           Documentation
 |   |-- ARCHITECTURE.md            System design, security model
-|   |-- SETUP.md                   Detailed installation instructions
+|   |-- INSTALL_AND_SETUP.md       Complete installation and setup guide
 |   |-- NETWORK_SECURITY_EXPLAINER.md  Network isolation design
 |   |-- PERFORMANCE_BASELINE.md    Performance benchmarks and tuning
 |   |-- SOURCE_BOUNDED_GENERATION.md   LLM context grounding
@@ -312,17 +323,29 @@ All packages sourced from PyPI (pypi.org) -- open-source with permissive license
 
 ## Documentation
 
+### Getting Started
+- `docs/INSTALL_AND_SETUP.md` -- Complete installation and setup guide (Parts 1-10)
+- `docs/CHEAT_SHEET.md` -- Troubleshooting cheat sheet (setup, daily use, errors, scaling)
+
+### User Guides
+- `docs/USER_GUIDE.md` -- End-user guide for CLI and daily workflows
+- `docs/GUI_GUIDE.md` -- GUI user guide (dark-mode prototype)
+- `docs/DEMO_PREP.md` -- Demo script, Q&A, and presentation prep
+- `docs/STUDY_GUIDE.md` -- Learning guide for the codebase and concepts
+
+### Architecture and Design
 - `docs/THEORY_OF_OPERATION.md` -- High-level overview for non-programmers
 - `docs/TECHNICAL_THEORY_OF_OPERATION.md` -- Developer-focused technical reference
-- `docs/SETUP.md` -- Detailed installation and deployment instructions
-- `docs/ARCHITECTURE.md` -- System design, security model, technical decisions
 - `docs/INTERFACES.md` -- Stable public API reference for all modules
-- `docs/NETWORK_SECURITY_EXPLAINER.md` -- Network isolation design
-- `docs/PERFORMANCE_BASELINE.md` -- Performance benchmarks and tuning
-- `docs/SOURCE_BOUNDED_GENERATION.md` -- LLM context grounding design
-- `docs/CHEAT_SHEET.md` -- Troubleshooting cheat sheet (setup, daily use, errors, scaling)
-- `docs/BULK_TRANSFER_STRESS_TEST.md` -- Bulk transfer V2 stress test results
-- `API_MODE_REVIEW.md` -- API mode code review and bug analysis
+- `docs/GLOSSARY.md` -- Definitions of all technical terms and acronyms
+
+### Security and Compliance
+- `docs/DEFENSE_MODEL_AUDIT.md` -- Model procurement audit (approved/banned publishers)
+- `docs/HYBRIDRAG3_SECURITY_AUDIT.md` -- Security compliance audit
+- `docs/GIT_REPO_RULES.md` -- Git sanitization and commit rules
+
+### Reference
+- `docs/FORMAT_SUPPORT.md` -- Supported file formats
 - `config/profiles.yaml` -- Hardware performance profiles
 
 ## Multi-Machine Deployment

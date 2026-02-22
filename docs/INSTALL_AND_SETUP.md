@@ -507,5 +507,8 @@ rag-profile server_max        64+ GB RAM
 ### GUI
 
 ```
-python src/gui/launch_gui.py      Launch desktop GUI
+python src/gui/launch_gui.py      Launch desktop GUI (dark/light theme)
+.\tools\launch_gui.ps1            Launch desktop GUI (PowerShell)
 ```
+
+For full GUI documentation, see [GUI_GUIDE.md](GUI_GUIDE.md).

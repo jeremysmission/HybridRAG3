@@ -58,6 +58,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -65,6 +66,8 @@ from typing import List, Dict, Any, Optional
 
 from .vector_store import VectorStore
 from .embedder import Embedder
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -381,8 +384,7 @@ class Retriever:
             # Re-sort by the new scores
             hits.sort(key=lambda x: x.score, reverse=True)
         except Exception as e:
-            import sys
-            print(f"Reranker error: {e}", file=sys.stderr)
+            logger.error("Reranker error: %s", e)
         return hits
 
     def _load_reranker(self):
@@ -391,12 +393,10 @@ class Retriever:
             from sentence_transformers import CrossEncoder
             return CrossEncoder(self.reranker_model_name)
         except ImportError:
-            import sys
-            print("Reranker requires sentence-transformers.", file=sys.stderr)
+            logger.warning("Reranker requires sentence-transformers.")
             return None
         except Exception as e:
-            import sys
-            print(f"Failed to load reranker: {e}", file=sys.stderr)
+            logger.error("Failed to load reranker: %s", e)
             return None
 
     # ------------------------------------------------------------------

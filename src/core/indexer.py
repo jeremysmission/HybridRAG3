@@ -22,7 +22,7 @@
 #      4,000 files' chunks automatically. No duplicates, no manual cleanup.
 #
 #   3. Skip unchanged files (hash-based change detection)
-#      WHY: Your corporate drive has 100GB of documents. Most don't change
+#      WHY: Your enterprise drive has 100GB of documents. Most don't change
 #      week to week. We store a hash (size + mtime) with each file's chunks.
 #      On restart, we compare the stored hash to the current file. If they
 #      match, skip it. If they differ, the file was modified -- delete old
@@ -66,12 +66,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 import traceback
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from .config import Config
 from .vector_store import VectorStore, ChunkMetadata
@@ -208,7 +211,7 @@ class Indexer:
                 continue
             supported_files.append(f)
 
-        print(f"Found {len(supported_files)} supported files in {folder}")
+        logger.info("Found %d supported files in %s", len(supported_files), folder)
 
         # --- Step 2: Process each file ---
         for idx, file_path in enumerate(supported_files, start=1):
@@ -237,9 +240,9 @@ class Indexer:
                         str(file_path),
                         f"preflight: {preflight_reason}"
                     )
-                    print(
-                        f"  BLOCKED: {file_path.name} -- "
-                        f"{preflight_reason}"
+                    logger.info(
+                        "BLOCKED: %s -- %s",
+                        file_path.name, preflight_reason,
                     )
                     continue
 
@@ -270,9 +273,9 @@ class Indexer:
                         deleted = self.vector_store.delete_chunks_by_source(
                             str(file_path)
                         )
-                        print(
-                            f"  RE-INDEX: {file_path.name} changed "
-                            f"(deleted {deleted} old chunks)"
+                        logger.info(
+                            "RE-INDEX: %s changed (deleted %d old chunks)",
+                            file_path.name, deleted,
                         )
                         total_files_reindexed += 1
 
@@ -302,17 +305,17 @@ class Indexer:
                     progress_callback.on_file_skipped(
                         str(file_path), "binary garbage detected"
                     )
-                    print(
-                        f"  WARNING: {file_path.name} -- text looks like "
-                        f"binary garbage, skipping"
+                    logger.warning(
+                        "[WARN] %s -- text looks like binary garbage, skipping",
+                        file_path.name,
                     )
                     continue
 
                 # Safety: clamp oversized files
                 if len(text) > self.max_chars_per_file:
-                    print(
-                        f"  WARNING: Clamping {file_path.name} from "
-                        f"{len(text):,} to {self.max_chars_per_file:,} chars"
+                    logger.warning(
+                        "[WARN] Clamping %s from %s to %s chars",
+                        file_path.name, f"{len(text):,}", f"{self.max_chars_per_file:,}",
                     )
                     text = text[: self.max_chars_per_file]
 
@@ -392,7 +395,7 @@ class Indexer:
             except Exception as e:
                 # Never crash on a single file -- log and continue
                 error_msg = f"{type(e).__name__}: {e}"
-                print(f"  ERROR on {file_path.name}: {error_msg}")
+                logger.error("[FAIL] %s: %s", file_path.name, error_msg)
                 progress_callback.on_error(str(file_path), error_msg)
 
         # --- Done ---
@@ -409,26 +412,23 @@ class Indexer:
             "elapsed_seconds": elapsed,
         }
 
-        print(f"\nIndexing complete:")
-        print(f"  Files scanned:    {result['total_files_scanned']}")
-        print(f"  Files indexed:    {result['total_files_indexed']}")
-        print(f"  Files re-indexed: {result['total_files_reindexed']}")
-        print(f"  Files skipped:    {result['total_files_skipped']}")
-        print(f"  Chunks added:     {result['total_chunks_added']}")
-        print(f"  Time: {elapsed:.1f}s")
+        logger.info("Indexing complete:")
+        logger.info("  Files scanned:    %d", result['total_files_scanned'])
+        logger.info("  Files indexed:    %d", result['total_files_indexed'])
+        logger.info("  Files re-indexed: %d", result['total_files_reindexed'])
+        logger.info("  Files skipped:    %d", result['total_files_skipped'])
+        logger.info("  Chunks added:     %d", result['total_chunks_added'])
+        logger.info("  Time: %.1fs", elapsed)
 
         # --- Pre-flight report (if any files were blocked) ---
         if preflight_blocked:
-            print()
-            print(f"  PRE-FLIGHT BLOCKED: {len(preflight_blocked)} files")
-            print(f"  These files were caught before parsing and did NOT")
-            print(f"  enter the vector store:")
+            logger.warning("[WARN] PRE-FLIGHT BLOCKED: %d files", len(preflight_blocked))
+            logger.warning("  These files were caught before parsing and did NOT enter the vector store:")
             for blocked_path, blocked_reason in preflight_blocked:
                 blocked_name = Path(blocked_path).name
-                print(f"    - {blocked_name}: {blocked_reason}")
-            print()
-            print(f"  To review and clean up, run:  rag-scan --deep")
-            print(f"  To quarantine automatically:  rag-scan --auto-quarantine")
+                logger.warning("    - %s: %s", blocked_name, blocked_reason)
+            logger.info("  To review and clean up, run:  rag-scan --deep")
+            logger.info("  To quarantine automatically:  rag-scan --auto-quarantine")
 
         return result
 
@@ -451,9 +451,9 @@ class Indexer:
                 last_error = e
                 if attempt < max_retries:
                     wait = 2 ** attempt
-                    print(
-                        f"  Retry {attempt}/{max_retries} for "
-                        f"{file_path.name} in {wait}s: {e}"
+                    logger.warning(
+                        "[WARN] Retry %d/%d for %s in %ds: %s",
+                        attempt, max_retries, file_path.name, wait, e,
                     )
                     import time as _time
                     _time.sleep(wait)
@@ -471,7 +471,7 @@ class Indexer:
         WHY size + mtime instead of reading file content?
           Reading file content (e.g., SHA-256) would require reading every
           byte of every file on every indexing run -- that's 100GB+ of I/O
-          on a corporate network drive. Size + mtime is instant (just a
+          on an enterprise network drive. Size + mtime is instant (just a
           stat() call) and catches the vast majority of real modifications.
 
         WHEN THIS FAILS:
@@ -503,7 +503,7 @@ class Indexer:
         except ImportError:
             pass
         except Exception as e:
-            print(f"  Parser error on {file_path.name}: {e}")
+            logger.warning("[WARN] Parser error on %s: %s", file_path.name, e)
 
         # Fallback: try reading as plain text
         try:

@@ -32,7 +32,7 @@
 #   - all-mpnet-base-v2: slightly better quality but 768 dims (2x storage)
 #   - e5-large-v2: much better quality but 1024 dims, needs GPU
 #   - OpenAI text-embedding-ada-002: excellent but requires internet + API key
-#   - BGE-small-en: comparable to MiniLM but less battle-tested
+#   - nomic-embed-text: comparable to MiniLM, Apache 2.0 licensed
 #
 # SECURITY MODEL (3-layer network lockdown):
 #   Layer 1: start_hybridrag.ps1 sets HF_HUB_OFFLINE=1 in the PowerShell
@@ -41,7 +41,7 @@
 #
 #   Layer 2: THIS FILE (embedder.py) enforces HF_HUB_OFFLINE=1 at the
 #            Python level BEFORE importing sentence-transformers. This is
-#            defense-in-depth -- if someone runs Python directly without
+#            safety net -- if someone runs Python directly without
 #            going through start_hybridrag.ps1, the lockdown still holds.
 #            The HuggingFace libraries check os.environ at import time,
 #            so we MUST set these before the import statement.

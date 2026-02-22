@@ -26,9 +26,15 @@ complete. For first-time setup, see [INSTALL_AND_SETUP.md](INSTALL_AND_SETUP.md)
 
 ## 1. Starting Up
 
+### Opening PowerShell (If You Have Never Used It)
+
+1. Press **Win+X** on your keyboard (hold the Windows key, tap X).
+2. Click **Terminal** (or **Windows PowerShell**).
+3. Type `cd "D:\HybridRAG3"` and press **Enter**.
+
 ### Daily Startup (Command Line)
 
-Open PowerShell in the project folder and run:
+From your PowerShell terminal, run:
 
 ```powershell
 . .\start_hybridrag.ps1
@@ -167,18 +173,21 @@ Latency: 3421 ms | Tokens in: 450 | Tokens out: 45
 - **One question at a time**: Three separate queries get better answers
   than one compound question.
 - **Include context when helpful**: "According to the installation
-  guide, what clearance is required?" helps the system find the
+  guide, what access level is required?" helps the system find the
   right document.
 
 ---
 
 ## 4. Using the GUI
 
+For the complete GUI reference with every button and slider explained,
+see [GUI_GUIDE.md](GUI_GUIDE.md).
+
 ### Window Layout
 
 ```
 +----------------------------------------------------------+
-|  TITLE BAR  --  "HybridRAG v3"   [OFFLINE]  [ONLINE]    |
+|  TITLE BAR  --  "HybridRAG v3"   [OFFLINE] [ONLINE] [Theme] |
 +----------------------------------------------------------+
 |  QUERY PANEL                                             |
 |  Use case dropdown, model display, question box,         |
@@ -239,8 +248,8 @@ immediate. Switching to online checks for stored credentials first.
 
 ### Theme Toggle
 
-Click the moon/sun icon to switch between dark mode (default) and
-light mode.
+Click the **Theme** button (labeled "Light" or "Dark") in the top-right
+of the title bar to switch between dark mode (default) and light mode.
 
 ### Status Bar
 
@@ -491,7 +500,7 @@ content extraction yet.
 |-----------|-----|
 | "Tell me about the manual" | "What is the calibration procedure for the XR-7?" |
 | "frequency power modulation" | "What is the operating frequency of the antenna?" |
-| "What do you know?" | "According to the installation guide, what clearance is required?" |
+| "What do you know?" | "According to the installation guide, what access level is required?" |
 
 ### Tuning for Your Use Case
 
