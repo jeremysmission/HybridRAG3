@@ -17,6 +17,7 @@ from scripts._model_meta import USE_CASES, select_best_model
 from src.core.llm_router import get_available_deployments
 from src.core.cost_tracker import get_cost_tracker
 from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_MONO, bind_hover
+from src.gui.panels.loading_overlay import VectorFieldOverlay
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +144,9 @@ class QueryPanel(tk.LabelFrame):
         )
         self.metrics_label.pack(fill=tk.X)
 
+        # -- Vector field overlay (animated, hidden until query starts) --
+        self._overlay = VectorFieldOverlay(self.answer_text, theme=t)
+
     def apply_theme(self, t):
         """Re-apply theme colors to all widgets."""
         self.configure(bg=t["panel_bg"], fg=t["accent"])
@@ -177,6 +181,9 @@ class QueryPanel(tk.LabelFrame):
             self.sources_label.configure(fg=t["gray"])
         else:
             self.sources_label.configure(fg=t["fg"])
+
+        # Overlay
+        self._overlay.apply_theme(t)
 
     def _on_entry_focus(self, event=None):
         """Clear placeholder text on first focus."""
@@ -244,9 +251,10 @@ class QueryPanel(tk.LabelFrame):
         self.sources_label.config(text="Sources: (none)", fg=current_theme()["gray"])
         self.metrics_label.config(text="")
 
-        # Phase 1: show immediate "Searching..." status
+        # Phase 1: show immediate "Searching..." status + vector field overlay
         t = current_theme()
         self.network_label.config(text="Searching documents...", fg=t["gray"])
+        self._overlay.start("Searching documents...")
 
         # Choose streaming or fallback path
         has_stream = hasattr(self.query_engine, "query_stream")
@@ -283,6 +291,7 @@ class QueryPanel(tk.LabelFrame):
                         self.after(0, self._set_status, msg)
                         self.after(0, self._start_elapsed_timer)
                         self.after(0, self._prepare_streaming)
+                        self.after(0, self._overlay.stop)
                 elif "token" in chunk:
                     self.after(0, self._append_token, chunk["token"])
                 elif chunk.get("done"):
@@ -389,6 +398,7 @@ class QueryPanel(tk.LabelFrame):
         t = current_theme()
         self.ask_btn.config(state=tk.NORMAL)
         self.network_label.config(text="")
+        self._overlay.stop()
 
         # Check for error
         if result.error:
@@ -435,6 +445,7 @@ class QueryPanel(tk.LabelFrame):
         t = current_theme()
         self.ask_btn.config(state=tk.NORMAL)
         self.network_label.config(text="")
+        self._overlay.cancel()
 
         self.answer_text.config(state=tk.NORMAL)
         self.answer_text.delete("1.0", tk.END)

@@ -27,6 +27,7 @@ FONT_SIZE = 11
 FONT = (FONT_FAMILY, FONT_SIZE)
 FONT_BOLD = (FONT_FAMILY, FONT_SIZE, "bold")
 FONT_TITLE = (FONT_FAMILY, 15, "bold")
+FONT_SECTION = (FONT_FAMILY, 13, "bold")
 FONT_SMALL = (FONT_FAMILY, 10)
 FONT_MONO = ("Consolas", 10)
 
@@ -118,10 +119,10 @@ def apply_ttk_styles(theme_dict):
     style.configure("TLabel", background=t["bg"], foreground=t["fg"],
                      font=FONT)
 
-    # TLabelframe
+    # TLabelframe (flat border, modern card style)
     style.configure("TLabelframe", background=t["panel_bg"],
                      foreground=t["fg"], bordercolor=t["border"],
-                     relief="groove")
+                     relief="flat")
     style.configure("TLabelframe.Label", background=t["panel_bg"],
                      foreground=t["accent"], font=FONT_BOLD)
 
