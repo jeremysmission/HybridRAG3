@@ -143,11 +143,13 @@ async def query(req: QueryRequest):
     Returns the AI-generated answer with source citations,
     chunk count, token usage, cost, and latency.
     """
+    import asyncio
+
     s = _state()
     if not s.query_engine:
         raise HTTPException(status_code=503, detail="Query engine not initialized")
 
-    result = s.query_engine.query(req.question)
+    result = await asyncio.to_thread(s.query_engine.query, req.question)
 
     return QueryResponse(
         answer=result.answer,
@@ -252,10 +254,24 @@ async def start_indexing(req: IndexRequest = None):
             detail=f"Source folder not found: {source_folder}",
         )
 
+    # Path validation: only allow the configured source folder
+    allowed_root = os.path.realpath(s.config.paths.source_folder)
+    requested = os.path.realpath(source_folder)
+    if not requested.startswith(allowed_root):
+        raise HTTPException(
+            status_code=403,
+            detail="Source folder must be within the configured source directory.",
+        )
+
     def _run_indexing():
         from src.api.server import APIProgressCallback
+        from src.core.chunker import Chunker
+        from src.core.indexer import Indexer
         try:
-            s.indexing_active = True
+            with s.indexing_lock:
+                if s.indexing_active:
+                    return
+                s.indexing_active = True
             s.index_progress.update({
                 "files_processed": 0,
                 "files_total": 0,
@@ -265,7 +281,8 @@ async def start_indexing(req: IndexRequest = None):
                 "start_time": time.time(),
             })
 
-            indexer = Indexer(s.config, s.vector_store, s.embedder)
+            chunker = Chunker(s.config.chunking)
+            indexer = Indexer(s.config, s.vector_store, s.embedder, chunker)
             callback = APIProgressCallback()
             indexer.index_folder(source_folder, callback)
             indexer.close()
@@ -351,7 +368,8 @@ async def set_mode(req: ModeRequest):
 # -------------------------------------------------------------------
 def _update_yaml_mode(new_mode: str) -> None:
     """Write mode change to config/default_config.yaml."""
-    config_path = Path(".") / "config" / "default_config.yaml"
+    _project_root = Path(__file__).resolve().parent.parent.parent
+    config_path = _project_root / "config" / "default_config.yaml"
     if not config_path.exists():
         return
 

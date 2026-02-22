@@ -69,7 +69,6 @@ from __future__ import annotations
 import logging
 import os
 import time
-import traceback
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from datetime import datetime
@@ -83,7 +82,6 @@ from .embedder import Embedder
 from .chunk_ids import make_chunk_id
 from .file_validator import FileValidator
 import gc
-import hashlib
 
 
 # -------------------------------------------------------------------
@@ -481,8 +479,7 @@ class Indexer:
                         "[WARN] Retry %d/%d for %s in %ds: %s",
                         attempt, max_retries, file_path.name, wait, e,
                     )
-                    import time as _time
-                    _time.sleep(wait)
+                    time.sleep(wait)
         raise last_error
 
     # =================================================================

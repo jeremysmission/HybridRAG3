@@ -304,16 +304,16 @@ def run_security_audit():
         results.append({"test": "SEC-001", "passed": False, "detail": str(e)})
         print(f"  [FAIL] Config error: {e}")
 
-    # Defense-in-depth: Python-level enforcement in embedder.py
+    # Layered check: Python-level enforcement in embedder.py
     emb_path = PROJECT_ROOT / "src" / "core" / "embedder.py"
     if emb_path.exists():
         has = "HF_HUB_OFFLINE" in emb_path.read_text(encoding="utf-8")
-        results.append({"test": "DEFENSE-IN-DEPTH: embedder.py", "passed": has,
+        results.append({"test": "LAYERED-CHECK: embedder.py", "passed": has,
                         "detail": "Present" if has else "MISSING"})
         print(f"  [{'PASS' if has else 'FAIL'}] Python offline lockdown: "
               f"{'present' if has else 'MISSING -- only PowerShell protects you'}")
     else:
-        results.append({"test": "DEFENSE-IN-DEPTH", "passed": False, "detail": "Not found"})
+        results.append({"test": "LAYERED-CHECK", "passed": False, "detail": "Not found"})
         print("  [FAIL] embedder.py not found")
 
     p = sum(1 for r in results if r["passed"])
@@ -360,7 +360,7 @@ def run_tier1_tests():
     print("\n  T1-02: file_hash column (BUG-001)...")
     try:
         from src.core.vector_store import VectorStore
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
             vs = VectorStore(db_path=os.path.join(td,"t.db"), embedding_dim=384); vs.connect()
             cols = [r[1] for r in vs.conn.execute("PRAGMA table_info(chunks)").fetchall()]
             ok = "file_hash" in cols
@@ -373,7 +373,7 @@ def run_tier1_tests():
     print("\n  T1-03: Hash comparison (BUG-002)...")
     try:
         from src.core.vector_store import VectorStore
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
             vs = VectorStore(db_path=os.path.join(td,"t.db"), embedding_dim=384); vs.connect()
             fh = "12345:1707400000"
             vs.conn.execute("INSERT INTO chunks (chunk_id,source_path,chunk_index,text,"
@@ -472,7 +472,7 @@ def run_tier1_tests():
     # T1-07: FTS5
     print("\n  T1-07: FTS5 extension...")
     try:
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
             cn = sqlite3.connect(os.path.join(td,"f.db"))
             cn.execute("CREATE VIRTUAL TABLE f USING fts5(c)")
             cn.execute("INSERT INTO f VALUES (?)", ("test doc",))
@@ -486,7 +486,7 @@ def run_tier1_tests():
     print("\n  T1-08: Legacy DB migration...")
     try:
         from src.core.vector_store import VectorStore
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
             db = os.path.join(td, "old.db")
             cn = sqlite3.connect(db)
             cn.execute("CREATE TABLE chunks (chunk_pk INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -623,7 +623,7 @@ def run_tier3_tests():
         from src.core.indexer import Indexer
 
         cfg = load_config(str(PROJECT_ROOT))
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
             e = Embedder(model_name=cfg.embedding.model_name)
             v = VectorStore(db_path=os.path.join(td,"s.db"), embedding_dim=cfg.embedding.dimension)
             v.connect()

@@ -17,7 +17,7 @@
 #     - embedder.py had HF_HUB_OFFLINE (separate mechanism)
 #
 #   Result: 5 out of 8 network paths bypassed the kill switch.
-#   A corporate proxy is the first defense layer, but defense-in-depth
+#   A corporate proxy is the first security layer, but security-in-depth
 #   means the APPLICATION ITSELF must enforce network policy too.
 #
 # NETWORK MODES:
@@ -51,9 +51,9 @@
 from __future__ import annotations
 
 import os
-import re
 import time
 import logging
+import threading
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 from urllib.parse import urlparse
@@ -179,8 +179,8 @@ class NetworkGate:
         self._mode = NetworkMode.OFFLINE
         self._allowed_hosts: List[str] = []
         self._allowed_prefixes: List[str] = []
-        self._audit_log: List[NetworkAuditEntry] = []
-        self._max_audit_entries = 1000  # Rolling buffer to prevent memory leak
+        from collections import deque
+        self._audit_log: deque = deque(maxlen=1000)
 
     # -- MODE MANAGEMENT --
 
@@ -215,7 +215,7 @@ class NetworkGate:
         # Resolve mode string to enum
         mode_lower = mode.strip().lower()
 
-        # -- Legacy environment variable override (defense-in-depth) --
+        # -- Legacy environment variable override (security-in-depth) --
         # If HYBRIDRAG_OFFLINE is set, force offline mode regardless of
         # what the config says. This consolidates the kill switch that
         # was previously duplicated in http_client.py into the single
@@ -427,10 +427,6 @@ class NetworkGate:
 
         self._audit_log.append(entry)
 
-        # Rolling buffer -- drop oldest entries if we exceed the max
-        if len(self._audit_log) > self._max_audit_entries:
-            self._audit_log = self._audit_log[-self._max_audit_entries:]
-
         # Log to Python logger
         if allowed:
             logger.debug("NET %s: %s -> %s (%s)", "ALLOW", caller, host, reason)
@@ -514,6 +510,7 @@ class NetworkGate:
 # ---------------------------------------------------------------------------
 
 _gate_instance: Optional[NetworkGate] = None
+_gate_lock = threading.Lock()
 
 
 def get_gate() -> NetworkGate:
@@ -530,7 +527,9 @@ def get_gate() -> NetworkGate:
     """
     global _gate_instance
     if _gate_instance is None:
-        _gate_instance = NetworkGate()
+        with _gate_lock:
+            if _gate_instance is None:
+                _gate_instance = NetworkGate()
     return _gate_instance
 
 

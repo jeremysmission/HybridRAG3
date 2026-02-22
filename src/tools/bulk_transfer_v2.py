@@ -77,7 +77,7 @@ import stat
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -92,12 +92,28 @@ from .transfer_staging import StagingManager
 # ============================================================================
 
 # Default file extensions HybridRAG can parse.
-# These come from the parser registry in src/parsers/.
-# If you add a new parser (e.g., for .rtf files), add the extension here too.
+# Kept in sync with src/parsers/registry.py supported_extensions().
+# If you add a new parser, add the extension here too.
 _RAG_EXTENSIONS: Set[str] = {
-    ".txt", ".md", ".csv", ".json", ".xml", ".log", ".yaml", ".yml", ".ini",
-    ".pdf", ".docx", ".pptx", ".xlsx", ".html", ".htm", ".eml",
+    # Plain text / config
+    ".txt", ".md", ".csv", ".json", ".xml", ".log", ".yaml", ".yml",
+    ".ini", ".cfg", ".conf", ".properties", ".reg",
+    # Documents
+    ".pdf", ".docx", ".pptx", ".xlsx", ".doc", ".rtf",
+    # Email
+    ".html", ".htm", ".eml", ".msg", ".mbox",
+    # Images (OCR)
     ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif", ".webp",
+    # CAD / engineering
+    ".dxf", ".stp", ".step", ".ste", ".igs", ".iges", ".stl",
+    # Diagrams
+    ".vsdx",
+    # Security / forensics
+    ".evtx", ".pcap", ".pcapng", ".cer", ".crt", ".pem",
+    # Databases
+    ".accdb", ".mdb",
+    # Design
+    ".psd", ".ai", ".wmf", ".emf",
 }
 
 # Extensions that should NEVER be copied (not useful for RAG, often huge).
@@ -987,31 +1003,33 @@ class BulkTransferV2:
 
         max_inflight = self.config.workers * 4
         with ThreadPoolExecutor(max_workers=self.config.workers) as pool:
-            futures: dict = {}
-            q_iter = iter(queue)
+            pending: set = set()
+            q_idx = 0
 
             # Seed the pool with initial batch
-            for item in queue[:max_inflight]:
+            while q_idx < len(queue) and len(pending) < max_inflight:
                 if self._stop.is_set():
                     break
-                futures[pool.submit(self._transfer_one, *item)] = item
-            remaining = queue[max_inflight:]
-            r_idx = 0
+                item = queue[q_idx]
+                q_idx += 1
+                pending.add(pool.submit(self._transfer_one, *item))
 
-            for fut in as_completed(futures):
+            # Drain: wait for completions, feed new items to keep workers busy
+            while pending:
                 if self._stop.is_set():
                     break
-                try:
-                    fut.result()
-                except Exception:
-                    pass  # Errors are handled inside _transfer_one
-                del futures[fut]
+                done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                for fut in done:
+                    try:
+                        fut.result()
+                    except Exception:
+                        pass  # Errors are handled inside _transfer_one
 
-                # Feed next item to keep the pool saturated
-                if r_idx < len(remaining) and not self._stop.is_set():
-                    item = remaining[r_idx]
-                    r_idx += 1
-                    futures[pool.submit(self._transfer_one, *item)] = item
+                    # Feed next item to keep the pool saturated
+                    if q_idx < len(queue) and not self._stop.is_set():
+                        item = queue[q_idx]
+                        q_idx += 1
+                        pending.add(pool.submit(self._transfer_one, *item))
 
         self._stop.set()  # Signal progress thread to stop
 

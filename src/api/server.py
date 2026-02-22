@@ -90,19 +90,13 @@ class APIProgressCallback(IndexingProgressCallback):
         state.index_progress["current_file"] = os.path.basename(file_path)
         state.index_progress["files_total"] = total_files
 
-    def on_file_complete(
-        self, file_path: str, chunks_created: int, file_num: int, total_files: int
-    ) -> None:
+    def on_file_complete(self, file_path: str, chunks_created: int) -> None:
         state.index_progress["files_processed"] += 1
 
-    def on_file_skipped(
-        self, file_path: str, reason: str, file_num: int, total_files: int
-    ) -> None:
+    def on_file_skipped(self, file_path: str, reason: str) -> None:
         state.index_progress["files_skipped"] += 1
 
-    def on_error(
-        self, file_path: str, error: str, file_num: int, total_files: int
-    ) -> None:
+    def on_error(self, file_path: str, error: str) -> None:
         state.index_progress["files_errored"] += 1
 
 
@@ -114,7 +108,7 @@ async def lifespan(app: FastAPI):
     """Initialize RAG pipeline on startup, clean up on shutdown."""
     # -- Startup --
     logger.info("[OK] Loading configuration...")
-    state.config = load_config(".")
+    state.config = load_config(_project_root)
 
     logger.info("[OK] Connecting to vector store...")
     state.vector_store = VectorStore(

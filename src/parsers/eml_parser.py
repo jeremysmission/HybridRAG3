@@ -33,6 +33,7 @@
 # INTERNET ACCESS: None -- purely local file processing
 # ============================================================================
 
+import html as html_mod  # HTML entity decoding
 import os
 import re        # Regular expressions for stripping HTML tags
 import hashlib   # For generating a content fingerprint (audit trail)
@@ -76,6 +77,8 @@ def _strip_html(html: str) -> str:
     text = re.sub(r"[ \t]+\n", "\n", text)
     # Collapse 3+ consecutive newlines into just 2 (paragraph spacing)
     text = re.sub(r"\n{3,}", "\n\n", text)
+    # Decode HTML entities (&amp; -> &, &lt; -> <, &#123; -> {, etc.)
+    text = html_mod.unescape(text)
     return text.strip()
 
 

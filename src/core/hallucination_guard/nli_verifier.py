@@ -137,6 +137,29 @@ class NLIVerifier:
 
             elapsed = time.time() - start
             self.logger.info(f"NLI model loaded in {elapsed:.1f}s")
+
+            # Validate NLI label ordering matches our hardcoded indices.
+            # Different NLI models use different label orderings -- if someone
+            # swaps the model via HALLUCINATION_GUARD_MODEL, we must verify.
+            id2label = getattr(self.model.model.config, "id2label", None)
+            if id2label:
+                expected = {
+                    NLI_LABEL_CONTRADICTION: "contradiction",
+                    NLI_LABEL_ENTAILMENT: "entailment",
+                    NLI_LABEL_NEUTRAL: "neutral",
+                }
+                for idx, expected_label in expected.items():
+                    actual = id2label.get(idx, "").lower()
+                    if expected_label not in actual:
+                        self.logger.error(
+                            f"NLI label mismatch at index {idx}: "
+                            f"expected '{expected_label}', got '{actual}'. "
+                            f"Model {self.config.nli_model_name} uses a "
+                            f"different label ordering. Update guard_types.py "
+                            f"NLI_LABEL_* constants to match."
+                        )
+                        return False
+
             self._model_loaded = True
             return True
 
@@ -254,14 +277,15 @@ class NLIVerifier:
                     f"Early-exit PASS: {consecutive_pass} consecutive "
                     f"supported claims. Skipping {remaining} remaining."
                 )
-                # Mark remaining as assumed-supported
+                # Mark remaining as not-checked (lower confidence signals
+                # these were NOT actually verified by the NLI model).
                 for j in range(i + 1, len(claims)):
                     all_results.append(ClaimResult(
                         claim_text=claims[j],
                         verdict=ClaimVerdict.SUPPORTED,
-                        confidence=0.85,
-                        explanation="Early-exit: assumed supported "
-                                    "based on prior consecutive passes",
+                        confidence=0.50,
+                        explanation="Early-exit: NOT verified -- assumed "
+                                    "supported based on prior consecutive passes",
                     ))
                 break
 
@@ -370,9 +394,10 @@ class NLIVerifier:
         # ones per claim using word overlap. This cuts inference passes
         # from (claims x all_chunks) to (claims x 2-3), which is the
         # single biggest speedup available (3-5x faster).
-        if len(check_chunks) > 3:
+        prune_keep = min(top_k, max(3, len(check_chunks)))
+        if len(check_chunks) > prune_keep:
             check_chunks = self._prune_chunks(claim_text, check_chunks,
-                                              keep=3)
+                                              keep=prune_keep)
 
         # Build pairs: (premise=chunk, hypothesis=claim)
         # NLI convention: premise is the "ground truth", hypothesis is tested

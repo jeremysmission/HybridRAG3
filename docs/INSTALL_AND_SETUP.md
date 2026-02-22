@@ -512,3 +512,13 @@ python src/gui/launch_gui.py      Launch desktop GUI (dark/light theme)
 ```
 
 For full GUI documentation, see [GUI_GUIDE.md](GUI_GUIDE.md).
+
+---
+
+## See Also
+
+- [../START_HERE.txt](../START_HERE.txt) -- Plain-language entry point (read this first)
+- [USER_GUIDE.md](USER_GUIDE.md) -- Daily use, all commands, tuning, troubleshooting
+- [SHORTCUT_SHEET.md](SHORTCUT_SHEET.md) -- Quick reference card
+- [GUI_GUIDE.md](GUI_GUIDE.md) -- Graphical interface walkthrough
+- [FORMAT_SUPPORT.md](FORMAT_SUPPORT.md) -- All 49+ supported file formats

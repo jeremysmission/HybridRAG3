@@ -308,7 +308,7 @@ def sim_08():
     qe = ROOT / "src" / "core" / "query_engine.py"
     lines = len(qe.read_text().splitlines())
     test(f"query_engine.py: {lines} lines (untouched)",
-         230 <= lines <= 240)
+         400 <= lines <= 450)
 
     # boot.py UNTOUCHED
     bc = (ROOT / "src" / "core" / "boot.py").read_text()

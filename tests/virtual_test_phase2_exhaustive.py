@@ -57,7 +57,7 @@ PHASE2_MODIFIED = {
     "llm_router.py": PROJECT_ROOT / "src" / "core" / "llm_router.py",
     "_set_model.py": PROJECT_ROOT / "scripts" / "_set_model.py",
     "credentials.py": PROJECT_ROOT / "src" / "security" / "credentials.py",
-    "diagnostic_v2.py": PROJECT_ROOT / "diagnostics" / "hybridrag_diagnostic_v2.py",
+    "hybridrag_diagnostic.py": PROJECT_ROOT / "src" / "diagnostic" / "hybridrag_diagnostic.py",
 }
 
 # These are files with direct keyring calls that must use correct schema
@@ -69,7 +69,7 @@ KEYRING_FILES = {
     "store_endpoint.py": PROJECT_ROOT / "tools" / "py" / "store_endpoint.py",
     "store_key.py": PROJECT_ROOT / "tools" / "py" / "store_key.py",
     "test_api_verbose.py": PROJECT_ROOT / "tools" / "py" / "test_api_verbose.py",
-    "diagnostic_v2.py": PROJECT_ROOT / "diagnostics" / "hybridrag_diagnostic_v2.py",
+    "hybridrag_diagnostic.py": PROJECT_ROOT / "src" / "diagnostic" / "hybridrag_diagnostic.py",
     "_rebuild_toolkit.py": PROJECT_ROOT / "tools" / "_rebuild_toolkit.py",
 }
 

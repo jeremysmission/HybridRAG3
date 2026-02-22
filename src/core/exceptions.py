@@ -269,7 +269,7 @@ class ProxyError(HybridRAGError):
         )
 
 
-class TimeoutError(HybridRAGError):
+class RequestTimeoutError(HybridRAGError):
     """
     Request timed out waiting for server response.
 
@@ -537,4 +537,4 @@ class IndexingError(HybridRAGError):
     """Raised when the indexing pipeline encounters an unrecoverable file error."""
     def __init__(self, message, file_path=None, fix_suggestion=None):
         self.file_path = file_path
-        super().__init__(message, fix_suggestion, error_code="IDX-001")
+        super().__init__(message, fix_suggestion, error_code="IDX-002")

@@ -82,17 +82,25 @@ class MboxParser:
         return full, details
 
 
+def _decode_payload(part) -> str:
+    """Decode email part payload using the declared charset."""
+    payload = part.get_payload(decode=True)
+    if not payload:
+        return ""
+    charset = part.get_content_charset() or "utf-8"
+    try:
+        return payload.decode(charset, errors="replace")
+    except (LookupError, UnicodeDecodeError):
+        return payload.decode("utf-8", errors="replace")
+
+
 def _get_email_body(msg) -> str:
     """Extract plain text body from an email message."""
     if msg.is_multipart():
         for part in msg.walk():
             ct = part.get_content_type()
             if ct == "text/plain":
-                payload = part.get_payload(decode=True)
-                if payload:
-                    return payload.decode("utf-8", errors="ignore")
+                return _decode_payload(part)
     else:
-        payload = msg.get_payload(decode=True)
-        if payload:
-            return payload.decode("utf-8", errors="ignore")
+        return _decode_payload(msg)
     return ""

@@ -519,6 +519,8 @@ def load_config(
             if isinstance(raw, dict):
                 yaml_data = raw
 
+    yaml_data.pop("setup_complete", None)  # Wizard flag, not a runtime setting
+
     # Build the Config object from YAML sections
     # Each section (like "paths", "embedding") maps to a sub-dataclass.
     # If a section is missing from YAML, we get an empty dict,

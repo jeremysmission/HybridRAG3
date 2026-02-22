@@ -307,6 +307,34 @@ def main():
         from src.core.config import Config
         config = Config()
 
+    # -- Step 2.5: First-run setup wizard --
+    from src.gui.panels.setup_wizard import needs_setup
+    if needs_setup(_project_root):
+        logger.info("First run detected -- launching setup wizard")
+        import tkinter as _tk
+        from src.gui.theme import apply_ttk_styles, current_theme
+        _tmp_root = _tk.Tk()
+        _tmp_root.withdraw()
+        apply_ttk_styles(current_theme())
+
+        from src.gui.panels.setup_wizard import SetupWizard
+        wiz = SetupWizard(_tmp_root, _project_root)
+        wiz.grab_set()
+        _tmp_root.wait_window(wiz)
+        _tmp_root.destroy()
+
+        if not wiz.completed:
+            logger.info("Setup wizard cancelled -- exiting")
+            sys.exit(0)
+
+        # Reload config with wizard-written values
+        logger.info("Reloading config after setup wizard...")
+        try:
+            config = load_config(_project_root)
+            logger.info("[OK] Config reloaded (mode=%s)", config.mode)
+        except Exception as e:
+            logger.warning("[WARN] Config reload failed: %s", e)
+
     # -- Step 3: Open GUI immediately --
     logger.info("Opening GUI window...")
     from src.gui.app import HybridRAGApp

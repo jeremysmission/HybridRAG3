@@ -86,6 +86,7 @@ class XlsxParser:
             details["sheets"] = sheets
             details["rows_emitted"] = rows_emitted
 
+            wb.close()
             return full, details
         except Exception as e:
             details["error"] = f"RUNTIME_ERROR: {type(e).__name__}: {e}"

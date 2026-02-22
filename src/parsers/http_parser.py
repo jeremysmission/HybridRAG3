@@ -118,8 +118,11 @@ class HttpParser:
             gate = get_gate()
             gate.check_allowed(url, purpose, "http_parser")
         except ImportError:
-            # NetworkGate not available -- allow (development mode)
-            logger.warning("NetworkGate not available, allowing fetch")
+            # NetworkGate not available -- fail-closed (zero-trust)
+            logger.error("NetworkGate not importable, blocking fetch")
+            details["error"] = "Network gate unavailable -- request blocked"
+            details["latency_ms"] = (time.time() - start) * 1000
+            return "", details
         except Exception as e:
             details["error"] = f"Network blocked: {e}"
             details["latency_ms"] = (time.time() - start) * 1000

@@ -1058,6 +1058,7 @@ class APIRouter:
 
 # Module-level cache for deployment discovery results
 _deployment_cache = None
+_deployment_lock = __import__("threading").Lock()
 
 
 def _is_azure_endpoint(endpoint):
@@ -1069,6 +1070,21 @@ def _is_azure_endpoint(endpoint):
         return False
     lower = endpoint.lower()
     return "azure" in lower or "aoai" in lower
+
+
+# Banned model families (NDAA / ITAR policy from CLAUDE.md)
+_BANNED_PREFIXES = ["qwen", "deepseek", "llama", "baidu", "bge"]
+
+
+def _filter_banned_deployments(models):
+    """Remove banned model families from a deployment list."""
+    filtered = []
+    for m in models:
+        lower = m.lower()
+        if any(b in lower for b in _BANNED_PREFIXES):
+            continue
+        filtered.append(m)
+    return filtered
 
 
 def get_available_deployments():
@@ -1085,6 +1101,17 @@ def get_available_deployments():
     global _deployment_cache
     if _deployment_cache is not None:
         return list(_deployment_cache)
+
+    with _deployment_lock:
+        # Double-check inside lock
+        if _deployment_cache is not None:
+            return list(_deployment_cache)
+        return _get_deployments_locked()
+
+
+def _get_deployments_locked():
+    """Inner deployment discovery, called under _deployment_lock."""
+    global _deployment_cache
 
     # Resolve credentials from the canonical source
     try:
@@ -1146,6 +1173,7 @@ def get_available_deployments():
                 if dep_id:
                     deployments.append(dep_id)
 
+            deployments = _filter_banned_deployments(deployments)
             _deployment_cache = deployments
             logger.info("[OK] Found %d Azure deployments", len(deployments))
             return list(deployments)
@@ -1179,7 +1207,8 @@ def get_available_deployments():
                 _deployment_cache = []
                 return []
 
-            _deployment_cache = sorted(models)
+            models = _filter_banned_deployments(sorted(models))
+            _deployment_cache = models
             logger.info("[OK] Found %d models", len(models))
             return list(_deployment_cache)
 

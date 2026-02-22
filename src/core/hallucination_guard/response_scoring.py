@@ -99,11 +99,15 @@ class ConfidenceCalibrator:
                 "severity": "none",
             }
 
-        # Find overconfidence markers in the claim
-        markers = [m for m in OVERCONFIDENCE_MARKERS if m in text_lower]
+        # Find overconfidence markers in the claim (word-boundary match
+        # to avoid substring false positives like "always" in "hallways")
+        import re
+        markers = [m for m in OVERCONFIDENCE_MARKERS
+                   if re.search(r'\b' + re.escape(m) + r'\b', text_lower)]
 
-        # Find hedge words (these OFFSET the overconfidence markers)
-        hedges = [h for h in HEDGE_WORDS if h in text_lower]
+        # Find hedge words (word-boundary match to avoid "may" in "dismay")
+        hedges = [h for h in HEDGE_WORDS
+                  if re.search(r'\b' + re.escape(h) + r'\b', text_lower)]
 
         # Overconfident = has confidence markers but NO hedging
         is_oc = len(markers) > 0 and len(hedges) == 0

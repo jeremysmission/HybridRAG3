@@ -109,6 +109,19 @@ class PcapParser:
                         protos["ICMP"] += 1
                     else:
                         protos["Other IP"] += 1
+                elif isinstance(eth.data, dpkt.ip6.IP6):
+                    ip6 = eth.data
+                    src = socket.inet_ntop(socket.AF_INET6, ip6.src)
+                    dst = socket.inet_ntop(socket.AF_INET6, ip6.dst)
+                    src_ips[src] += 1
+                    dst_ips[dst] += 1
+
+                    if isinstance(ip6.data, dpkt.tcp.TCP):
+                        protos["TCP"] += 1
+                    elif isinstance(ip6.data, dpkt.udp.UDP):
+                        protos["UDP"] += 1
+                    else:
+                        protos["Other IPv6"] += 1
                 else:
                     protos["Non-IP"] += 1
             except Exception:

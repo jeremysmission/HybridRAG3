@@ -528,11 +528,21 @@ class TransferManifest:
         ]
         transfer_total = sum(r[1] for r in results)
         skip_total = sum(r[1] for r in skip_results)
-        accounted = transfer_total + skip_total
+        # A file can appear in both transfer_log (failed/locked) and
+        # skipped_files. Use DISTINCT source_path count to avoid
+        # double-counting, which would produce negative gaps.
+        distinct_accounted = self.conn.execute(
+            "SELECT COUNT(*) FROM ("
+            "  SELECT source_path FROM transfer_log WHERE run_id=?"
+            "  UNION"
+            "  SELECT source_path FROM skipped_files WHERE run_id=?"
+            ")",
+            (run_id, run_id),
+        ).fetchone()[0]
         lines.append(f"  Files in transfer log:     {transfer_total:,}")
         lines.append(f"  Files in skip log:         {skip_total:,}")
-        lines.append(f"  Total accounted:           {accounted:,}")
-        gap = manifest_count - accounted
+        lines.append(f"  Total accounted:           {distinct_accounted:,}")
+        gap = manifest_count - distinct_accounted
         if gap == 0:
             lines.append("  GAP:                       0 (ZERO-GAP VERIFIED)")
         else:

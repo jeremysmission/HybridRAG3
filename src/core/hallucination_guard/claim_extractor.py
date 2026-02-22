@@ -122,7 +122,7 @@ class ClaimExtractor:
 
         # Split on sentence-ending punctuation (.!?) followed by whitespace
         # and a capital letter, quote, or opening bracket.
-        raw = re.split(r'(?<=[.!?])\s+(?=[A-Z"\047([])', protected)
+        raw = re.split(r'(?<=[.!?])\s+(?=[A-Z0-9"\047([])', protected)
 
         # Restore abbreviations and filter out tiny fragments
         sentences = []

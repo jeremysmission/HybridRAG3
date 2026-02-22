@@ -75,9 +75,25 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # If you add extensions to the indexer, add them here too.
 
 SUPPORTED_EXTENSIONS = {
-    ".txt", ".md", ".csv", ".json", ".xml", ".log", ".pdf",
-    ".docx", ".pptx", ".xlsx", ".eml",
-    ".yaml", ".yml", ".ini",
+    # Plain text / config
+    ".txt", ".md", ".csv", ".json", ".xml", ".log",
+    ".yaml", ".yml", ".ini", ".cfg", ".conf", ".properties", ".reg",
+    # Documents
+    ".pdf", ".docx", ".pptx", ".xlsx", ".doc", ".rtf",
+    # Email
+    ".html", ".htm", ".eml", ".msg", ".mbox",
+    # Images (OCR)
+    ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif", ".webp",
+    # CAD / engineering
+    ".dxf", ".stp", ".step", ".ste", ".igs", ".iges", ".stl",
+    # Diagrams
+    ".vsdx",
+    # Security / forensics
+    ".evtx", ".pcap", ".pcapng", ".cer", ".crt", ".pem",
+    # Databases
+    ".accdb", ".mdb",
+    # Design
+    ".psd", ".ai", ".wmf", ".emf",
 }
 
 EXCLUDED_DIRS = {

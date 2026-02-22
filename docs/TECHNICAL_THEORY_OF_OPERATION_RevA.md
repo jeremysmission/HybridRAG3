@@ -70,6 +70,7 @@ boot.py  (entry point -- constructs all services)
   |-- retriever.py      (hybrid search: vector + BM25 + RRF)
   |-- query_engine.py   (orchestrates search -> context -> LLM -> answer)
   |-- llm_router.py     (Ollama or API routing, raw httpx)
+  |-- cost_tracker.py   (singleton cost accumulator + SQLite persistence)
   +-- hallucination_guard/  (5-layer verification, online mode only)
 
 parsers/registry.py  (extension -> parser class mapping)
@@ -91,7 +92,8 @@ gui/                         (tkinter desktop application, dark/light theme)
       |-- query_panel.py     (question input, answer display, metrics)
       |-- index_panel.py     (folder picker, progress bar, start/stop)
       |-- status_bar.py      (live system health indicators)
-      +-- engineering_menu.py (tuning sliders, profile switch, test query)
+      |-- engineering_menu.py (tuning sliders, profile switch, test query)
+      +-- cost_dashboard.py   (PM cost dashboard, Toplevel child window)
 
 api/                         (FastAPI REST server)
   |-- server.py              (lifespan management, app factory)
@@ -407,10 +409,82 @@ Offline mode always works even without API configuration.
   Network Gate mode (color-coded green/red)
 - **Admin Menu**: Retrieval sliders (top_k, min_score, rrf_k),
   LLM tuning (temperature, timeout), profile switching, model ranking
+- **PM Cost Dashboard**: Toplevel child window opened from the Admin
+  menu. Displays live session spend, budget gauge, token breakdown,
+  data volume, cumulative team stats, and editable pricing rates.
+  Backed by the CostTracker singleton (see section 8.1).
 
 **Threading safety**: All background work uses `queue.Queue` for
 thread-to-GUI communication. `threading.Event` for cancellation.
 Never `after_idle()` (known Tcl memory-exhaustion hazard).
+
+### 8.1 Cost Tracking Subsystem
+
+`src/core/cost_tracker.py` -- In-memory cost accumulator with SQLite
+persistence for program management oversight.
+
+**Architecture:**
+- Thread-safe singleton accessed via `get_cost_tracker()` factory
+- Each application launch generates a unique `session_id` (12-char hex)
+- Per-query cost events accumulate in memory for instant GUI display
+- SQLite provides durable cross-session storage for team-wide reporting
+- Auto-flush timer persists in-memory events to SQLite every 30 seconds
+- Explicit `shutdown()` flushes remaining events and cancels the timer
+
+**Data classes:**
+
+| Class | Purpose |
+|-------|---------|
+| `CostEvent` | Single API cost record: session, model, mode, tokens in/out, cost, latency, data bytes |
+| `SessionSummary` | Aggregated stats for current session: query count, total cost, avg latency, avg cost/query |
+| `CumulativeSummary` | All-time stats across all sessions: total sessions, queries, cost, date range |
+| `CostRates` | Token pricing per 1M tokens (input and output), with label |
+
+**SQLite tables** (`logs/cost_tracking.db`):
+
+| Table | Columns | Purpose |
+|-------|---------|---------|
+| `cost_events` | id, session_id, timestamp, profile, model, mode, tokens_in, tokens_out, input_cost_usd, output_cost_usd, total_cost_usd, data_bytes_in, data_bytes_out, latency_ms | Per-query cost log |
+| `cost_rates` | id, timestamp, input_rate_per_1m, output_rate_per_1m, label | Rate change audit trail |
+
+Deduplication: `cost_events` has a UNIQUE constraint on
+`(session_id, timestamp, tokens_in, tokens_out)` with `INSERT OR IGNORE`,
+so repeated flushes of the same events are idempotent.
+
+**Listener pattern**: GUI components register callbacks via
+`add_listener(callback)`. When `record()` creates a new CostEvent, all
+registered listeners are invoked synchronously. The CostDashboard uses
+`self.after(0, self._refresh_all)` inside its listener to marshal the
+update onto the Tk main thread safely.
+
+**CostDashboard** (`src/gui/panels/cost_dashboard.py`):
+- `tk.Toplevel` child window, opened from Admin menu, one instance at
+  a time (re-raises existing window if already open)
+- 7-section vertical layout: header, big numbers row (session spend /
+  queries / avg cost), budget gauge bar (green/yellow/red color
+  transitions at 60% and 85%), token breakdown table (input/output
+  with rate math), data volume (KB sent/received), cumulative team
+  stats (all sessions from SQLite), editable rate spinboxes
+- Budget gauge reads `daily_budget_usd` from CostConfig (default $5.00)
+- ROI Calculator section with three live metrics (TIME SAVED, VALUE SAVED,
+  NET ROI), editable parameters (hourly rate, team size, minutes saved per
+  query), and a team monthly projection line with ROI%
+- Export CSV button writes all historical events to a user-chosen file
+- Unregisters its listener on window close to avoid orphan callbacks
+- Theme-aware: respects dark/light toggle from parent window
+
+**Data flow:**
+```
+query_panel.py  --record()--> CostTracker (in-memory)
+                                   |
+                              flush (30s timer)
+                                   |
+                                   v
+                          cost_tracking.db (SQLite)
+                                   ^
+                                   |
+                          CostDashboard reads summaries
+```
 
 ---
 
@@ -462,7 +536,10 @@ Every exception includes `fix_suggestion: str` and `error_code: str`.
 - `VLLMConfig` -- base_url, model, timeout_seconds, context_window, enabled
 - `APIConfig` -- endpoint, model, max_tokens, temperature
 - `RetrievalConfig` -- top_k, min_score, hybrid_search, rrf_k
-- `CostConfig` -- track_enabled, daily_budget_usd
+- `CostConfig` -- track_enabled, input_cost_per_1k, output_cost_per_1k,
+  daily_budget_usd. Controls whether per-query cost events are recorded
+  and the daily spend warning threshold. Persistence file:
+  `logs/cost_tracking.db` (SQLite, managed by CostTracker singleton)
 - `SecurityConfig` -- audit_logging, pii_sanitization
 - `HallucinationGuardConfig` -- thresholds, failure_action
 
@@ -504,6 +581,10 @@ hybridrag.sqlite3
 
 embeddings.f16.dat   (raw float16 matrix, shape [N, 384])
 embeddings_meta.json ({"dim": 384, "count": N, "dtype": "float16"})
+
+logs/cost_tracking.db
+|-- cost_events     (per-query cost log: session, tokens, cost, latency)
++-- cost_rates      (rate change audit trail: input/output per 1M tokens)
 ```
 
 ---

@@ -1,6 +1,6 @@
 # HybridRAG3 Demo Preparation
 
-Last Updated: 2026-02-21
+Last Updated: 2026-02-22
 
 ---
 
@@ -35,7 +35,10 @@ using only open-source, US/EU-origin AI models with no restrictive licenses.
 4. Open the GUI: `python src/gui/launch_gui.py` (wait for status bar to
    show green "Ready")
 5. Have a second PowerShell window open for CLI fallback
-6. Close all other apps to avoid RAM pressure on 8GB laptop
+6. Open the PM Cost Dashboard: **Admin > PM Cost Dashboard...** (leave it
+   visible on a second monitor or positioned beside the main window so the
+   audience can watch it update live during queries)
+7. Close all other apps to avoid RAM pressure on 8GB laptop
 
 ### Demo Flow (5 minutes)
 
@@ -79,7 +82,53 @@ When the answer appears:
 
 ---
 
-**BEAT 3: Admin Menu (30 seconds)**
+**BEAT 3: PM Cost Dashboard -- Live Update (60 seconds)**
+
+Point to the PM Cost Dashboard window (already open from the checklist).
+
+> *"While that query ran, look at the cost dashboard. It updated in real time.
+> That query was offline, so the cost shows $0.0000. The budget gauge is still
+> green at 0%. Every offline query is free -- local inference, no API fees."*
+
+Point out the key sections:
+- **SESSION SPEND**: $0.0000 (green) -- no cost because query ran locally
+- **Budget Gauge**: 0% of daily budget consumed, bar is green
+- **Token Breakdown**: shows 0 input / 0 output tokens for offline queries
+- **Savings Callout** at the bottom: "[OK] 1 offline queries -- $0.00 local
+  inference"
+
+> *"Now watch what happens when we switch to online mode."*
+
+Switch to ONLINE mode, run the same query again. When the answer returns:
+
+> *"Look at the dashboard now. It shows the exact token count, the per-token
+> rate, and the total cost for that single query. The gauge moved -- you can
+> see the green bar advance. For a 10-person team running queries all day,
+> this is how a PM tracks spend against a daily budget."*
+
+Point out:
+- **SESSION SPEND** now shows a non-zero value (e.g., $0.0032)
+- **Budget Gauge** moved from 0% -- still green because spend is low
+- **Offline vs Online**: the offline query line still shows $0.00 while the
+  online query has a real cost -- this is the savings comparison
+- **AVG COST/QUERY**: shows the blended average across offline and online
+
+> *"The gauge turns yellow at 60% of budget and red at 85%. A PM sets the
+> daily budget in the rate editor at the bottom, and the whole team can see
+> at a glance whether they're on track."*
+
+Click **Export CSV**.
+
+> *"One click exports every cost event to a CSV file -- timestamps, query
+> text, mode, token counts, cost per query. This feeds directly into any
+> spreadsheet or reporting tool leadership already uses."*
+
+Cancel the save dialog (do not actually save during demo). Switch back to
+OFFLINE mode before continuing.
+
+---
+
+**BEAT 4: Admin Menu (30 seconds)**
 
 Click **Admin > Admin Settings**.
 
@@ -97,7 +146,7 @@ Close the settings window.
 
 ---
 
-**BEAT 4: Online Mode Switch (60 seconds)**
+**BEAT 5: Online Mode Switch (60 seconds)**
 
 > *"When you need faster answers or a more capable model, you can switch
 > to online mode with one click."*
@@ -121,7 +170,7 @@ Switch back to OFFLINE before continuing.
 
 ---
 
-**BEAT 5: Indexing a Folder (60 seconds)**
+**BEAT 6: Indexing a Folder (60 seconds)**
 
 Click the **Index** tab (or panel).
 
@@ -145,13 +194,62 @@ Click **Start Indexing**. As the progress bar moves:
 
 ---
 
-**BEAT 6: Wrap-Up (30 seconds)**
+**BEAT 7: Wrap-Up (30 seconds)**
 
 > *"To summarize: HybridRAG gives you meaning-based search across your
 > entire document library, with direct answers and source citations, running
 > entirely on a standard laptop with no internet required. It's been
 > validated at 98% accuracy, uses only approved open-source models, and
-> every operation is logged for audit."*
+> every operation is logged for audit. And as you saw, leadership gets
+> real-time cost visibility through the PM dashboard -- every token, every
+> dollar, every query, exportable to CSV."*
+
+---
+
+### Cost Tracking Talking Points for Leadership
+
+These points are useful when the audience includes PMs, finance leads, or
+anyone tracking operational costs:
+
+- **Offline queries cost $0.00.** Local inference on phi4-mini uses only
+  laptop CPU cycles. There are no API fees, no token charges, no bandwidth
+  costs. For a 10-person team running 50 queries per day offline, the annual
+  API cost is zero.
+
+- **Online queries are metered per token.** The dashboard shows the exact
+  input and output token count for every query, multiplied by the configured
+  rate per million tokens. Nothing is estimated -- every number is auditable.
+
+- **Budget gauge gives instant visibility.** The color-coded bar turns green
+  to yellow at 60% of daily budget and yellow to red at 85%. A PM can glance
+  at the screen and know the team's spend posture without opening a
+  spreadsheet.
+
+- **Export CSV feeds existing reporting tools.** One click exports every cost
+  event with timestamp, query text, mode (offline/online), token counts, and
+  cost. This imports directly into Excel, Power BI, or any financial
+  reporting pipeline.
+
+- **Rates are configurable.** If your cloud provider changes pricing, the PM
+  can update input and output rates per million tokens in the dashboard
+  without touching config files or restarting the application.
+
+- **Cumulative team tracking.** The dashboard maintains all-time totals
+  across sessions -- total spend, total queries, average cost per query, and
+  average cost per session. This persists in SQLite across application
+  restarts.
+
+- **The cost argument for offline-first.** If the team runs 80% of queries
+  offline, the cost savings compound quickly. The dashboard makes this
+  visible by showing offline queries at $0.00 alongside online queries with
+  real costs, so the ROI of local AI is self-documenting.
+
+- **ROI Calculator.** The dashboard includes a live ROI Calculator showing
+  TIME SAVED, VALUE SAVED, and NET ROI. Editable inputs (Hourly Rate at
+  $48.44 BLS median, Team Size, Minutes Saved Per Query) produce a team
+  monthly projection of estimated savings vs API cost with ROI%. Footnotes
+  cite McKinsey, BLS OEWS, and HBR research -- ready-made justification
+  for leadership.
 
 ---
 
@@ -164,6 +262,7 @@ Click **Start Indexing**. As the progress bar moves:
 | Slow response | Say: "This is an 8GB laptop. On the workstation, responses are 3-5x faster." |
 | Wrong answer | Say: "98% accuracy means 2% failure rate. Let me show a different question." |
 | Crash/error | Show the error gracefully: "Every failure returns a safe result, never an unhandled exception." |
+| Cost dashboard blank | Click Refresh. If still empty, run a query first -- the dashboard needs at least one event. |
 
 ---
 
@@ -273,6 +372,33 @@ of documents you then have to read yourself. HybridRAG understands meaning
 worlds, and gives you a direct answer with citations instead of a document
 list. It also works offline, which SharePoint does not.
 
+### Q13: "How do you track API costs?"
+
+**A:** The PM Cost Dashboard tracks every query in real time. It logs the
+exact token count (input and output), multiplies by the configured rate per
+million tokens, and displays session spend, cumulative team spend, and a
+budget gauge that changes color as daily spend increases. Offline queries
+show $0.00 because local inference has no API cost. All cost data is stored
+in SQLite and can be exported to CSV with one click for reporting.
+
+### Q14: "What does it cost to run?"
+
+**A:** In offline mode, the per-query cost is $0.00 -- the AI model runs on
+local hardware with no API fees. In online mode, cost depends on the cloud
+provider and model. A typical query costs $0.002 to $0.01. The PM Cost
+Dashboard shows every dollar in real time so there are no surprises. For a
+10-person team doing 80% of queries offline, annual API spend stays minimal.
+The software itself is open-source with no licensing fees.
+
+### Q15: "Can you export cost data for finance reporting?"
+
+**A:** Yes. The PM Cost Dashboard has an Export CSV button that writes every
+cost event to a standard CSV file. Each row includes the timestamp, session
+ID, query text, mode (offline or online), input tokens, output tokens, cost,
+and model name. This imports directly into Excel, Power BI, or any financial
+reporting tool. Cumulative team totals are also available in the dashboard
+for quick reference without exporting.
+
 ---
 
 ## SECTION 4: TECHNICAL DIFFERENTIATORS
@@ -289,6 +415,7 @@ list. It also works offline, which SharePoint does not.
 | Injection resistance | Tested, 100% on eval set | Not designed for adversarial docs |
 | Audit trail | Every query logged with run_id | Limited API logs only |
 | Cost per query (offline) | $0.00 (local compute) | $0.01-$0.10 per query |
+| Cost tracking dashboard | Built-in PM dashboard with live gauge, CSV export | None (manual API billing review) |
 
 ### vs. Basic RAG Systems
 
@@ -305,6 +432,7 @@ list. It also works offline, which SharePoint does not.
 | Model governance | Approved model stack with audit trail | Uses whatever is available |
 | Prompt engineering | 9-rule source-bounded with priority ordering | Basic "answer from context" |
 | Use-case profiles | 9 profiles with tuned params per role | One-size-fits-all |
+| Cost visibility | PM dashboard with budget gauge, CSV export | No cost tracking |
 
 ### vs. SharePoint / Enterprise Search
 
@@ -336,6 +464,8 @@ These are tested and measurable:
    Apache 2.0 licenses
 9. **9 use-case profiles** with tuned parameters for different engineering roles
 10. **135+ automated tests** passing across the codebase
+11. **$0.00 per offline query** with real-time cost tracking dashboard and
+    CSV export for financial reporting
 
 ---
 
@@ -509,6 +639,9 @@ rag-config
 | Automated tests | 135+ passing |
 | RAM minimum | 8 GB |
 | Index size on disk | ~15 MB (39K chunks) |
+| Offline query cost | $0.00 (local inference) |
+| Online query cost | ~$0.002-$0.01 per query |
+| Budget gauge thresholds | Green <60%, Yellow 60-85%, Red >85% |
 
 ### Model Quick Reference
 

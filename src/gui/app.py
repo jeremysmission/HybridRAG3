@@ -16,7 +16,7 @@
 #   3. Index panel (folder picker, progress bar, start/stop)
 #   4. Status bar (LLM, Ollama, Gate indicators)
 #
-# Menu bar: File | Engineering | Help
+# Menu bar: File | Admin | Help
 #
 # INTERNET ACCESS: Depends on mode.
 #   Offline: NONE (all local)
@@ -32,6 +32,8 @@ from src.gui.panels.query_panel import QueryPanel
 from src.gui.panels.index_panel import IndexPanel
 from src.gui.panels.status_bar import StatusBar
 from src.gui.panels.engineering_menu import EngineeringMenu
+from src.gui.panels.cost_dashboard import CostDashboard
+from src.core.cost_tracker import get_cost_tracker
 from src.gui.theme import (
     DARK, LIGHT, FONT, FONT_BOLD, FONT_TITLE,
     current_theme, set_theme, apply_ttk_styles, bind_hover,
@@ -62,6 +64,8 @@ class HybridRAGApp(tk.Tk):
         self.query_engine = query_engine
         self.indexer = indexer
         self.router = router
+        self.cost_tracker = get_cost_tracker()
+        self._cost_dashboard = None
 
         # Apply initial theme
         self._theme = current_theme()
@@ -111,6 +115,10 @@ class HybridRAGApp(tk.Tk):
         admin_menu.add_command(
             label="Admin Settings...",
             command=self._open_engineering_menu,
+        )
+        admin_menu.add_command(
+            label="PM Cost Dashboard...",
+            command=self._open_cost_dashboard,
         )
         menubar.add_cascade(label="Admin", menu=admin_menu)
 
@@ -458,6 +466,16 @@ class HybridRAGApp(tk.Tk):
         """Open the engineering settings child window."""
         EngineeringMenu(self, config=self.config, query_engine=self.query_engine)
 
+    def _open_cost_dashboard(self):
+        """Open the PM Cost Dashboard child window."""
+        # Reuse existing window if still open
+        if (self._cost_dashboard is not None
+                and self._cost_dashboard.winfo_exists()):
+            self._cost_dashboard.lift()
+            self._cost_dashboard.focus_force()
+            return
+        self._cost_dashboard = CostDashboard(self, self.cost_tracker)
+
     # ----------------------------------------------------------------
     # HELP
     # ----------------------------------------------------------------
@@ -481,4 +499,6 @@ class HybridRAGApp(tk.Tk):
         """Clean up and close the application."""
         if hasattr(self, "status_bar"):
             self.status_bar.stop()
+        if hasattr(self, "cost_tracker") and self.cost_tracker:
+            self.cost_tracker.shutdown()
         self.destroy()

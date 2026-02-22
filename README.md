@@ -15,7 +15,7 @@
 - **RAG Pipeline Architecture**: Document parsing, chunking, embedding, vector storage, semantic retrieval, LLM-augmented answers
 - **Hybrid Search**: Combining vector similarity (semantic) with keyword matching (FTS5) via Reciprocal Rank Fusion
 - **Offline-First Design**: Runs entirely on a local machine with no internet dependency after initial setup
-- **Online API Mode**: Optional mode routes queries to company GPT-3.5 Turbo for faster responses (2-5 seconds vs 180 seconds)
+- **Online API Mode**: Optional mode routes queries to a cloud LLM API for faster responses (2-5 seconds vs 180 seconds)
 - **Secure Credential Management**: API keys stored in Windows Credential Manager (DPAPI encrypted), never in files or git
 - **Performance Profiles**: Three hardware profiles (laptop_safe, desktop_power, server_max) for different machines
 - **Security Engineering**: 3-layer network lockdown, audit logging, layered security
@@ -46,7 +46,7 @@ rag-diag
 
 After initial setup, steps 2-4 are never needed again. Daily use starts at step 5.
 
-See `docs/SETUP.md` for detailed first-time installation instructions.
+See `docs/INSTALL_AND_SETUP.md` for detailed first-time installation instructions.
 
 ## Daily Use
 
@@ -84,7 +84,7 @@ rag-store-key          Store API key (DPAPI encrypted in Windows Credential Mana
 rag-store-endpoint     Store custom API endpoint URL
 rag-cred-status        Check what credentials are stored and where
 rag-cred-delete        Remove stored credentials
-rag-mode-online        Switch to API mode (queries go to company GPT)
+rag-mode-online        Switch to API mode (queries go to cloud LLM)
 rag-mode-offline       Switch to Ollama mode (queries stay local)
 rag-test-api           Test API connectivity (sends one test prompt)
 ```
@@ -107,11 +107,11 @@ rag-profile server_max        64GB+ RAM, batch=128, maximum throughput
 - Best for: Air-gapped environments, SCIFs, field use
 
 ### Online Mode
-- Uses company GPT-3.5 Turbo API via intranet
+- Routes queries to a cloud LLM API (OpenRouter, Azure, or compatible endpoint)
 - Requires API key stored in Windows Credential Manager
 - Response time: ~2-5 seconds
-- Best for: Daily use when on company network
-- Cost: ~$0.002 per query ($1 buys ~500 queries)
+- Best for: Daily use when on an unrestricted network
+- Cost: varies by provider and model
 
 ## Configuration
 
@@ -158,97 +158,138 @@ All three must fail before data leaves the machine.
 ```
 HybridRAG3/
 |
-|-- config/                         Settings
-|   |-- default_config.yaml         All settings (paths, models, thresholds)
-|   |-- profiles.yaml               Hardware profile definitions
-|   +-- system_profile.json         Auto-detected hardware fingerprint
+|-- config/                            Settings
+|   |-- default_config.yaml            All settings (paths, models, thresholds)
+|   |-- profiles.yaml                  Hardware profile definitions (9 profiles)
+|   +-- system_profile.json            Auto-detected hardware fingerprint
 |
 |-- src/
-|   |-- core/                       Core pipeline
-|   |   |-- config.py               Config loader, validation, dataclasses
-|   |   |-- indexer.py              File scanning, parsing, chunking, embedding
-|   |   |-- chunker.py             Text to chunks with heading detection
-|   |   |-- chunk_ids.py           Deterministic chunk ID generation
-|   |   |-- embedder.py            all-MiniLM-L6-v2 text to vector
-|   |   |-- vector_store.py        SQLite + memmap storage, FTS5 search
-|   |   |-- retriever.py           Hybrid search (vector + BM25 RRF)
-|   |   |-- query_engine.py        Search to LLM to answer pipeline
-|   |   |-- llm_router.py          Ollama (offline) / GPT API (online) routing
-|   |   |-- health_checks.py       System health verification
-|   |   +-- sqlite_utils.py        SQLite helpers
+|   |-- core/                          Core pipeline (25 modules)
+|   |   |-- config.py                  Config loader, validation, dataclasses
+|   |   |-- boot.py                    Startup pipeline
+|   |   |-- indexer.py                 File scanning, parsing, chunking, embedding
+|   |   |-- chunker.py                Text to chunks with heading detection
+|   |   |-- chunk_ids.py              Deterministic chunk ID generation
+|   |   |-- embedder.py               all-MiniLM-L6-v2 text to vector
+|   |   |-- vector_store.py           SQLite + memmap storage, FTS5 search
+|   |   |-- retriever.py              Hybrid search (vector + BM25 RRF)
+|   |   |-- query_engine.py           Search to LLM to answer (prompt v4)
+|   |   |-- grounded_query_engine.py   Source-bounded generation engine
+|   |   |-- llm_router.py             Ollama / vLLM / API routing
+|   |   |-- llm_router_fix.py         vLLM router enhancement
+|   |   |-- network_gate.py           Network availability control
+|   |   |-- cost_tracker.py           PM cost dashboard backend (SQLite)
+|   |   |-- health_checks.py          System health verification
+|   |   |-- http_client.py            HTTP requests with retry
+|   |   |-- sqlite_utils.py           SQLite helpers
+|   |   +-- ...                        (+ exceptions, feature_registry, etc.)
 |   |
-|   |-- parsers/                    Document parsers
-|   |   |-- registry.py            File extension to parser mapping
-|   |   |-- pdf_parser.py          PDF text extraction (pdfplumber)
-|   |   |-- pdf_ocr_fallback.py    OCR fallback for scanned PDFs
-|   |   |-- office_docx_parser.py  Word document parser
-|   |   |-- office_pptx_parser.py  PowerPoint parser
-|   |   |-- office_xlsx_parser.py  Excel parser
-|   |   |-- eml_parser.py          Email parser
-|   |   |-- image_parser.py        OCR via Tesseract
-|   |   +-- plain_text_parser.py   TXT, MD, CSV, JSON, XML, LOG, etc.
+|   |-- core/hallucination_guard/      Hallucination + injection guard (12 modules)
+|   |   |-- hallucination_guard.py     Main guard orchestrator
+|   |   |-- prompt_hardener.py         Injection hardening
+|   |   |-- nli_verifier.py            Natural language inference
+|   |   +-- ...                        (+ claim_extractor, golden_probes, etc.)
 |   |
-|   |-- security/                   Credential management
-|   |   |-- __init__.py            Package marker
-|   |   +-- credentials.py         Windows Credential Manager integration
+|   |-- parsers/                       Document parsers (28 files)
+|   |   |-- registry.py               File extension to parser mapping
+|   |   |-- pdf_parser.py             PDF (pdfplumber + OCR fallback)
+|   |   |-- office_docx_parser.py     Word, office_pptx_parser.py (PPT),
+|   |   |                              office_xlsx_parser.py (Excel)
+|   |   |-- eml_parser.py             Email (.eml, .msg, .mbox)
+|   |   |-- image_parser.py           OCR via Tesseract
+|   |   |-- html_parser.py            HTML/HTM
+|   |   |-- dxf_parser.py             CAD (DXF, STEP/IGES, STL)
+|   |   |-- visio_parser.py           Visio diagrams
+|   |   |-- evtx_parser.py            Windows event logs
+|   |   |-- pcap_parser.py            Network captures
+|   |   +-- ...                        (+ rtf, psd, access_db, plain_text, etc.)
 |   |
-|   |-- diagnostic/                 Testing and diagnostics
-|   |   |-- hybridrag_diagnostic.py Main diagnostic runner
-|   |   |-- health_tests.py        Pipeline health checks (15 tests)
-|   |   |-- component_tests.py     Individual component tests
-|   |   |-- perf_benchmarks.py     Performance benchmarks
-|   |   |-- fault_analysis.py      Automated fault hypothesis engine
-|   |   +-- report.py              Report formatting and output
+|   |-- api/                           REST API (FastAPI)
+|   |   |-- server.py                  FastAPI app + uvicorn launcher
+|   |   |-- routes.py                  Endpoints: /health /query /index /status /config /mode
+|   |   +-- models.py                  Pydantic request/response models
 |   |
-|   |-- tools/                      Utility scripts
-|   |   |-- bulk_transfer_v2.py    Bulk file transfer engine (network -> staging)
-|   |   |-- transfer_manifest.py   Transfer manifest database (zero-gap tracking)
-|   |   |-- transfer_staging.py    Three-stage staging manager (incoming/verified/quarantine)
-|   |   |-- system_diagnostic.py   Diagnostic entry point
-|   |   |-- run_index_once.py      Main indexing entry point
-|   |   |-- index_status.py        Database status checker
-|   |   |-- quick_test_retrieval.py Retrieval testing utility
-|   |   |-- check_db_status.py     Database health check
-|   |   |-- migrate_embeddings_to_memmap.py  One-time migration tool
-|   |   |-- rebuild_memmap_from_sqlite.py    Memmap recovery tool
-|   |   +-- scan_model_caches.ps1  Find model cache locations
+|   |-- gui/                           Desktop GUI (tkinter)
+|   |   |-- app.py                     Main window (File | Admin | Help)
+|   |   |-- launch_gui.py             CLI launcher + backend loading
+|   |   |-- theme.py                   Dark/light theme definitions
+|   |   +-- panels/                    GUI panels (5 modules)
+|   |       |-- query_panel.py         Question box, answer, sources, metrics
+|   |       |-- index_panel.py         Folder picker, progress bar, start/stop
+|   |       |-- status_bar.py          LLM / Ollama / Gate indicators
+|   |       |-- engineering_menu.py    Admin settings dialog
+|   |       +-- cost_dashboard.py      PM cost tracking window
 |   |
-|   |-- monitoring/                 Logging and tracking
-|   |   |-- logger.py              Structured logging setup
-|   |   +-- run_tracker.py         Indexing run audit trail
+|   |-- diagnostic/                    Testing and diagnostics (11 files)
+|   |   |-- hybridrag_diagnostic.py    Main diagnostic runner
+|   |   |-- health_tests.py           Pipeline health checks
+|   |   |-- component_tests.py        Individual component tests
+|   |   |-- perf_benchmarks.py        Performance benchmarks
+|   |   |-- fault_analysis.py         Automated fault hypothesis engine
+|   |   +-- report.py                  Report formatting and output
 |   |
-|   +-- gui/                        GUI (placeholder for future)
-|       +-- __init__.py            Package marker
+|   |-- tools/                         Utility scripts (16 files)
+|   |   |-- bulk_transfer_v2.py       Bulk file transfer (ETA, DB rotation)
+|   |   |-- transfer_manifest.py      Transfer manifest database
+|   |   |-- transfer_staging.py       Three-stage staging manager
+|   |   |-- run_index_once.py         Main indexing entry point
+|   |   +-- ...                        (+ check_db, index_status, migrate, etc.)
+|   |
+|   |-- security/                      Credential management
+|   |   +-- credentials.py            Windows Credential Manager integration
+|   |
+|   +-- monitoring/                    Logging and tracking
+|       |-- logger.py                  Structured logging setup
+|       +-- run_tracker.py             Indexing run audit trail
 |
-|-- scripts/                        Helper scripts for PowerShell commands
-|   |-- _check_creds.py           Check credential status
-|   |-- _set_online.py            Set config mode to online
-|   |-- _set_offline.py           Set config mode to offline
-|   |-- _test_api.py              API connectivity test
-|   |-- _profile_status.py        Show current performance profile
-|   +-- _profile_switch.py        Switch performance profile
+|-- scripts/                           PowerShell command helpers (10 files)
+|   |-- _check_creds.py              Credential status
+|   |-- _set_online.py / _set_offline.py   Mode switching
+|   |-- _test_api.py                  API connectivity test
+|   |-- _profile_status.py / _profile_switch.py   Profile management
+|   |-- _model_meta.py / _set_model.py   Model definitions + switching
+|   |-- _list_models.py              Available model listing
+|   +-- run_eval.py                   Evaluation runner (LOCKED -- do not modify)
 |
-|-- tests/
-|   +-- cli_test_phase1.py         rag-query entry point
+|-- tools/                             Operations and maintenance (25 files)
+|   |-- sync_to_educational.py        One-way sanitized sync to Educational repo
+|   |-- eval_runner.py                Evaluation execution (LOCKED)
+|   |-- score_results.py              Evaluation scorer (LOCKED)
+|   |-- run_all.py                    Full test suite runner (LOCKED)
+|   |-- query_benchmark.py           Query performance measurement
+|   |-- api_mode_commands.ps1         API mode PowerShell commands
+|   |-- launch_gui.ps1               GUI launcher (PowerShell)
+|   |-- master_toolkit.ps1           Unified command interface
+|   |-- py/                           Python CLI utilities (13 files)
+|   |   +-- store_key.py, net_check.py, ollama_test.py, ...
+|   +-- work_validation/              Pre-deployment validation (6 files)
+|       +-- validate_offline_models.py, check_dependencies.py, ...
 |
-|-- docs/                           Documentation
-|   |-- ARCHITECTURE.md            System design, security model
-|   |-- SETUP.md                   Detailed installation instructions
-|   |-- NETWORK_SECURITY_EXPLAINER.md  Network isolation design
-|   |-- PERFORMANCE_BASELINE.md    Performance benchmarks and tuning
-|   |-- SOURCE_BOUNDED_GENERATION.md   LLM context grounding
-|   |-- SYSTEM_STATE.md            Current system state
-|   +-- schematic_conversion_schema.md  Schema documentation
+|-- tests/                             Test suite (37 files, 84 pytest + 290 virtual)
+|   |-- conftest.py                   Pytest fixtures
+|   |-- test_fastapi_server.py        FastAPI endpoint tests (17 tests)
+|   |-- test_query_engine.py          Query engine tests
+|   |-- test_cost_tracker.py          Cost tracker tests (16 tests)
+|   |-- test_gui_integration_w4.py    GUI integration tests
+|   |-- stress_test_*.py              6 stress test suites
+|   |-- virtual_test_*.py             Virtual test framework (290 scenarios)
+|   +-- ...                            (+ indexer, credentials, ollama, vllm, etc.)
 |
-|-- api_mode_commands.ps1           API mode + profile PowerShell commands
-|-- api_mode_simulation.py          Deployment dry-run diagnostic
-|-- API_MODE_REVIEW.md              API mode code review and bug analysis
-|-- start_hybridrag.ps1             Environment setup + aliases (machine-specific)
-|-- start_rag.bat                   Double-click launcher for start_hybridrag.ps1
-|-- requirements.txt                Python dependencies (what we want)
-|-- requirements-lock.txt           Python dependencies (exact versions installed)
-|-- .gitignore                      Files excluded from git
-+-- README.md                       This file
+|-- Eval/
+|   +-- golden_tuning_400.json         400-question evaluation golden set
+|
+|-- docs/                              Documentation (36 files)
+|   +-- (see Documentation section below)
+|
+|-- mcp_server.py                      MCP server implementation
+|-- start_hybridrag.ps1                Environment setup + aliases (machine-specific)
+|-- start_rag.bat                      Double-click launcher (CLI)
+|-- start_gui.bat                      Double-click launcher (GUI)
+|-- START_HERE.txt                     New user entry point
+|-- requirements.txt                   Python dependencies
+|-- requirements_approved.txt          Store-approved exact versions
+|-- .gitignore                         Files excluded from git
++-- README.md                          This file
 ```
 
 ## Data Directories (not in git, local to each machine)
@@ -312,18 +353,37 @@ All packages sourced from PyPI (pypi.org) -- open-source with permissive license
 
 ## Documentation
 
+### Getting Started
+- `START_HERE.txt` -- Read this first (plain-language walkthrough, no jargon)
+- `docs/INSTALL_AND_SETUP.md` -- Full installation and deployment guide (10 parts)
+- `docs/USER_GUIDE.md` -- Daily use, all commands, tuning, troubleshooting
+- `docs/SHORTCUT_SHEET.md` -- Quick reference card (phone-friendly)
+
+### Understanding the System
 - `docs/THEORY_OF_OPERATION_RevA.md` -- High-level overview for non-programmers
 - `docs/TECHNICAL_THEORY_OF_OPERATION_RevA.md` -- Developer-focused technical reference
-- `docs/SETUP.md` -- Detailed installation and deployment instructions
-- `docs/ARCHITECTURE.md` -- System design, security model, technical decisions
+- `docs/SECURITY_THEORY_OF_OPERATION_RevA.md` -- Security design and threat model
+- `docs/ARCHITECTURE_DIAGRAM.md` -- System architecture diagram
+
+### Reference
+- `docs/GUI_GUIDE.md` -- Graphical interface walkthrough
 - `docs/INTERFACES.md` -- Stable public API reference for all modules
-- `docs/NETWORK_SECURITY_EXPLAINER.md` -- Network isolation design
-- `docs/PERFORMANCE_BASELINE.md` -- Performance benchmarks and tuning
-- `docs/SOURCE_BOUNDED_GENERATION.md` -- LLM context grounding design
-- `docs/CHEAT_SHEET.md` -- Troubleshooting cheat sheet (setup, daily use, errors, scaling)
-- `docs/BULK_TRANSFER_STRESS_TEST.md` -- Bulk transfer V2 stress test results
-- `API_MODE_REVIEW.md` -- API mode code review and bug analysis
-- `config/profiles.yaml` -- Hardware performance profiles
+- `docs/FORMAT_SUPPORT.md` -- All 49+ supported file formats
+- `docs/GLOSSARY.md` -- Every acronym and term defined
+- `docs/SOFTWARE_STACK.md` -- Full dependency list with licenses
+
+### Configuration
+- `config/default_config.yaml` -- All runtime settings
+- `config/profiles.yaml` -- Hardware performance profiles (laptop / desktop / server)
+
+### Additional Guides
+- `docs/DEMO_PREP.md` -- Demo preparation checklist
+- `docs/DEMO_GUIDE.md` -- Demo walkthrough script
+- `docs/STACK_LAPTOP.md` / `STACK_WORKSTATION.md` -- Per-machine setup notes
+- `docs/GIT_REPO_RULES.md` -- Git workflow and sync rules
+- `docs/DEFENSE_MODEL_AUDIT.md` -- Approved model stack and audit trail
+
+Older documents that have been superseded live in `docs/archive/`.
 
 ## Multi-Machine Deployment
 

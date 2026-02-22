@@ -82,7 +82,7 @@ py_modified = [
     "src/core/api_client_factory.py",
     "src/diagnostic/component_tests.py",
     "src/tools/system_diagnostic.py",
-    "diagnostics/hybridrag_diagnostic_v2.py",
+    "src/diagnostic/hybridrag_diagnostic.py",
     "tools/py/test_api_verbose.py",
 ]
 for pf in py_modified:
@@ -255,7 +255,7 @@ for root, dirs, files in os.walk("."):
 
 # Report per-file
 targeted_files = [
-    "diagnostics/hybridrag_diagnostic_v2.py",
+    "src/diagnostic/hybridrag_diagnostic.py",
     "src/tools/system_diagnostic.py",
     "tools/py/test_api_verbose.py",
 ]
@@ -529,8 +529,8 @@ if os.path.exists("scripts/_set_model.py"):
           "resolve_credentials" in setmodel)
 
 # Keyring schema consistency in diagnostics
-diag_code = open("diagnostics/hybridrag_diagnostic_v2.py", "r").read()
-check("diagnostic_v2.py uses 'hybridrag' service (not 'hybridragv3')",
+diag_code = open("src/diagnostic/hybridrag_diagnostic.py", "r").read()
+check("hybridrag_diagnostic.py uses 'hybridrag' service (not 'hybridragv3')",
       '"hybridragv3"' not in diag_code or
       diag_code.count('"hybridrag"') > diag_code.count('"hybridragv3"'))
 

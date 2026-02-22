@@ -83,6 +83,7 @@ _config = None          # Config object (initialized on first use)
 _vector_store = None    # VectorStore instance (for stats)
 _llm_router = None      # LLMRouter instance (for status)
 _boot_error = None      # If boot failed, this holds the error message
+_boot_lock = __import__("threading").Lock()
 
 
 def _ensure_booted():
@@ -99,7 +100,7 @@ def _ensure_booted():
     """
     global _engine, _config, _vector_store, _llm_router, _boot_error
 
-    # Already booted successfully -- nothing to do
+    # Already booted successfully -- nothing to do (fast path, no lock)
     if _engine is not None:
         return
 
@@ -107,43 +108,48 @@ def _ensure_booted():
     if _boot_error is not None:
         return
 
-    logger.info("First tool call -- booting HybridRAG3...")
+    with _boot_lock:
+        # Double-check inside lock
+        if _engine is not None or _boot_error is not None:
+            return
 
-    try:
-        # Step 1: Load configuration from config/default_config.yaml
-        from src.core.config import load_config, Config
-        config_obj = load_config(
-            project_dir=SCRIPT_DIR,
-            config_filename="default_config.yaml",
-        )
-        _config = config_obj
+        logger.info("First tool call -- booting HybridRAG3...")
 
-        # Step 2: Connect to the vector store (SQLite + memmap embeddings)
-        from src.core.vector_store import VectorStore
-        db_path = config_obj.paths.database
-        embedding_dim = config_obj.embedding.dimension
-        store = VectorStore(db_path=db_path, embedding_dim=embedding_dim)
-        store.connect()
-        _vector_store = store
+        try:
+            # Step 1: Load configuration from config/default_config.yaml
+            from src.core.config import load_config, Config
+            config_obj = load_config(
+                project_dir=SCRIPT_DIR,
+                config_filename="default_config.yaml",
+            )
+            _config = config_obj
 
-        # Step 3: Load the embedding model (all-MiniLM-L6-v2, ~100MB)
-        from src.core.embedder import Embedder
-        embedder = Embedder(model_name=config_obj.embedding.model_name)
+            # Step 2: Connect to the vector store (SQLite + memmap embeddings)
+            from src.core.vector_store import VectorStore
+            db_path = config_obj.paths.database
+            embedding_dim = config_obj.embedding.dimension
+            store = VectorStore(db_path=db_path, embedding_dim=embedding_dim)
+            store.connect()
+            _vector_store = store
 
-        # Step 4: Create the LLM router (handles Ollama + API switching)
-        from src.core.llm_router import LLMRouter
-        router = LLMRouter(config_obj)
-        _llm_router = router
+            # Step 3: Load the embedding model (all-MiniLM-L6-v2, ~100MB)
+            from src.core.embedder import Embedder
+            embedder = Embedder(model_name=config_obj.embedding.model_name)
 
-        # Step 5: Create the query engine (the main pipeline)
-        from src.core.query_engine import QueryEngine
-        _engine = QueryEngine(config_obj, store, embedder, router)
+            # Step 4: Create the LLM router (handles Ollama + API switching)
+            from src.core.llm_router import LLMRouter
+            router = LLMRouter(config_obj)
+            _llm_router = router
 
-        logger.info("HybridRAG3 booted successfully")
+            # Step 5: Create the query engine (the main pipeline)
+            from src.core.query_engine import QueryEngine
+            _engine = QueryEngine(config_obj, store, embedder, router)
 
-    except Exception as e:
-        _boot_error = f"{type(e).__name__}: {str(e)}"
-        logger.error("HybridRAG3 boot failed: %s", _boot_error)
+            logger.info("HybridRAG3 booted successfully")
+
+        except Exception as e:
+            _boot_error = f"{type(e).__name__}: {str(e)}"
+            logger.error("HybridRAG3 boot failed: %s", _boot_error)
 
 
 # ============================================================================
@@ -209,14 +215,16 @@ def hybridrag_search(
         })
 
     try:
-        # Override top_k in the config if the caller specified a different value.
-        # This lets agents request more or fewer chunks without changing the
-        # config file on disk.
-        if _config and hasattr(_config, "retrieval"):
-            _config.retrieval.top_k = top_k
-
-        # Run the full query pipeline
-        result = _engine.query(query)
+        # Apply top_k per-query via the retriever, without mutating the
+        # global config (which would cause interference between callers).
+        saved_top_k = _config.retrieval.top_k if _config else 5
+        try:
+            if _config and hasattr(_config, "retrieval"):
+                _config.retrieval.top_k = top_k
+            result = _engine.query(query)
+        finally:
+            if _config and hasattr(_config, "retrieval"):
+                _config.retrieval.top_k = saved_top_k
 
         # Package the result as a clean JSON object.
         # We include everything an agent might need to cite sources or

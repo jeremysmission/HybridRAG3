@@ -9,7 +9,7 @@
 #   should ever create its own urllib/requests/httpx session directly.
 #
 # WHY THIS MATTERS:
-#   In a corporate/defense environment, HTTP connections need:
+#   In a corporate/secure environment, HTTP connections need:
 #     - Proxy configuration (corporate proxy servers)
 #     - TLS/SSL certificate handling (corporate CA certs)
 #     - Timeout enforcement (no hanging requests)
@@ -303,7 +303,7 @@ class HttpClient:
 
         if not self.config.verify_ssl:
             # DANGER: Disabling SSL verification. Only for debugging.
-            # This would NEVER pass a defense audit.
+            # This would NEVER pass a security audit.
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
             logger.warning("SSL VERIFICATION DISABLED -- not suitable for production")
@@ -374,10 +374,12 @@ class HttpClient:
             from src.core.network_gate import get_gate
             get_gate().check_allowed(url, "http_request", "http_client")
         except ImportError:
-            # Gate module not available -- fail-open here since the
-            # gate is the primary access control and its absence is
-            # a startup configuration error, not a runtime issue.
-            pass
+            # Gate module not available -- fail-closed (zero-trust).
+            logger.error("NetworkGate not importable, blocking HTTP request")
+            return HttpResponse(
+                status_code=0,
+                error="Network gate unavailable -- request blocked",
+            )
         except Exception as gate_error:
             logger.warning("HTTP blocked by network gate: %s %s -- %s", method, url, gate_error)
             return HttpResponse(
@@ -449,9 +451,12 @@ class HttpClient:
 
                 # Retry on 5xx or 429 (server errors / rate limit)
                 if e.code in (429, 500, 502, 503, 504) and attempt <= self.config.max_retries:
-                    # Check for Retry-After header
+                    # Check for Retry-After header (can be seconds or HTTP date)
                     retry_after = e.headers.get("Retry-After")
-                    wait = float(retry_after) if retry_after else delay
+                    try:
+                        wait = float(retry_after) if retry_after else delay
+                    except (ValueError, TypeError):
+                        wait = delay  # Date strings or unparseable values
                     logger.info("Retrying in %.1fs...", wait)
                     time.sleep(wait)
                     delay *= 2  # Exponential backoff

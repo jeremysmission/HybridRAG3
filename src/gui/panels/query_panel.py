@@ -15,6 +15,7 @@ import logging
 
 from scripts._model_meta import USE_CASES, select_best_model
 from src.core.llm_router import get_available_deployments
+from src.core.cost_tracker import get_cost_tracker
 from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_MONO, bind_hover
 
 logger = logging.getLogger(__name__)
@@ -371,6 +372,9 @@ class QueryPanel(tk.LabelFrame):
             ),
         )
 
+        # Record cost event for PM dashboard
+        self._emit_cost_event(result)
+
     def _display_result(self, result):
         """Display query result in the UI (called on main thread)."""
         try:
@@ -423,6 +427,9 @@ class QueryPanel(tk.LabelFrame):
             ),
         )
 
+        # Record cost event for PM dashboard
+        self._emit_cost_event(result)
+
     def _show_error(self, error_msg):
         """Display an error message in the answer area."""
         t = current_theme()
@@ -448,6 +455,24 @@ class QueryPanel(tk.LabelFrame):
         else:
             self.ask_btn.config(state=tk.DISABLED, bg=t["inactive_btn_bg"],
                                 fg=t["inactive_btn_fg"])
+
+    def _emit_cost_event(self, result):
+        """Record completed query in the cost tracker for PM dashboard."""
+        try:
+            tracker = get_cost_tracker()
+            mode = getattr(result, "mode", "offline")
+            model = self.model_var.get().split(" (")[0] if self.model_var.get() else ""
+            profile = self.get_current_use_case_key()
+            tracker.record(
+                tokens_in=getattr(result, "tokens_in", 0),
+                tokens_out=getattr(result, "tokens_out", 0),
+                model=model,
+                mode=mode,
+                profile=profile,
+                latency_ms=getattr(result, "latency_ms", 0.0),
+            )
+        except Exception as e:
+            logger.debug("Cost event emit failed: %s", e)
 
     def get_current_use_case_key(self):
         """Return the currently selected use case key."""

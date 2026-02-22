@@ -274,8 +274,8 @@ class TestHashVerification:
         # Patch _buffered_copy to write corrupted data
         original_copy = _buffered_copy
 
-        def corrupt_copy(s, d, buf_size=1048576, bw_limit=0):
-            original_copy(s, d, buf_size, bw_limit)
+        def corrupt_copy(s, d, buf_size=1048576, bw_limit=0, **kwargs):
+            original_copy(s, d, buf_size, bw_limit, **kwargs)
             # Corrupt one byte in the destination
             with open(d, "r+b") as f:
                 f.seek(0)
@@ -661,11 +661,11 @@ class TestConnectionIssues:
         call_count = [0]
         original_copy = _buffered_copy
 
-        def flaky_copy(s, d, buf_size=1048576, bw_limit=0):
+        def flaky_copy(s, d, buf_size=1048576, bw_limit=0, **kwargs):
             call_count[0] += 1
             if call_count[0] <= 2:
                 raise OSError("Network error")
-            original_copy(s, d, buf_size, bw_limit)
+            original_copy(s, d, buf_size, bw_limit, **kwargs)
 
         with mock.patch(
             "src.tools.bulk_transfer_v2._buffered_copy", flaky_copy
@@ -689,7 +689,7 @@ class TestConnectionIssues:
         src, dst = tmp_dirs
         _make_file(src / "doc.txt", size=500)
 
-        def always_fail(s, d, buf_size=1048576, bw_limit=0):
+        def always_fail(s, d, buf_size=1048576, bw_limit=0, **kwargs):
             raise OSError("Permanent network failure")
 
         with mock.patch(
@@ -828,11 +828,11 @@ class TestGracefulShutdown:
         call_count = [0]
         original_copy = _buffered_copy
 
-        def interrupt_after_3(s, d, buf_size=1048576, bw_limit=0):
+        def interrupt_after_3(s, d, buf_size=1048576, bw_limit=0, **kwargs):
             call_count[0] += 1
             if call_count[0] > 3:
                 raise KeyboardInterrupt()
-            original_copy(s, d, buf_size, bw_limit)
+            original_copy(s, d, buf_size, bw_limit, **kwargs)
 
         with mock.patch(
             "src.tools.bulk_transfer_v2._buffered_copy", interrupt_after_3
