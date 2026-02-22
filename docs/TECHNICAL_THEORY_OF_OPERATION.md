@@ -1,6 +1,6 @@
 # HybridRAG3 -- Technical Theory of Operation
 
-Last Updated: 2026-02-20
+Last Updated: 2026-02-21
 
 ---
 
@@ -8,37 +8,38 @@ Last Updated: 2026-02-20
 
 HybridRAG3 is a local-first Retrieval-Augmented Generation (RAG) system
 with dual-mode LLM routing (offline via Ollama, online via OpenAI-compatible
-API), hybrid search (vector + BM25 via Reciprocal Rank Fusion), and a
-5-layer hallucination guard for online mode.
+API), hybrid search (vector + BM25 via Reciprocal Rank Fusion), a 5-layer
+hallucination guard, and a centralized network gate enforcing zero-trust
+outbound access control.
 
 ```
-                          INDEXING PIPELINE
-  +-----------+     +----------+     +---------+     +-------------+
-  |  Source    | --> |  Parser  | --> | Chunker | --> |  Embedder   |
-  |  Files    |     | Registry |     | (1200c, |     | MiniLM-L6   |
-  | (.pdf,    |     | (24 ext) |     |  200lap)|     | (384-dim)   |
-  | .docx,..) |     +----------+     +---------+     +-------------+
-  +-----------+                                             |
-                                                            v
-                                                   +----------------+
-                                                   |  VectorStore   |
-                                                   | SQLite + FTS5  |
-                                                   | Memmap float16 |
-                                                   +----------------+
-                                                            |
-                          QUERY PIPELINE                    v
-  +-----------+     +-----------+     +---------+     +-------------+
-  |  User     | --> | Embedder  | --> |Retriever| --> |  Query      |
-  |  Query    |     | (same     |     | Hybrid  |     |  Engine     |
-  |           |     |  model)   |     | RRF k=60|     | + LLM call  |
-  +-----------+     +-----------+     +---------+     +-------------+
-                                                            |
-                                                            v
-                                                   +----------------+
-                                                   | Hallucination  |
-                                                   | Guard (5-layer)|
-                                                   | (online only)  |
-                                                   +----------------+
+                        INDEXING PIPELINE
++-----------+     +----------+     +---------+     +-------------+
+|  Source    | --> |  Parser  | --> | Chunker | --> |  Embedder   |
+|  Files    |     | Registry |     | (1200c, |     | MiniLM-L6   |
+| (.pdf,    |     | (24 ext) |     |  200lap)|     | (384-dim)   |
+| .docx,..) |     +----------+     +---------+     +-------------+
++-----------+                                             |
+                                                          v
+                                                 +----------------+
+                                                 |  VectorStore   |
+                                                 | SQLite + FTS5  |
+                                                 | Memmap float16 |
+                                                 +----------------+
+                                                          |
+                        QUERY PIPELINE                    v
++-----------+     +-----------+     +---------+     +-------------+
+|  User     | --> | Embedder  | --> |Retriever| --> |  Query      |
+|  Query    |     | (same     |     | Hybrid  |     |  Engine     |
+|           |     |  model)   |     | RRF k=60|     | + LLM call  |
++-----------+     +-----------+     +---------+     +-------------+
+                                                          |
+                                                          v
+                                                 +----------------+
+                                                 | Hallucination  |
+                                                 | Guard (5-layer)|
+                                                 | (online only)  |
+                                                 +----------------+
 ```
 
 **Design priorities**: Offline operation, crash safety, low RAM usage,
@@ -73,6 +74,18 @@ parsers/registry.py  (extension -> parser class mapping)
   |-- image_parser.py        (Tesseract OCR)
   |-- plain_text_parser.py   (direct UTF-8 read)
   +-- text_parser.py         (routing parser, delegates by extension)
+
+gui/                         (tkinter desktop application)
+  |-- app.py                 (main window, panel composition)
+  |-- query_panel.py         (question input, answer display, metrics)
+  |-- index_panel.py         (folder picker, progress bar, start/stop)
+  |-- status_bar.py          (live system health indicators)
+  +-- launch_gui.py          (entry point, boot + background loading)
+
+api/                         (FastAPI REST server)
+  |-- server.py              (lifespan management, app factory)
+  |-- routes.py              (endpoint handlers)
+  +-- models.py              (Pydantic request/response schemas)
 ```
 
 ---
@@ -81,7 +94,7 @@ parsers/registry.py  (extension -> parser class mapping)
 
 ### 3.1 Parser Registry
 
-`src/parsers/registry.py` maps 24 file extensions to parser classes.
+`src/parsers/registry.py` maps 24+ file extensions to parser classes.
 Each parser implements:
 
 ```python
@@ -89,14 +102,15 @@ def parse(self, file_path: str) -> str
 def parse_with_details(self, file_path: str) -> Tuple[str, Dict[str, Any]]
 ```
 
-The `parse_with_details` variant returns diagnostic metadata (character
-count, page count, error info) alongside the extracted text. All parsers
-are lazy-imported to avoid pulling in heavy dependencies (openpyxl,
-python-pptx, etc.) when they are not needed.
+Supported formats: PDF, DOCX, PPTX, XLSX, DOC (legacy), RTF, EML, MSG,
+MBOX, HTML, TXT, MD, CSV, JSON, XML, LOG, YAML, INI, PNG/JPG/TIFF/BMP/
+GIF/WEBP (OCR), DXF, STP/STEP, IGS/IGES, STL, VSDX, EVTX, PCAP, CER/
+CRT/PEM, ACCDB/MDB.
 
-Error handling: Every parser wraps its work in try/except and returns
-`("", {"error": "..."})` on failure. A corrupted file never crashes the
-pipeline.
+All parsers are lazy-imported to avoid pulling heavy dependencies when
+not needed. Every parser wraps its work in try/except and returns
+`("", {"error": "..."})` on failure -- a corrupted file never crashes
+the pipeline.
 
 ### 3.2 Chunker
 
@@ -105,8 +119,8 @@ pipeline.
 **Parameters:**
 - `chunk_size`: 1200 characters (default). Tuned for all-MiniLM-L6-v2
   which performs best on 200-500 word passages.
-- `overlap`: 200 characters (default). Ensures facts near chunk
-  boundaries are not lost.
+- `overlap`: 200 characters. Ensures facts near chunk boundaries are
+  not lost.
 
 **Boundary detection** (priority order):
 1. Paragraph break (`\n\n`) in the second half of the chunk window
@@ -114,62 +128,67 @@ pipeline.
 3. Any newline in the second half
 4. Hard cut at `chunk_size` (last resort)
 
-**Heading prepend**: The chunker looks backward up to 2000 characters
+**Heading prepend**: The chunker searches backward up to 2000 characters
 for the nearest section heading (ALL CAPS line, numbered section like
-"3.2.1 Signal Processing", or line ending with `:`) and prepends it
-as `[SECTION] Heading\n` to the chunk. This preserves document structure
-across chunk boundaries.
+"3.2.1 Signal Processing", or line ending with `:`) and prepends it as
+`[SECTION] Heading\n`. This preserves document structure across chunks.
 
 ### 3.3 Embedder
 
 `src/core/embedder.py` wraps `sentence-transformers/all-MiniLM-L6-v2`.
 
 - Output: 384-dimensional normalized float32 vectors
-- Dimension is read from the model at load time (never hardcoded)
+- Dimension read from model at load time (never hardcoded)
 - Batch embedding for indexing (`embed_batch`), single for queries
   (`embed_query`)
 - Model loaded once, held in memory (~100 MB), released with `close()`
-- HuggingFace Hub downloads are blocked at runtime via environment
-  variables (`HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`); the model
-  must be pre-downloaded to `.model_cache/`
+- HuggingFace Hub downloads blocked at runtime via `HF_HUB_OFFLINE=1`
+  and `TRANSFORMERS_OFFLINE=1`; model must be pre-cached
 
 ### 3.4 VectorStore (Dual Storage)
 
-`src/core/vector_store.py` manages two coordinated storage backends:
+`src/core/vector_store.py` manages two coordinated backends:
 
 **SQLite** (`hybridrag.sqlite3`):
 - `chunks` table: id, text, source_path, chunk_index, metadata JSON
-- `chunks_fts` FTS5 virtual table: auto-synchronized with `chunks`,
-  provides BM25 keyword search via SQLite's full-text search engine
+- `chunks_fts` FTS5 virtual table: auto-synchronized, provides BM25
+  keyword search via SQLite full-text search engine
 - `index_runs` table: run audit trail (run_id, timestamps, counts)
 - Uses `INSERT OR IGNORE` with deterministic chunk IDs for crash-safe
   restarts (same file + position = same ID)
 
 **Memmap** (`embeddings.f16.dat` + `embeddings_meta.json`):
 - Raw float16 matrix of shape `[N, 384]` memory-mapped via numpy
-- Disk-backed: only active rows are loaded into RAM during search
-- A laptop with 8 GB RAM can search 10M+ embeddings
-- `embeddings_meta.json` tracks dimension, count, and dtype
-- **Hardening (v3.1)**: JSONDecodeError guard on meta file load --
-  corrupted JSON (from power failure or disk-full) triggers
+- Disk-backed: only active rows loaded into RAM during search
+- 8 GB RAM laptop can search 10M+ embeddings
+- JSONDecodeError guard on meta file load: corrupted JSON triggers
   reinitialization instead of crash
+
+**Why two systems**: SQLite handles structured queries. Memmap handles
+millions of vectors without loading them all into RAM.
+
+**Why float16**: Halves storage (0.75 GB vs 1.5 GB per million chunks)
+with negligible quality loss for cosine similarity on normalized vectors.
+
+**Why memmap over FAISS**: Simpler, no C++ dependencies, sufficient for
+< 500K chunks. Migration to FAISS IVF planned for scale-out (see
+`docs/research/FAISS_MIGRATION_PLAN.md`).
 
 ### 3.5 Indexer Orchestration
 
 `src/core/indexer.py` ties the pipeline together:
 
 1. Scan source folder recursively for supported extensions
-2. For each file, compute a hash (file size + mtime) for change detection
-3. Skip files whose hash matches the stored hash (already indexed)
-4. Parse file to raw text via `TextParser` (which routes to the correct
-   specialized parser via the Registry)
-5. Chunk text into overlapping segments
-6. Embed chunks in batches
-7. Store chunks in SQLite and embeddings in memmap
-8. Run garbage collection between files to bound RAM usage
-
-**Block-based processing**: Large files (500-page PDFs producing 200K+
-characters) are processed in 200K character blocks to cap peak RAM.
+2. Compute file hash (size + mtime) for change detection
+3. Skip files whose hash matches stored hash (already indexed)
+4. Parse to raw text via ParserRegistry
+5. Process in 200K character blocks to cap peak RAM
+6. Chunk text into overlapping segments
+7. Embed chunks in batches
+8. Store chunks in SQLite and embeddings in memmap
+9. Garbage collect between files to bound RAM usage
+10. Delete orphaned chunks (source file deleted since last run)
+11. Rebuild FTS5 index
 
 **Anti-sleep**: On Windows, `SetThreadExecutionState` prevents the OS
 from sleeping during long indexing runs (6+ hours overnight).
@@ -183,28 +202,39 @@ from sleeping during long indexing runs (6+ hours overnight).
 `src/core/retriever.py` implements three search strategies:
 
 **Vector search**: Query embedding dot-producted against memmap in
-blocks. Returns top candidates by cosine similarity. Block-based
-scanning avoids loading the full embedding matrix into RAM.
+blocks of 25,000 rows. Returns top candidates by cosine similarity.
+Block-based scanning avoids loading the full embedding matrix.
 
-**BM25 keyword search**: FTS5 OR-logic query against the `chunks_fts`
-virtual table. OR-logic (not AND) ensures partial matches are returned.
-Critical for exact terms: part numbers, acronyms, technical jargon.
+**BM25 keyword search**: FTS5 OR-logic query against `chunks_fts`.
+OR-logic (not AND) ensures partial matches are returned. Critical for
+exact terms: part numbers, acronyms, technical jargon.
 
-**Hybrid search (default)**: Both searches run, results merged via
-Reciprocal Rank Fusion (RRF):
+**Hybrid search (default)**: Both run, results merged via Reciprocal
+Rank Fusion:
 
 ```
 rrf_score(chunk) = sum( 1 / (k + rank_i) )  for each list i
 ```
 
-where `k = 60` (standard smoothing constant from the original RRF paper).
-Chunks appearing in both lists get boosted. RRF scores are multiplied
-by 30 and capped at 1.0 to normalize into the same range as cosine
-similarity scores (enabling a single `min_score` threshold).
+where `k = 60` (standard from the original RRF paper). RRF scores are
+multiplied by 30 and capped at 1.0 to normalize into the same range as
+cosine similarity, enabling a single `min_score` threshold.
 
-**Optional cross-encoder reranker**: Retrieves 20 candidates, then
-reranks with a cross-encoder model for more accurate relevance scoring.
-Disabled by default (adds ~500ms latency).
+**Optional cross-encoder reranker**: Retrieves `reranker_top_n` (20)
+candidates, reranks with cross-encoder. Disabled by default. WARNING:
+enabling for multi-type evaluation destroys unanswerable (100->76%),
+injection (100->46%), and ambiguous (100->82%) scores.
+
+**Tunable parameters:**
+
+| Setting | Default | Purpose |
+|---------|---------|---------|
+| `hybrid_search` | true | Enable vector + BM25 fusion |
+| `top_k` | 12 | Chunks sent to LLM |
+| `min_score` | 0.10 | Minimum similarity to include |
+| `rrf_k` | 60 | RRF smoothing constant |
+| `reranker_enabled` | false | Cross-encoder reranking |
+| `reranker_top_n` | 20 | Candidates for reranker |
 
 ### 4.2 Query Engine
 
@@ -213,59 +243,63 @@ Disabled by default (adds ~500ms latency).
 1. Embed user query via `embedder.embed_query()`
 2. Retrieve top-K chunks via `retriever.search()`
 3. Build context string from retrieved chunks
-4. Construct LLM prompt (system prompt + context + user question)
+4. Construct LLM prompt using 9-rule source-bounded generation
 5. Route to LLM via `llm_router` (offline or online)
-6. Calculate token cost estimate
-7. Return structured `QueryResult` (answer, sources, tokens, latency)
+6. Calculate token cost estimate (online mode)
+7. Return `QueryResult(answer, sources, tokens, cost, latency, mode)`
 
-**Failure paths**: If retrieval returns 0 results, a "no relevant
-documents found" message is returned without calling the LLM. If the
-LLM times out, the search results are still returned with an error flag.
-Every failure path returns a valid `QueryResult` -- no exceptions
-propagate to the caller.
+**9-rule prompt system** (`_build_prompt()`, ~line 239):
+- Priority: injection/refusal > ambiguity > accuracy > formatting
+- Rule 5 (injection): refer to false claims generically, never name them
+- Rule 8 (source quality): filters indexed test metadata
+- Rule 9 (exact line): subordinate to Rule 4 (ambiguity)
+
+**Failure paths**: 0 results returns "no relevant documents found"
+without calling LLM. LLM timeout still returns search results with
+error flag. Every path returns a valid `QueryResult` -- no exceptions
+propagate.
 
 ### 4.3 LLM Router
 
-`src/core/llm_router.py` routes to the appropriate LLM backend:
+`src/core/llm_router.py` routes to the appropriate backend:
 
-- **Offline**: HTTP POST to Ollama's `/api/generate` endpoint
-  (localhost:11434). Default timeout: 300 seconds (CPU inference is slow).
-- **Online**: HTTP POST to OpenAI-compatible `/v1/chat/completions`.
-  API key from credentials, endpoint from config.
+- **Offline (OllamaRouter)**: HTTP POST to `localhost:11434/api/generate`.
+  Default timeout 600s (CPU inference is slow).
+- **Online (APIRouter)**: HTTP POST to OpenAI-compatible
+  `/v1/chat/completions`. Uses `openai` SDK (v1.45.1). Supports Azure
+  OpenAI and standard OpenAI endpoints with deployment discovery.
 
-All HTTP calls use `httpx` directly -- no OpenAI SDK, no LangChain, no
-hidden magic. Full control over timeouts, retries, and error handling.
-The Network Gate is checked before every outbound connection.
+Network Gate is checked before every outbound connection.
+
+**Deployment discovery** (online mode):
+- `_deployment_cache`: caches available deployments
+- `is_azure_endpoint()`: detects Azure vs standard OpenAI
+- `get_available_deployments()`: lists chat/embedding models
 
 ---
 
 ## 5. Hallucination Guard
 
 `src/core/hallucination_guard/` -- 6 files, each under 500 lines.
-
-Active only in online mode (offline LLMs are assumed to be under the
-operator's control). Architecture:
+Active only in online mode.
 
 | Layer | Module | Function |
 |-------|--------|----------|
 | 1 | `prompt_hardener.py` | Injects grounding instructions into system prompt |
-| 2a | `claim_extractor.py` | Splits LLM response into individual factual claims |
-| 2b | `nli_verifier.py` | Runs NLI model on each claim vs source chunks |
+| 2a | `claim_extractor.py` | Splits response into individual factual claims |
+| 2b | `nli_verifier.py` | NLI model checks each claim vs source chunks |
 | 3-4 | `response_scoring.py` | Scores faithfulness, constructs safe response |
 | 5 | `dual_path.py` | Optional dual-model consensus for critical queries |
 
-**GuardConfig** controls thresholds:
-- `faithfulness_threshold`: Minimum score (default 0.90) for a response
-  to be considered safe
-- `failure_action`: "warn" (flag but show) or "block" (replace with
-  safe response)
+**Configuration:**
+- `threshold`: 0.80 default (minimum faithfulness score)
+- `failure_action`: "block" (replace with safe response) or "warn" (flag)
+- `shortcircuit_pass`: 5 (skip remaining checks after N consecutive passes)
+- `shortcircuit_fail`: 3 (abort after N consecutive failures)
+- `enable_dual_path`: false (opt-in for critical queries)
 
-**Built-In Test (BIT)**: Runs automatically on first import (< 50ms,
-no model loading, no network). Validates that all guard components are
-importable and structurally intact.
-
-**Version**: `GUARD_VERSION = "1.1.0"` exposed at package level for
-runtime version checking.
+**Built-In Test**: Runs on first import (< 50ms, no model loading, no
+network). Validates all guard components are importable and intact.
 
 ---
 
@@ -273,140 +307,165 @@ runtime version checking.
 
 ### 6.1 Network Gate
 
-`src/core/network_gate.py` -- Centralized access control for all
-outbound connections.
-
-**Three modes**:
+`src/core/network_gate.py` -- Centralized outbound access control.
 
 | Mode | Allowed Destinations | Use Case |
 |------|---------------------|----------|
-| `offline` | `localhost`, `127.0.0.1` only | Default. Air-gapped, SCIF, field use |
-| `online` | Localhost + configured API endpoint | Daily use on company network |
-| `admin` | Unrestricted (with logging) | Maintenance: pip install, model downloads |
+| `offline` | `localhost`, `127.0.0.1` only | Default. Air-gapped use. |
+| `online` | Localhost + configured API endpoint | Daily use on network |
+| `admin` | Unrestricted (with logging) | Maintenance only |
 
-**Enforcement**:
-- `gate.check_allowed(url, purpose, caller)` -- raises
-  `NetworkBlockedError` if URL is not in the allowlist
-- `gate.is_allowed(url)` -- non-raising boolean check
-- Every attempt (allowed AND denied) is logged to an audit trail with
-  timestamp, URL, purpose, mode, and result
-
-**URL validation (v3.1)**: Boot pipeline validates that configured
-endpoints start with `http://` or `https://` before passing them to
-the gate. Malformed URLs are cleared with a warning.
+`gate.check_allowed(url, purpose, caller)` raises `NetworkBlockedError`
+if URL is not in allowlist. Every attempt (allowed AND denied) is logged.
 
 ### 6.2 Three-Layer Network Lockdown
 
 | Layer | Mechanism | Blocks |
 |-------|-----------|--------|
-| 1. PowerShell | `$env:HF_HUB_OFFLINE=1`, `$env:TRANSFORMERS_OFFLINE=1` | HuggingFace model downloads |
-| 2. Python | `os.environ` enforcement before sentence-transformers import | HuggingFace in any Python process |
+| 1. PowerShell | `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1` | HuggingFace model downloads |
+| 2. Python | `os.environ` enforcement before import | HuggingFace in any Python process |
 | 3. Application | NetworkGate URL allowlist | All other outbound URLs |
 
 All three must fail before unauthorized data leaves the machine.
 
 ### 6.3 Credential Management
 
-`src/security/credentials.py` resolves API keys from (in priority order):
+`src/security/credentials.py` resolves API keys (priority order):
 1. Windows Credential Manager (DPAPI encrypted, tied to Windows login)
 2. Environment variable (`HYBRIDRAG_API_KEY`)
 3. Config file (not recommended, logged as warning)
 
-Keys are never logged in full. `key_preview` produces a masked form
-(`sk-...xxxx`) for diagnostic output.
+Extended credential fields: api_key, endpoint, deployment, api_version.
+`source_*` fields track provenance. Keys never logged in full --
+`key_preview()` returns masked form (`sk-...xxxx`).
 
 ---
 
 ## 7. Boot Pipeline
 
-`src/core/boot.py` -- Single entry point for system initialization.
+`src/core/boot.py` -- Single entry point for initialization.
 
-**Sequence**:
 1. Record `boot_timestamp` (ISO format)
-2. Load configuration from YAML (`config/default_config.yaml`)
+2. Load YAML configuration
 3. Resolve credentials via `credentials.py`
 4. Validate config + credentials together
-5. Validate endpoint URL format (must be `http://` or `https://`)
+5. Validate endpoint URL format (`http://` or `https://` prefix)
 6. Configure NetworkGate to appropriate mode
-7. Build API client (if online mode and credentials available)
-8. Probe Ollama (if offline mode configured)
+7. Build API client (if online + credentials available)
+8. Probe Ollama (if offline configured)
 9. Return `BootResult` with `success`, `online_available`,
    `offline_available`, `warnings[]`, `errors[]`, and `summary()`
 
-**Design**: Never crashes on missing credentials -- marks the
-corresponding mode as unavailable and continues. This ensures offline
-mode always works even if API credentials are not configured.
+Never crashes on missing credentials -- marks mode as unavailable and
+continues. Offline mode always works even without API configuration.
 
 ---
 
-## 8. Exception Hierarchy
+## 8. GUI Architecture
 
-`src/core/exceptions.py` defines a typed exception tree rooted at
-`HybridRAGError(Exception)`.
+`src/gui/` -- Tkinter desktop application (Python stdlib, zero deps).
 
-Every custom exception includes:
-- `fix_suggestion: str` -- Human-readable remediation instruction
-- `error_code: str` -- Machine-readable code (e.g., `CONF-001`,
-  `NET-001`, `IDX-001`) for logging and dashboards
+**Startup sequence:**
+1. Boot pipeline runs (2-4 seconds)
+2. Window opens immediately
+3. Heavy backends (embedder, vector store, query engine) load in a
+   background thread via `queue.Queue` + `root.after(100, poll)` pattern
+4. Panels become functional when backends finish
 
-Key exception classes:
+**Panels:**
+- **Query Panel**: Use-case dropdown, model auto-selection, question
+  input, answer display with sources, latency/token/cost metrics
+- **Index Panel**: Folder picker, Start/Stop, progress bar, status
+- **Status Bar**: Live 5-second refresh -- Ollama status, LLM model,
+  Network Gate mode (color-coded green/red)
+- **Engineering Menu**: Retrieval sliders (top_k, min_score, rrf_k),
+  LLM tuning (temperature, timeout), profile switching
+
+**Threading safety**: All background work uses `queue.Queue` for
+thread-to-GUI communication. `threading.Event` for cancellation.
+Never `after_idle()` (known Tcl memory-exhaustion hazard).
+
+---
+
+## 9. REST API
+
+`src/api/server.py` -- FastAPI with lifespan management.
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/health` | GET | Server status + versions |
+| `/status` | GET | Index status, LLM status, Gate mode |
+| `/config` | GET | Current configuration |
+| `/query` | POST | Execute a query |
+| `/index` | POST | Start background indexing |
+| `/index/status` | GET | Indexing progress |
+| `/mode` | POST | Switch OFFLINE/ONLINE |
+
+Binds to `127.0.0.1:8000` only (no network exposure). TestClient MUST
+use context manager: `with TestClient(app) as client:` for lifespan.
+
+---
+
+## 10. Exception Hierarchy
+
+`src/core/exceptions.py` -- Typed tree rooted at `HybridRAGError`.
+
+Every exception includes `fix_suggestion: str` and `error_code: str`.
 
 | Exception | Code | When Raised |
 |-----------|------|-------------|
-| `ConfigError` | CONF-* | Invalid YAML, missing required fields |
-| `AuthRejectedError` | AUTH-001 | 401/403 from API endpoint |
+| `ConfigError` | CONF-* | Invalid YAML, missing fields |
+| `AuthRejectedError` | AUTH-001 | 401/403 from API |
 | `EndpointNotConfiguredError` | NET-002 | API endpoint missing |
 | `NetworkBlockedError` | NET-001 | NetworkGate denied connection |
 | `EmbeddingError` | EMB-* | Model load failure, dimension mismatch |
-| `IndexingError` | IDX-001 | Unrecoverable file error during indexing |
-
-All exceptions are catchable with `except HybridRAGError` as a group,
-or individually by specific type.
+| `IndexingError` | IDX-001 | Unrecoverable file error |
 
 ---
 
-## 9. HTTP Client
+## 11. Configuration System
 
-`src/core/http_client.py` -- Shared HTTP client with retry logic.
+`src/core/config.py` loads from `config/default_config.yaml`.
 
-**HttpResponse dataclass** includes:
-- `status_code`, `body`, `headers`, `elapsed_ms`
-- `retry_count: int` -- Number of retries that occurred before success
-  (zero on first attempt). Zero-cost observability field for monitoring
-  flaky endpoints.
+**Nested dataclasses** for type safety:
+- `PathsConfig` -- database, embeddings_cache, source_folder
+- `EmbeddingConfig` -- model_name, dimension, batch_size, device
+- `ChunkingConfig` -- chunk_size, overlap, max_heading_len
+- `OllamaConfig` -- base_url, model, timeout_seconds, context_window
+- `APIConfig` -- endpoint, model, max_tokens, temperature
+- `RetrievalConfig` -- top_k, min_score, hybrid_search, rrf_k
+- `CostConfig` -- track_enabled, daily_budget_usd
+- `SecurityConfig` -- audit_logging, pii_sanitization
+- `HallucinationGuardConfig` -- thresholds, failure_action
 
-**Retry policy**: Exponential backoff with jitter. Configurable max
-retries, timeout per request, and total timeout.
+**Environment variable overrides**: `HYBRIDRAG_<SECTION>_<KEY>`.
 
-**Network Gate integration**: Every request passes through the gate
-before the connection is made. `NetworkBlockedError` is raised before
-any bytes leave the machine.
+**Hardware profiles** (`config/profiles.yaml`):
+
+| Profile | RAM | Batch | Top_K |
+|---------|-----|-------|-------|
+| `laptop_safe` | 8-16 GB | 16 | 5 |
+| `desktop_power` | 32-64 GB | 64 | 10 |
+| `server_max` | 64+ GB | 128 | 15 |
 
 ---
 
-## 10. Diagnostic Framework
+## 12. Diagnostic Framework
 
-`src/diagnostic/` provides a 3-tier test and monitoring system:
+`src/diagnostic/` -- 3-tier test and monitoring system.
 
 | Tier | Module | What It Tests |
 |------|--------|--------------|
-| Health | `health_tests.py` | 15 pipeline health checks (DB exists, model loads, etc.) |
-| Component | `component_tests.py` | Individual component unit tests |
-| Performance | `perf_benchmarks.py` | Embedding speed, search latency, RAM usage |
+| Health | `health_tests.py` | 15 pipeline checks (DB, model, paths) |
+| Component | `component_tests.py` | Individual unit tests |
+| Performance | `perf_benchmarks.py` | Embedding speed, search latency, RAM |
 
-`fault_analysis.py` provides automated fault hypothesis generation:
-- Accepts exceptions from any module
-- Classifies by severity (`critical`, `degraded`, `warning`)
-- Generates fix suggestions
-- Maintains fault history for trend analysis
-
-**Note**: `FaultAnalyzer` is 656 lines and is flagged for decomposition
-into `FaultAnalyzer` (hypothesis engine) and `FaultReporter`
-(formatting/output) when next modified.
+`fault_analysis.py`: Automated fault hypothesis engine. Classifies by
+severity, generates fix suggestions, tracks fault history.
 
 ---
 
-## 11. Storage Layout
+## 13. Storage Layout
 
 ```
 hybridrag.sqlite3
@@ -419,79 +478,93 @@ embeddings.f16.dat   (raw float16 matrix, shape [N, 384])
 embeddings_meta.json ({"dim": 384, "count": N, "dtype": "float16"})
 ```
 
-**Why SQLite**: Single-file, zero-config, portable, XCOPY-deployable.
-No database server to install or maintain.
+---
 
-**Why memmap over FAISS**: Simpler, no C++ dependencies, sufficient
-for < 10M chunks. Memory-mapped access means the OS handles paging
-automatically -- only accessed rows enter RAM.
+## 14. Model Compliance
 
-**Why float16**: Halves storage (0.75 GB vs 1.5 GB per million chunks)
-with negligible quality loss for cosine similarity on normalized vectors.
+All offline models must pass regulatory review before deployment.
+Full audit: `docs/DEFENSE_MODEL_AUDIT.md`.
+
+**Approved publishers**: Microsoft (MIT), Mistral AI (Apache 2.0),
+Google (Apache 2.0), NVIDIA (Apache 2.0).
+
+**Banned**: All China-origin (Alibaba, DeepSeek, BAAI). Meta/Llama
+(license restrictions). See `docs/waiver_cheat_sheet_v4b.xlsx`.
+
+Model definitions: `scripts/_model_meta.py`, `scripts/_set_model.py`.
+Default offline model: `phi4-mini` (`config/default_config.yaml`).
+9 use-case profiles: sw, eng, pm, sys, log, draft, fe, cyber, gen.
 
 ---
 
-## 12. Configuration System
+## 15. Evaluation System
 
-`src/core/config.py` loads from `config/default_config.yaml`.
+**Protected files** (NEVER modify):
+- `scripts/run_eval.py`, `tools/eval_runner.py`
+- `tools/score_results.py`, `tools/run_all.py`
+- `Eval/*.json`
 
-**Nested dataclasses** for type safety:
-- `PathsConfig` -- database, embeddings_cache, source_folder
-- `EmbeddingConfig` -- model_name, dimension, batch_size, device
-- `ChunkingConfig` -- chunk_size, overlap, max_heading_len
-- `OllamaConfig` -- base_url, model, timeout_seconds, context_window
-- `APIConfig` -- endpoint, model, max_tokens, temperature
-- `RetrievalConfig` -- top_k, min_score, hybrid_search, rrf_k
-- `IndexingConfig` -- supported_extensions, excluded_dirs, ocr settings
-- `CostConfig` -- track_enabled, daily_budget_usd
-- `SecurityConfig` -- audit_logging, pii_sanitization
-- `HallucinationGuardConfig` -- thresholds, failure_action
+**Scoring formulas:**
+- `run_eval.py`: overall = 0.7 * fact + 0.3 * behavior
+- `score_results.py`: overall = 0.45 * behavior + 0.35 * fact + 0.20 * citation
 
-**Environment variable overrides**: Any config value can be overridden
-by setting `HYBRIDRAG_<SECTION>_<KEY>` (e.g., `HYBRIDRAG_OLLAMA_MODEL`).
+Fact matching is case-insensitive substring. Exact spacing matters.
+Injection trap: AES_RE regex catches "AES-512" anywhere in answer text.
 
-**Hardware profiles** (`config/profiles.yaml`):
-- `laptop_safe` -- 8-16 GB RAM, batch=16, conservative
-- `desktop_power` -- 32-64 GB RAM, batch=64, aggressive
-- `server_max` -- 64 GB+ RAM, batch=128, maximum throughput
+**Current results**: 98% pass rate on 400-question golden set.
 
 ---
 
-## 13. Performance Characteristics
+## 16. Performance Characteristics
 
 | Metric | Value | Conditions |
 |--------|-------|-----------|
 | Embedding speed | ~100 chunks/sec | CPU, all-MiniLM-L6-v2 |
-| Vector search | < 100 ms | 2000 chunks, block scan |
-| FTS5 keyword search | < 10 ms | 2000 chunks |
-| Index skip (unchanged file) | < 1 sec | Hash-based change detection |
-| RAM during indexing | ~500 MB | Model + active block buffers |
-| RAM during search | ~300 MB | Model + memmap overhead |
+| Vector search | < 100 ms | 40K chunks, block scan |
+| FTS5 keyword search | < 10 ms | 40K chunks |
+| Index skip (unchanged) | < 1 sec | Hash-based detection |
+| RAM (indexing) | ~500 MB | Model + active block buffers |
+| RAM (search) | ~300 MB | Model + memmap overhead |
 | Disk per 1M chunks | ~0.75 GB | float16 embeddings only |
-| Online query latency | 2-5 sec | GPT-3.5 Turbo via API |
+| Online query latency | 2-5 sec | API via configured endpoint |
 | Offline query latency | 5-180 sec | Ollama, hardware dependent |
 
 ---
 
-## 14. Version History (Hardening Changes)
+## 17. Scale-Out Path
 
-### v3.1 (Session 9 -- 2026-02-20)
+Current memmap brute-force search is O(N) and will not scale beyond
+~500K vectors without unacceptable latency. Planned migration:
 
-8 hardening improvements applied from iterative simulation testing:
+- **Phase 1**: `faiss-cpu` with `IVF256,SQ8` as drop-in replacement
+- **Phase 2**: `IVF4096,SQ8` for 50M+ vectors (~18.6 GB, 90-95% recall)
+- **Phase 3**: GPU-accelerated FAISS on dual RTX 3090 workstation
+  (requires WSL2 or native Linux -- no Windows GPU FAISS support)
 
-1. **JSONDecodeError guard** (`vector_store.py`) -- Corrupted
-   `embeddings_meta.json` triggers reinitialization instead of crash
-2. **HttpResponse.retry_count** (`http_client.py`) -- Zero-cost
-   observability for retry tracking on HTTP calls
-3. **boot_timestamp** (`boot.py`) -- ISO timestamp recorded on every
-   boot for correlation with logs
-4. **URL format validation** (`boot.py`) -- Validates `http://` or
-   `https://` prefix before configuring the network gate
-5. **GUARD_VERSION** (`hallucination_guard/__init__.py`) -- Runtime
-   version string for the hallucination guard package
-6. **IndexingError** (`exceptions.py`) -- Typed exception for
-   unrecoverable file errors during indexing
-7. **FaultAnalyzer architecture note** (`fault_analysis.py`) -- Flags
-   656-line class for decomposition when next modified
-8. **Non-programmer commentary** -- All modules and parsers annotated
-   with plain-English explanations of what each file does and why
+Full analysis: `docs/research/FAISS_MIGRATION_PLAN.md`.
+
+---
+
+## 18. Key Dependencies
+
+| Package | Version | License | Purpose |
+|---------|---------|---------|---------|
+| torch | 2.10.0 | BSD-3 | Tensor computation |
+| sentence-transformers | 2.7.0 | Apache 2.0 | Embedding model |
+| transformers | 4.57.6 | Apache 2.0 | Tokenization |
+| numpy | 1.26.4 | BSD-3 | Numerical arrays, memmap |
+| scikit-learn | 1.8.0 | BSD-3 | Distance metrics |
+| pdfplumber | 0.11.9 | MIT | PDF extraction |
+| python-docx | 1.2.0 | MIT | Word documents |
+| python-pptx | 1.0.2 | MIT | PowerPoint |
+| openpyxl | 3.1.5 | MIT | Excel |
+| httpx | 0.28.1 | BSD-3 | HTTP client |
+| openai | 1.45.1 | MIT | OpenAI/Azure SDK |
+| fastapi | 0.115.0 | MIT | REST API framework |
+| uvicorn | 0.41.0 | BSD-3 | ASGI server |
+| keyring | 24.3.0 | MIT | Windows Credential Manager |
+| cryptography | 44.0.2 | Apache/BSD | Encryption |
+| pydantic | 2.11.1 | MIT | Data validation |
+| structlog | 24.4.0 | Apache 2.0 | Structured logging |
+| PyYAML | 6.0.2 | MIT | YAML parsing |
+| tiktoken | 0.8.0 | MIT | Token counting |

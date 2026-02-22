@@ -1,272 +1,338 @@
-# HybridRAG3 -- Theory of Operation (High Level)
+# HybridRAG3 -- Theory of Operation (Management / Non-Technical)
 
-Last Updated: 2026-02-20
+Last Updated: 2026-02-21
 
 ---
 
 ## What Is HybridRAG?
 
-HybridRAG is a system that lets you search through hundreds of documents
-using natural language questions, and get back accurate, sourced answers.
+HybridRAG is a document search and question-answering system that runs on
+your own computer. You give it a folder of documents -- PDFs, Word files,
+spreadsheets, emails, PowerPoints, images -- and it reads every one. After
+that, you can ask it questions in plain English, and it gives you a direct
+answer with citations back to the exact source documents.
 
-Think of it like a research assistant that has read every document in your
-filing cabinet and can instantly find the relevant paragraphs when you ask
-a question like "What frequency does the antenna operate at?" -- except
-instead of a person flipping through pages, it is software running on
-your own computer.
+Think of it as a research assistant that has read every page in your
+filing cabinet and can find the answer to any question in seconds. The
+difference is that this assistant never forgets, never gets tired, and
+can search through thousands of documents faster than any human.
 
-The "Hybrid" in the name means it combines two different search methods
-to find the best results. The "RAG" stands for Retrieval-Augmented
-Generation, which is the technical term for "find relevant information
-first, then use an AI to write an answer based on that information."
+The name breaks down as follows:
 
----
-
-## The Big Picture
-
-HybridRAG does two things:
-
-1. **Indexing** -- Reads all your documents once and organizes them
-   for fast searching (like building an index at the back of a book)
-
-2. **Querying** -- When you ask a question, it finds the most relevant
-   passages and uses an AI to write a direct answer based on those
-   passages
+- **Hybrid** -- It combines two different search methods (meaning-based
+  and keyword-based) for better results than either alone.
+- **RAG** -- Retrieval-Augmented Generation. The industry term for
+  "find relevant information first, then have an AI write an answer
+  using only that information."
 
 ---
 
-## How Indexing Works (Step by Step)
+## Why Does This Exist?
 
-Imagine you have a filing cabinet full of PDFs, Word documents, Excel
-spreadsheets, and PowerPoint presentations. Here is what happens when
-you run the indexer:
+Traditional keyword search (like Ctrl+F or Windows Search) only finds
+exact words. If you search for "antenna frequency range" it will not find
+a document that says "RF operating band" -- even though they mean the
+same thing.
 
-### Step 1: Read Every Document
-
-The system opens each file and extracts the text. Different file types
-need different tools:
-- PDFs are read with a PDF text extractor
-- Word documents (.docx) are unzipped (they are actually ZIP files
-  containing XML) and the text is pulled out
-- Excel spreadsheets have each row converted to a text line
-- PowerPoint slides have each text box extracted
-- Images are run through OCR (optical character recognition) to convert
-  pictures of text into actual text
-- Plain text files (.txt, .md, .csv) are just read directly
-
-### Step 2: Break Text Into Chunks
-
-A 500-page PDF might contain 2 million characters. That is too much for
-any search system to handle as one piece. So the text is split into
-smaller pieces called "chunks" -- about 1,200 characters each (roughly
-half a printed page).
-
-The splitting is done intelligently:
-- Chunks break at paragraph boundaries when possible, not mid-sentence
-- Each chunk overlaps the next by 200 characters, so if an important
-  fact spans the boundary, it appears in full in at least one chunk
-- Section headings are attached to each chunk, so the system knows that
-  a chunk saying "Set the value to 5.0" came from "Section 3.2.1
-  Calibration Procedure"
-
-### Step 3: Convert Text to Numbers
-
-Computers cannot understand words directly. To search by meaning (not
-just keywords), each chunk of text is converted into a list of 384
-numbers called an "embedding vector." This is done by a small AI model
-(all-MiniLM-L6-v2, about 80 MB) that runs locally on your computer.
-
-The key property: chunks with similar meanings produce similar number
-lists. So "radio frequency range" and "RF operating band" end up with
-very similar vectors, even though they share no words. This is what
-makes semantic search possible.
-
-### Step 4: Store Everything
-
-Two storage systems hold the indexed data:
-
-- **SQLite database** -- A single file that stores the text of every
-  chunk, which file it came from, its position in that file, and a
-  keyword search index. Think of this as the "text filing cabinet."
-
-- **Memmap file** -- A binary file that stores all the embedding vectors
-  in a compact format (float16, which uses half the storage of normal
-  numbers). The computer can search this file without loading it all
-  into memory, which means a laptop with 8 GB of RAM can search
-  millions of embeddings. Think of this as the "meaning index."
+HybridRAG solves this by understanding meaning, not just matching words.
+It also goes a step further: instead of giving you a list of documents to
+read through yourself, it reads the relevant passages and writes you a
+direct answer.
 
 ---
 
-## How Querying Works (Step by Step)
+## The Two Things It Does
 
-When you type a question like "What is the operating frequency?", here
-is what happens:
+HybridRAG has two main operations:
 
-### Step 1: Embed the Question
+### 1. Indexing (One-Time Setup)
 
-The same AI model that embedded the document chunks now converts your
-question into the same kind of 384-number vector.
+The system reads every document in your source folder and creates a
+searchable index. This is like building the index at the back of a
+textbook -- it only needs to happen once (or when new documents are
+added).
 
-### Step 2: Search (Two Ways at Once)
+What happens during indexing:
 
-This is the "hybrid" part. Two searches run simultaneously:
+1. **Read** -- Opens each file and extracts the text. It handles 24+
+   file formats: PDFs, Word (.docx), PowerPoint (.pptx), Excel (.xlsx),
+   emails (.eml), images (via OCR), plain text, and more.
 
-- **Vector search** -- Compares your question's vector against every
-  stored chunk vector using cosine similarity (a mathematical way of
-  measuring how similar two number lists are). Finds chunks whose
-  *meaning* matches your question, even if they use different words.
+2. **Break into pieces** -- A 500-page PDF is too large to search
+   efficiently, so the text is split into small pieces called "chunks"
+   (about half a printed page each). Splits happen at paragraph
+   boundaries so sentences are not cut in half.
 
-- **Keyword search** -- Searches the text index for chunks containing
-  your actual words. This catches exact terms like part numbers,
-  acronyms, and technical terms that meaning-based search might miss.
+3. **Understand meaning** -- Each chunk is converted into a mathematical
+   fingerprint (called an "embedding") by a small AI model running on
+   your computer. Chunks with similar meanings get similar fingerprints,
+   even if they use completely different words.
 
-### Step 3: Merge Results (Reciprocal Rank Fusion)
+4. **Store** -- The text and its fingerprints are saved to a local
+   database. Nothing leaves your computer.
 
-The two search methods produce two ranked lists of results. These are
-combined using a technique called Reciprocal Rank Fusion (RRF):
-- A chunk ranked high in both lists gets the highest combined score
-- A chunk ranked high in only one list still appears, but lower
-- This is the same algorithm used by Google and other major search
-  engines to combine multiple ranking signals
+**Key fact for management**: Indexing 1,345 documents (~40,000 chunks)
+takes a few hours the first time. After that, only new or changed
+files are re-indexed, which takes seconds.
 
-The top results (typically 5-8 chunks) are selected.
+### 2. Querying (Daily Use)
 
-### Step 4: Build Context and Ask the AI
+When you ask a question:
 
-The selected chunks are assembled into a "context" -- a package of
-relevant information. This context, along with your original question,
-is sent to an AI language model:
+1. **Search** -- Your question is converted into the same kind of
+   fingerprint, then compared against all stored chunks. Two searches
+   run at the same time:
+   - A *meaning search* that finds passages with similar concepts
+   - A *keyword search* that finds exact terms, part numbers, and
+     acronyms
+   - Results are merged so the best matches from both methods rise
+     to the top
 
-- **Offline mode** (default): The AI runs on your own computer via
-  a program called Ollama. No internet needed. Slower (up to 3 minutes
-  on CPU-only) but completely private.
+2. **Answer** -- The top matching passages are sent to an AI language
+   model along with your question. The AI reads only those passages and
+   writes a direct answer, citing which documents the information came
+   from.
 
-- **Online mode** (optional): The question and context are sent to a
-  company API (like GPT-3.5 Turbo). Much faster (2-5 seconds) but
-  requires network access and an API key.
+**Key fact for management**: A typical query takes 2-5 seconds in
+online mode (using a cloud AI) or 5-30 seconds in offline mode (using
+a local AI on your computer).
 
-### Step 5: Return the Answer
+---
 
-The AI reads the context and writes a direct answer to your question,
-citing which documents the information came from. The answer, sources,
-and timing information are returned to you.
+## How Users Interact With It
+
+HybridRAG provides three ways to interact:
+
+### Command Line (PowerShell)
+
+The original interface. Users type commands like:
+- `rag-index` to index documents
+- `rag-query "What is the operating frequency?"` to ask a question
+- `rag-status` to check system health
+
+### Graphical Interface (GUI)
+
+A desktop application with:
+- A **query panel** for typing questions and viewing answers
+- An **index panel** for selecting document folders and tracking progress
+- A **status bar** showing system health at a glance
+- An **engineering menu** for tuning search parameters
+- **Dark mode / light mode** toggle
+
+### REST API
+
+A web-based interface for programmatic access. Other software tools can
+send queries to HybridRAG over HTTP on localhost. This enables
+integration with dashboards, automation scripts, and other internal
+tools without any internet exposure.
+
+---
+
+## Security: How It Protects Data
+
+HybridRAG was designed from the ground up for environments where data
+protection is non-negotiable.
+
+### Nothing Leaves Your Computer (By Default)
+
+In its default "offline" mode, HybridRAG has zero internet connectivity.
+Every operation -- reading documents, searching, and generating answers --
+happens entirely on the local machine. Three independent security layers
+enforce this:
+
+1. **Operating system level** -- Environment variables block AI library
+   network calls before they start
+2. **Application level** -- A "Network Gate" inside the software
+   explicitly checks every outbound connection against an allowlist
+3. **Code level** -- The AI model libraries are told to work in
+   offline-only mode
+
+All three layers must fail simultaneously before any data could leave
+the machine.
+
+### Optional Online Mode
+
+When faster answers are needed, an "online" mode sends questions (and
+the relevant document passages) to a configured API endpoint. This mode:
+- Must be explicitly activated by the user
+- Only connects to one pre-configured endpoint (nothing else)
+- Requires an API key stored in Windows Credential Manager (encrypted,
+  tied to the user's Windows login)
+- Logs every connection attempt for audit review
+
+### Credential Security
+
+- API keys are never stored in files, environment variables, or code
+- Keys are encrypted using Windows DPAPI (the same system that protects
+  your saved browser passwords)
+- Only the logged-in Windows user can access their own keys
+- Diagnostic output shows only a masked preview (e.g., `sk-abc...xyz`)
+
+### Audit Trail
+
+Every operation is logged: indexing runs (what files, when, how many
+chunks), queries (what was asked, what was found), and network
+connections (allowed and denied). This creates a reviewable record of
+everything the system has done.
+
+---
+
+## Where Data Lives
+
+```
+Your Computer
+|
+|-- HybridRAG3/                    The software (code, config, scripts)
+|   This is what gets version-controlled in Git.
+|
+|-- RAG Source Data/               Your original documents
+|   PDFs, Word docs, spreadsheets, etc.
+|   HybridRAG reads these but NEVER modifies them.
+|
+|-- RAG Indexed Data/              The search database
+|   Created by HybridRAG during indexing.
+|   Contains the text chunks and their meaning fingerprints.
+|   This is what makes searching fast.
+```
+
+**Key fact for management**: Original documents are never modified,
+moved, or deleted. The indexed data can be rebuilt from scratch at any
+time by re-running the indexer.
+
+---
+
+## AI Models: What Runs and Where
+
+HybridRAG uses two types of AI model:
+
+### 1. Embedding Model (Always Local)
+
+A small model (~87 MB) that converts text into meaning fingerprints.
+It runs on the CPU of any modern laptop and never requires internet.
+
+- **Model**: all-MiniLM-L6-v2
+- **Publisher**: Microsoft (open-source, Apache 2.0 license)
+- **Runs**: Always locally, never sends data anywhere
+
+### 2. Language Model (Generates Answers)
+
+A larger model that reads the retrieved passages and writes answers.
+Two options:
+
+| Mode | Where It Runs | Speed | Internet Required? |
+|------|--------------|-------|--------------------|
+| **Offline** | On your computer via Ollama | 5-30 sec | No |
+| **Online** | Cloud API (company endpoint) | 2-5 sec | Yes (configured endpoint only) |
+
+**Approved offline models** (all open-source, US/EU publishers):
+
+| Model | Size | Publisher | License |
+|-------|------|-----------|---------|
+| phi4-mini | 2.3 GB | Microsoft (USA) | MIT |
+| mistral:7b | 4.1 GB | Mistral AI (France) | Apache 2.0 |
+| phi4:14b | 9.1 GB | Microsoft (USA) | MIT |
+| gemma3:4b | 3.3 GB | Google (USA) | Apache 2.0 |
+| mistral-nemo:12b | 7.1 GB | Mistral/NVIDIA | Apache 2.0 |
+
+**Banned models** (regulatory/licensing restrictions):
+- No China-origin software (Qwen/Alibaba, DeepSeek, BGE/BAAI)
+- No Meta/Llama models (license restrictions)
 
 ---
 
 ## The Hallucination Guard
 
-When using the online AI mode, there is a risk the AI might "make up"
-information that is not in the source documents. This is called
-hallucination. HybridRAG has a 5-layer defense system to prevent this:
+"Hallucination" is when an AI makes up information that sounds plausible
+but is not in the source documents. HybridRAG has a 5-layer defense
+system to prevent this:
 
-1. **Prompt Hardening** -- The instructions sent to the AI explicitly
-   tell it to only use information from the provided context and to say
-   "I don't know" if the answer is not in the sources.
+1. **Prompt instructions** -- The AI is explicitly told: "Only use
+   information from the provided documents. If the answer is not in the
+   documents, say so."
 
-2. **Claim Extraction** -- After the AI responds, the system breaks the
-   answer into individual factual claims.
+2. **Claim extraction** -- After the AI responds, the system breaks the
+   answer into individual factual statements.
 
-3. **NLI Verification** -- Each claim is checked against the source
-   chunks using a Natural Language Inference model that determines if
-   the claim is "supported," "contradicted," or "neutral" relative to
-   the evidence.
+3. **Fact checking** -- Each statement is automatically checked against
+   the source documents using a verification model.
 
-4. **Confidence Scoring** -- Claims are scored and the overall response
-   gets a faithfulness rating. Responses below the threshold are flagged.
+4. **Confidence scoring** -- Statements are scored for accuracy. If the
+   overall score is below the threshold, the answer is flagged or
+   blocked.
 
-5. **Dual-Path Consensus** -- For critical queries, the question can
-   be sent to two different AI models and their answers compared. If they
-   disagree, the system falls back to a safe, conservative response.
-
----
-
-## Security: The Network Gate
-
-HybridRAG was designed for environments where accidental data leakage
-is unacceptable. A centralized "Network Gate" controls every outbound
-network connection:
-
-- **Offline mode** (default) -- Only localhost connections allowed.
-  Zero internet traffic. Safe for restricted environments.
-
-- **Online mode** -- Localhost plus one explicitly configured API
-  endpoint. Nothing else. No phone-home, no telemetry, no updates.
-
-- **Admin mode** -- Unrestricted, for maintenance only (installing
-  packages, downloading models). Must be manually activated.
-
-Every connection attempt (allowed or denied) is logged with a timestamp,
-the URL, and the purpose. This creates an audit trail that can be
-reviewed.
-
-Three independent layers enforce this:
-1. PowerShell environment variables block model downloads at the OS level
-2. Python code blocks HuggingFace at the library level
-3. The Network Gate blocks all other URLs at the application level
-
-All three must fail simultaneously before any unauthorized data leaves
-the machine.
+5. **Dual-path consensus** -- For critical questions, the query can be
+   sent to two different AI models. If they disagree, the system returns
+   a conservative, safe response.
 
 ---
 
-## The Boot Pipeline
+## Performance at a Glance
 
-When HybridRAG starts up, a single "boot pipeline" runs all checks in
-order -- like a car's startup sequence:
+| What | How Long | Notes |
+|------|----------|-------|
+| First-time indexing | A few hours | 1,345 documents, ~40,000 chunks |
+| Re-indexing (changed files only) | Seconds | Skips unchanged files automatically |
+| Query (online mode) | 2-5 seconds | Cloud AI, requires network |
+| Query (offline mode) | 5-30 seconds | Local AI, no network needed |
 
-1. Load configuration from the YAML settings file
-2. Resolve credentials (API key from Windows Credential Manager)
-3. Validate configuration and credentials together
-4. Configure the Network Gate to the correct security mode
-5. Test connectivity (Ollama for offline, API for online)
-6. Return a ready-to-use system, or a report of exactly what failed
-
-This design means you never get a mysterious crash 10 minutes into
-indexing because of a missing setting. Everything is validated upfront.
-
----
-
-## Where Files Live
-
-```
-HybridRAG3/                          The program itself
-|-- src/core/                        Core pipeline code
-|-- src/parsers/                     File format readers
-|-- src/security/                    Credential management
-|-- src/diagnostic/                  Health checks and tests
-|-- config/default_config.yaml       All settings in one file
-+-- start_hybridrag.ps1              Startup script (run this first)
-
-D:\RAG Indexed Data\                 Your search database (separate folder)
-|-- hybridrag.sqlite3                Text chunks + keyword index
-|-- embeddings.f16.dat               Meaning vectors (compact binary)
-+-- embeddings_meta.json             Bookkeeping for the vectors
-
-D:\RAG Source Data\                  Your original documents (unchanged)
-+-- (PDFs, Word docs, etc.)          HybridRAG reads but never modifies these
-```
+**Hardware requirements**:
+- Minimum: Any Windows 10/11 laptop with 8 GB RAM
+- Recommended: 16+ GB RAM for faster performance
+- Future: Dual-GPU workstation planned for large-scale deployment
 
 ---
 
-## Key Design Principles
+## Reliability Features
 
-1. **Offline by default** -- Works without internet after initial setup.
-   Network access is opt-in, never opt-out.
+| Feature | What It Means |
+|---------|---------------|
+| **Crash-safe indexing** | If the power goes out during indexing, restart and it picks up where it left off. No data lost. |
+| **Change detection** | Only re-indexes files that have actually changed. Saves hours on repeat runs. |
+| **Graceful degradation** | If one document is corrupted, it skips that file and continues with the rest. |
+| **Boot validation** | On startup, checks that everything is configured correctly. Tells you exactly what to fix if something is wrong. |
+| **Low memory usage** | Processes large documents in small blocks. An 8 GB laptop can index thousands of documents. |
 
-2. **Crash safety** -- If the power goes out during indexing, restart
-   and it picks up where it left off. No data corruption.
+---
 
-3. **RAM efficiency** -- Processes documents in blocks, not all at once.
-   A laptop with 8 GB of RAM can index thousands of documents.
+## Hardware Profiles
 
-4. **Auditability** -- Every indexing run, every query, and every
-   network connection is logged with timestamps and run IDs.
+Three pre-configured profiles adapt the system to different hardware:
 
-5. **No magic** -- Direct HTTP calls instead of hidden SDK magic.
-   Configuration in readable YAML, not buried in code. Every module
-   has clear commentary explaining what it does and why.
+| Profile | Target Hardware | Behavior |
+|---------|----------------|----------|
+| **laptop_safe** | 8-16 GB RAM | Conservative. Slower but stable on limited hardware. |
+| **desktop_power** | 32-64 GB RAM | Balanced speed and resource usage. |
+| **server_max** | 64+ GB RAM | Maximum throughput for workstation/server hardware. |
 
-6. **Graceful degradation** -- If a parser cannot read a file, it skips
-   that file and continues. If the AI is unavailable, you still get the
-   search results. If a config value is wrong, the boot pipeline tells
-   you exactly what to fix.
+Switching profiles is one command: `rag-profile desktop_power`
+
+---
+
+## What Makes HybridRAG Different
+
+| Capability | HybridRAG | Traditional Search |
+|------------|-----------|-------------------|
+| Understands meaning | Yes (semantic search) | No (keywords only) |
+| Handles synonyms | Yes ("RF band" finds "frequency range") | No |
+| Gives direct answers | Yes, with citations | No, returns document list |
+| Works offline | Yes (default) | Depends |
+| Handles 24+ file formats | Yes (PDF, DOCX, PPTX, XLSX, EML, images...) | Limited |
+| Audit trail | Yes (every operation logged) | Rarely |
+| Crash recovery | Yes (automatic) | Rarely |
+
+---
+
+## Current Scale
+
+- **Documents indexed**: ~1,345 files
+- **Text chunks stored**: ~39,602
+- **File formats supported**: 24+
+- **Evaluation accuracy**: 98% on a 400-question test set
+- **Test coverage**: 135+ automated tests passing
+
+---
+
+## Glossary
+
+See the [Glossary](GLOSSARY.md) for definitions of all technical terms
+and acronyms used in this document and throughout the project.
