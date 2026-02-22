@@ -318,6 +318,17 @@ class _GUIProgressCallback:
         """Called when indexing finishes."""
         pass  # Handled by _on_indexing_done in the panel
 
+    def on_discovery_progress(self, files_found):
+        """Called periodically during folder discovery (before indexing starts)."""
+        self.panel.after(0, self._update_discovery, files_found)
+
+    def _update_discovery(self, files_found):
+        t = current_theme()
+        self.panel.progress_file_label.config(
+            text="Scanning folder... {:,} files found".format(files_found),
+            fg=t["gray"],
+        )
+
     def on_error(self, file_path, error):
         """Called when a file has an error (continues to next file)."""
         t = current_theme()
