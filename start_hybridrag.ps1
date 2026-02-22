@@ -312,6 +312,12 @@ else:
 "
 }
 
+function rag-gui {
+    Write-Host ""
+    Write-Host "Launching HybridRAG GUI..." -ForegroundColor Cyan
+    python "$PROJECT_ROOT\src\gui\launch_gui.py"
+}
+
 function rag-server {
     param(
         [int]$Port = 8000,
@@ -352,33 +358,37 @@ except Exception as e:
 # ---- 13) COMMAND REFERENCE BANNER -------------------------------------------
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host "  HYBRIDRAG v3 -- COMMAND REFERENCE" -ForegroundColor Cyan
+Write-Host "  HYBRIDRAG v3 -- READY" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  DAILY USE" -ForegroundColor Yellow
-Write-Host '    rag-query "question"     Ask a question'
-Write-Host "    rag-index                Index documents"
+Write-Host "  MOST USED" -ForegroundColor Green
+Write-Host '    rag-query "question"     Ask the AI a question'
+Write-Host "    rag-index                Index all source documents"
 Write-Host "    rag-status               Quick health check"
-Write-Host "    rag-diag                 Run diagnostics (--verbose, --test-embed)"
+Write-Host "    rag-gui                  Open the GUI"
 Write-Host ""
 Write-Host "  MODE / MODEL" -ForegroundColor Yellow
+Write-Host "    rag-mode-offline         Local AI (Ollama) [default]"
+Write-Host "    rag-mode-online          Cloud API (needs credentials)"
 Write-Host "    rag-set-model            Model selection wizard"
-Write-Host "    rag-mode-online          Switch to cloud API"
-Write-Host "    rag-mode-offline         Switch to local AI (Ollama)"
 Write-Host "    rag-models               Show available models"
+Write-Host "    rag-profile              View/switch hardware profile"
 Write-Host ""
 Write-Host "  CREDENTIALS" -ForegroundColor Yellow
 Write-Host "    rag-store-key            Store API key (encrypted)"
 Write-Host "    rag-store-endpoint       Store API endpoint URL"
 Write-Host "    rag-cred-status          Check credential status"
-Write-Host "    rag-cred-delete          Remove stored credentials"
 Write-Host ""
 Write-Host "  TOOLS" -ForegroundColor Yellow
-Write-Host "    rag-profile              View/switch hardware profile"
-Write-Host "    rag-server               Start REST API server (localhost:8000)"
+Write-Host "    rag-diag                 Run diagnostics (--tier 2 for pipeline)"
+Write-Host "    rag-server               Start REST API (localhost:8000)"
 Write-Host "    rag-paths                Show configured paths"
 Write-Host "    rag-test-api             Test API connectivity"
 Write-Host ""
-Write-Host "  TIP: Double-click start_rag.bat to bypass execution policy" -ForegroundColor Green
+Write-Host "  SCRIPT PERMISSIONS (work laptops)" -ForegroundColor Magenta
+Write-Host "    Double-click start_rag.bat -- bypasses execution policy"
+Write-Host "    Or run manually:" -ForegroundColor DarkGray
+Write-Host "    powershell -ExecutionPolicy Bypass -File start_hybridrag.ps1" -ForegroundColor DarkGray
+Write-Host ""
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host ""

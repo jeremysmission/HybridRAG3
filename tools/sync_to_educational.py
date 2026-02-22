@@ -67,6 +67,8 @@ COPY_FILES = [
     "tools/api_mode_commands.ps1",   # cleaned of NGC paths; has rag-set-model
     "start.cmd",                     # cross-env launcher (works on restricted machines)
     "run.cmd",                       # fallback launcher via python tools/run.py
+    "start_rag.bat",                 # execution policy bypass launcher (double-click)
+    "start_gui.bat",                 # direct GUI launcher (double-click)
 ]
 
 # Files/folders to NEVER copy
@@ -92,7 +94,7 @@ SKIP_PATTERNS = [
     "rebuilt_rag_commands.ps1",   # has NGC paths
     # -- Hallucination guard: skip until verified and installed properly --
     "hallucination_guard",         # entire src/core/hallucination_guard/ subfolder
-    "guard_config.py",             # guard dataclass config
+    # guard_config.py: now synced (clean dataclass, no banned words)
     "feature_registry.py",         # feature toggle (guard dependency)
     "grounded_query_engine.py",    # guard wrapper for query engine
     "guard_diagnostic.py",         # guard health check
