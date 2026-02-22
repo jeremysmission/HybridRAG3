@@ -171,7 +171,7 @@ See file for full text.
    - Command: `python scripts/run_eval.py --golden Eval/golden_tuning_400.json --out eval_out/v4_full_400.jsonl`
 
 2. **When dual-3090 workstation arrives**: Test offline eval with Ollama
-   (qwen2.5:7b-instruct-q5_K_M) -- current laptop (8GB RAM, 512MB VRAM)
+   (phi4-mini) -- current laptop (8GB RAM, 512MB VRAM)
    cannot load even the 3B model reliably
 
 3. **6 log retention failures**: Could be addressed by:

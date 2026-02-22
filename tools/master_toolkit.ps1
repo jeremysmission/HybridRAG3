@@ -36,7 +36,7 @@
 #   rag-ollama-start           Start the Ollama service
 #   rag-ollama-stop            Stop the Ollama service
 #   rag-ollama-status          Check if Ollama is running and which models
-#   rag-ollama-pull            Pull/update a model (default: llama3)
+#   rag-ollama-pull            Pull/update a model (default: phi4-mini)
 #   rag-ollama-test            Send a test query to Ollama
 #
 #   --- INDEXING ---
@@ -386,7 +386,7 @@ function rag-ollama-status {
 # rag-ollama-pull: Pull a model
 # ---------------------------------------------------------------------------
 function rag-ollama-pull {
-    param([string]$Model = "llama3")
+    param([string]$Model = "phi4-mini")
     
     Write-Host ""
     Write-Host "Pulling model: $Model" -ForegroundColor Cyan

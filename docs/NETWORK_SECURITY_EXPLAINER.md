@@ -48,6 +48,7 @@ the network if you explicitly switch to online/API mode.
 | Reranker | Re-score results | NEVER | Cross-encoder runs locally (~80MB cached) |
 | Ollama (offline LLM) | Generate answers | NEVER | Runs on localhost:11434 only |
 | API LLM (online mode) | Generate answers | YES | Calls configured API endpoint ONLY |
+| FastAPI Server | REST API interface | NEVER | Binds to localhost:8000 only |
 | HuggingFace Hub | Download AI models | BLOCKED | Only needed once to cache models |
 
 ---
@@ -126,7 +127,7 @@ The HF lockdown and the API mode are completely independent controls.
 
 ### Offline Mode (Default)
 
-- LLM: Ollama running locally (llama3, qwen2.5, or llama2)
+- LLM: Ollama running locally (phi4-mini, mistral:7b)
 - Network: Zero outbound connections
 - Speed: ~2-3 minutes per query (CPU-bound LLM generation)
 - Quality: Good for 7B parameter models
@@ -183,7 +184,7 @@ not scattered in your user profile. This makes the project portable.
 |-------|---------|------|--------------|
 | all-MiniLM-L6-v2 | Embedding (text to vectors) | ~87MB | Auto-cached on first rag-index |
 | cross-encoder/ms-marco-MiniLM-L-6-v2 | Reranker (re-score results) | ~80MB | rag-download-models |
-| llama3 (Ollama) | Answer generation (offline) | ~4.7GB | ollama pull llama3 |
+| phi4-mini (Ollama) | Answer generation (offline) | ~2.5GB | ollama pull phi4-mini |
 
 ### First-Time Setup (One Time, With Internet)
 
@@ -204,7 +205,7 @@ print('All models cached')
 . .\start_hybridrag.ps1
 
 # 4. Cache Ollama model (separate from HuggingFace)
-ollama pull llama3
+ollama pull phi4-mini
 ```
 
 After this, the system never needs internet again unless you switch to API mode.
@@ -217,13 +218,13 @@ These are already downloaded and ready to use with Ollama:
 
 | Model | Size | Best For | How to Select |
 |-------|------|----------|---------------|
-| llama3 (8B) | 4.7 GB | General Q&A, best quality | Default in config |
-| qwen2.5:7b-instruct | 5.4 GB | Follows instructions precisely | Change ollama_model in YAML |
-| llama2 (7B) | 3.8 GB | Legacy, not recommended | Smallest but worst quality |
+| phi4-mini (3.8B) | 2.3 GB | Primary for STEM/RAG, MIT license (Microsoft/USA) | Default in config |
+| mistral:7b (7B) | 4.1 GB | General knowledge, writing (Apache 2.0, Mistral/France) | Change ollama model in YAML |
+| phi4:14b (14B) | 9.1 GB | Logistics/precision (MIT, workstation only) | Requires 16GB+ RAM |
 
 To change which model Ollama uses, edit config/default_config.yaml:
 ```yaml
-ollama_model: "llama3"          # or "qwen2.5:7b-instruct"
+ollama_model: "phi4-mini"       # or "mistral:7b"
 ```
 
 ---
@@ -355,6 +356,7 @@ YOUR DOCUMENTS (PDFs, DOCX, etc.)
 | `. .\start_hybridrag.ps1` | Activate environment (run first, every session) |
 | `rag-index` | Index all documents in source folder |
 | `rag-query "your question"` | Search and get an answer |
+| `rag-server` | Start FastAPI REST API server (localhost:8000) |
 | `rag-diag` | Run system health check |
 | `rag-diag --verbose` | Detailed health check with all test results |
 | `rag-status` | Quick DB stats and network status |

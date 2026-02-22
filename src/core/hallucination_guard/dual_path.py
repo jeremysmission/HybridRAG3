@@ -5,7 +5,7 @@ dual_path.py -- Layer 5: Dual-Path Consensus
 
 PURPOSE:
     The "nuclear option" for life-critical queries. Runs the same query
-    through BOTH offline (Llama3) AND online (Sonnet), then compares
+    through BOTH offline (Phi4-Mini) AND online (Sonnet), then compares
     their responses for agreement using NLI.
 
 WHEN TO USE:
@@ -14,7 +14,7 @@ WHEN TO USE:
     - Borderline faithfulness scores that need a tiebreaker
 
 HOW IT WORKS:
-    1. Get response from offline LLM (Llama3 via Ollama)
+    1. Get response from offline LLM (Phi4-Mini via Ollama)
     2. Get response from online LLM (Sonnet via Azure API)
     3. Extract factual claims from both responses
     4. Use NLI to check if online claims are SUPPORTED by offline claims
@@ -85,14 +85,14 @@ class DualPathConsensus:
             3. Compute agreement_score = agreed / total_online_claims
 
         WHY CHECK ONLINE AGAINST OFFLINE:
-            The offline model (Llama3) is slower and less detailed but
+            The offline model (Phi4-Mini) is slower and less detailed but
             more conservative -- it tends to stick to what it knows.
             The online model (Sonnet) is fast and detailed but prone to
             filling gaps with training data. So we use offline as the
             "ground truth" to validate online's extra claims.
 
         PARAMETERS:
-            offline_response: str       -- Llama3 response text
+            offline_response: str       -- Phi4-Mini response text
             online_response:  str       -- Sonnet response text
             chunks:           list[str] -- Source chunks (context)
 

@@ -31,10 +31,10 @@ These are the ONLY files that differ from the GitHub baseline. Each change is su
 
 **What was NOT changed:**
 - api.model: PRESERVED as `anthropic/claude-opus-4.6`
-- ollama.model: PRESERVED as `llama3:latest`
+- ollama.model: PRESERVED as `phi4-mini`
 - All other fields: PRESERVED byte-for-byte
 
-**YAML Issue History:** The original parallel-session delivery included a YAML built from a stale zip snapshot. It incorrectly changed api.model to `gpt-3.5-turbo`, ollama.model to `llama3` (missing `:latest`), and set `reranker_enabled: true`. This was caught via `fc.exe` diff, root-caused, and the corrected YAML was rebuilt from Jeremy's actual backup. The corrected version changes ONLY `reranker_top_n` and appends the hallucination_guard section.
+**YAML Issue History:** The original parallel-session delivery included a YAML built from a stale zip snapshot. It incorrectly changed api.model to `gpt-3.5-turbo`, ollama.model to a wrong value, and set `reranker_enabled: true`. This was caught via `fc.exe` diff, root-caused, and the corrected YAML was rebuilt from Jeremy's actual backup. The corrected version changes ONLY `reranker_top_n` and appends the hallucination_guard section.
 
 ### 1.2 src/core/config.py
 

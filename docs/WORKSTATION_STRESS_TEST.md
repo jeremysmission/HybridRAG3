@@ -19,7 +19,7 @@
 | Embeddings | 6.45 GB | 18.43 GB |
 | SQLite DB | 4.20 GB | 12.00 GB |
 
-## Offline/Ollama (qwen3:8b) -- 700 GB
+## Offline/Ollama (phi4-mini) -- 700 GB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
@@ -41,7 +41,7 @@
 | 3 | 0.9s | 12.2s | 13.0s | Good |
 | 2 | 0.8s | 9.7s | 10.6s | Good |
 
-## vLLM Server (qwen3:8b) -- 700 GB
+## vLLM Server (phi4-mini) -- 700 GB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
@@ -85,7 +85,7 @@
 | 3 | 0.9s | 3.8s | 4.7s | Excellent |
 | 2 | 0.8s | 3.8s | 4.7s | Excellent |
 
-## Offline/Ollama (qwen3:8b) -- 2 TB
+## Offline/Ollama (phi4-mini) -- 2 TB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
@@ -96,7 +96,7 @@
 | 3 | 1.7s | 7.0s | 8.7s | Excellent |
 | 2 | 1.7s | 5.6s | 7.3s | Excellent |
 
-## vLLM Server (qwen3:8b) -- 2 TB
+## vLLM Server (phi4-mini) -- 2 TB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
@@ -140,7 +140,7 @@
 
 ### #4. Upgrade GPU to 24 GB VRAM (RTX 4090 / A5000)
 - **Cost:** $1,200-2,000
-- **Impact:** Enables qwen3:32b (much better quality), 2x faster token generation, and model stays in VRAM without swapping. More VRAM also means vLLM can batch more concurrent requests.
+- **Impact:** Enables mistral-small3.1:24b (much better quality), 2x faster token generation, and model stays in VRAM without swapping. More VRAM also means vLLM can batch more concurrent requests.
 - **Offline gain:** 2-3x faster inference, better answer quality
 - **Online gain:** No change (cloud GPU already fast)
 

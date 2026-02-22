@@ -72,6 +72,7 @@ rag-query "question"   Ask a question about your documents
 rag-diag               Run full diagnostic suite
 rag-status             Quick health check
 rag-profile            Show current performance profile
+rag-server             Start FastAPI REST API server (http://127.0.0.1:8000)
 ```
 
 ### API Mode (Online Queries)
@@ -90,6 +91,32 @@ rag-profile laptop_safe       8-16 GB RAM, conservative
 rag-profile desktop_power     32-64 GB RAM, aggressive batching
 rag-profile server_max        64+ GB RAM, maximum throughput
 ```
+
+### REST API Server (FastAPI)
+```powershell
+# Start the API server (default: localhost:8000)
+rag-server
+
+# Custom port
+rag-server -Port 9000
+
+# Open Swagger docs in browser
+start http://localhost:8000/docs
+```
+
+**API Endpoints:**
+```
+GET  /health         Health check (always returns 200 if running)
+GET  /status         Database stats, mode, chunk/source counts
+GET  /config         Current configuration (read-only)
+POST /query          Ask a question (body: {"question": "..."})
+POST /index          Start indexing (background, non-blocking)
+GET  /index/status   Check indexing progress
+PUT  /mode           Switch offline/online (body: {"mode": "offline"})
+```
+
+**Security:** The server binds to localhost only (127.0.0.1).
+It does NOT open any ports to the network by default.
 
 
 ## 3. TROUBLESHOOTING BY ERROR CODE
@@ -129,7 +156,7 @@ rag-profile server_max        64+ GB RAM, maximum throughput
 | Code | Error | What It Means | Fix |
 |------|-------|---------------|-----|
 | OLL-001 | OllamaNotRunning | Ollama service not started | Start Ollama: `ollama serve` in a new terminal |
-| OLL-002 | ModelNotFound | Requested model not downloaded | `ollama pull qwen2.5:7b-instruct-q5_K_M` |
+| OLL-002 | ModelNotFound | Requested model not downloaded | `ollama pull phi4-mini` |
 
 ### Index Errors (IDX-xxx)
 
@@ -327,6 +354,11 @@ Documents -> Parser -> Raw Text -> Chunker -> Chunks -> Embedder -> Vectors
                                                                        |
 Query -> Embedder -> Vector Search -+-> RRF Fusion -> Top-K -> LLM -> Answer
                     BM25 Search ----+
+
+Access methods:
+  CLI:      rag-query "question"         (PowerShell command)
+  REST API: POST http://localhost:8000/query  (FastAPI server via rag-server)
+  Swagger:  http://localhost:8000/docs   (interactive API docs)
 ```
 
 ### Key Config Values
@@ -350,6 +382,9 @@ src/core/config.py            Config loader and validation
 src/core/indexer.py            Main indexing engine
 src/core/retriever.py          Query/search engine
 src/core/boot.py               Startup validation pipeline
+src/api/server.py              FastAPI REST API server
+src/api/routes.py              API endpoint definitions
+src/api/models.py              Request/response schemas
 ```
 
 

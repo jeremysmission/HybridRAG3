@@ -580,14 +580,14 @@ class TestIntegration:
             text="Answer",
             tokens_in=100,
             tokens_out=20,
-            model="llama3",
+            model="phi4-mini",
             latency_ms=5000.0,
         )
 
         assert response.text == "Answer"
         assert response.tokens_in == 100
         assert response.tokens_out == 20
-        assert response.model == "llama3"
+        assert response.model == "phi4-mini"
         assert response.latency_ms == 5000.0
 
 

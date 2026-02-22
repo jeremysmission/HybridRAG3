@@ -52,7 +52,7 @@ class TestQueryEngine:
             text=llm_text,
             tokens_in=150,
             tokens_out=25,
-            model="llama3",
+            model="phi4-mini",
             latency_ms=3000.0,
         )
 

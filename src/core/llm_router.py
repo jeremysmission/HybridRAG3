@@ -6,7 +6,7 @@
 #   This is the "switchboard" that decides where your AI queries go:
 #
 #   OFFLINE MODE (no internet needed):
-#     Query --> Ollama (local Llama3 on your machine) --> Answer
+#     Query --> Ollama (local model on your machine) --> Answer
 #
 #   ONLINE MODE (needs corporate network or home API key):
 #     Query --> Azure OpenAI API (or standard OpenAI) --> Answer
@@ -74,7 +74,7 @@ class LLMResponse:
     text: str              # The actual AI-generated answer
     tokens_in: int         # How many tokens were in the prompt
     tokens_out: int        # How many tokens the AI generated
-    model: str             # Which model answered (e.g., "llama3:8b")
+    model: str             # Which model answered (e.g., "phi4-mini")
     latency_ms: float      # How long the call took in milliseconds
 
 
@@ -83,7 +83,7 @@ class LLMResponse:
 # ============================================================================
 #
 # Ollama runs on your machine at http://localhost:11434. It hosts
-# open-source models like Llama3 that work without internet.
+# open-source models like Phi-4 and Mistral that work without internet.
 #
 # This router uses raw httpx because Ollama has a simple REST API
 # and doesn't need the openai SDK. No changes from the old version.
@@ -100,7 +100,7 @@ class OllamaRouter:
         Args:
             config: The HybridRAG configuration object. We read:
                     - config.ollama.base_url (default: http://localhost:11434)
-                    - config.ollama.model (default: llama3:8b)
+                    - config.ollama.model (default: phi4-mini)
                     - config.ollama.timeout_seconds (default: 120)
         """
         self.config = config

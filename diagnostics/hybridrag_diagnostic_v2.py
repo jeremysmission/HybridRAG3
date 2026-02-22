@@ -925,7 +925,7 @@ def test_ollama_health(root: Path) -> TestResult:
                 if not models:
                     return TestResult("ollama_health", "LLM Backend", 3, "WARN",
                         "Ollama running but no models loaded",
-                        fix_hint="Pull a model: ollama pull llama3",
+                        fix_hint="Pull a model: ollama pull phi4-mini",
                         details=details)
                 
                 return TestResult("ollama_health", "LLM Backend", 3, "PASS",

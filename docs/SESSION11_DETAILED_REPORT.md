@@ -555,10 +555,10 @@ Attempted to run eval offline using Ollama as a fallback:
 ### Available Ollama Models
 | Model | Size | Status |
 |-------|------|--------|
-| qwen2.5:7b-instruct-q5_K_M | 5.4 GB | OUT OF MEMORY (needs 4.9 GiB, only 4.2 GiB available) |
-| qwen2.5:3b | 1.9 GB | Works but returns 500 errors under load |
-| llama3:latest | 4.7 GB | Not tested (likely OOM) |
-| llama2:latest | 3.8 GB | Not tested |
+| phi4-mini | 5.4 GB | OUT OF MEMORY (needs 4.9 GiB, only 4.2 GiB available) |
+| phi4-mini:3b | 1.9 GB | Works but returns 500 errors under load |
+| mistral:7b | 4.7 GB | Not tested (likely OOM) |
+| phi4-mini:3.8b | 3.8 GB | Not tested |
 
 ### Hardware Limitation
 Current personal laptop:
@@ -569,7 +569,7 @@ Current personal laptop:
 ### Resolution
 Dual RTX 3090 workstation (48 GB GPU VRAM, 64 GB system RAM) arriving next
 week. This will enable:
-- Full offline evaluation with qwen2.5:7b-instruct-q5_K_M
+- Full offline evaluation with phi4-mini
 - Potential testing of larger models (13B+)
 - Concurrent multi-user simulation testing
 
@@ -621,7 +621,7 @@ mode: online
 ollama:
   base_url: http://localhost:11434
   context_window: 8192
-  model: qwen2.5:7b-instruct-q5_K_M
+  model: phi4-mini
   timeout_seconds: 600
 paths:
   database: ''
@@ -797,7 +797,7 @@ Working trees: clean
 
 ### When Dual-3090 Workstation Arrives
 
-4. **Offline evaluation** with qwen2.5:7b-instruct-q5_K_M via Ollama
+4. **Offline evaluation** with phi4-mini via Ollama
 5. **Compare online vs offline scores** on same golden dataset
 6. **Test larger models** (13B+) if 64GB RAM allows
 

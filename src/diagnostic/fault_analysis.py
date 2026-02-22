@@ -486,7 +486,7 @@ class FaultAnalyzer:
                 title="Ollama not running or model not loaded",
                 description=(
                     "The Ollama service isn't running on localhost:11434, or "
-                    "the configured model (llama3) isn't pulled. Offline "
+                    "the configured model (phi4-mini) isn't pulled. Offline "
                     "queries will fail with a connection error."
                 ),
                 subsystem="LLM",

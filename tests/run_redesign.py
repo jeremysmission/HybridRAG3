@@ -200,8 +200,8 @@ def _():
 
 @test("OllamaModelNotFoundError includes model name when provided")
 def _():
-    e = OllamaModelNotFoundError(model="llama3")
-    assert "llama3" in str(e)
+    e = OllamaModelNotFoundError(model="phi4-mini")
+    assert "phi4-mini" in str(e)
 
 @test("exception_from_http_status maps 401 to AuthRejectedError")
 def _():

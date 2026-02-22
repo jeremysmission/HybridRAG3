@@ -1,11 +1,11 @@
-# Knowledge Distillation and Fine-Tuning Llama3 with Unsloth on NVIDIA GPUs
+# Knowledge Distillation and Fine-Tuning Local Models with Unsloth on NVIDIA GPUs
 
 ## A Complete Tutorial for Defense-Environment AI Engineers
 
 **Author:** Claude AI (generated for Jeremy's HybridRAG3 project)
 **Date:** 2026-02-13
 **Target Hardware:** NVIDIA RTX 5080 / RTX 3090 / 12-24GB VRAM consumer GPUs
-**Target Model:** Llama3 8B (and Qwen2.5 14B as alternative)
+**Target Model:** Phi-4 Mini (and Mistral 7B as alternative)
 **Target Integration:** Ollama for inference, HybridRAG3 for retrieval
 
 ---
@@ -34,7 +34,7 @@
 
 ### The Core Concept
 
-Knowledge distillation is a technique where you train a small, fast model (called the "student") to mimic the behavior of a large, smart model (called the "teacher"). Think of it like this: you hire a world-class expert (GPT-4, Claude) to write extremely detailed answers to thousands of questions about YOUR domain. Then you train a small local model (Llama3 8B) on those expert answers. The small model absorbs the reasoning patterns without needing to be as large.
+Knowledge distillation is a technique where you train a small, fast model (called the "student") to mimic the behavior of a large, smart model (called the "teacher"). Think of it like this: you hire a world-class expert (GPT-4, Claude) to write extremely detailed answers to thousands of questions about YOUR domain. Then you train a small local model (Phi-4 Mini) on those expert answers. The small model absorbs the reasoning patterns without needing to be as large.
 
 ### Why This Matters for Your HybridRAG3 System
 
@@ -43,18 +43,18 @@ Right now, your pipeline works like this:
 ```
 User asks question
     --> HybridRAG3 retrieves relevant chunks from your 630GB corpus
-    --> Chunks + question get sent to Ollama (Llama3 8B)
-    --> Llama3 reads the chunks and generates an answer
+    --> Chunks + question get sent to Ollama (Phi-4 Mini)
+    --> Phi-4 Mini reads the chunks and generates an answer
 ```
 
-The problem: Llama3 8B is a general-purpose model. It knows a little about everything but isn't an expert in YOUR domains -- RF engineering, ionospheric measurement, defense systems, NIST compliance, satellite communications. When it reads your retrieved chunks, it sometimes:
+The problem: Phi-4 Mini is a general-purpose model. It knows a little about everything but isn't an expert in YOUR domains -- RF engineering, ionospheric measurement, NIST compliance, satellite communications. When it reads your retrieved chunks, it sometimes:
 
 - Misunderstands domain-specific terminology
 - Fails to connect related concepts across chunks
 - Generates plausible-sounding but technically wrong answers
 - Doesn't know the right level of detail for a defense engineering audience
 
-Fine-tuning fixes this by teaching Llama3 YOUR vocabulary, YOUR reasoning patterns, and YOUR domain expertise. After fine-tuning, the same model running on the same hardware will produce dramatically better answers from the same retrieved chunks.
+Fine-tuning fixes this by teaching Phi-4 Mini YOUR vocabulary, YOUR reasoning patterns, and YOUR domain expertise. After fine-tuning, the same model running on the same hardware will produce dramatically better answers from the same retrieved chunks.
 
 ### Three Levels of Customization
 
@@ -99,14 +99,14 @@ This is sometimes called RAFT (Retrieval-Augmented Fine-Tuning) -- you fine-tune
 You have:
 - 630GB of domain-specific data (RF, defense, satellite, NIST)
 - A working RAG pipeline (HybridRAG3)
-- Ollama running Llama3 8B locally
+- Ollama running Phi-4 Mini locally
 - Incoming desktop with 12GB+ VRAM
 - OpenRouter API access for teacher model calls
 - A corporate environment that needs audit logging and offline operation
 
 **Recommended strategy:**
 1. Use OpenRouter (Claude/GPT-4) as teacher to generate high-quality Q&A pairs from your indexed documents
-2. Fine-tune Llama3 8B (or Qwen2.5 14B) using Unsloth + QLoRA on those Q&A pairs
+2. Fine-tune Phi-4 Mini (or Mistral 7B) using Unsloth + QLoRA on those Q&A pairs
 3. Export the fine-tuned model to GGUF format
 4. Load it into Ollama as a custom model
 5. Continue using HybridRAG3's retrieval pipeline with the upgraded model
@@ -121,14 +121,14 @@ The fine-tuning happens ONCE (or periodically) on your home PC. The resulting mo
 
 | Model | Method | VRAM Required | Your 12GB GPU? | Your 24GB GPU (3090)? |
 |-------|--------|--------------|----------------|----------------------|
-| Llama3 8B | QLoRA (4-bit) fine-tuning | ~6 GB | YES | YES |
-| Llama3 8B | LoRA (16-bit) fine-tuning | ~16 GB | NO | YES |
-| Llama3 8B | Full fine-tuning | ~60 GB | NO | NO |
-| Qwen2.5 14B | QLoRA (4-bit) fine-tuning | ~10 GB | TIGHT | YES |
-| Qwen2.5 14B | LoRA (16-bit) fine-tuning | ~28 GB | NO | TIGHT |
-| Llama3 70B | QLoRA (4-bit) fine-tuning | ~42 GB | NO | NO |
+| Phi-4 Mini 8B | QLoRA (4-bit) fine-tuning | ~6 GB | YES | YES |
+| Phi-4 Mini 8B | LoRA (16-bit) fine-tuning | ~16 GB | NO | YES |
+| Phi-4 Mini 8B | Full fine-tuning | ~60 GB | NO | NO |
+| Mistral 14B | QLoRA (4-bit) fine-tuning | ~10 GB | TIGHT | YES |
+| Mistral 14B | LoRA (16-bit) fine-tuning | ~28 GB | NO | TIGHT |
+| Mistral-Large 70B | QLoRA (4-bit) fine-tuning | ~42 GB | NO | NO |
 
-**Bottom line:** QLoRA on Llama3 8B fits comfortably on your 12GB GPU. QLoRA on Qwen2.5 14B is tight but doable on 12GB, comfortable on a 3090 (24GB).
+**Bottom line:** QLoRA on Phi-4 Mini 8B fits comfortably on your 12GB GPU. QLoRA on Mistral 14B is tight but doable on 12GB, comfortable on a 3090 (24GB).
 
 ### System RAM Requirements
 
@@ -148,9 +148,9 @@ The fine-tuning happens ONCE (or periodically) on your home PC. The resulting mo
 
 | Hardware | Model | Dataset Size | Estimated Time |
 |----------|-------|-------------|---------------|
-| RTX 3090 (24GB) | Llama3 8B QLoRA | 10,000 examples | 30-60 minutes |
-| RTX 5080 (16GB) | Llama3 8B QLoRA | 10,000 examples | 20-45 minutes |
-| RTX 3090 (24GB) | Qwen2.5 14B QLoRA | 10,000 examples | 60-120 minutes |
+| RTX 3090 (24GB) | Phi-4 Mini 8B QLoRA | 10,000 examples | 30-60 minutes |
+| RTX 5080 (16GB) | Phi-4 Mini 8B QLoRA | 10,000 examples | 20-45 minutes |
+| RTX 3090 (24GB) | Mistral 14B QLoRA | 10,000 examples | 60-120 minutes |
 | CPU-only (your current laptop) | Any | Any | NOT RECOMMENDED (days) |
 
 ---
@@ -283,7 +283,7 @@ python -c "from unsloth import FastLanguageModel; print('[OK] Unsloth loaded suc
 
 ### Why Not Full Fine-Tuning?
 
-Full fine-tuning means updating ALL of a model's parameters. Llama3 8B has 8 billion parameters. Storing each parameter plus its gradient plus optimizer state in 16-bit precision requires approximately 60GB of VRAM. That's more than even an RTX 4090 (24GB) can handle.
+Full fine-tuning means updating ALL of a model's parameters. An 8B parameter model has 8 billion parameters. Storing each parameter plus its gradient plus optimizer state in 16-bit precision requires approximately 60GB of VRAM. That's more than even an RTX 4090 (24GB) can handle.
 
 ### LoRA -- Low-Rank Adaptation
 
@@ -306,9 +306,9 @@ Think of it like this: the base model is a massive textbook that stays closed. L
 
 QLoRA adds one more optimization on top of LoRA: it loads the base model in 4-bit quantized precision instead of 16-bit. This cuts VRAM usage by 75% for the base model while the LoRA adapters still train in 16-bit for accuracy.
 
-The "Q" stands for quantization -- the same concept your Ollama models use (Q4_0, Q8_0, etc.). During training, the base model sits in VRAM at 4-bit precision (~4.5GB for Llama3 8B) and the LoRA adapters train in 16-bit on top of that.
+The "Q" stands for quantization -- the same concept your Ollama models use (Q4_0, Q8_0, etc.). During training, the base model sits in VRAM at 4-bit precision (~4.5GB for an 8B model) and the LoRA adapters train in 16-bit on top of that.
 
-**VRAM breakdown for Llama3 8B QLoRA:**
+**VRAM breakdown for Phi-4 Mini 8B QLoRA:**
 
 ```
 Base model (4-bit):     ~4.5 GB
@@ -322,7 +322,7 @@ Total:                  ~6.3 GB  <-- Fits on 12GB GPU with headroom
 
 ### Which Layers to Target
 
-When you configure LoRA, you specify which layers get adapters. The standard targets for Llama-family models are:
+When you configure LoRA, you specify which layers get adapters. The standard targets for transformer-based models are:
 
 ```python
 target_modules = [
@@ -430,7 +430,7 @@ TEACHER_ENABLED = True
 # Uses OpenRouter with your existing openai SDK
 TEACHER_BASE_URL = "https://openrouter.ai/api/v1"
 TEACHER_MODEL = "anthropic/claude-sonnet-4-20250514"  # Best for technical Q&A
-# Alternative: "openai/gpt-4o" or "meta-llama/llama-3.1-70b-instruct" (free)
+# Alternative: "openai/gpt-4o" or "mistralai/mistral-small-3.1-24b-instruct" (free)
 
 # ---- RETRIEVAL CONFIG ----
 TOP_K = 5          # Number of chunks to retrieve per question
@@ -753,13 +753,13 @@ This is the main training script. Run this AFTER you have generated training dat
 
 ```python
 # =====================================================================
-# finetune_llama3.py
+# finetune_phi4mini.py
 # =====================================================================
-# PURPOSE: Fine-tune Llama3 8B on your domain-specific training data
+# PURPOSE: Fine-tune Phi-4 Mini on your domain-specific training data
 #          using Unsloth + QLoRA for maximum VRAM efficiency.
 #
 # HOW IT WORKS:
-#   1. Loads Llama3 8B in 4-bit quantization (fits in ~4.5GB VRAM)
+#   1. Loads Phi-4 Mini in 4-bit quantization (fits in ~4.5GB VRAM)
 #   2. Attaches LoRA adapters to attention and MLP layers
 #   3. Loads your training data (from generate_training_data.py output)
 #   4. Trains the LoRA adapters while base model stays frozen
@@ -770,7 +770,7 @@ This is the main training script. Run this AFTER you have generated training dat
 #   After first download, model is cached locally and no internet needed.
 #   Set HF_HUB_OFFLINE=1 environment variable to enforce offline mode.
 #
-# VRAM REQUIREMENT: ~6 GB for Llama3 8B, ~10 GB for Qwen2.5 14B
+# VRAM REQUIREMENT: ~6 GB for Phi-4 Mini, ~10 GB for Mistral 14B
 # TRAINING TIME: ~30-60 minutes on RTX 3090 for 10K examples
 # =====================================================================
 
@@ -787,10 +787,10 @@ from pathlib import Path
 
 # ---- MODEL SELECTION ----
 # Choose which base model to fine-tune.
-# "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit" is pre-quantized
+# "unsloth/phi-4-mini-instruct-bnb-4bit" is pre-quantized
 # so it downloads smaller and loads faster than the full-precision version.
-# ALTERNATIVE: "unsloth/Qwen2.5-14B-Instruct-bnb-4bit" (needs ~10GB VRAM)
-BASE_MODEL = "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit"
+# ALTERNATIVE: "unsloth/Mistral-7B-Instruct-v0.3-bnb-4bit" (needs ~6GB VRAM)
+BASE_MODEL = "unsloth/phi-4-mini-instruct-bnb-4bit"
 
 # ---- PATHS ----
 TRAINING_DATA = r"D:\FineTuning\training_data"  # Directory with .jsonl files
@@ -809,7 +809,7 @@ LORA_DROPOUT = 0         # Dropout rate (0 is optimized for speed in Unsloth)
 
 # ---- TRAINING HYPERPARAMETERS ----
 MAX_SEQ_LENGTH = 2048    # Maximum tokens per training example
-                          # Llama3 supports up to 8192 but 2048 saves VRAM
+                          # Phi-4 Mini supports up to 8192 but 2048 saves VRAM
 BATCH_SIZE = 2           # Number of examples processed simultaneously
                           # Lower = less VRAM, higher = faster training
 GRADIENT_ACCUMULATION = 4 # Effective batch size = BATCH_SIZE * this = 8
@@ -915,10 +915,9 @@ def load_training_data(data_dir):
 
 def format_for_training(examples, tokenizer):
     """
-    Convert raw examples into the chat template format that Llama3 expects.
+    Convert raw examples into the chat template format that the model expects.
 
-    Llama3 uses a specific chat template with <|begin_of_text|>,
-    <|start_header_id|>, <|end_header_id|>, and <|eot_id|> tokens.
+    Each model uses a specific chat template with special tokens.
     The tokenizer handles this automatically when we use apply_chat_template().
     """
     formatted = []
@@ -940,7 +939,7 @@ def format_for_training(examples, tokenizer):
         ]
 
         # The tokenizer converts this conversation into the token format
-        # that Llama3 was pre-trained on. This ensures the fine-tuned model
+        # that the base model was pre-trained on. This ensures the fine-tuned model
         # generates responses in the same format as the base model.
         text = tokenizer.apply_chat_template(
             messages,
@@ -1068,7 +1067,7 @@ print(f"     Look for a .gguf file -- this is what Ollama loads")
 gguf_files = list(Path(GGUF_OUTPUT).glob("*.gguf"))
 if gguf_files:
     gguf_name = gguf_files[0].name
-    modelfile_content = f"""# Modelfile for HybridRAG3 fine-tuned Llama3
+    modelfile_content = f"""# Modelfile for HybridRAG3 fine-tuned model
 # Created: {datetime.now().isoformat()}
 # Base: {BASE_MODEL}
 # Training: {len(raw_examples)} examples, {NUM_EPOCHS} epochs
@@ -1093,9 +1092,9 @@ PARAMETER num_ctx 4096
     print(f"\n[OK] Ollama Modelfile created at {modelfile_path}")
     print(f"\nTo load in Ollama, run these commands:")
     print(f"  cd {GGUF_OUTPUT}")
-    print(f"  ollama create hybridrag-llama3 -f Modelfile")
-    print(f"  ollama run hybridrag-llama3")
-    print(f"\nThen update your HybridRAG3 config to use model: hybridrag-llama3")
+    print(f"  ollama create hybridrag-phi4mini -f Modelfile")
+    print(f"  ollama run hybridrag-phi4mini")
+    print(f"\nThen update your HybridRAG3 config to use model: hybridrag-phi4mini")
 
 print(f"\n{'='*60}")
 print(f"PIPELINE COMPLETE")
@@ -1122,13 +1121,13 @@ cd D:\FineTuning\gguf
 
 ```powershell
 # Create a custom Ollama model from the GGUF file
-# "hybridrag-llama3" is the name you'll use in HybridRAG3's config
-ollama create hybridrag-llama3 -f Modelfile
+# "hybridrag-phi4mini" is the name you'll use in HybridRAG3's config
+ollama create hybridrag-phi4mini -f Modelfile
 ```
 
 ```powershell
 # Test it with a quick query
-ollama run hybridrag-llama3 "What is the ionospheric critical frequency?"
+ollama run hybridrag-phi4mini "What is the ionospheric critical frequency?"
 ```
 
 ```powershell
@@ -1141,11 +1140,11 @@ ollama list
 In your HybridRAG3 config (wherever you set the Ollama model name), change:
 
 ```yaml
-# BEFORE (generic Llama3)
-ollama_model: "llama3:8b"
+# BEFORE (generic model)
+ollama_model: "phi4-mini"
 
 # AFTER (your fine-tuned domain expert)
-ollama_model: "hybridrag-llama3"
+ollama_model: "hybridrag-phi4mini"
 ```
 
 ### Quantization Options Comparison
@@ -1185,7 +1184,7 @@ Teacher model (Claude via OpenRouter) generates expert answers
 Training dataset: (chunks + question + expert answer) triples
     |
     v
-finetune_llama3.py trains student model on teacher's answers
+finetune_phi4mini.py trains student model on teacher's answers
     |
     v
 GGUF export --> Ollama --> HybridRAG3 uses fine-tuned model
@@ -1247,8 +1246,8 @@ from openai import OpenAI
 
 # ---- CONFIGURATION ----
 OLLAMA_URL = "http://localhost:11434/v1"
-BASE_MODEL = "llama3:8b"                    # Original model
-FINETUNED_MODEL = "hybridrag-llama3"        # Your fine-tuned model
+BASE_MODEL = "phi4-mini"                    # Original model
+FINETUNED_MODEL = "hybridrag-phi4mini"        # Your fine-tuned model
 TEST_DATA = r"D:\FineTuning\test_questions.jsonl"
 RESULTS_OUTPUT = r"D:\FineTuning\evaluation_results.json"
 
@@ -1392,9 +1391,9 @@ if __name__ == "__main__":
 Your current HybridRAG3 pipeline doesn't need any code changes to use the fine-tuned model. The router pattern you built means you just change the model name in your config:
 
 ```
-llm_router.py  -->  OllamaRouter  -->  ollama serve  -->  hybridrag-llama3 (fine-tuned)
+llm_router.py  -->  OllamaRouter  -->  ollama serve  -->  hybridrag-phi4mini (fine-tuned)
                                                             instead of
-                                                           llama3:8b (base)
+                                                           phi4-mini (base)
 ```
 
 The retriever still retrieves. The chunker still chunks. The embedder still embeds. Only the final "read these chunks and answer" step uses the upgraded brain.
@@ -1406,10 +1405,10 @@ Keep BOTH models available in Ollama so you can compare:
 ```powershell
 # Base model (already installed)
 ollama list
-# Should show: llama3:8b
+# Should show: phi4-mini
 
 # Fine-tuned model (after running the pipeline)
-# Should also show: hybridrag-llama3
+# Should also show: hybridrag-phi4mini
 ```
 
 In your config or GUI, add a toggle to switch between them. This lets you run the same query through both models and compare answers side-by-side.
@@ -1471,7 +1470,7 @@ For air-gapped work laptop: do ALL training on home PC, then transfer only the G
 | **Unsloth** | 2x faster, 70% less VRAM, Windows support, GGUF export | Single-GPU only | BEST for you |
 | **HuggingFace TRL** | Official, well-documented | Slower, more VRAM, complex setup | Good backup |
 | **Axolotl** | Multi-GPU, many features | Linux-first, complex config | Overkill for now |
-| **LLaMA-Factory** | GUI-based, beginner-friendly | Less control, slower | Worth trying later |
+| **OpenLLM** | GUI-based, beginner-friendly | Less control, slower | Worth trying later |
 | **MLX (Apple)** | Optimized for Mac | Mac-only, no NVIDIA | Not applicable |
 
 **Recommendation:** Start with Unsloth. It's the most efficient option for your hardware (single consumer GPU), has the best Windows support, and includes built-in GGUF export for Ollama. If you later move to a multi-GPU setup, consider Axolotl.

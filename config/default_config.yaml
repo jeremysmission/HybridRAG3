@@ -33,11 +33,11 @@ hallucination_guard:
 indexing:
   block_chars: 200000
   max_chars_per_file: 2000000
-mode: online
+mode: offline
 ollama:
   base_url: http://localhost:11434
   context_window: 8192
-  model: qwen2.5:7b-instruct-q5_K_M
+  model: phi4-mini
   timeout_seconds: 600
 paths:
   database: ''
@@ -46,7 +46,7 @@ paths:
 retrieval:
   hybrid_search: true
   min_chunks: 1
-  min_score: 0.10
+  min_score: 0.1
   reranker_enabled: false
   reranker_model: cross-encoder/ms-marco-MiniLM-L-6-v2
   reranker_top_n: 20

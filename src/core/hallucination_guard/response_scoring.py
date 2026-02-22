@@ -17,7 +17,7 @@ LAYER 4 -- CONFIDENCE CALIBRATION:
         "The system DEFINITELY operates at 15 MHz" (source says 10 MHz)
         "The system may operate around 15 MHz"     (source says 10 MHz)
     Both are wrong, but the first one will be acted on without question.
-    Sonnet is especially prone to confident hallucination vs. Llama3.
+    Sonnet is especially prone to confident hallucination vs. Phi4-Mini.
 
 LAYER 3 -- RESPONSE CONSTRUCTION:
     Based on the failure_action setting, builds the safe response:
@@ -232,7 +232,7 @@ class ResponseConstructor:
             "OPTIONS:\n"
             "1. Rephrase your query more specifically\n"
             "2. Check if relevant documents are indexed\n"
-            "3. Use offline mode (Llama3) for conservative response\n\n"
+            "3. Use offline mode (Phi4-Mini) for conservative response\n\n"
         )
         if contras:
             msg += "CONTRADICTED CLAIMS:\n"

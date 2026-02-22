@@ -350,7 +350,7 @@ def _():
     config.api.timeout = 30
     config.api.max_retries = 3
     config.ollama.base_url = "http://localhost:11434"
-    config.ollama.model = "llama3:8b"
+    config.ollama.model = "phi4-mini"
     config.ollama.timeout_seconds = 120
 
     original_endpoint = "https://original-endpoint.openai.azure.com/"
@@ -437,7 +437,7 @@ def _():
     config = MagicMock()
     config.mode = "offline"
     config.ollama.base_url = "http://localhost:11434"
-    config.ollama.model = "llama3:8b"
+    config.ollama.model = "phi4-mini"
     config.ollama.timeout_seconds = 120
     config.api.endpoint = ""
     config.api.deployment = ""
@@ -477,7 +477,7 @@ def _():
     config = MagicMock()
     config.mode = "online"
     config.ollama.base_url = "http://localhost:11434"
-    config.ollama.model = "llama3:8b"
+    config.ollama.model = "phi4-mini"
     config.ollama.timeout_seconds = 120
     config.api.endpoint = "https://test.openai.azure.com/"
     config.api.deployment = "gpt-4"

@@ -111,74 +111,60 @@ USE_CASES = {
 # ============================================================================
 
 RECOMMENDED_OFFLINE = {
-    "sw":    {"primary": "qwen3:8b", "alt": "deepseek-r1:8b",
+    "sw":    {"primary": "phi4-mini", "alt": "mistral:7b",
               "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
 
-    "eng":   {"primary": "qwen3:8b", "alt": "deepseek-r1:8b",
+    "eng":   {"primary": "phi4-mini", "alt": "mistral:7b",
               "secondary_test": "phi4:14b-q4_K_M",  # Hardware margin rejection; test at 8K ctx
               "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
 
-    "sys":   {"primary": "qwen3:8b", "alt": "deepseek-r1:8b",
+    "sys":   {"primary": "phi4-mini", "alt": "mistral:7b",
               "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
 
-    "draft": {"primary": "qwen3:8b", "alt": "phi4:14b-q4_K_M",
+    "draft": {"primary": "phi4-mini", "alt": "phi4:14b-q4_K_M",
               "temperature": 0.05, "context": 16384, "reranker": True, "top_k": 8},
 
-    "log":   {"primary": "phi4:14b-q4_K_M", "alt": "qwen3:8b",
+    "log":   {"primary": "phi4:14b-q4_K_M", "alt": "phi4-mini",
               "temperature": 0.0, "context": 8192, "reranker": True, "top_k": 10},
 
-    "pm":    {"primary": "qwen3:8b", "alt": "gemma3:4b",
+    "pm":    {"primary": "mistral:7b", "alt": "phi4-mini",
               "temperature": 0.25, "context": 8192, "reranker": False, "top_k": 5},
 
-    "fe":    {"primary": "qwen3:8b", "alt": "deepseek-r1:8b",
+    "fe":    {"primary": "phi4-mini", "alt": "mistral:7b",
               "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
 
-    "cyber": {"primary": "qwen3:8b", "alt": "deepseek-r1:8b",
+    "cyber": {"primary": "phi4-mini", "alt": "mistral:7b",
               "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
 
-    "gen":   {"primary": "qwen3:8b", "alt": "llama3.1:8b",
+    "gen":   {"primary": "mistral:7b", "alt": "phi4-mini",
               "temperature": 0.3, "context": 8192, "reranker": False, "top_k": 5},
 }
 
 # ============================================================================
-# PERSONAL_FUTURE: Models that require more VRAM than 12 GB
+# PERSONAL_FUTURE: Models that require more VRAM than current laptop
 # ============================================================================
-# These are recognized in the registry but NEVER auto-selected on current
-# hardware (64 GB RAM / 12 GB VRAM). They become available when:
+# Approved models only (US/NATO allied origin, permissive license).
+# Excluded models and restrictive-license models are excluded.
 #
-# Tier 1 (24 GB VRAM -- RTX 4090 / A5000 / RTX 5000 Ada):
-#   qwen3:32b          ~20 GB download, ~24 GB VRAM at Q4_K_M
-#   deepseek-r1:32b    ~20 GB download, ~24 GB VRAM at Q4_K_M
-#   gemma3:27b         ~17 GB download, ~20-24 GB VRAM at Q4_K_M
+# Tier 1 (24 GB VRAM -- dual RTX 3090 workstation):
+#   mistral-small3.1:24b  ~14 GB download, ~16 GB VRAM (Apache 2.0, France)
+#   mistral-nemo:12b      ~7 GB download, ~10 GB VRAM (Apache 2.0, France/USA)
+#   phi4:14b-q4_K_M       ~9 GB download, ~11 GB VRAM (MIT, Microsoft/USA)
 #
-# Tier 2 (48 GB VRAM -- dual GPU or A6000 / RTX A6000):
-#   deepseek-r1:70b    ~43 GB download, ~48 GB VRAM at Q4_K_M
-#   llama3.1:70b       ~43 GB download, ~48 GB VRAM at Q4_K_M
-#
-# NOTE: Neither qwen3:72b nor qwen3:72b-q4_K_M exist. Qwen3 sizes are:
-#       0.6b, 1.7b, 4b, 8b, 14b, 30b, 32b, 235b. No 72B variant.
-#       Use qwen3:32b as the stepping stone above 8B.
-# ALL TAGS VERIFIED against live Ollama library 2026-02-20.
+# ALL TAGS VERIFIED against live Ollama library 2026-02-21.
 # ============================================================================
 
 PERSONAL_FUTURE = {
-    # Tier 1: 24 GB VRAM unlocks these
-    "qwen3:32b":        {"min_vram_gb": 24, "download_gb": 20,
-                          "tier": 1, "replaces": "qwen3:8b",
-                          "note": "Direct upgrade for eng/sw/sys/pm profiles"},
-    "deepseek-r1:32b":  {"min_vram_gb": 24, "download_gb": 20,
-                          "tier": 1, "replaces": "deepseek-r1:8b",
-                          "note": "Qwen-based 32B distill, stronger reasoning"},
-    "gemma3:27b":        {"min_vram_gb": 24, "download_gb": 17,
-                          "tier": 1, "replaces": "gemma3:4b",
-                          "note": "27B multimodal, strong summarization"},
-    # Tier 2: 48 GB VRAM unlocks these
-    "deepseek-r1:70b":  {"min_vram_gb": 48, "download_gb": 43,
-                          "tier": 2, "replaces": "deepseek-r1:8b",
-                          "note": "Llama-based 70B distill, near-frontier reasoning"},
-    "llama3.1:70b":      {"min_vram_gb": 48, "download_gb": 43,
-                          "tier": 2, "replaces": "llama3.1:8b",
-                          "note": "Meta 70B, 128K ctx, strong general knowledge"},
+    # Tier 1: 24 GB VRAM unlocks these (approved vendors)
+    "mistral-small3.1:24b": {"min_vram_gb": 24, "download_gb": 14,
+                              "tier": 1, "replaces": "phi4-mini",
+                              "note": "Apache 2.0, Mistral/France, strong RAG, 128K ctx"},
+    "mistral-nemo:12b":     {"min_vram_gb": 12, "download_gb": 7,
+                              "tier": 1, "replaces": "mistral:7b",
+                              "note": "Apache 2.0, Mistral+NVIDIA, 128K ctx"},
+    "phi4:14b-q4_K_M":      {"min_vram_gb": 12, "download_gb": 9,
+                              "tier": 1, "replaces": "phi4-mini",
+                              "note": "MIT, Microsoft/USA, strong STEM reasoning"},
 }
 
 # Recommended cloud API models per use case
@@ -262,7 +248,7 @@ KNOWN_MODELS = {
     "claude-3-opus":      {"ctx": 200000, "price_in": 15.0,  "price_out": 75.0,   "tier_eng": 90, "tier_gen": 92, "family": "Anthropic", "note": "Most capable Claude 3"},
 
     # ---- Meta Llama Family ----
-    # Llama: strong general knowledge (MMLU), slightly behind Qwen on STEM
+    # Llama: strong general knowledge (MMLU), competitive on STEM
     "meta-llama/llama-3.3-70b-instruct":  {"ctx": 131072, "price_in": 0.10, "price_out": 0.25, "tier_eng": 80, "tier_gen": 84, "family": "Meta", "note": "70B, 128K ctx"},
     "meta-llama/llama-3.1-405b-instruct": {"ctx": 131072, "price_in": 1.00, "price_out": 1.00, "tier_eng": 88, "tier_gen": 92, "family": "Meta", "note": "405B, largest open model"},
     "meta-llama/llama-3.1-70b-instruct":  {"ctx": 131072, "price_in": 0.10, "price_out": 0.25, "tier_eng": 78, "tier_gen": 82, "family": "Meta", "note": "70B, open weights"},
@@ -276,22 +262,16 @@ KNOWN_MODELS = {
     "mistralai/mistral-7b-instruct":     {"ctx": 32768,  "price_in": 0.03, "price_out": 0.06, "tier_eng": 48, "tier_gen": 55, "family": "Mistral", "note": "7B, open weights"},
     "mistralai/mixtral-8x7b-instruct":   {"ctx": 32768,  "price_in": 0.06, "price_out": 0.06, "tier_eng": 65, "tier_gen": 68, "family": "Mistral", "note": "MoE 8x7B"},
 
-    # ---- DeepSeek Family ----
-    # DeepSeek R1: exceptional at STEM reasoning, decent general
-    "deepseek/deepseek-r1":    {"ctx": 65536, "price_in": 0.55, "price_out": 2.19, "tier_eng": 93, "tier_gen": 82, "family": "DeepSeek", "note": "Reasoning, 64K ctx"},
-    "deepseek/deepseek-chat":  {"ctx": 65536, "price_in": 0.14, "price_out": 0.28, "tier_eng": 75, "tier_gen": 72, "family": "DeepSeek", "note": "General chat"},
-    "deepseek/deepseek-v3":    {"ctx": 65536, "price_in": 0.14, "price_out": 0.28, "tier_eng": 82, "tier_gen": 78, "family": "DeepSeek", "note": "Latest base model"},
+    # ---- DeepSeek Family (EXCLUDED) ----
+    # Retained in knowledge base for identification only; never auto-selected.
 
     # ---- Google Gemini Family ----
     "google/gemini-2.5-pro":        {"ctx": 1048576, "price_in": 1.25, "price_out": 10.0, "tier_eng": 95, "tier_gen": 96, "family": "Google", "note": "1M ctx, thinking"},
     "google/gemini-2.5-flash":      {"ctx": 1048576, "price_in": 0.15, "price_out": 0.60, "tier_eng": 78, "tier_gen": 80, "family": "Google", "note": "1M ctx, fast"},
     "google/gemini-2.0-flash-001":  {"ctx": 1048576, "price_in": 0.10, "price_out": 0.40, "tier_eng": 72, "tier_gen": 75, "family": "Google", "note": "1M ctx, efficient"},
 
-    # ---- Qwen Family ----
-    # Qwen: best-in-class STEM at every param count, weaker general knowledge
-    "qwen/qwen-2.5-72b-instruct": {"ctx": 131072, "price_in": 0.15, "price_out": 0.15, "tier_eng": 86, "tier_gen": 78, "family": "Qwen", "note": "72B, MATH 83.1"},
-    "qwen/qwen-2.5-32b-instruct": {"ctx": 131072, "price_in": 0.06, "price_out": 0.06, "tier_eng": 80, "tier_gen": 72, "family": "Qwen", "note": "32B, good value"},
-    "qwen/qwen3-235b-a22b":       {"ctx": 131072, "price_in": 0.20, "price_out": 0.60, "tier_eng": 92, "tier_gen": 85, "family": "Qwen", "note": "MoE 235B/22B active"},
+    # ---- Qwen Family (EXCLUDED) ----
+    # Retained in knowledge base for identification only; never auto-selected.
 
     # ---- Microsoft Phi Family ----
     "microsoft/phi-4":           {"ctx": 16384, "price_in": 0.03, "price_out": 0.06, "tier_eng": 65, "tier_gen": 58, "family": "Microsoft", "note": "14B, strong for size"},
@@ -382,12 +362,12 @@ def get_known_model_info(model_id):
 # Searched top-to-bottom; first match wins.
 
 _OFFLINE_FAMILY_SCORES = [
-    # Qwen 3: thinking mode, best STEM at every size
-    ("qwen3",    38, 30),
-    # Qwen 2.5: HumanEval 84.8, MATH 75.5 (7B); but MMLU 74.2 vs Llama's 77.5
-    ("qwen2.5",  35, 25),
-    # DeepSeek: exceptional reasoning, decent general
-    ("deepseek", 34, 28),
+    # Qwen family: EXCLUDED
+    # Entries retained so name-match doesn't crash
+    ("qwen3",    0, 0),   # EXCLUDED
+    ("qwen2.5",  0, 0),   # EXCLUDED
+    # DeepSeek: EXCLUDED
+    ("deepseek", 0, 0),   # EXCLUDED
     # Llama 3: MMLU 77.5 (7B class leader), HumanEval 80.5, MATH 69.9
     ("llama3",   28, 33), ("llama-3", 28, 33),
     # Phi-4: punches above weight on STEM for its 14B size
@@ -398,8 +378,8 @@ _OFFLINE_FAMILY_SCORES = [
     ("gemma",    24, 26),
     # Mixtral MoE: good efficiency and capability
     ("mixtral",  25, 27),
-    # Qwen 2 (older): still decent STEM
-    ("qwen2",    22, 20), ("qwen", 15, 14),
+    # Qwen 2 (older): EXCLUDED
+    ("qwen2", 0, 0), ("qwen", 0, 0),  # EXCLUDED
     # Mistral 7B: solid baseline
     ("mistral",  20, 23),
     # Phi-3 and older Phi
@@ -563,11 +543,11 @@ _ONLINE_FAMILY_PATTERNS = [
     ("-r1",        +8,  -3),
     ("reason",     +6,  -2),
 
-    # Qwen family: STEM-heavy training
-    ("qwen",       +6,  -4),
+    # Qwen: EXCLUDED
+    ("qwen",       0,   0),   # EXCLUDED
 
-    # DeepSeek: strong reasoning
-    ("deepseek",   +5,  -2),
+    # DeepSeek: EXCLUDED
+    ("deepseek",   0,   0),   # EXCLUDED
 
     # Llama family: balanced, slight GEN advantage
     ("llama",      -2,  +3),
@@ -615,7 +595,7 @@ def _estimate_online_dual_tier(model_id, base_score):
     directional offsets from the base price-derived score.
 
     Args:
-        model_id: Full model ID (e.g., "qwen/qwen2.5-coder-32b-instruct")
+        model_id: Full model ID (e.g., "mistralai/mistral-7b-instruct")
         base_score: Price-derived base tier (0-95)
 
     Returns:
@@ -630,8 +610,8 @@ def _estimate_online_dual_tier(model_id, base_score):
     gen_offset = 0
 
     # Apply ALL matching patterns (not just first match)
-    # A model like "qwen2.5-coder-32b-instruct" should get both
-    # the "qwen" bonus and the "coder" bonus
+    # A model can match multiple patterns and accumulate offsets
+    # e.g. a coder model also matching its family pattern
     for pattern, e_off, g_off in _ONLINE_FAMILY_PATTERNS:
         if pattern in name_lower:
             eng_offset += e_off

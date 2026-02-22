@@ -134,7 +134,7 @@ exhaustion. Partial tests showed all fixes working correctly.
 - Current personal laptop: 8GB RAM, 512MB VRAM -- cannot run Ollama 3B+ models
 - Work laptop: corporate standard (check RAM availability)
 - Upcoming: dual RTX 3090 workstation (48GB GPU, 64GB RAM) -- will enable
-  full offline Ollama evaluation with qwen2.5:7b-instruct-q5_K_M
+  full offline Ollama evaluation with phi4-mini
 
 ---
 

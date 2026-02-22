@@ -89,10 +89,9 @@ Write-Status 'INFO' 'Pulling WORK_ONLY Ollama models...'
 
 # Models verified against Ollama library 2026-02-20
 $models = @(
-    @{ Tag = 'qwen3:8b';                   Size = '5.2 GB';  Note = 'Primary for 4/5 profiles' },
-    @{ Tag = 'deepseek-r1:8b';             Size = '5.2 GB';  Note = 'Engineer/SysAdmin reasoning alt' },
-    @{ Tag = 'phi4:14b-q4_K_M';            Size = '9.1 GB';  Note = 'Logistics primary, CAD/Eng secondary' },
-    @{ Tag = 'gemma3:4b';                   Size = '3.3 GB';  Note = 'PM fast summarization alt' }
+    @{ Tag = 'phi4-mini';                   Size = '2.3 GB';  Note = 'Primary for 7/9 profiles (MIT, Microsoft/USA)' },
+    @{ Tag = 'mistral:7b';                  Size = '4.1 GB';  Note = 'Primary for pm/gen, alt for others (Apache 2.0, Mistral/France)' },
+    @{ Tag = 'phi4:14b-q4_K_M';            Size = '9.1 GB';  Note = 'Logistics primary, CAD alt (MIT, Microsoft/USA, workstation only)' }
 )
 
 $totalSize = 0

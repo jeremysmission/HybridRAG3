@@ -129,7 +129,7 @@ def _resolve_creds():
 
 
 def _short_name(full_name):
-    """qwen2.5:7b-instruct-q5_K_M -> Qwen2.5-7B"""
+    """phi4-mini -> Phi4-Mini, mistral:7b -> Mistral-7B"""
     name = full_name.split(":")[0] if ":latest" in full_name else full_name
     name = name.replace(":", " ").replace("-", " ")
     parts = name.split()
@@ -210,7 +210,7 @@ def prompt_mode(scan):
         print(f"            Available: {nlist}")
     else:
         print(f"      O  =  Offline AI  (no models detected)")
-        print(f"            Install: https://ollama.com   then: ollama pull llama3")
+        print(f"            Install: https://ollama.com   then: ollama pull phi4-mini")
     print()
 
     if on_status == "ok":
@@ -574,7 +574,7 @@ def main():
 
     # Prompt 3: pick model
     if mode == "offline":
-        current = cfg.get("ollama", {}).get("model", "llama3")
+        current = cfg.get("ollama", {}).get("model", "phi4-mini")
         chosen = prompt_pick_offline(scan["offline_models"], uc_key, current)
     else:
         current = cfg.get("api", {}).get("model", "gpt-3.5-turbo")

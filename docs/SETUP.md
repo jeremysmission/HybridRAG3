@@ -131,7 +131,7 @@ connected machine.
 
 Download from https://ollama.com and install. Then pull the model:
 ```powershell
-ollama pull llama3
+ollama pull phi4-mini
 ```
 
 Start the Ollama server (needs its own terminal window):

@@ -317,7 +317,7 @@ good_chunks = [chunk for chunk in chunks if chunk["score"] > 0.8]
 
 # FROM HybridRAG3 -- configuration:
 config = {
-    "ollama_model": "llama3:8b",       # String value
+    "ollama_model": "phi4-mini",        # String value
     "ollama_port": 11434,               # Integer value
     "top_k": 5,                         # Integer value
     "min_score": 0.3,                   # Float value
@@ -329,7 +329,7 @@ config = {
 }
 
 # Accessing values by key:
-model = config["ollama_model"]           # "llama3:8b"
+model = config["ollama_model"]           # "phi4-mini"
 port = config.get("ollama_port", 11434)  # .get() returns default if key missing
 
 # Modifying values:

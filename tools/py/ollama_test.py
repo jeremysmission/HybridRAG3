@@ -2,12 +2,12 @@ import json, urllib.request, time
 
 url = "http://localhost:11434/api/generate"
 payload = {
-    "model": "llama3",
+    "model": "phi4-mini",
     "prompt": "Say hello in exactly 3 words.",
     "stream": False
 }
 
-print("  Sending test to Ollama (llama3)...")
+print("  Sending test to Ollama (phi4-mini)...")
 start = time.time()
 
 try:

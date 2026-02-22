@@ -161,7 +161,7 @@ class TestOllamaRouter:
         assert result.text == "The operating frequency is 5.2 GHz."
         assert result.tokens_in == 150
         assert result.tokens_out == 25
-        assert result.model == "llama3"
+        assert result.model == "phi4-mini"
         assert result.latency_ms > 0, "Latency should be positive"
 
     # ------------------------------------------------------------------
@@ -274,7 +274,7 @@ class TestOllamaRouter:
 
             # Verify the JSON payload
             sent_payload = call_args[1]["json"]
-            assert sent_payload["model"] == "llama3"
+            assert sent_payload["model"] == "phi4-mini"
             assert sent_payload["prompt"] == "My test prompt"
             assert sent_payload["stream"] is False, (
                 "stream should be False -- we want the full response at once"
@@ -317,7 +317,7 @@ class TestLLMRouter:
                     text="Offline answer",
                     tokens_in=100,
                     tokens_out=20,
-                    model="llama3",
+                    model="phi4-mini",
                     latency_ms=5000.0,
                 )
                 router.ollama = mock_ollama
