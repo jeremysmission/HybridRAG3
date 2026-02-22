@@ -258,14 +258,61 @@ def _load_backends(app, logger):
             app.index_panel.set_ready(indexer is not None)
         if hasattr(app, "status_bar"):
             app.status_bar.router = router
-            app.status_bar.set_ready()
             app.status_bar.force_refresh()
         logger.info("[OK] Backends attached to GUI")
+
+        # -- IBIT: stepped verification display then final badge --
+        _run_ibit_sequence(app, config, query_engine, indexer, router, logger)
 
     try:
         app.after(0, _attach)
     except Exception as e:
         logger.debug("after() failed during backend attach: %s", e)
+
+
+def _run_ibit_sequence(app, config, query_engine, indexer, router, logger):
+    """Run IBIT checks with stepped status-bar display.
+
+    Shows each check name briefly (labor illusion / time distortion),
+    then settles on the final pass/fail badge.  The stepped display
+    uses 150ms holds per check -- fast enough to feel snappy, slow
+    enough for each name to register visually (research: 100-200ms
+    is the perceptual sweet spot for sequential items).
+    """
+    from src.core.ibit import run_ibit
+
+    STEP_DELAY_MS = 150  # Per-check display hold (ms)
+
+    def _do_ibit():
+        results = run_ibit(config, query_engine, indexer, router)
+        # Schedule stepped display on main thread
+        _step_display(app, results, 0, STEP_DELAY_MS)
+
+    # Run checks in background to avoid blocking GUI
+    import threading
+    threading.Thread(target=_do_ibit, daemon=True).start()
+
+
+def _step_display(app, results, idx, delay_ms):
+    """Show one IBIT check name at a time, then the final result.
+
+    Each step holds for delay_ms before advancing.  This creates
+    the labor illusion: rapid-fire check names make the system
+    feel thorough and the transition from loading to ready feel
+    deliberate rather than abrupt.
+    """
+    if not hasattr(app, "status_bar"):
+        return
+    if idx < len(results):
+        app.status_bar.set_ibit_stage(results[idx].name)
+        app.after(delay_ms, lambda: _step_display(app, results, idx + 1, delay_ms))
+    else:
+        # All steps shown -- display final badge
+        passed = sum(1 for r in results if r.ok)
+        app.status_bar.set_ibit_result(passed, len(results), results)
+
+        # Start CBIT (continuous health monitoring, every 60s)
+        app.status_bar.start_cbit(query_engine=app.query_engine)
 
 
 def main():

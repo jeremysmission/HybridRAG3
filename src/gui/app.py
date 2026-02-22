@@ -33,6 +33,7 @@ from src.gui.panels.index_panel import IndexPanel
 from src.gui.panels.status_bar import StatusBar
 from src.gui.panels.engineering_menu import EngineeringMenu
 from src.gui.panels.cost_dashboard import CostDashboard
+from src.gui.panels.reference_panel import ReferencePanel
 from src.core.cost_tracker import get_cost_tracker
 from src.gui.theme import (
     DARK, LIGHT, FONT, FONT_BOLD, FONT_TITLE,
@@ -66,6 +67,7 @@ class HybridRAGApp(tk.Tk):
         self.router = router
         self.cost_tracker = get_cost_tracker()
         self._cost_dashboard = None
+        self._reference_panel = None
 
         # Apply initial theme
         self._theme = current_theme()
@@ -119,6 +121,11 @@ class HybridRAGApp(tk.Tk):
         admin_menu.add_command(
             label="PM Cost Dashboard...",
             command=self._open_cost_dashboard,
+        )
+        admin_menu.add_separator()
+        admin_menu.add_command(
+            label="Ref",
+            command=self._open_reference,
         )
         menubar.add_cascade(label="Admin", menu=admin_menu)
 
@@ -475,6 +482,16 @@ class HybridRAGApp(tk.Tk):
             self._cost_dashboard.focus_force()
             return
         self._cost_dashboard = CostDashboard(self, self.cost_tracker)
+
+    def _open_reference(self):
+        """Open the Reference panel child window."""
+        if (hasattr(self, "_reference_panel")
+                and self._reference_panel is not None
+                and self._reference_panel.winfo_exists()):
+            self._reference_panel.lift()
+            self._reference_panel.focus_force()
+            return
+        self._reference_panel = ReferencePanel(self)
 
     # ----------------------------------------------------------------
     # HELP
