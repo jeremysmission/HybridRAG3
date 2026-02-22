@@ -132,9 +132,9 @@ def _make_root():
     """Create a Tk root that we can destroy after each test."""
     try:
         root = tk.Tk()
+        root.withdraw()  # Don't show the window
     except tk.TclError:
-        pytest.skip("Tk runtime unavailable")
-    root.withdraw()  # Don't show the window
+        pytest.skip("Tk runtime unavailable (Tcl interpreter state)")
     return root
 
 
