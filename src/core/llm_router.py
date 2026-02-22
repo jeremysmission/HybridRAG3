@@ -731,6 +731,182 @@ class APIRouter:
 
 
 # ============================================================================
+# DEPLOYMENT DISCOVERY -- Detects available models on Azure or OpenAI
+# ============================================================================
+#
+# WHY THIS EXISTS:
+#   Azure uses a different API endpoint for listing deployments than
+#   OpenAI/OpenRouter. Without this, _list_models.py silently returns
+#   nothing for Azure endpoints. This module detects the provider type
+#   from the stored endpoint and uses the correct discovery path.
+#
+# AZURE PATH:
+#   GET {base}/openai/deployments?api-version={version}
+#   Header: api-key: {key}
+#   Response: {"value": [{"id": "gpt-4o", "model": "gpt-4o", ...}, ...]}
+#
+# OPENAI/OPENROUTER PATH:
+#   GET {endpoint}/models
+#   Header: Authorization: Bearer {key}
+#   Response: {"data": [{"id": "gpt-4o", ...}, ...]}
+#
+# COMPATIBILITY NOTE (openai 1.45.1):
+#   We use httpx directly for discovery instead of the openai SDK because:
+#   1. The openai 1.45.1 SDK does not have a deployments.list() method
+#   2. httpx is already a dependency (used by Ollama path)
+#   3. Direct HTTP gives us full control over the request format
+#
+# INTERNET ACCESS: YES (one GET request per call)
+# ============================================================================
+
+# Module-level cache for deployment discovery results
+_deployment_cache = None
+
+
+def _is_azure_endpoint(endpoint):
+    """
+    Check if an endpoint URL is Azure-style.
+    Uses the same detection logic as APIRouter.is_azure.
+    """
+    if not endpoint:
+        return False
+    lower = endpoint.lower()
+    return "azure" in lower or "aoai" in lower
+
+
+def get_available_deployments():
+    """
+    Discover available model deployments from the configured endpoint.
+
+    Detects Azure vs OpenAI from the stored endpoint URL and uses the
+    correct API path and auth header format for each.
+
+    Returns:
+        list: Deployment name strings. Empty list if endpoint is
+              unreachable or credentials are missing. Never raises.
+    """
+    global _deployment_cache
+    if _deployment_cache is not None:
+        return list(_deployment_cache)
+
+    # Resolve credentials from the canonical source
+    try:
+        from ..security.credentials import resolve_credentials
+        creds = resolve_credentials()
+    except Exception:
+        print("  [FAIL] Could not resolve credentials for deployment discovery")
+        return []
+
+    if not creds.has_key or not creds.has_endpoint:
+        print("  [FAIL] Credentials incomplete -- need both API key and endpoint")
+        return []
+
+    endpoint = creds.endpoint.rstrip("/")
+    api_key = creds.api_key
+
+    try:
+        if _is_azure_endpoint(endpoint):
+            # Azure path: GET {base}/openai/deployments?api-version={version}
+            api_version = creds.api_version or "2024-02-02"
+
+            # Strip any existing path to get just the base domain
+            # (endpoint might contain /openai/deployments/... already)
+            base = endpoint
+            idx = base.lower().find("/openai/")
+            if idx > 0:
+                base = base[:idx]
+            idx = base.find("?")
+            if idx > 0:
+                base = base[:idx]
+
+            url = f"{base}/openai/deployments?api-version={api_version}"
+
+            with httpx.Client(timeout=15, verify=True) as client:
+                resp = client.get(
+                    url,
+                    headers={
+                        "api-key": api_key,
+                        "Content-Type": "application/json",
+                    },
+                )
+
+            if resp.status_code != 200:
+                print(f"  [WARN] Azure deployment list returned HTTP {resp.status_code}")
+                _deployment_cache = []
+                return []
+
+            data = resp.json()
+            # Azure returns {"value": [{...}, ...]}
+            value_list = data.get("value", [])
+            if not isinstance(value_list, list):
+                _deployment_cache = []
+                return []
+
+            deployments = []
+            for item in value_list:
+                # Each deployment has an "id" (deployment name) and "model" field
+                dep_id = item.get("id", "") or item.get("name", "")
+                if dep_id:
+                    deployments.append(dep_id)
+
+            _deployment_cache = deployments
+            print(f"  [OK] Found {len(deployments)} Azure deployments")
+            return list(deployments)
+
+        else:
+            # OpenAI/OpenRouter path: GET {endpoint}/models
+            url = f"{endpoint}/models"
+
+            with httpx.Client(timeout=15, verify=True) as client:
+                resp = client.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                )
+
+            if resp.status_code != 200:
+                print(f"  [WARN] Model list returned HTTP {resp.status_code}")
+                _deployment_cache = []
+                return []
+
+            data = resp.json()
+
+            # Standard OpenAI format: {"data": [{...}, ...]}
+            if "data" in data and isinstance(data["data"], list):
+                models = [m.get("id", "") for m in data["data"] if m.get("id")]
+            elif isinstance(data, list):
+                models = [m.get("id", "") for m in data if m.get("id")]
+            else:
+                _deployment_cache = []
+                return []
+
+            _deployment_cache = sorted(models)
+            print(f"  [OK] Found {len(models)} models")
+            return list(_deployment_cache)
+
+    except Exception as e:
+        print(f"  [WARN] Deployment discovery failed: {e}")
+        _deployment_cache = []
+        return []
+
+
+def refresh_deployments():
+    """
+    Clear the deployment cache and re-probe the endpoint.
+
+    Returns:
+        list: Fresh deployment list from the endpoint.
+    """
+    global _deployment_cache
+    _deployment_cache = None
+    result = get_available_deployments()
+    print(f"  [OK] Deployment cache refreshed: {len(result)} deployments")
+    return result
+
+
+# ============================================================================
 # LLMRouter -- The main switchboard
 # ============================================================================
 #

@@ -30,7 +30,8 @@ Before evaluating candidates, the following publishers/entities are **categorica
 
 | Publisher | HQ Country | Alliance Status | License Model | Risk Level |
 |---|---|---|---|---|
-| **Microsoft** | Redmond, WA, USA | Domestic / FedRAMP authorized | MIT | LOW |
+| **Microsoft (Azure Gov)** | Redmond, WA, USA | Domestic / Azure Gov IL6 authorized; Phi models DISA-approved Feb 2025 | MIT | LOW |
+| **OpenAI (via Azure Gov)** | San Francisco, CA, USA | Domestic / Azure Gov IL6 authorized | Proprietary | LOW |
 | **Mistral AI** | Paris, France | NATO ally; French MoD framework agreement (Jan 2026) | Apache 2.0 | LOW |
 | **TII (Technology Innovation Institute)** | Abu Dhabi, UAE | US cooperation partner; Dassault Aviation partnership | Apache 2.0 (Falcon License) | LOW-MEDIUM |
 | **Snowflake** | Bozeman, MT, USA | DoD IL5 authorized; ITAR compliant; FedRAMP Moderate | Apache 2.0 | LOW |
@@ -38,6 +39,8 @@ Before evaluating candidates, the following publishers/entities are **categorica
 | **Mixedbread AI** | Berlin, Germany | NATO ally | Apache 2.0 (v1 models only*) | LOW |
 
 *Note: Mixedbread mxbai-rerank-v2 and mxbai-embed-v2 are built on Qwen-2.5 architecture (Alibaba). Only v1 models (based on BERT architecture) are clear of Chinese supply chain concerns.
+
+**SDK Constraint:** openai Python SDK PINNED to v1.45.1. Never upgrade to 2.x (breaking API syntax changes).
 
 ---
 
@@ -100,13 +103,14 @@ Before evaluating candidates, the following publishers/entities are **categorica
 
 | Model | Publisher | Reason |
 |-------|-----------|--------|
-| Qwen 2.5/3 (any size) | Alibaba (China) | 1260H military-linked entity list candidate |
-| DeepSeek R1/V3 (any) | DeepSeek (China) | Federal ban proposed; CCP data exfiltration |
-| Llama 3.x (any) | Meta (USA) | License explicitly prohibits military use |
-| BGE-M3, bge-reranker | BAAI (China) | US Entity List since March 2025 |
+| **Llama 1/2/3.x (any size)** | **Meta (USA)** | **Meta Acceptable Use Policy explicitly prohibits weapons/military use** |
+| Qwen 2.5/3 (any size) | Alibaba (China) | 1260H military-linked entity list candidate; country-of-origin restriction |
+| DeepSeek R1/V3 (any) | DeepSeek (China) | Federal ban proposed; CCP data exfiltration; country-of-origin restriction |
+| BGE-M3, bge-reranker | BAAI (China) | US Entity List since March 2025; country-of-origin restriction |
 | Jina embeddings v3 | Jina AI (Germany) | CC BY-NC 4.0 -- non-commercial license |
 | mxbai-rerank-v2 | Mixedbread (Germany) | Built on Qwen-2.5 (Alibaba architecture) |
 | Stella/Jasper | Unknown | Built on Alibaba GTE architecture |
+| Any Chinese-origin model | Various | Blanket country-of-origin restriction per organizational policy |
 
 ---
 

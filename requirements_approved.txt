@@ -2,14 +2,15 @@
 # HybridRAG3 -- Approved Requirements
 # Generated: 2026-02-21
 # Pin policy: Exact versions from waiver cheat sheet v4b
-# openai pinned to store-approved 1.45.1 (upgrade waiver pending for 2.20.0)
+# openai PINNED to 1.45.1 -- never upgrade to 2.x (breaking API changes)
 # xxhash ELIMINATED -- replaced by built-in hashlib
 # LangChain BANNED -- dependency hell
 # China-origin models EXCLUDED (Qwen, DeepSeek, BGE-M3)
+# Meta Llama models BANNED (Meta AUP prohibits weapons/military use)
 # ============================================================================
 
 # -- Core AI / Model APIs --------------------------------------------------
-openai==1.45.1                 # MIT -- Store-approved version (2.20.0 upgrade pending)
+openai==1.45.1                 # MIT -- PINNED v1.x forever; never 2.x syntax
 tiktoken==0.8.0                # MIT -- OpenAI token counting (offline, no network)
 
 # -- Embeddings / NLP ------------------------------------------------------
