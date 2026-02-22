@@ -11,7 +11,7 @@
 #   - PyQt5/PySide6/wx/Dear PyGui are NOT in requirements.txt
 #
 # LAYOUT: Single window, four regions top to bottom:
-#   1. Title bar with mode toggle (OFFLINE / ONLINE)
+#   1. Title bar with mode toggle (OFFLINE / ONLINE) + theme toggle
 #   2. Query panel (use case, model, question, answer, sources, metrics)
 #   3. Index panel (folder picker, progress bar, start/stop)
 #   4. Status bar (LLM, Ollama, Gate indicators)
@@ -32,6 +32,10 @@ from src.gui.panels.query_panel import QueryPanel
 from src.gui.panels.index_panel import IndexPanel
 from src.gui.panels.status_bar import StatusBar
 from src.gui.panels.engineering_menu import EngineeringMenu
+from src.gui.theme import (
+    DARK, LIGHT, FONT, FONT_BOLD, FONT_TITLE,
+    current_theme, set_theme, apply_ttk_styles,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +63,11 @@ class HybridRAGApp(tk.Tk):
         self.indexer = indexer
         self.router = router
 
+        # Apply initial theme
+        self._theme = current_theme()
+        apply_ttk_styles(self._theme)
+        self.configure(bg=self._theme["bg"])
+
         # Build UI
         self._build_menu_bar()
         self._build_title_bar()
@@ -80,15 +89,25 @@ class HybridRAGApp(tk.Tk):
 
     def _build_menu_bar(self):
         """Build File | Engineering | Help menu bar."""
-        menubar = tk.Menu(self)
+        t = self._theme
+        menubar = tk.Menu(self, bg=t["menu_bg"], fg=t["menu_fg"],
+                          activebackground=t["accent"],
+                          activeforeground=t["accent_fg"],
+                          relief=tk.FLAT, font=FONT)
 
         # File menu
-        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu = tk.Menu(menubar, tearoff=0,
+                            bg=t["menu_bg"], fg=t["menu_fg"],
+                            activebackground=t["accent"],
+                            activeforeground=t["accent_fg"], font=FONT)
         file_menu.add_command(label="Exit", command=self._on_close)
         menubar.add_cascade(label="File", menu=file_menu)
 
         # Engineering menu
-        eng_menu = tk.Menu(menubar, tearoff=0)
+        eng_menu = tk.Menu(menubar, tearoff=0,
+                           bg=t["menu_bg"], fg=t["menu_fg"],
+                           activebackground=t["accent"],
+                           activeforeground=t["accent_fg"], font=FONT)
         eng_menu.add_command(
             label="Engineering Settings...",
             command=self._open_engineering_menu,
@@ -96,7 +115,10 @@ class HybridRAGApp(tk.Tk):
         menubar.add_cascade(label="Engineering", menu=eng_menu)
 
         # Help menu
-        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu = tk.Menu(menubar, tearoff=0,
+                            bg=t["menu_bg"], fg=t["menu_fg"],
+                            activebackground=t["accent"],
+                            activeforeground=t["accent_fg"], font=FONT)
         help_menu.add_command(label="About", command=self._show_about)
         menubar.add_cascade(label="Help", menu=help_menu)
 
@@ -104,50 +126,122 @@ class HybridRAGApp(tk.Tk):
         self.configure(menu=menubar)
 
     # ----------------------------------------------------------------
-    # TITLE BAR with mode toggle
+    # TITLE BAR with mode toggle + theme toggle
     # ----------------------------------------------------------------
 
     def _build_title_bar(self):
-        """Build title bar with OFFLINE/ONLINE toggle buttons."""
-        title_frame = tk.Frame(self, bg="#f0f0f0", padx=8, pady=6)
-        title_frame.pack(fill=tk.X)
+        """Build title bar with OFFLINE/ONLINE toggle and theme toggle."""
+        t = self._theme
+        self.title_frame = tk.Frame(self, bg=t["panel_bg"], padx=8, pady=6)
+        self.title_frame.pack(fill=tk.X)
 
-        tk.Label(
-            title_frame, text="HybridRAG v3", font=("TkDefaultFont", 14, "bold"),
-            bg="#f0f0f0",
-        ).pack(side=tk.LEFT)
+        self.title_label = tk.Label(
+            self.title_frame, text="HybridRAG v3", font=FONT_TITLE,
+            bg=t["panel_bg"], fg=t["fg"],
+        )
+        self.title_label.pack(side=tk.LEFT)
 
         # Mode label
-        tk.Label(
-            title_frame, text="Mode:", bg="#f0f0f0",
-        ).pack(side=tk.LEFT, padx=(20, 4))
+        self.mode_label = tk.Label(
+            self.title_frame, text="Mode:", bg=t["panel_bg"], fg=t["label_fg"],
+            font=FONT,
+        )
+        self.mode_label.pack(side=tk.LEFT, padx=(20, 4))
 
         # OFFLINE button
         self.offline_btn = tk.Button(
-            title_frame, text="OFFLINE", width=10,
+            self.title_frame, text="OFFLINE", width=10, font=FONT,
             command=lambda: self.toggle_mode("offline"),
+            relief=tk.FLAT, bd=0, padx=6, pady=2,
         )
         self.offline_btn.pack(side=tk.LEFT, padx=2)
 
         # ONLINE button
         self.online_btn = tk.Button(
-            title_frame, text="ONLINE", width=10,
+            self.title_frame, text="ONLINE", width=10, font=FONT,
             command=lambda: self.toggle_mode("online"),
+            relief=tk.FLAT, bd=0, padx=6, pady=2,
         )
         self.online_btn.pack(side=tk.LEFT, padx=2)
+
+        # -- Theme toggle (right side) --
+        self.theme_btn = tk.Button(
+            self.title_frame, text="Light", width=6, font=FONT,
+            command=self._toggle_theme,
+            relief=tk.FLAT, bd=0, padx=6, pady=2,
+            bg=t["input_bg"], fg=t["fg"],
+        )
+        self.theme_btn.pack(side=tk.RIGHT, padx=4)
+
+        self.theme_icon_label = tk.Label(
+            self.title_frame, text="Theme:", bg=t["panel_bg"],
+            fg=t["label_fg"], font=FONT,
+        )
+        self.theme_icon_label.pack(side=tk.RIGHT)
 
         # Set initial button colors
         self._update_mode_buttons()
 
     def _update_mode_buttons(self):
         """Update mode button colors to reflect current state."""
+        t = self._theme
         mode = getattr(self.config, "mode", "offline") if self.config else "offline"
         if mode == "online":
-            self.online_btn.config(bg="green", fg="white", relief=tk.SUNKEN)
-            self.offline_btn.config(bg="SystemButtonFace", fg="black", relief=tk.RAISED)
+            self.online_btn.config(bg=t["active_btn_bg"], fg=t["active_btn_fg"],
+                                   relief=tk.FLAT)
+            self.offline_btn.config(bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"],
+                                    relief=tk.FLAT)
         else:
-            self.offline_btn.config(bg="green", fg="white", relief=tk.SUNKEN)
-            self.online_btn.config(bg="SystemButtonFace", fg="black", relief=tk.RAISED)
+            self.offline_btn.config(bg=t["active_btn_bg"], fg=t["active_btn_fg"],
+                                    relief=tk.FLAT)
+            self.online_btn.config(bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"],
+                                   relief=tk.FLAT)
+
+    # ----------------------------------------------------------------
+    # THEME TOGGLE
+    # ----------------------------------------------------------------
+
+    def _toggle_theme(self):
+        """Switch between dark and light themes and rebuild the UI."""
+        if self._theme["name"] == "dark":
+            new_theme = LIGHT
+        else:
+            new_theme = DARK
+
+        set_theme(new_theme)
+        self._theme = new_theme
+        apply_ttk_styles(new_theme)
+        self._apply_theme_to_all()
+
+    def _apply_theme_to_all(self):
+        """Re-apply theme colors to all widgets without rebuilding."""
+        t = self._theme
+        self.configure(bg=t["bg"])
+
+        # Title bar
+        self.title_frame.configure(bg=t["panel_bg"])
+        self.title_label.configure(bg=t["panel_bg"], fg=t["fg"])
+        self.mode_label.configure(bg=t["panel_bg"], fg=t["label_fg"])
+        self.theme_icon_label.configure(bg=t["panel_bg"], fg=t["label_fg"])
+
+        # Theme button label
+        if t["name"] == "dark":
+            self.theme_btn.configure(text="Light", bg=t["input_bg"], fg=t["fg"])
+        else:
+            self.theme_btn.configure(text="Dark", bg=t["input_bg"], fg=t["fg"])
+
+        self._update_mode_buttons()
+
+        # Rebuild menus
+        self._build_menu_bar()
+
+        # Propagate to panels
+        if hasattr(self, "query_panel"):
+            self.query_panel.apply_theme(t)
+        if hasattr(self, "index_panel"):
+            self.index_panel.apply_theme(t)
+        if hasattr(self, "status_bar"):
+            self.status_bar.apply_theme(t)
 
     # ----------------------------------------------------------------
     # PANELS

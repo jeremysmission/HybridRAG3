@@ -11,6 +11,8 @@ import tkinter as tk
 import threading
 import logging
 
+from src.gui.theme import current_theme, FONT
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,46 +26,66 @@ class StatusBar(tk.Frame):
     REFRESH_MS = 5000  # 5 seconds
 
     def __init__(self, parent, config, router=None):
-        super().__init__(parent, relief=tk.SUNKEN, bd=1)
+        t = current_theme()
+        super().__init__(parent, relief=tk.FLAT, bd=1,
+                         bg=t["panel_bg"])
         self.config = config
         self.router = router
         self._stop_event = threading.Event()
 
+        self._build_widgets(t)
+
+        # -- Start periodic refresh --
+        self._schedule_refresh()
+
+    def _build_widgets(self, t):
+        """Build all child widgets with theme colors."""
         # -- LLM indicator --
         self.llm_label = tk.Label(
             self, text="LLM: Not configured", anchor=tk.W,
-            padx=8, pady=2,
+            padx=8, pady=2, bg=t["panel_bg"], fg=t["fg"], font=FONT,
         )
         self.llm_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # -- Separator --
-        sep1 = tk.Frame(self, width=1, bg="gray")
-        sep1.pack(side=tk.LEFT, fill=tk.Y, padx=4, pady=2)
+        self.sep1 = tk.Frame(self, width=1, bg=t["separator"])
+        self.sep1.pack(side=tk.LEFT, fill=tk.Y, padx=4, pady=2)
 
         # -- Ollama indicator --
         self.ollama_label = tk.Label(
             self, text="Ollama: Unknown", anchor=tk.W,
-            padx=8, pady=2,
+            padx=8, pady=2, bg=t["panel_bg"], fg=t["fg"], font=FONT,
         )
         self.ollama_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # -- Separator --
-        sep2 = tk.Frame(self, width=1, bg="gray")
-        sep2.pack(side=tk.LEFT, fill=tk.Y, padx=4, pady=2)
+        self.sep2 = tk.Frame(self, width=1, bg=t["separator"])
+        self.sep2.pack(side=tk.LEFT, fill=tk.Y, padx=4, pady=2)
 
         # -- Gate indicator (clickable) --
-        self.gate_dot = tk.Label(self, text=" ", width=2, padx=2)
+        self.gate_dot = tk.Label(self, text=" ", width=2, padx=2,
+                                 bg=t["panel_bg"])
         self.gate_dot.pack(side=tk.LEFT, padx=(8, 2))
 
         self.gate_label = tk.Label(
             self, text="Gate: OFFLINE", anchor=tk.W,
             padx=2, pady=2, cursor="hand2",
+            bg=t["panel_bg"], fg=t["gray"], font=FONT,
         )
         self.gate_label.pack(side=tk.LEFT, padx=(0, 8))
         self.gate_label.bind("<Button-1>", self._on_gate_click)
 
-        # -- Start periodic refresh --
-        self._schedule_refresh()
+    def apply_theme(self, t):
+        """Re-apply theme colors to all widgets."""
+        self.configure(bg=t["panel_bg"])
+        self.llm_label.configure(bg=t["panel_bg"])
+        self.ollama_label.configure(bg=t["panel_bg"])
+        self.gate_label.configure(bg=t["panel_bg"])
+        self.gate_dot.configure(bg=t["panel_bg"])
+        self.sep1.configure(bg=t["separator"])
+        self.sep2.configure(bg=t["separator"])
+        # Refresh status to set correct colors
+        self._refresh_status()
 
     def _schedule_refresh(self):
         """Schedule next status refresh."""
@@ -84,11 +106,12 @@ class StatusBar(tk.Frame):
 
     def _update_from_router(self):
         """Update LLM and Ollama indicators from router status."""
+        t = current_theme()
         try:
             status = self.router.get_status()
         except Exception:
-            self.llm_label.config(text="LLM: Error reading status")
-            self.ollama_label.config(text="Ollama: Unknown")
+            self.llm_label.config(text="LLM: Error reading status", fg=t["fg"])
+            self.ollama_label.config(text="Ollama: Unknown", fg=t["fg"])
             return
 
         # LLM
@@ -98,45 +121,50 @@ class StatusBar(tk.Frame):
             deployment = status.get("api_deployment", "")
             if deployment:
                 self.llm_label.config(
-                    text="LLM: {} ({})".format(deployment, provider)
+                    text="LLM: {} ({})".format(deployment, provider),
+                    fg=t["fg"],
                 )
             else:
                 self.llm_label.config(
                     text="LLM: {} ({})".format(
                         status.get("api_endpoint", "configured")[:30],
                         provider,
-                    )
+                    ),
+                    fg=t["fg"],
                 )
         elif mode == "offline":
             model = getattr(self.config, "ollama", None)
             model_name = getattr(model, "model", "phi4-mini") if model else "phi4-mini"
             self.llm_label.config(
-                text="LLM: {} (Ollama)".format(model_name)
+                text="LLM: {} (Ollama)".format(model_name),
+                fg=t["fg"],
             )
         else:
-            self.llm_label.config(text="LLM: Not configured")
+            self.llm_label.config(text="LLM: Not configured", fg=t["fg"])
 
         # Ollama
         ollama_up = status.get("ollama_available", False)
         if ollama_up:
-            self.ollama_label.config(text="Ollama: Ready", fg="green")
+            self.ollama_label.config(text="Ollama: Ready", fg=t["green"])
         else:
-            self.ollama_label.config(text="Ollama: Offline", fg="gray")
+            self.ollama_label.config(text="Ollama: Offline", fg=t["gray"])
 
     def _update_no_router(self):
         """Display when no router is available."""
-        self.llm_label.config(text="LLM: Not initialized")
-        self.ollama_label.config(text="Ollama: Unknown", fg="gray")
+        t = current_theme()
+        self.llm_label.config(text="LLM: Not initialized", fg=t["fg"])
+        self.ollama_label.config(text="Ollama: Unknown", fg=t["gray"])
 
     def _update_gate_display(self):
         """Update gate indicator from config mode."""
+        t = current_theme()
         mode = getattr(self.config, "mode", "offline")
         if mode == "online":
-            self.gate_label.config(text="Gate: ONLINE", fg="green")
-            self.gate_dot.config(bg="green")
+            self.gate_label.config(text="Gate: ONLINE", fg=t["green"])
+            self.gate_dot.config(bg=t["green"])
         else:
-            self.gate_label.config(text="Gate: OFFLINE", fg="gray")
-            self.gate_dot.config(bg="gray")
+            self.gate_label.config(text="Gate: OFFLINE", fg=t["gray"])
+            self.gate_dot.config(bg=t["gray"])
 
     def _on_gate_click(self, event=None):
         """Toggle gate mode when clicked. Delegates to parent app."""
