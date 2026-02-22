@@ -97,6 +97,13 @@ if (Test-MachineRestricted) {
     Write-Host '[OK]  Unrestricted machine -- dot-source active' -ForegroundColor Green
 }
 
+# ---- ENCODING FIX (prevents garbled parentheses and special characters) ------
+# Windows PowerShell defaults to the system locale code page (e.g., 437 or 1252).
+# Python prints UTF-8 by default. Without this fix, parentheses, accents, and
+# other characters in Python output get mangled in the PS console.
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::InputEncoding  = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 
 # ============================================================================
 # HybridRAG v3 - Start Script (Windows / PowerShell)
@@ -265,7 +272,7 @@ function rag-index {
 
 function rag-query {
     param([Parameter(Mandatory=$true)][string]$q)
-    python .\tests\cli_test_phase1.py --query $q
+    python .\tests\cli_test_phase1.py --query "$q"
 }
 
 function rag-diag {
@@ -317,29 +324,16 @@ function rag-server {
     python -m src.api.server --host $Host --port $Port
 }
 
-# ---- 11) DONE --------------------------------------------------------------
-Write-Host ""
-Write-Host "Ready. Commands available:" -ForegroundColor Green
-Write-Host "  rag-paths              Show configured paths + network status"
-Write-Host "  rag-index              Start indexing"
-Write-Host '  rag-query "question"   Query the index'
-Write-Host "  rag-diag               Run diagnostics (add --verbose, --test-embed)"
-Write-Host "  rag-status             Quick health check"
-Write-Host ""
-Write-Host "TIP: If commands don't work, make sure you ran:" -ForegroundColor Yellow
-Write-Host '  . .\start_hybridrag.ps1    (with the dot-space at the start)' -ForegroundColor Yellow
-Write-Host ""
-
-# ---- 12) LOAD API MODE COMMANDS --------------------------------------------
+# ---- 11) LOAD API MODE COMMANDS --------------------------------------------
 # Uses Invoke-Script -- works on both home PC and restricted work laptop.
 $apiCmdsPath = "$PROJECT_ROOT\tools\api_mode_commands.ps1"
 if (Test-Path $apiCmdsPath) {
     Invoke-Script $apiCmdsPath
 } else {
-    Write-Host "NOTE: tools\api_mode_commands.ps1 not found -- API commands not loaded." -ForegroundColor Yellow
+    Write-Host "[WARN] tools\api_mode_commands.ps1 not found -- API commands not loaded." -ForegroundColor Yellow
 }
 
-# ---- 13) SHOW CURRENT MODE -------------------------------------------------
+# ---- 12) SHOW CURRENT MODE -------------------------------------------------
 Write-Host ""
 Write-Host "Current mode:" -ForegroundColor Cyan
 python -c "
@@ -354,4 +348,37 @@ try:
 except Exception as e:
     print(f'  Could not read config: {e}')
 "
+
+# ---- 13) COMMAND REFERENCE BANNER -------------------------------------------
+Write-Host ""
+Write-Host "============================================================" -ForegroundColor Cyan
+Write-Host "  HYBRIDRAG v3 -- COMMAND REFERENCE" -ForegroundColor Cyan
+Write-Host "============================================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  DAILY USE" -ForegroundColor Yellow
+Write-Host '    rag-query "question"     Ask a question'
+Write-Host "    rag-index                Index documents"
+Write-Host "    rag-status               Quick health check"
+Write-Host "    rag-diag                 Run diagnostics (--verbose, --test-embed)"
+Write-Host ""
+Write-Host "  MODE / MODEL" -ForegroundColor Yellow
+Write-Host "    rag-set-model            Model selection wizard"
+Write-Host "    rag-mode-online          Switch to cloud API"
+Write-Host "    rag-mode-offline         Switch to local AI (Ollama)"
+Write-Host "    rag-models               Show available models"
+Write-Host ""
+Write-Host "  CREDENTIALS" -ForegroundColor Yellow
+Write-Host "    rag-store-key            Store API key (encrypted)"
+Write-Host "    rag-store-endpoint       Store API endpoint URL"
+Write-Host "    rag-cred-status          Check credential status"
+Write-Host "    rag-cred-delete          Remove stored credentials"
+Write-Host ""
+Write-Host "  TOOLS" -ForegroundColor Yellow
+Write-Host "    rag-profile              View/switch hardware profile"
+Write-Host "    rag-server               Start REST API server (localhost:8000)"
+Write-Host "    rag-paths                Show configured paths"
+Write-Host "    rag-test-api             Test API connectivity"
+Write-Host ""
+Write-Host "  TIP: Double-click start_rag.bat to bypass execution policy" -ForegroundColor Green
+Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host ""
