@@ -13,37 +13,41 @@ hallucination guard, and a centralized network gate enforcing zero-trust
 outbound access control.
 
 ```
-          INDEXING PIPELINE              QUERY PIPELINE
+     INDEXING PIPELINE                    QUERY PIPELINE
 
-     Source files (.pdf, .docx, ...)     User question
-                |                              |
-                v                              v
-        +---------------+              +---------------+
-        | Parser        |              | Embedder      |
-        | Registry      |              | (same model)  |
-        | (24+ ext)     |              +---------------+
-        +---------------+                      |
-                |                              v
-                v                      +---------------+
-        +---------------+              | Retriever     |
-        | Chunker       |              | Hybrid search |
-        | (1200c, 200   |              | RRF k=60      |
-        |  overlap)     |              +---------------+
-        +---------------+                      |
-                |                              v
-                v                      +---------------+
-        +---------------+              | Query Engine  |
-        | Embedder      |              | 9-rule prompt |
-        | MiniLM-L6-v2  |              | + LLM call    |
-        | (384-dim)     |              +---------------+
-        +---------------+                      |
-                |                              v
-                v                      +---------------+
-        +---------------+              | Hallucination |
-        | VectorStore   |<--- read --- | Guard         |
-        | SQLite + FTS5 |              | (5-layer,     |
-        | Memmap f16    |              |  online only) |
-        +---------------+              +---------------+
+     Source files                         User question
+     (.pdf, .docx, ...)                        |
+            |                                  v
+            v                           +----------------+
+     +----------------+                 |   Embedder     |
+     | Parser         |                 |  (same model)  |
+     | Registry       |                 +----------------+
+     | (24+ ext)      |                        |
+     +----------------+                        v
+            |                           +----------------+
+            v                           |   Retriever    |
+     +----------------+                 |  Hybrid search |
+     | Chunker        |                 |  RRF k=60      |
+     | (1200c, 200    |                 +----------------+
+     |  overlap)      |                        |
+     +----------------+                        v
+            |                           +----------------+
+            v                           |  Query Engine  |
+     +----------------+                 |  9-rule prompt |
+     | Embedder       |                 |  + LLM call    |
+     | MiniLM-L6-v2   |                 +----------------+
+     | (384-dim)      |                        |
+     +----------------+                        v
+            |                           +----------------+
+            v                           | Hallucination  |
+     +----------------+                 | Guard          |
+     | VectorStore    |                 | (5-layer,      |
+     | SQLite + FTS5  |                 |  online only)  |
+     | Memmap f16     |                 +----------------+
+     +----------------+
+            ^                                  |
+            |                                  |
+            +--- Retriever reads from here ----+
 ```
 
 **Design priorities**: Offline operation, crash safety, low RAM usage,
