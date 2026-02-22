@@ -399,8 +399,8 @@ Offline mode always works even without API configuration.
 - **Index Panel**: Folder picker, Start/Stop, progress bar, status
 - **Status Bar**: Live 5-second refresh -- Ollama status, LLM model,
   Network Gate mode (color-coded green/red)
-- **Engineering Menu**: Retrieval sliders (top_k, min_score, rrf_k),
-  LLM tuning (temperature, timeout), profile switching
+- **Admin Menu**: Retrieval sliders (top_k, min_score, rrf_k),
+  LLM tuning (temperature, timeout), profile switching, model ranking
 
 **Threading safety**: All background work uses `queue.Queue` for
 thread-to-GUI communication. `threading.Event` for cancellation.

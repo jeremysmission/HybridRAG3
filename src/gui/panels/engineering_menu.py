@@ -1,7 +1,7 @@
 # ============================================================================
-# HybridRAG v3 -- Engineering Menu (src/gui/panels/engineering_menu.py)
+# HybridRAG v3 -- Admin Menu (src/gui/panels/engineering_menu.py)
 # ============================================================================
-# Separate child window for tuning retrieval, LLM, and profile settings.
+# Separate child window for tuning retrieval, LLM, profile, and model settings.
 # Changes take effect immediately and are written to config.
 #
 # INTERNET ACCESS: Test query may use API if in online mode.
@@ -23,15 +23,15 @@ logger = logging.getLogger(__name__)
 
 class EngineeringMenu(tk.Toplevel):
     """
-    Engineering settings window with sliders for retrieval and LLM tuning,
-    profile switching, and a test query runner.
+    Admin settings window with sliders for retrieval and LLM tuning,
+    profile/model ranking, and a test query runner.
     """
 
     def __init__(self, parent, config, query_engine=None):
         super().__init__(parent)
         t = current_theme()
-        self.title("Engineering Settings")
-        self.geometry("520x680")
+        self.title("Admin Settings")
+        self.geometry("620x780")
         self.resizable(True, True)
         self.config = config
         self.query_engine = query_engine
@@ -223,13 +223,14 @@ class EngineeringMenu(tk.Toplevel):
     # ----------------------------------------------------------------
 
     def _build_profile_section(self):
-        """Build performance profile section."""
+        """Build performance profile section with ranked model table."""
         t = current_theme()
-        frame = tk.LabelFrame(self, text="Performance Profile", padx=8, pady=4,
+        frame = tk.LabelFrame(self, text="Profile & Model Ranking", padx=8, pady=4,
                                bg=t["panel_bg"], fg=t["accent"],
                                font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=8, pady=4)
 
+        # Profile selector row
         row = tk.Frame(frame, bg=t["panel_bg"])
         row.pack(fill=tk.X, pady=2)
 
@@ -243,7 +244,15 @@ class EngineeringMenu(tk.Toplevel):
             state="readonly", width=20, font=FONT,
         )
         self.profile_dropdown.pack(side=tk.LEFT, padx=(8, 0))
-        self.profile_dropdown.bind("<<ComboboxSelected>>", self._on_profile_change)
+
+        self.profile_apply_btn = tk.Button(
+            row, text="Apply", command=self._on_profile_change, width=8,
+            bg=t["accent"], fg=t["accent_fg"], font=FONT,
+            relief=tk.FLAT, bd=0, padx=6, pady=2,
+            activebackground=t["accent_hover"],
+            activeforeground=t["accent_fg"],
+        )
+        self.profile_apply_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         self.profile_status_label = tk.Label(
             frame, text="", anchor=tk.W, fg=t["gray"],
@@ -251,35 +260,79 @@ class EngineeringMenu(tk.Toplevel):
         )
         self.profile_status_label.pack(fill=tk.X, pady=2)
 
-        # Load current profile status
-        self._load_profile_status()
+        # Ranked model table (read-only text widget)
+        self.model_table = tk.Text(
+            frame, height=12, wrap=tk.NONE, state=tk.DISABLED,
+            font=("Consolas", 9), bg=t["input_bg"], fg=t["input_fg"],
+            relief=tk.FLAT, bd=2,
+        )
+        self.model_table.pack(fill=tk.X, pady=(4, 2))
 
-    def _load_profile_status(self):
-        """Read current profile from _profile_status.py."""
+        # Load current profile and show ranking
+        self._detect_current_profile()
+        self._refresh_model_table()
+
+    def _detect_current_profile(self):
+        """Infer current profile from config."""
         try:
-            root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
-            result = subprocess.run(
-                [sys.executable, os.path.join(root, "scripts", "_profile_status.py")],
-                capture_output=True, text=True, timeout=5,
-                cwd=root,
+            ollama = getattr(self.config, "ollama", None)
+            current_llm = getattr(ollama, "model", "") if ollama else ""
+            embedding = getattr(self.config, "embedding", None)
+            device = getattr(embedding, "device", "cpu") if embedding else "cpu"
+
+            if current_llm == "phi4:14b-q4_K_M" and device == "cuda":
+                self.profile_var.set("server_max")
+            elif current_llm == "mistral-nemo:12b" and device == "cuda":
+                self.profile_var.set("desktop_power")
+            else:
+                self.profile_var.set("laptop_safe")
+        except Exception:
+            self.profile_var.set("laptop_safe")
+
+    def _refresh_model_table(self):
+        """Populate the ranked model table for the current profile."""
+        profile = self.profile_var.get()
+        try:
+            from scripts._model_meta import (
+                get_profile_ranking_table, USE_CASES, use_case_score,
+                WORK_ONLY_MODELS,
             )
-            if result.returncode == 0:
-                output = result.stdout.strip()
-                self.profile_status_label.config(text=output[:80])
-                # Infer current profile from output
-                if "laptop_safe" in output:
-                    self.profile_var.set("laptop_safe")
-                elif "desktop_power" in output:
-                    self.profile_var.set("desktop_power")
-                elif "server_max" in output:
-                    self.profile_var.set("server_max")
+
+            table = get_profile_ranking_table(profile)
+            lines = []
+            lines.append(
+                "  {:<22s} {:<22s} {}".format(
+                    "Use Case", "#1 (default)", "#2 (fallback)")
+            )
+            lines.append(
+                "  {:<22s} {:<22s} {}".format("-" * 22, "-" * 22, "-" * 22)
+            )
+
+            display_order = [
+                "sw", "eng", "sys", "draft", "log", "pm", "fe", "cyber", "gen",
+            ]
+            for uc_key in display_order:
+                if uc_key not in table:
+                    continue
+                ranked = table[uc_key]
+                label = USE_CASES[uc_key]["label"]
+                col1 = ranked[0]["model"] if len(ranked) > 0 else "---"
+                col2 = ranked[1]["model"] if len(ranked) > 1 else "---"
+                lines.append(
+                    "  {:<22s} {:<22s} {}".format(label, col1, col2)
+                )
+
+            text = "\n".join(lines)
         except Exception as e:
-            self.profile_status_label.config(
-                text="[WARN] Could not read profile: {}".format(e),
-            )
+            text = "  [WARN] Could not load rankings: {}".format(e)
+
+        self.model_table.config(state=tk.NORMAL)
+        self.model_table.delete("1.0", tk.END)
+        self.model_table.insert("1.0", text)
+        self.model_table.config(state=tk.DISABLED)
 
     def _on_profile_change(self, event=None):
-        """Call _profile_switch.py when profile changes."""
+        """Apply profile switch and refresh model table."""
         t = current_theme()
         profile = self.profile_var.get()
         root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
@@ -293,6 +346,7 @@ class EngineeringMenu(tk.Toplevel):
                 self.profile_status_label.config(
                     text="[OK] Switched to {}".format(profile), fg=t["green"],
                 )
+                self._refresh_model_table()
             else:
                 self.profile_status_label.config(
                     text="[FAIL] {}".format(result.stderr.strip()[:60]),
