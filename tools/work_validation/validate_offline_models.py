@@ -34,25 +34,37 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 
 WORK_MODELS = {
-    "phi4-mini":           {"size_gb": 2.3, "note": "Primary for sw/eng/sys/draft/fe/cyber (MIT, Microsoft/USA)"},
-    "mistral:7b":          {"size_gb": 4.1, "note": "Primary for pm/gen, alt for eng profiles (Apache 2.0, Mistral/France)"},
-    "phi4:14b-q4_K_M":    {"size_gb": 9.1, "note": "Primary for log, alt for draft (MIT, Microsoft/USA, workstation only)"},
+    "phi4-mini":           {"size_gb": 2.3, "note": "Primary for 7/9 profiles (MIT, Microsoft/USA)"},
+    "mistral:7b":          {"size_gb": 4.1, "note": "Alt for eng/sys/fe/cyber (Apache 2.0, Mistral/France)"},
+    "phi4:14b-q4_K_M":    {"size_gb": 9.1, "note": "Logistics primary, CAD alt (MIT, Microsoft/USA)"},
+    "gemma3:4b":           {"size_gb": 3.3, "note": "PM fast summarization (Apache 2.0, Google/USA)"},
+    "mistral-nemo:12b":    {"size_gb": 7.1, "note": "Upgrade for sw/eng/sys/cyber/gen (Apache 2.0, Mistral+NVIDIA, 128K ctx)"},
 }
 
 PROFILES = {
+    "sw": {
+        "label": "Software Engineering",
+        "primary": "phi4-mini",
+        "alt": "mistral:7b",
+        "upgrade": "mistral-nemo:12b",
+        "temperature": 0.1,
+        "test_query": "Explain the difference between a stack and a heap in memory management.",
+        "expected_keywords": ["stack", "heap", "memory", "allocat"],
+    },
     "eng": {
         "label": "Engineer",
         "primary": "phi4-mini",
         "alt": "mistral:7b",
         "secondary_test": "phi4:14b-q4_K_M",
+        "upgrade": "mistral-nemo:12b",
         "temperature": 0.1,
         "test_query": "What is the operating frequency of a standard GPS L1 signal?",
         "expected_keywords": ["1575", "mhz", "l1", "gps"],
     },
     "pm": {
         "label": "Program Manager",
-        "primary": "mistral:7b",
-        "alt": "phi4-mini",
+        "primary": "phi4-mini",
+        "alt": "gemma3:4b",
         "temperature": 0.25,
         "test_query": "Summarize the key risks in a project that is 3 weeks behind schedule.",
         "expected_keywords": ["risk", "schedule", "delay", "resource"],
@@ -77,6 +89,7 @@ PROFILES = {
         "label": "SysAdmin",
         "primary": "phi4-mini",
         "alt": "mistral:7b",
+        "upgrade": "mistral-nemo:12b",
         "temperature": 0.1,
         "test_query": "How do you check which ports are listening on a Windows server?",
         "expected_keywords": ["netstat", "port", "listen", "tcp"],
@@ -93,9 +106,19 @@ PROFILES = {
         "label": "Cybersecurity Analyst",
         "primary": "phi4-mini",
         "alt": "mistral:7b",
+        "upgrade": "mistral-nemo:12b",
         "temperature": 0.1,
         "test_query": "What are the key steps in responding to a suspected ransomware incident?",
         "expected_keywords": ["isolate", "contain", "backup", "incident"],
+    },
+    "gen": {
+        "label": "General AI",
+        "primary": "mistral:7b",
+        "alt": "phi4-mini",
+        "upgrade": "mistral-nemo:12b",
+        "temperature": 0.3,
+        "test_query": "What are the main causes of inflation in a modern economy?",
+        "expected_keywords": ["demand", "supply", "money", "price"],
     },
 }
 
@@ -280,6 +303,8 @@ def run_validation(log: Logger) -> int:
         ]
         if profile.get("secondary_test"):
             models_to_test.append(("secondary", profile["secondary_test"]))
+        if profile.get("upgrade"):
+            models_to_test.append(("upgrade", profile["upgrade"]))
 
         for role, model_tag in models_to_test:
             if not model_tag:

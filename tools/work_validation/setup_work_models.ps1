@@ -87,11 +87,13 @@ foreach ($pkg in $pipPackages) {
 
 Write-Status 'INFO' 'Pulling WORK_ONLY Ollama models...'
 
-# Models verified against Ollama library 2026-02-20
+# Models verified against Ollama library 2026-02-21
 $models = @(
     @{ Tag = 'phi4-mini';                   Size = '2.3 GB';  Note = 'Primary for 7/9 profiles (MIT, Microsoft/USA)' },
-    @{ Tag = 'mistral:7b';                  Size = '4.1 GB';  Note = 'Primary for pm/gen, alt for others (Apache 2.0, Mistral/France)' },
-    @{ Tag = 'phi4:14b-q4_K_M';            Size = '9.1 GB';  Note = 'Logistics primary, CAD alt (MIT, Microsoft/USA, workstation only)' }
+    @{ Tag = 'mistral:7b';                  Size = '4.1 GB';  Note = 'Alt for eng/sys/fe/cyber (Apache 2.0, Mistral/France)' },
+    @{ Tag = 'phi4:14b-q4_K_M';            Size = '9.1 GB';  Note = 'Logistics primary, CAD alt (MIT, Microsoft/USA)' },
+    @{ Tag = 'gemma3:4b';                   Size = '3.3 GB';  Note = 'PM fast summarization (Apache 2.0, Google/USA)' },
+    @{ Tag = 'mistral-nemo:12b';            Size = '7.1 GB';  Note = 'Upgrade for sw/eng/sys/cyber/gen (Apache 2.0, Mistral+NVIDIA, 128K ctx)' }
 )
 
 $totalSize = 0
@@ -141,7 +143,7 @@ Write-Host '  ============================================'
 Write-Host '  Setup Complete'
 Write-Host '  ============================================'
 Write-Host "  Models pulled: $successCount / $($models.Count)"
-Write-Host '  Estimated disk usage: ~23 GB for all models'
+Write-Host '  Estimated disk usage: ~26 GB for all 5 models'
 Write-Host ''
 Write-Host '  Next steps:'
 Write-Host '    1. Run validate_offline_models.py to test each model'

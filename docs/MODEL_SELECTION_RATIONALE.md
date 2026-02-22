@@ -167,35 +167,40 @@ This is a qualitative decision, not a hardware limit.
 
 ## 4. Summary Matrix
 
-| Profile       | UC Key | Primary Ollama     | Alt Ollama       | Secondary Test  | Cloud API       | Temp | top_k | ctx   |
-|---------------|--------|--------------------|------------------|-----------------|-----------------|------|-------|-------|
-| Engineer      | eng    | phi4-mini          | mistral:7b       | phi4:14b-q4_K_M | Claude Sonnet   | 0.10 | 8     | 16384 |
-| PM            | pm     | phi4-mini          | gemma3:4b        | --              | gpt-4o-mini     | 0.25 | 5     | 8192  |
-| Logistics     | log    | phi4:14b-q4_K_M    | phi4-mini        | --              | gpt-4o          | 0.00 | 10    | 8192  |
-| CAD/Drafting  | draft  | phi4-mini          | phi4:14b-q4_K_M  | --              | Claude Sonnet   | 0.05 | 8     | 16384 |
-| SysAdmin      | sys    | phi4-mini          | mistral:7b       | --              | Claude Sonnet   | 0.10 | 8     | 16384 |
+| Profile       | UC Key | Primary Ollama     | Alt Ollama            | Secondary Test  | Cloud API       | Temp | top_k | ctx   |
+|---------------|--------|--------------------|-----------------------|-----------------|-----------------|------|-------|-------|
+| Software      | sw     | phi4-mini          | mistral-nemo:12b      | --              | Claude Sonnet   | 0.10 | 8     | 16384 |
+| Engineer      | eng    | phi4-mini          | mistral:7b            | mistral-nemo:12b| Claude Sonnet   | 0.10 | 8     | 16384 |
+| PM            | pm     | phi4-mini          | gemma3:4b             | --              | gpt-4o-mini     | 0.25 | 5     | 8192  |
+| Logistics     | log    | phi4:14b-q4_K_M    | phi4-mini             | --              | gpt-4o          | 0.00 | 10    | 8192  |
+| CAD/Drafting  | draft  | phi4-mini          | phi4:14b-q4_K_M       | --              | Claude Sonnet   | 0.05 | 8     | 16384 |
+| SysAdmin      | sys    | phi4-mini          | mistral:7b            | mistral-nemo:12b| Claude Sonnet   | 0.10 | 8     | 16384 |
+| Front End     | fe     | phi4-mini          | mistral:7b            | --              | Claude Sonnet   | 0.10 | 8     | 16384 |
+| Cyber         | cyber  | phi4-mini          | mistral:7b            | mistral-nemo:12b| Claude Sonnet   | 0.10 | 8     | 16384 |
+| General       | gen    | phi4-mini          | mistral-nemo:12b      | --              | Claude Sonnet   | 0.10 | 8     | 16384 |
 
 ---
 
 ## 5. Ollama Download Commands
 
 ```bash
-# Primary (covers 4/5 profiles)
+# Primary (covers 7/9 profiles)
 ollama pull phi4-mini
 
 # Profile-specific alternatives
-ollama pull mistral:7b              # Engineer/SysAdmin reasoning
-ollama pull phi4:14b-q4_K_M         # Logistics/CAD precision
+ollama pull mistral:7b              # Engineer/SysAdmin/FE/Cyber reasoning
+ollama pull phi4:14b-q4_K_M         # Logistics primary, CAD alt
 ollama pull gemma3:4b               # PM fast summarization
+ollama pull mistral-nemo:12b        # Upgrade for sw/eng/sys/cyber/gen (128K ctx)
 ```
 
-Estimated total disk: ~15 GB for all four models.
+Estimated total disk: ~26 GB for all five models.
 
 ---
 
 ## 6. WORK_ONLY Flag
 
-All five profiles above are marked WORK_ONLY in the model registry. This means:
+All nine profiles above are marked WORK_ONLY in the model registry. This means:
 
 - The model is vetted for use with company/work documents
 - Offline models run locally (no data leaves the machine)
@@ -211,16 +216,14 @@ use cases.
 
 ## 7. PERSONAL_FUTURE Models (Aspirational Hardware)
 
-Models recognized in the registry but not auto-selected on current 12 GB
-VRAM hardware. These become available with GPU upgrades:
+Models recognized in the registry but not yet part of the approved
+WORK_ONLY stack. These become practical with GPU upgrades:
 
 ### Tier 1: 24 GB VRAM (RTX 4090, A5000, RTX 5000 Ada)
 
 | Model Tag            | Download | VRAM   | Replaces          | Benefit |
 |----------------------|----------|--------|--------------------|---------|
 | `mistral-small3.1:24b` | ~16 GB | ~20 GB | `phi4-mini`       | Direct upgrade for all profiles using Phi-4 Mini |
-| `mistral:32b`        | ~20 GB   | ~24 GB | `mistral:7b`      | Stronger chain-of-thought reasoning |
-| `gemma3:27b`         | ~17 GB   | ~24 GB | `gemma3:4b`        | 27B multimodal, strong summarization |
 
 ### Tier 2: 48 GB VRAM (Dual GPU, A6000, RTX A6000)
 
@@ -229,11 +232,12 @@ VRAM hardware. These become available with GPU upgrades:
 | `mistral-large:70b`  | ~43 GB   | ~48 GB | `mistral:7b`      | Near-frontier reasoning |
 | `mistral-large:123b`  | ~43 GB   | ~48 GB | `mistral:7b`      | Mistral Large, 128K ctx, broad knowledge |
 
-**Note**: The Mistral family provides a range of sizes from 7B to 123B.
-Use `mistral-small3.1:24b` as the stepping stone above the 7B class.
+**Note**: `mistral-nemo:12b` and `phi4:14b-q4_K_M` were previously listed
+here but are now part of the approved 5-model WORK_ONLY stack. Use
+`mistral-small3.1:24b` as the next stepping stone above the current stack.
 
-All Ollama pull tags verified against live library (2026-02-20, re-verified
-2026-02-20). Every tag in WORK_ONLY and PERSONAL_FUTURE confirmed valid.
+All Ollama pull tags verified against live library (2026-02-21, re-verified
+2026-02-21). Every tag in WORK_ONLY and PERSONAL_FUTURE confirmed valid.
 
 ---
 
@@ -258,6 +262,7 @@ cost is significant and the current model works well enough.
 - Phi-4 Model Card: https://ollama.com/library/phi4
 - Mistral Model Card: https://ollama.com/library/mistral
 - Gemma3 Model Card: https://ollama.com/library/gemma3
+- Mistral-Nemo Model Card: https://ollama.com/library/mistral-nemo
 - Ollama VRAM Requirements Guide (localllm.in)
 - HuggingFace Open LLM Leaderboard v2
 - Chatbot Arena rankings (lmarena.ai)

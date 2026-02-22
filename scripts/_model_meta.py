@@ -112,13 +112,16 @@ USE_CASES = {
 
 RECOMMENDED_OFFLINE = {
     "sw":    {"primary": "phi4-mini", "alt": "mistral:7b",
+              "upgrade": "mistral-nemo:12b",  # 128K ctx, stronger reasoning
               "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
 
     "eng":   {"primary": "phi4-mini", "alt": "mistral:7b",
               "secondary_test": "phi4:14b-q4_K_M",  # Hardware margin rejection; test at 8K ctx
+              "upgrade": "mistral-nemo:12b",  # 128K ctx, stronger reasoning
               "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
 
     "sys":   {"primary": "phi4-mini", "alt": "mistral:7b",
+              "upgrade": "mistral-nemo:12b",  # Better chain-of-thought for diagnostics
               "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
 
     "draft": {"primary": "phi4-mini", "alt": "phi4:14b-q4_K_M",
@@ -127,44 +130,56 @@ RECOMMENDED_OFFLINE = {
     "log":   {"primary": "phi4:14b-q4_K_M", "alt": "phi4-mini",
               "temperature": 0.0, "context": 8192, "reranker": True, "top_k": 10},
 
-    "pm":    {"primary": "mistral:7b", "alt": "phi4-mini",
+    "pm":    {"primary": "phi4-mini", "alt": "gemma3:4b",
               "temperature": 0.25, "context": 8192, "reranker": False, "top_k": 5},
 
     "fe":    {"primary": "phi4-mini", "alt": "mistral:7b",
               "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
 
     "cyber": {"primary": "phi4-mini", "alt": "mistral:7b",
+              "upgrade": "mistral-nemo:12b",  # Stronger reasoning for threat analysis
               "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
 
     "gen":   {"primary": "mistral:7b", "alt": "phi4-mini",
+              "upgrade": "mistral-nemo:12b",  # 128K ctx, broad knowledge
               "temperature": 0.3, "context": 8192, "reranker": False, "top_k": 5},
 }
 
 # ============================================================================
-# PERSONAL_FUTURE: Models that require more VRAM than current laptop
+# FULL MODEL STACK: All approved models for 12 GB VRAM workstation
 # ============================================================================
-# Approved models only (US/NATO allied origin, permissive license).
-# Excluded models and restrictive-license models are excluded.
+# Five approved models for WORK_ONLY use on 64 GB RAM / 12 GB VRAM hardware.
+# All tags verified against live Ollama library 2026-02-21.
 #
-# Tier 1 (24 GB VRAM -- dual RTX 3090 workstation):
-#   mistral-small3.1:24b  ~14 GB download, ~16 GB VRAM (Apache 2.0, France)
-#   mistral-nemo:12b      ~7 GB download, ~10 GB VRAM (Apache 2.0, France/USA)
-#   phi4:14b-q4_K_M       ~9 GB download, ~11 GB VRAM (MIT, Microsoft/USA)
+# WORK_ONLY stack (fits 12 GB VRAM):
+#   phi4-mini             ~2.3 GB download, ~5.5 GB VRAM (MIT, Microsoft/USA)
+#   mistral:7b            ~4.1 GB download, ~5.5 GB VRAM (Apache 2.0, Mistral/France)
+#   phi4:14b-q4_K_M       ~9.1 GB download, ~11 GB VRAM (MIT, Microsoft/USA)
+#   gemma3:4b             ~3.3 GB download, ~4.0 GB VRAM (Apache 2.0, Google/USA)
+#   mistral-nemo:12b      ~7.1 GB download, ~10 GB VRAM (Apache 2.0, Mistral+NVIDIA)
 #
-# ALL TAGS VERIFIED against live Ollama library 2026-02-21.
+# PERSONAL_FUTURE (requires 24+ GB VRAM):
+#   mistral-small3.1:24b  ~14 GB download, ~16 GB VRAM (Apache 2.0, Mistral/France)
 # ============================================================================
 
+WORK_ONLY_MODELS = {
+    "phi4-mini":        {"size_gb": 2.3, "vram_gb": 5.5,
+                         "note": "Primary for 7/9 profiles (MIT, Microsoft/USA)"},
+    "mistral:7b":       {"size_gb": 4.1, "vram_gb": 5.5,
+                         "note": "Alt for eng/sys/fe/cyber (Apache 2.0, Mistral/France)"},
+    "phi4:14b-q4_K_M":  {"size_gb": 9.1, "vram_gb": 11.0,
+                         "note": "Logistics primary, CAD alt (MIT, Microsoft/USA)"},
+    "gemma3:4b":        {"size_gb": 3.3, "vram_gb": 4.0,
+                         "note": "PM fast summarization (Apache 2.0, Google/USA)"},
+    "mistral-nemo:12b": {"size_gb": 7.1, "vram_gb": 10.0,
+                         "note": "Upgrade for sw/eng/sys/cyber/gen (Apache 2.0, Mistral+NVIDIA, 128K ctx)"},
+}
+
 PERSONAL_FUTURE = {
-    # Tier 1: 24 GB VRAM unlocks these (approved vendors)
+    # Tier 2: 24 GB VRAM unlocks these (approved vendors)
     "mistral-small3.1:24b": {"min_vram_gb": 24, "download_gb": 14,
-                              "tier": 1, "replaces": "phi4-mini",
+                              "tier": 2, "replaces": "phi4-mini",
                               "note": "Apache 2.0, Mistral/France, strong RAG, 128K ctx"},
-    "mistral-nemo:12b":     {"min_vram_gb": 12, "download_gb": 7,
-                              "tier": 1, "replaces": "mistral:7b",
-                              "note": "Apache 2.0, Mistral+NVIDIA, 128K ctx"},
-    "phi4:14b-q4_K_M":      {"min_vram_gb": 12, "download_gb": 9,
-                              "tier": 1, "replaces": "phi4-mini",
-                              "note": "MIT, Microsoft/USA, strong STEM reasoning"},
 }
 
 # Recommended cloud API models per use case

@@ -1,6 +1,6 @@
 # HybridRAG System State
 
-Last Updated: 2026-02-07
+Last Updated: 2026-02-21
 
 ## Current Version: v3 (Hybrid Search)
 
@@ -25,8 +25,14 @@ Last Updated: 2026-02-07
 - Configurable min_score threshold and top_k
 
 ### LLM Integration
-- Offline: Ollama (phi4-mini, localhost:11434)
-- Online: GPT-3.5 Turbo API with cost tracking
+- Offline: Ollama (localhost:11434), 5-model approved stack:
+  - phi4-mini (2.3 GB, MIT, Microsoft/USA) -- primary for 7/9 profiles
+  - mistral:7b (4.1 GB, Apache 2.0, Mistral/France) -- alt for eng/sys/fe/cyber
+  - phi4:14b-q4_K_M (9.1 GB, MIT, Microsoft/USA) -- logistics primary, CAD alt
+  - gemma3:4b (3.3 GB, Apache 2.0, Google/USA) -- PM fast summarization
+  - mistral-nemo:12b (7.1 GB, Apache 2.0, Mistral+NVIDIA) -- upgrade for sw/eng/sys/cyber/gen (128K ctx)
+  - Total disk: ~26 GB for all five models
+- Online: Cloud API with cost tracking
 - Configurable timeout (180s default)
 
 ### Parsers
