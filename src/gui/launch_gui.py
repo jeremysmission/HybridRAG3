@@ -128,6 +128,18 @@ def _get_or_build_embedder(model_name, logger):
         return _cached_embedder
 
 
+def clear_embedder_cache():
+    """Clear the cached embedder so the next build uses the new model.
+
+    Called by engineering_menu.py when the user switches to a profile
+    with a different embedding model.  Without this, reset_backends()
+    would reuse the old (wrong-dimension) embedder from cache.
+    """
+    global _cached_embedder
+    with _cached_embedder_lock:
+        _cached_embedder = None
+
+
 def _set_stage(app, stage_text):
     """Schedule a loading-stage update on the GUI main thread."""
     try:
