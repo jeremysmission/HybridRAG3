@@ -16,6 +16,7 @@
 import sys
 import os
 import json
+import importlib
 from unittest.mock import patch, MagicMock
 import pytest
 
@@ -28,6 +29,19 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 class TestDeploymentDiscovery:
     """Tests for Azure and OpenAI deployment discovery in llm_router.py."""
+
+    def setup_method(self):
+        """Reset credentials module before each test.
+
+        WHY: test_credential_management.py uses importlib.reload() on the
+        credentials module inside patch.dict contexts. This can leave the
+        module in a state where unittest.mock.patch no longer intercepts
+        the 'from ..security.credentials import resolve_credentials' call
+        inside get_available_deployments(). Reloading here restores a
+        clean module so patching works reliably regardless of test order.
+        """
+        import src.security.credentials as _cred_mod
+        importlib.reload(_cred_mod)
 
     def _clear_env(self):
         """Remove credential env vars to isolate tests."""
