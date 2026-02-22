@@ -13,33 +13,37 @@ hallucination guard, and a centralized network gate enforcing zero-trust
 outbound access control.
 
 ```
-                        INDEXING PIPELINE
-+-----------+     +----------+     +---------+     +-------------+
-|  Source    | --> |  Parser  | --> | Chunker | --> |  Embedder   |
-|  Files    |     | Registry |     | (1200c, |     | MiniLM-L6   |
-| (.pdf,    |     | (24 ext) |     |  200lap)|     | (384-dim)   |
-| .docx,..) |     +----------+     +---------+     +-------------+
-+-----------+                                             |
-                                                          v
-                                                 +----------------+
-                                                 |  VectorStore   |
-                                                 | SQLite + FTS5  |
-                                                 | Memmap float16 |
-                                                 +----------------+
-                                                          |
-                        QUERY PIPELINE                    v
-+-----------+     +-----------+     +---------+     +-------------+
-|  User     | --> | Embedder  | --> |Retriever| --> |  Query      |
-|  Query    |     | (same     |     | Hybrid  |     |  Engine     |
-|           |     |  model)   |     | RRF k=60|     | + LLM call  |
-+-----------+     +-----------+     +---------+     +-------------+
-                                                          |
-                                                          v
-                                                 +----------------+
-                                                 | Hallucination  |
-                                                 | Guard (5-layer)|
-                                                 | (online only)  |
-                                                 +----------------+
+          INDEXING PIPELINE              QUERY PIPELINE
+
+     Source files (.pdf, .docx, ...)     User question
+                |                              |
+                v                              v
+        +---------------+              +---------------+
+        | Parser        |              | Embedder      |
+        | Registry      |              | (same model)  |
+        | (24+ ext)     |              +---------------+
+        +---------------+                      |
+                |                              v
+                v                      +---------------+
+        +---------------+              | Retriever     |
+        | Chunker       |              | Hybrid search |
+        | (1200c, 200   |              | RRF k=60      |
+        |  overlap)     |              +---------------+
+        +---------------+                      |
+                |                              v
+                v                      +---------------+
+        +---------------+              | Query Engine  |
+        | Embedder      |              | 9-rule prompt |
+        | MiniLM-L6-v2  |              | + LLM call    |
+        | (384-dim)     |              +---------------+
+        +---------------+                      |
+                |                              v
+                v                      +---------------+
+        +---------------+              | Hallucination |
+        | VectorStore   |<--- read --- | Guard         |
+        | SQLite + FTS5 |              | (5-layer,     |
+        | Memmap f16    |              |  online only) |
+        +---------------+              +---------------+
 ```
 
 **Design priorities**: Offline operation, crash safety, low RAM usage,
@@ -78,7 +82,6 @@ parsers/registry.py  (extension -> parser class mapping)
 gui/                         (tkinter desktop application, dark/light theme)
   |-- app.py                 (main window, panel composition)
   |-- theme.py               (dark/light theme definitions, toggle logic)
-  |-- stubs.py               (temporary stubs for Window 2 model routing)
   |-- launch_gui.py          (entry point, boot + background loading)
   +-- panels/
       |-- query_panel.py     (question input, answer display, metrics)
@@ -497,7 +500,7 @@ embeddings_meta.json ({"dim": 384, "count": N, "dtype": "float16"})
 ## 14. Model Compliance
 
 All offline models must pass regulatory review before deployment.
-Full audit: `docs/DEFENSE_MODEL_AUDIT.md`.
+Full audit: `docs/MODEL_AUDIT.md`.
 
 **Approved publishers**: Microsoft (MIT), Mistral AI (Apache 2.0),
 Google (Apache 2.0), NVIDIA (Apache 2.0).

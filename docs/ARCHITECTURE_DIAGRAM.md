@@ -1,36 +1,39 @@
 # HybridRAG3 -- System Architecture
 
-> Block diagram showing data flow through the system.
-> Read top to bottom. Left column = query path, right column = indexing path.
+> Block diagrams showing data flow through the system.
+> All diagrams read top to bottom.
 
 ---
 
 ## Boot Sequence (runs once at startup)
 
 ```
-  config/default_config.yaml
-          |
-          v
-    +------------+      +----------------+      +--------------+
-    |  CONFIG    |----->| CREDENTIALS    |----->| NETWORK GATE |
-    |  loader    |      | keyring / env  |      | offline lock |
-    +------------+      +----------------+      +--------------+
-          |                     |                       |
-          +----------+----------+-----------+-----------+
-                     |
-                     v
-              +-----------+
-              |   BOOT    |
-              |  pipeline |
-              +-----------+
-                     |
-          +----------+----------+
-          |                     |
-          v                     v
-    +-----------+         +-----------+
-    | Ollama    |         | API Client|
-    | check     |         | factory   |
-    +-----------+         +-----------+
+         +---------------------+
+         |        BOOT         |
+         |      pipeline       |
+         +---------------------+
+                    |
+         +----------+----------+----------+
+         |          |          |          |
+         v          v          v          v
+    +--------+ +--------+ +--------+ +--------+
+    | CONFIG | | CREDS  | | GATE   | | PROBE  |
+    | loader | | keyring| | config | | Ollama |
+    | (YAML) | | or env | | mode   | | + API  |
+    +--------+ +--------+ +--------+ +--------+
+         |          |          |          |
+         +----------+----------+----------+
+                    |
+                    v
+            +--------------+
+            | BOOT RESULT  |
+            | success flag |
+            | api_client   |
+            | warnings[]   |
+            +--------------+
+                    |
+                    v
+          System ready for use
 ```
 
 ---
@@ -38,80 +41,83 @@
 ## Query Path (user asks a question)
 
 ```
-    "What is the calibration procedure?"
-                     |
-                     v
-            +----------------+
-            | QUERY ENGINE   |
-            +----------------+
-                     |
-                     v
-            +----------------+
-            |   EMBEDDER     |
-            | MiniLM-L6-v2   |
-            | query -> 384d  |
-            +----------------+
-                     |
-                     v
-            +----------------+
-            |   RETRIEVER    |
-            |  hybrid search |
-            +----------------+
-                /          \
-               v            v
-      +-----------+   +-----------+
-      | BM25      |   | Vector    |
-      | keyword   |   | cosine    |
-      | (FTS5)    |   | (memmap)  |
-      +-----------+   +-----------+
-               \          /
-                v        v
-            +----------------+
-            | Reciprocal     |
-            | Rank Fusion    |
-            | + min_score    |
-            +----------------+
-                     |
-                     v
-            top_k chunks (scored, ranked)
-                     |
-                     v
-            +----------------+
-            | PROMPT BUILDER |
-            | 9-rule template|
-            | (injection-    |
-            |  resistant)    |
-            +----------------+
-                     |
-                     v
-            +----------------+
-            |  LLM ROUTER    |
-            +----------------+
-                /          \
-               v            v
-      +-----------+   +-----------+
-      | OFFLINE   |   | ONLINE    |
-      | Ollama    |   | API call  |
-      | localhost  |   | (gated)  |
-      | phi4-mini |   +-----------+
-      +-----------+        |
-               \           v
-                \   +-----------+
-                 \  | NETWORK   |
-                  \ | GATE      |
-                   \| audit log |
-                    +-----------+
-                         /
-                v-------'
-            +----------------+
-            | QUERY RESULT   |
-            | answer, sources|
-            | tokens, cost,  |
-            | latency        |
-            +----------------+
-                     |
-                     v
-              User sees answer
+         "What is the calibration procedure?"
+                    |
+                    v
+            +---------------+
+            | QUERY ENGINE  |
+            +---------------+
+                    |
+                    v
+            +---------------+
+            |   EMBEDDER    |
+            | MiniLM-L6-v2  |
+            | query -> 384d |
+            +---------------+
+                    |
+                    v
+            +---------------+
+            |   RETRIEVER   |
+            | hybrid search |
+            +---------------+
+               /         \
+              v           v
+        +---------+  +---------+
+        |  BM25   |  | Vector  |
+        | keyword |  | cosine  |
+        | (FTS5)  |  | (mmap)  |
+        +---------+  +---------+
+              \           /
+               v         v
+            +---------------+
+            |  Reciprocal   |
+            |  Rank Fusion  |
+            |  + min_score  |
+            +---------------+
+                    |
+                    v
+         top_k chunks (ranked)
+                    |
+                    v
+            +---------------+
+            | PROMPT BUILDER|
+            | 9-rule system |
+            +---------------+
+                    |
+                    v
+            +---------------+
+            |  LLM ROUTER   |
+            +---------------+
+                    |
+             +------+------+
+             |             |
+             v             v
+       +---------+   +---------+
+       | OFFLINE |   | ONLINE  |
+       | Ollama  |   | API     |
+       | local   |   | gated   |
+       +---------+   +---------+
+             |             |
+             |        +----------+
+             |        | NETWORK  |
+             |        | GATE     |
+             |        | check +  |
+             |        | audit    |
+             |        +----------+
+             |             |
+             +------+------+
+                    |
+                    v
+            +---------------+
+            | QUERY RESULT  |
+            | answer        |
+            | sources       |
+            | tokens, cost  |
+            | latency       |
+            +---------------+
+                    |
+                    v
+           User sees answer
 ```
 
 ---
@@ -119,65 +125,63 @@
 ## Indexing Path (building the search index)
 
 ```
-    D:\RAG Source Data
-    (1,345 files)
-           |
-           v
-    +-------------+
-    |   INDEXER   |
-    +-------------+
-           |
-           v
-    +-------------+
-    | File scan   |
-    | + validator |
-    | (skip bad)  |
-    +-------------+
-           |
-           v
-    +-------------+
-    | Hash check  |
-    | (skip if    |
-    |  unchanged) |
-    +-------------+
-           |
-           v
-    +-------------+
-    | File parser |
-    | PDF, DOCX,  |
-    | TXT, MD     |
-    +-------------+
-           |
-           v
-    +-------------+
-    |  CHUNKER    |
-    | 1200 chars  |
-    | 200 overlap |
-    | smart split |
-    +-------------+
-           |
-           v
-    +-------------+
-    |  EMBEDDER   |
-    | MiniLM-L6-v2|
-    | batch embed |
-    | -> 384d     |
-    +-------------+
-           |
-           v
-    +-------------+
-    | VECTOR STORE|
-    +-------------+
-        /      \
-       v        v
-  +--------+ +--------+
-  | SQLite | | Memmap |
-  | chunks | | vectors|
-  | meta   | | 384d   |
-  | FTS5   | | float32|
-  +--------+ +--------+
-
-  39,602 chunks indexed
+       Source document folder
+       (PDF, DOCX, TXT, ...)
+                    |
+                    v
+            +---------------+
+            |    INDEXER     |
+            +---------------+
+                    |
+                    v
+            +---------------+
+            | File scan     |
+            | + validator   |
+            | (skip bad)    |
+            +---------------+
+                    |
+                    v
+            +---------------+
+            | Hash check    |
+            | (skip files   |
+            |  unchanged)   |
+            +---------------+
+                    |
+                    v
+            +---------------+
+            | File parser   |
+            | 24+ formats   |
+            +---------------+
+                    |
+                    v
+            +---------------+
+            |   CHUNKER     |
+            | 1200 chars    |
+            | 200 overlap   |
+            | smart split   |
+            +---------------+
+                    |
+                    v
+            +---------------+
+            |   EMBEDDER    |
+            | MiniLM-L6-v2  |
+            | batch embed   |
+            | -> 384d       |
+            +---------------+
+                    |
+                    v
+            +---------------+
+            | VECTOR STORE  |
+            +---------------+
+               /         \
+              v           v
+        +---------+  +-----------+
+        | SQLite  |  | Memmap    |
+        | chunks  |  | vectors   |
+        | meta    |  | 384d      |
+        | FTS5    |  | float16   |
+        | hashes  |  |           |
+        +---------+  +-----------+
 ```
 
 ---
@@ -185,13 +189,13 @@
 ## Storage Layer
 
 ```
-  D:\RAG Indexed Data\
+  <indexed data directory>/
        |
-       +-- hybridrag.db          SQLite: chunks, metadata, FTS5 index
+       +-- hybridrag.sqlite3       SQLite: chunks, metadata, FTS5, file hashes
        |
-       +-- embeddings.npy        Memmap: embedding vectors (384d float32)
+       +-- embeddings.f16.dat      Memmap: float16 vectors, shape [N, 384]
        |
-       +-- file_hashes.json      Change detection for incremental indexing
+       +-- embeddings_meta.json    Bookkeeping: dim, count, dtype
 ```
 
 ---
@@ -230,20 +234,19 @@
 ## User Interfaces
 
 ```
-  +-------------------+    +-------------------+    +-------------------+
-  |    PowerShell     |    |       GUI         |    |     REST API      |
-  |                   |    |                   |    |                   |
-  | . .\start_        |    | .\tools\          |    | rag-server        |
-  |   hybridrag.ps1   |    |   launch_gui.ps1  |    |                   |
-  |                   |    |                   |    | localhost:8000    |
-  | rag-query "..."   |    | tkinter window    |    | /query            |
-  | rag-index         |    | dark/light theme  |    | /index            |
-  | rag-status        |    | mode toggle       |    | /health           |
-  +-------------------+    +-------------------+    +-------------------+
+  +-------------------+   +-------------------+   +-------------------+
+  |    PowerShell     |   |       GUI         |   |     REST API      |
+  |                   |   |                   |   |                   |
+  | start_hybridrag   |   | launch_gui.ps1    |   | rag-server        |
+  |                   |   |                   |   |                   |
+  | rag-query "..."   |   | tkinter window    |   | localhost:8000    |
+  | rag-index         |   | dark/light theme  |   | /query            |
+  | rag-status        |   | mode toggle       |   | /index, /health   |
+  +-------------------+   +-------------------+   +-------------------+
            \                       |                       /
-            +-----------+----------+-----------+----------+
-                        |
-                        v
-                 QUERY ENGINE
-                 (same pipeline)
+            +----------+-----------+----------+-----------+
+                       |
+                       v
+                QUERY ENGINE
+                (same pipeline)
 ```
