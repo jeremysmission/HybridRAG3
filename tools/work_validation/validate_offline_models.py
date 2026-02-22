@@ -34,17 +34,16 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 
 WORK_MODELS = {
-    "qwen3:8b":           {"size_gb": 5.2, "note": "Primary for eng/sw/sys/pm/gen"},
-    "deepseek-r1:8b":     {"size_gb": 5.2, "note": "Alt for eng/sys reasoning"},
-    "phi4:14b-q4_K_M":    {"size_gb": 9.1, "note": "Primary for log, alt for draft/eng"},
-    "gemma3:4b":           {"size_gb": 3.3, "note": "Alt for PM summarization"},
+    "phi4-mini":           {"size_gb": 2.3, "note": "Primary for sw/eng/sys/draft/fe/cyber (MIT, Microsoft/USA)"},
+    "mistral:7b":          {"size_gb": 4.1, "note": "Primary for pm/gen, alt for eng profiles (Apache 2.0, Mistral/France)"},
+    "phi4:14b-q4_K_M":    {"size_gb": 9.1, "note": "Primary for log, alt for draft (MIT, Microsoft/USA, workstation only)"},
 }
 
 PROFILES = {
     "eng": {
         "label": "Engineer",
-        "primary": "qwen3:8b",
-        "alt": "deepseek-r1:8b",
+        "primary": "phi4-mini",
+        "alt": "mistral:7b",
         "secondary_test": "phi4:14b-q4_K_M",
         "temperature": 0.1,
         "test_query": "What is the operating frequency of a standard GPS L1 signal?",
@@ -52,8 +51,8 @@ PROFILES = {
     },
     "pm": {
         "label": "Program Manager",
-        "primary": "qwen3:8b",
-        "alt": "gemma3:4b",
+        "primary": "mistral:7b",
+        "alt": "phi4-mini",
         "temperature": 0.25,
         "test_query": "Summarize the key risks in a project that is 3 weeks behind schedule.",
         "expected_keywords": ["risk", "schedule", "delay", "resource"],
@@ -61,14 +60,14 @@ PROFILES = {
     "log": {
         "label": "Logistics",
         "primary": "phi4:14b-q4_K_M",
-        "alt": "qwen3:8b",
+        "alt": "phi4-mini",
         "temperature": 0.0,
         "test_query": "What is the lead time for a standard M8 hex bolt from a domestic supplier?",
         "expected_keywords": ["lead", "time", "week", "day", "bolt"],
     },
     "draft": {
         "label": "CAD/Drafting",
-        "primary": "qwen3:8b",
+        "primary": "phi4-mini",
         "alt": "phi4:14b-q4_K_M",
         "temperature": 0.05,
         "test_query": "What does GD&T symbol MMC mean on an engineering drawing?",
@@ -76,24 +75,24 @@ PROFILES = {
     },
     "sys": {
         "label": "SysAdmin",
-        "primary": "qwen3:8b",
-        "alt": "deepseek-r1:8b",
+        "primary": "phi4-mini",
+        "alt": "mistral:7b",
         "temperature": 0.1,
         "test_query": "How do you check which ports are listening on a Windows server?",
         "expected_keywords": ["netstat", "port", "listen", "tcp"],
     },
     "fe": {
         "label": "Field Engineer",
-        "primary": "qwen3:8b",
-        "alt": "deepseek-r1:8b",
+        "primary": "phi4-mini",
+        "alt": "mistral:7b",
         "temperature": 0.1,
         "test_query": "What safety precautions are required before performing high-voltage equipment inspection in the field?",
         "expected_keywords": ["lockout", "ppe", "voltage", "safety"],
     },
     "cyber": {
         "label": "Cybersecurity Analyst",
-        "primary": "qwen3:8b",
-        "alt": "deepseek-r1:8b",
+        "primary": "phi4-mini",
+        "alt": "mistral:7b",
         "temperature": 0.1,
         "test_query": "What are the key steps in responding to a suspected ransomware incident?",
         "expected_keywords": ["isolate", "contain", "backup", "incident"],

@@ -521,7 +521,7 @@ class TestPipelineIntegration:
             text="The operating frequency range is 9.0 to 9.5 GHz.",
             tokens_in=50,
             tokens_out=20,
-            model="llama3",
+            model="phi4-mini",
             latency_ms=150.0,
         )
 

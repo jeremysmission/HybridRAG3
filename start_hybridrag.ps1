@@ -305,6 +305,18 @@ else:
 "
 }
 
+function rag-server {
+    param(
+        [int]$Port = 8000,
+        [string]$Host = '127.0.0.1'
+    )
+    Write-Host ""
+    Write-Host "Starting HybridRAG API server..." -ForegroundColor Cyan
+    Write-Host "  http://${Host}:${Port}/docs  (Swagger UI)" -ForegroundColor Green
+    Write-Host ""
+    python -m src.api.server --host $Host --port $Port
+}
+
 # ---- 11) DONE --------------------------------------------------------------
 Write-Host ""
 Write-Host "Ready. Commands available:" -ForegroundColor Green

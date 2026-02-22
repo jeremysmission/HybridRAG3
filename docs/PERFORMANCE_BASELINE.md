@@ -37,7 +37,7 @@ Last Updated: 2026-02-07
 | Hybrid search (vector + BM25) | <200ms | 1855 chunks, RRF fusion |
 | Vector-only search | <100ms | Block scan, cosine similarity |
 | FTS5 keyword search | <10ms | OR-logic, BM25 ranking |
-| End-to-end query (offline) | 60-120 sec | Llama3 on CPU via Ollama |
+| End-to-end query (offline) | 60-120 sec | phi4-mini on CPU via Ollama |
 
 ## Retrieval Quality
 

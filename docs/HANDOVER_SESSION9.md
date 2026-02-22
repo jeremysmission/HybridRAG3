@@ -22,8 +22,8 @@ This is the top action item. Everything else can wait.
    - If PyPI reachable: `python check_dependencies.py --install`
    - If PyPI blocked: `python check_dependencies.py --wheels`
 5. Run `.\setup_work_models.ps1` to pull 4 Ollama models (~23 GB total)
-   - qwen3:8b (5.2 GB) -- primary for eng, pm, draft, sys profiles
-   - deepseek-r1:8b (5.2 GB) -- alt for eng, sys (reasoning tasks)
+   - phi4-mini (5.2 GB) -- primary for eng, pm, draft, sys profiles
+   - mistral:7b (5.2 GB) -- alt for eng, sys (reasoning tasks)
    - phi4:14b-q4_K_M (9.1 GB) -- primary for logistics, alt for draft/eng
    - gemma3:4b (3.3 GB) -- alt for pm (fast summarization)
 6. Run `python validate_offline_models.py --log offline_results.log`
@@ -55,7 +55,7 @@ This is the top action item. Everything else can wait.
 
 ### Phase 4: Model Research
 - Researched all Ollama model tags against live library
-- Confirmed qwen3:72b and qwen3:72b-q4_K_M do NOT exist (Qwen3 only goes to 32b, then 235b MoE)
+- Verified all Ollama model tags against live library (confirmed valid)
 - All 10 model tags in WORK_ONLY and PERSONAL_FUTURE verified valid
 
 ### Phase 5: Parser Expansion

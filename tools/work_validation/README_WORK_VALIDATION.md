@@ -147,11 +147,11 @@ ollama serve
 ### Model not found
 
 ```powershell
-ollama pull qwen3:8b
+ollama pull phi4-mini
 ```
 
 ```powershell
-ollama pull deepseek-r1:8b
+ollama pull mistral:7b
 ```
 
 ```powershell
@@ -201,8 +201,8 @@ first, then copy the wheels/ folder into this directory.
 
 | Model              | Size   | Profiles Using It           |
 |--------------------|--------|------------------------------|
-| qwen3:8b           | 5.2 GB | Primary: eng, pm, draft, sys |
-| deepseek-r1:8b     | 5.2 GB | Alt: eng, sys (reasoning)    |
+| phi4-mini           | 5.2 GB | Primary: eng, pm, draft, sys |
+| mistral:7b     | 5.2 GB | Alt: eng, sys (reasoning)    |
 | phi4:14b-q4_K_M    | 9.1 GB | Primary: log; Alt: draft, eng|
 | gemma3:4b          | 3.3 GB | Alt: pm (fast summarization) |
 

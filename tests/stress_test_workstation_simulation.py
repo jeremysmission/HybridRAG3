@@ -375,15 +375,15 @@ def llm_inference_offline(
 
     # Model-specific throughput (tokens per second on BASELINE older 12 GB GPU)
     model_throughput = {
-        "qwen3:8b":          {"prompt_tps": 200, "gen_tps": 30, "note": "Primary for most profiles"},
+        "phi4-mini":         {"prompt_tps": 200, "gen_tps": 30, "note": "Primary for most profiles"},
         "phi4:14b-q4_K_M":   {"prompt_tps": 120, "gen_tps": 17, "note": "14B model"},
-        "qwen3:32b-q4":      {"prompt_tps": 80,  "gen_tps": 12, "note": "32B model (needs 20GB VRAM)"},
-        "llama3:70b-q4":     {"prompt_tps": 40,  "gen_tps": 6,  "note": "70B model (needs 40GB VRAM, tensor parallel)"},
-        "deepseek-r1:8b":    {"prompt_tps": 180, "gen_tps": 25, "note": "Reasoning model, slower gen"},
+        "mistral-small3.1:24b": {"prompt_tps": 80,  "gen_tps": 12, "note": "24B model (needs 16GB VRAM)"},
+        "mistral-small3.1:24b-q4":     {"prompt_tps": 40,  "gen_tps": 6,  "note": "24B quantized (needs 16GB+ VRAM, tensor parallel)"},
+        "mistral:7b":        {"prompt_tps": 180, "gen_tps": 25, "note": "Baseline model, good throughput"},
         "gemma3:4b":         {"prompt_tps": 300, "gen_tps": 45, "note": "Small, fast"},
     }
 
-    specs = model_throughput.get(model, model_throughput["qwen3:8b"])
+    specs = model_throughput.get(model, model_throughput["phi4-mini"])
     # Scale throughput by GPU memory bandwidth
     effective_prompt_tps = specs["prompt_tps"] * bw_multiplier
     effective_gen_tps = specs["gen_tps"] * bw_multiplier
@@ -485,11 +485,11 @@ def llm_inference_vllm_server(
     Setup options:
       1. Docker with NVIDIA Container Toolkit (easiest)
          docker run --gpus all -p 8000:8000 vllm/vllm-openai \\
-             --model Qwen/Qwen2.5-7B-Instruct
+             --model microsoft/Phi-4-mini-instruct
       2. Bare metal: pip install vllm && python -m vllm.entrypoints.openai.api_server
       3. Dedicated server: separate machine on LAN with bigger GPU
 
-    Throughput model (12 GB VRAM, qwen3:8b equivalent):
+    Throughput model (12 GB VRAM, phi4-mini equivalent):
       - vLLM batch efficiency: ~2.5x throughput vs serial Ollama
       - With continuous batching, concurrent requests share GPU compute
       - Throughput degrades gently, not linearly like Ollama queue
@@ -514,7 +514,7 @@ def llm_inference_vllm_server(
 
     # Model throughput under vLLM continuous batching (BASELINE desktop 12 GB GPU)
     model_throughput = {
-        "qwen3:8b": {
+        "phi4-mini": {
             "single_tps": 30,
             "batch_factor": 2.5,
             "max_batch": 4,        # Per GPU
@@ -526,31 +526,31 @@ def llm_inference_vllm_server(
             "max_batch": 2,
             "note": "vLLM batching, 14B model",
         },
-        "qwen3:32b-q4": {
+        "mistral-small3.1:24b": {
             "single_tps": 12,
             "batch_factor": 2.0,
-            "max_batch": 3,        # 20GB model in 24GB = room for batching
-            "note": "vLLM 32B model, fits in one 24GB GPU",
+            "max_batch": 3,        # 16GB model in 24GB = room for batching
+            "note": "vLLM 24B model, fits in one 24GB GPU",
         },
-        "llama3:70b-q4": {
+        "mistral-small3.1:24b-q4": {
             "single_tps": 6,
             "batch_factor": 1.8,
             "max_batch": 2,        # Tensor parallel across 2 GPUs, tight
-            "note": "vLLM 70B tensor parallel across 2 GPUs",
+            "note": "vLLM 24B-q4 tensor parallel across 2 GPUs",
         },
     }
 
-    specs = model_throughput.get(model, model_throughput["qwen3:8b"])
+    specs = model_throughput.get(model, model_throughput["phi4-mini"])
     specs = dict(specs)  # copy
     specs["single_tps"] = specs["single_tps"] * bw_multiplier
     # Dual GPUs with vLLM: can run tensor parallel (1 big model across 2)
     # or serve 2 models independently (doubles max_batch)
-    if num_gpus > 1 and model != "llama3:70b-q4":
+    if num_gpus > 1 and model != "mistral-small3.1:24b-q4":
         # Non-tensor-parallel models: serve from both GPUs independently
         specs["max_batch"] = specs["max_batch"] * num_gpus
         specs["note"] += f" [2 GPUs independent, {specs['max_batch']} batch]"
     elif num_gpus > 1:
-        # 70B model: tensor parallel, single model across both GPUs
+        # 24B-q4 model: tensor parallel, single model across both GPUs
         specs["note"] += f" [tensor parallel 2 GPUs]"
     if gpu_tag:
         specs["note"] += f" [{gpu_tag} {bw_multiplier:.1f}x]"
@@ -705,15 +705,15 @@ def main():
     print("2x RTX 3090 FE = 48 GB VRAM total. Ollama can load-balance across GPUs.")
     print("936 GB/s memory bandwidth per GPU = 3.7x faster than baseline GDDR6.")
     print()
-    print("Using qwen3:8b as primary (covers most use cases)")
+    print("Using phi4-mini as primary (covers most use cases)")
     print()
 
     offline_results_700 = []
     for n in user_counts:
-        r = simulate_query(hw, idx_700, n, "offline", "qwen3:8b", reranker=True)
+        r = simulate_query(hw, idx_700, n, "offline", "phi4-mini", reranker=True)
         offline_results_700.append(r)
 
-    _print_results_table("OFFLINE (qwen3:8b) -- 700 GB", offline_results_700)
+    _print_results_table("OFFLINE (phi4-mini) -- 700 GB", offline_results_700)
 
     # Show phi4 (logistics profile) -- slower due to larger model
     print()
@@ -727,21 +727,21 @@ def main():
     # Show larger models that dual 3090 enables
     if hw.gpu_vram_gb >= 24:
         print()
-        print("  qwen3:32b-q4 (fits in one 24 GB GPU, massive quality upgrade):")
+        print("  mistral-small3.1:24b (fits in one 24 GB GPU, massive quality upgrade):")
         q32_results = []
         for n in user_counts:
-            r = simulate_query(hw, idx_700, n, "offline", "qwen3:32b-q4", reranker=True)
+            r = simulate_query(hw, idx_700, n, "offline", "mistral-small3.1:24b", reranker=True)
             q32_results.append(r)
-        _print_results_table("OFFLINE (qwen3:32b) -- 700 GB", q32_results)
+        _print_results_table("OFFLINE (mistral-small3.1:24b) -- 700 GB", q32_results)
 
     if hw.gpu_vram_gb >= 40:
         print()
-        print("  llama3:70b-q4 (tensor parallel across 2x 3090, 40 GB needed):")
+        print("  mistral-small3.1:24b-q4 (tensor parallel across 2x 3090, 40 GB needed):")
         l70_results = []
         for n in user_counts:
-            r = simulate_query(hw, idx_700, n, "offline", "llama3:70b-q4", reranker=True)
+            r = simulate_query(hw, idx_700, n, "offline", "mistral-small3.1:24b-q4", reranker=True)
             l70_results.append(r)
-        _print_results_table("OFFLINE (llama3:70b) -- 700 GB", l70_results)
+        _print_results_table("OFFLINE (mistral-small3.1:24b-q4) -- 700 GB", l70_results)
 
     # ==================================================================
     # vLLM SERVER MODE (700 GB) -- continuous batching
@@ -756,15 +756,15 @@ def main():
     print("waiting in a serial queue. Can run as Docker container or systemd service.")
     print()
     print("Setup: docker run --gpus all -p 8000:8000 vllm/vllm-openai \\")
-    print("           --model Qwen/Qwen2.5-7B-Instruct")
+    print("           --model microsoft/Phi-4-mini-instruct")
     print()
 
     vllm_results_700 = []
     for n in user_counts:
-        r = simulate_query(hw, idx_700, n, "vllm", "qwen3:8b", reranker=True)
+        r = simulate_query(hw, idx_700, n, "vllm", "phi4-mini", reranker=True)
         vllm_results_700.append(r)
 
-    _print_results_table("vLLM SERVER (qwen3:8b) -- 700 GB", vllm_results_700)
+    _print_results_table("vLLM SERVER (phi4-mini) -- 700 GB", vllm_results_700)
 
     print()
     print("  phi4:14b-q4_K_M via vLLM (logistics profile):")
@@ -777,21 +777,21 @@ def main():
     # Show larger models via vLLM on dual 3090
     if hw.gpu_vram_gb >= 24:
         print()
-        print("  qwen3:32b-q4 via vLLM (fits one GPU, other GPU serves parallel):")
+        print("  mistral-small3.1:24b via vLLM (fits one GPU, other GPU serves parallel):")
         vllm_q32 = []
         for n in user_counts:
-            r = simulate_query(hw, idx_700, n, "vllm", "qwen3:32b-q4", reranker=True)
+            r = simulate_query(hw, idx_700, n, "vllm", "mistral-small3.1:24b", reranker=True)
             vllm_q32.append(r)
-        _print_results_table("vLLM SERVER (qwen3:32b) -- 700 GB", vllm_q32)
+        _print_results_table("vLLM SERVER (mistral-small3.1:24b) -- 700 GB", vllm_q32)
 
     if hw.gpu_vram_gb >= 40:
         print()
-        print("  llama3:70b-q4 via vLLM (tensor parallel across 2x 3090):")
+        print("  mistral-small3.1:24b-q4 via vLLM (tensor parallel across 2x 3090):")
         vllm_l70 = []
         for n in user_counts:
-            r = simulate_query(hw, idx_700, n, "vllm", "llama3:70b-q4", reranker=True)
+            r = simulate_query(hw, idx_700, n, "vllm", "mistral-small3.1:24b-q4", reranker=True)
             vllm_l70.append(r)
-        _print_results_table("vLLM SERVER (llama3:70b) -- 700 GB", vllm_l70)
+        _print_results_table("vLLM SERVER (mistral-small3.1:24b-q4) -- 700 GB", vllm_l70)
 
     # ==================================================================
     # ONLINE MODE SIMULATION (700 GB)
@@ -833,17 +833,17 @@ def main():
 
     offline_results_2000 = []
     for n in user_counts:
-        r = simulate_query(hw, idx_2000, n, "offline", "qwen3:8b", reranker=True)
+        r = simulate_query(hw, idx_2000, n, "offline", "phi4-mini", reranker=True)
         offline_results_2000.append(r)
 
-    _print_results_table("OFFLINE/Ollama (qwen3:8b) -- 2 TB", offline_results_2000)
+    _print_results_table("OFFLINE/Ollama (phi4-mini) -- 2 TB", offline_results_2000)
 
     vllm_results_2000 = []
     for n in user_counts:
-        r = simulate_query(hw, idx_2000, n, "vllm", "qwen3:8b", reranker=True)
+        r = simulate_query(hw, idx_2000, n, "vllm", "phi4-mini", reranker=True)
         vllm_results_2000.append(r)
 
-    _print_results_table("vLLM SERVER (qwen3:8b) -- 2 TB", vllm_results_2000)
+    _print_results_table("vLLM SERVER (phi4-mini) -- 2 TB", vllm_results_2000)
 
     online_results_2000 = []
     for n in user_counts:
@@ -881,9 +881,9 @@ def main():
     laptop_counts = [10, 8, 6, 4, 3, 2, 1]
     laptop_offline_results = []
     for n in laptop_counts:
-        r = simulate_query(hw_laptop, idx_demo, n, "offline", "qwen3:8b", reranker=True)
+        r = simulate_query(hw_laptop, idx_demo, n, "offline", "phi4-mini", reranker=True)
         laptop_offline_results.append(r)
-    _print_results_table("LAPTOP OLLAMA (qwen3:8b Blackwell) -- 700 GB", laptop_offline_results)
+    _print_results_table("LAPTOP OLLAMA (phi4-mini Blackwell) -- 700 GB", laptop_offline_results)
 
     print()
     print("  phi4:14b on Blackwell (logistics profile):")
@@ -898,9 +898,9 @@ def main():
     print("  --- vLLM SERVER on Blackwell GPU ---")
     laptop_vllm_results = []
     for n in laptop_counts:
-        r = simulate_query(hw_laptop, idx_demo, n, "vllm", "qwen3:8b", reranker=True)
+        r = simulate_query(hw_laptop, idx_demo, n, "vllm", "phi4-mini", reranker=True)
         laptop_vllm_results.append(r)
-    _print_results_table("LAPTOP vLLM (qwen3:8b Blackwell) -- 700 GB", laptop_vllm_results)
+    _print_results_table("LAPTOP vLLM (phi4-mini Blackwell) -- 700 GB", laptop_vllm_results)
 
     # Online API
     print()
@@ -975,7 +975,7 @@ def main():
 
     # Show stage breakdown for 10-user offline (Ollama)
     r10 = offline_results_700[0]
-    print("Pipeline breakdown (10 users, Ollama, qwen3:8b, 700 GB, NVMe SSD):")
+    print("Pipeline breakdown (10 users, Ollama, phi4-mini, 700 GB, NVMe SSD):")
     print("-" * 60)
     for stage, secs in r10["stages"].items():
         pct = (secs / r10["total_seconds"]) * 100
@@ -994,7 +994,7 @@ def main():
 
     # Show vLLM comparison
     rv10 = vllm_results_700[0]
-    print("Pipeline breakdown (10 users, vLLM, qwen3:8b, 700 GB, NVMe SSD):")
+    print("Pipeline breakdown (10 users, vLLM, phi4-mini, 700 GB, NVMe SSD):")
     print("-" * 60)
     for stage, secs in rv10["stages"].items():
         pct = (secs / rv10["total_seconds"]) * 100
@@ -1116,7 +1116,7 @@ def main():
             "offline_speedup": "3-5x throughput at 10 concurrent users",
             "online_speedup": "N/A (already using cloud batching)",
             "how": "docker run --gpus all -p 8000:8000 vllm/vllm-openai "
-                   "--model Qwen/Qwen2.5-7B-Instruct",
+                   "--model microsoft/Phi-4-mini-instruct",
         },
         {
             "rank": 2,
@@ -1145,7 +1145,7 @@ def main():
             "rank": 4,
             "what": "Upgrade GPU to 24 GB VRAM (RTX 4090 / A5000)",
             "cost": "$1,200-2,000",
-            "impact": "Enables qwen3:32b (much better quality), 2x faster token "
+            "impact": "Enables mistral-small3.1:24b (much better quality), 2x faster token "
                       "generation, and model stays in VRAM without swapping. "
                       "More VRAM also means vLLM can batch more concurrent requests.",
             "offline_speedup": "2-3x faster inference, better answer quality",
@@ -1282,14 +1282,14 @@ def _write_report(path, hw, idx700, idx2000,
     ]
 
     for title, results in [
-        ("Offline/Ollama (qwen3:8b) -- 700 GB", off700),
+        ("Offline/Ollama (phi4-mini) -- 700 GB", off700),
         ("Offline/Ollama (phi4:14b) -- 700 GB", phi4),
-        ("vLLM Server (qwen3:8b) -- 700 GB", vllm700),
+        ("vLLM Server (phi4-mini) -- 700 GB", vllm700),
         ("vLLM Server (phi4:14b) -- 700 GB", vllm_phi4),
         ("Online (gpt-4o) -- 700 GB", on700),
         ("Online (gpt-4o-mini) -- 700 GB", mini),
-        ("Offline/Ollama (qwen3:8b) -- 2 TB", off2000),
-        ("vLLM Server (qwen3:8b) -- 2 TB", vllm2000),
+        ("Offline/Ollama (phi4-mini) -- 2 TB", off2000),
+        ("vLLM Server (phi4-mini) -- 2 TB", vllm2000),
         ("Online (gpt-4o) -- 2 TB", on2000),
     ]:
         lines.append(f"## {title}")

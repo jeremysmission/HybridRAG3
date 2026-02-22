@@ -25,7 +25,7 @@ Last Updated: 2026-02-07
 - Configurable min_score threshold and top_k
 
 ### LLM Integration
-- Offline: Ollama (llama3, localhost:11434)
+- Offline: Ollama (phi4-mini, localhost:11434)
 - Online: GPT-3.5 Turbo API with cost tracking
 - Configurable timeout (180s default)
 

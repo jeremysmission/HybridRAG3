@@ -47,7 +47,7 @@ if str(PROJECT_ROOT) not in sys.path:
 class FakeOllamaConfig:
     """Fake config section for Ollama settings."""
     base_url: str = "http://localhost:11434"
-    model: str = "llama3"
+    model: str = "phi4-mini"
     timeout_seconds: int = 120
 
 

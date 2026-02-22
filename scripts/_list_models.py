@@ -16,7 +16,7 @@
 # HOW TO ADD/REMOVE MODELS:
 #   Offline:
 #     ollama pull mistral      (add a new offline model)
-#     ollama rm llama2         (remove an offline model)
+#     ollama rm phi4-mini      (remove an offline model)
 #
 #   Online:
 #     Models are auto-detected from your API provider.
@@ -162,7 +162,7 @@ def main():
         sys.exit(1)
 
     current_mode = cfg.get("mode", "offline")
-    offline_model = cfg.get("ollama", {}).get("model", "llama3")
+    offline_model = cfg.get("ollama", {}).get("model", "phi4-mini")
     online_model = cfg.get("api", {}).get("model", "(not set)")
     online_endpoint = cfg.get("api", {}).get("endpoint", "(not set)")
     online_deployment = cfg.get("api", {}).get("deployment", "")

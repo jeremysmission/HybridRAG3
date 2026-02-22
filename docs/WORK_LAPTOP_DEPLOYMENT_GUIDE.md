@@ -409,11 +409,11 @@ If Ollama is installed and approved, pull the work profile models:
 
 ```powershell
 # Primary models (must-have)
-ollama pull qwen3:8b            # 5.2 GB -- primary for eng, pm, draft, sys
+ollama pull phi4-mini            # 5.2 GB -- primary for eng, pm, draft, sys
 ollama pull phi4:14b-q4_K_M     # 9.1 GB -- primary for logistics
 
 # Alternative models (nice-to-have)
-ollama pull deepseek-r1:8b      # 5.2 GB -- alt for eng, sys (reasoning)
+ollama pull mistral:7b          # 5.2 GB -- alt for eng, sys (reasoning)
 ollama pull gemma3:4b           # 3.3 GB -- alt for pm (fast summarization)
 
 # Total download: ~23 GB
@@ -422,7 +422,7 @@ ollama list
 ```
 
 If download is slow on corporate network, pull one model at a time
-during off-hours. The qwen3:8b model is the highest priority (covers
+during off-hours. The phi4-mini model is the highest priority (covers
 the most work profiles).
 
 ---
@@ -548,9 +548,9 @@ $env:TESSERACT_CMD = "C:\Program Files\Tesseract-OCR\tesseract.exe"
 ### Ollama models download too slowly
 
 Pull one model at a time during off-hours. Priority order:
-1. qwen3:8b (covers most profiles)
+1. phi4-mini (covers most profiles)
 2. phi4:14b-q4_K_M (logistics profile)
-3. deepseek-r1:8b (if time allows)
+3. mistral:7b (if time allows)
 4. gemma3:4b (smallest, fastest to download)
 
 ### Parser returns IMPORT_ERROR

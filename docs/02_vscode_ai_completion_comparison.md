@@ -224,7 +224,7 @@ Continue Extension (reads your code context)
 Ollama Server (localhost:11434)
     |
     v
-Llama3 / Qwen2.5-Coder / DeepSeek (your local model)
+Phi-4 Mini / Mistral (your local model)
     |
     v
 Suggestion appears in VS Code
@@ -248,10 +248,10 @@ curl http://localhost:11434
 # STEP 2: Pull the recommended coding model
 # ---------------------------------------------------------------
 # For autocomplete (needs to be FAST -- small model):
-# qwen2.5-coder:1.5b is only 1.5 billion parameters
+# phi4-mini:1.5b is only 1.5 billion parameters
 # It responds in milliseconds, perfect for tab completion
 # ---------------------------------------------------------------
-ollama pull qwen2.5-coder:1.5b
+ollama pull phi4-mini:1.5b
 ```
 
 ```powershell
@@ -259,9 +259,9 @@ ollama pull qwen2.5-coder:1.5b
 # STEP 3: Pull the recommended chat model
 # ---------------------------------------------------------------
 # For chat sidebar and inline editing (needs to be SMART):
-# qwen2.5-coder:7b is larger but much better at reasoning
+# phi4-mini:7b is larger but much better at reasoning
 # ---------------------------------------------------------------
-ollama pull qwen2.5-coder:7b
+ollama pull phi4-mini:7b
 ```
 
 ```powershell
@@ -313,11 +313,11 @@ allowAnonymousTelemetry: false
 # Both run on your local Ollama instance.
 models:
   # Chat model -- used for the sidebar chat, code explanation, error fixing
-  # Qwen2.5 Coder 7B is the best open-source coding model at this size
+  # Phi-4 Mini 7B is the best open-source coding model at this size
   # It understands Python, PowerShell, YAML, SQL, and more
-  - name: Qwen 2.5 Coder 7B
+  - name: Phi-4 Mini 7B
     provider: ollama
-    model: qwen2.5-coder:7b
+    model: phi4-mini:7b
     roles:
       - chat        # Sidebar conversations
       - edit        # Inline code editing
@@ -329,9 +329,9 @@ models:
 # On your current CPU-only laptop, it'll be slower (~500ms-2s).
 # On the new desktop with GPU, it'll feel instant.
 autocompleteModel:
-  name: Qwen 2.5 Coder 1.5B
+  name: Phi-4 Mini 1.5B
   provider: ollama
-  model: qwen2.5-coder:1.5b
+  model: phi4-mini:1.5b
   roles:
     - autocomplete
 
@@ -464,12 +464,12 @@ Create or edit `~/.tabby/config.toml`:
 
 [model.completion.http]
 kind = "ollama/completion"
-model_name = "qwen2.5-coder:7b"
+model_name = "phi4-mini:7b"
 api_endpoint = "http://localhost:11434"
 
 [model.chat.http]
 kind = "openai/chat"
-model_name = "qwen2.5-coder:7b"
+model_name = "phi4-mini:7b"
 api_endpoint = "http://localhost:11434/v1"
 
 [model.embedding.http]
@@ -537,8 +537,8 @@ On your current laptop (CPU-only):
 
 On your incoming desktop (12GB+ VRAM):
 - Set `OLLAMA_MAX_LOADED_MODELS=2` to keep two models in VRAM
-- Small autocomplete model (qwen2.5-coder:1.5b, ~1.5GB) + chat model (qwen2.5-coder:7b, ~5GB) = ~6.5GB
-- Leaves ~5GB for HybridRAG3's Llama3/Qwen2.5 when you query
+- Small autocomplete model (phi4-mini:1.5b, ~1.5GB) + chat model (phi4-mini:7b, ~5GB) = ~6.5GB
+- Leaves ~5GB for HybridRAG3's Phi-4 Mini when you query
 
 ```powershell
 # Set Ollama to keep 2 models loaded simultaneously
@@ -559,14 +559,14 @@ $env:OLLAMA_NUM_PARALLEL = 4
 
 | Hardware | Model | Latency | Acceptable? |
 |----------|-------|---------|------------|
-| CPU-only (your current laptop) | qwen2.5-coder:1.5b | 1-3 seconds | Barely |
-| CPU-only (your current laptop) | qwen2.5-coder:7b | 5-15 seconds | Too slow |
-| RTX 3060 (12GB) | qwen2.5-coder:1.5b | 50-150ms | Excellent |
-| RTX 3060 (12GB) | qwen2.5-coder:7b | 200-500ms | Good |
-| RTX 3090 (24GB) | qwen2.5-coder:1.5b | 30-80ms | Excellent |
-| RTX 3090 (24GB) | qwen2.5-coder:7b | 100-300ms | Good |
-| RTX 5080 (16GB) | qwen2.5-coder:1.5b | 20-60ms | Instant |
-| RTX 5080 (16GB) | qwen2.5-coder:7b | 80-200ms | Good |
+| CPU-only (your current laptop) | phi4-mini:1.5b | 1-3 seconds | Barely |
+| CPU-only (your current laptop) | phi4-mini:7b | 5-15 seconds | Too slow |
+| RTX 3060 (12GB) | phi4-mini:1.5b | 50-150ms | Excellent |
+| RTX 3060 (12GB) | phi4-mini:7b | 200-500ms | Good |
+| RTX 3090 (24GB) | phi4-mini:1.5b | 30-80ms | Excellent |
+| RTX 3090 (24GB) | phi4-mini:7b | 100-300ms | Good |
+| RTX 5080 (16GB) | phi4-mini:1.5b | 20-60ms | Instant |
+| RTX 5080 (16GB) | phi4-mini:7b | 80-200ms | Good |
 
 **Target latency:** Under 200ms feels instantaneous. 200-500ms is noticeable but usable. Over 1 second breaks flow.
 
@@ -574,10 +574,10 @@ $env:OLLAMA_NUM_PARALLEL = 4
 
 | Hardware | Model | Time for 200-token answer | Notes |
 |----------|-------|--------------------------|-------|
-| CPU-only | qwen2.5-coder:7b | 30-90 seconds | Painful but works |
-| RTX 3060 | qwen2.5-coder:7b | 3-8 seconds | Good |
-| RTX 3090 | qwen2.5-coder:7b | 2-5 seconds | Good |
-| RTX 5080 | qwen2.5-coder:7b | 1-4 seconds | Great |
+| CPU-only | phi4-mini:7b | 30-90 seconds | Painful but works |
+| RTX 3060 | phi4-mini:7b | 3-8 seconds | Good |
+| RTX 3090 | phi4-mini:7b | 2-5 seconds | Good |
+| RTX 5080 | phi4-mini:7b | 1-4 seconds | Great |
 
 ---
 
@@ -585,22 +585,22 @@ $env:OLLAMA_NUM_PARALLEL = 4
 
 ### For Continue.dev (Recommended Setup)
 
-**Autocomplete Model:** `qwen2.5-coder:1.5b`
+**Autocomplete Model:** `phi4-mini:1.5b`
 - Why: Smallest coding-specific model that's actually good. Responds in milliseconds on GPU.
 - VRAM: ~1.5GB
-- Pull: `ollama pull qwen2.5-coder:1.5b`
+- Pull: `ollama pull phi4-mini:1.5b`
 
-**Chat Model:** `qwen2.5-coder:7b`
+**Chat Model:** `phi4-mini:7b`
 - Why: Best balance of quality and speed for code chat. Understands Python deeply.
 - VRAM: ~5GB
-- Pull: `ollama pull qwen2.5-coder:7b`
+- Pull: `ollama pull phi4-mini:7b`
 
 **Embedding Model:** `nomic-embed-text`
 - Why: Fast, high-quality embeddings for codebase search. Same model family used in many RAG systems.
 - VRAM: ~300MB
 - Pull: `ollama pull nomic-embed-text`
 
-**Alternative on 24GB GPU:** Replace chat model with `deepseek-r1:14b` for much stronger reasoning, or `qwen2.5-coder:32b` for the best open-source coding model available.
+**Alternative on 24GB GPU:** Replace chat model with `mistral:14b` for much stronger reasoning, or `phi4-mini:32b` for the best open-source coding model available.
 
 ### For Tabby (If You Choose It)
 
@@ -622,7 +622,7 @@ Same models as above, but configured via TOML instead of YAML.
 
 4. **Group Policy Considerations:** Continue is a standard VS Code extension -- it doesn't run unsigned PowerShell scripts or need special permissions. It communicates with Ollama via HTTP to localhost, which is typically not blocked by corporate firewalls.
 
-5. **Model Transfer:** You'd need to transfer the Ollama model files. These are in `~/.ollama/models/` on the work laptop. If Ollama already has Llama3, adding qwen2.5-coder models requires downloading them or transferring the model blobs.
+5. **Model Transfer:** You'd need to transfer the Ollama model files. These are in `~/.ollama/models/` on the work laptop. If Ollama already has phi4-mini, adding additional models requires downloading them or transferring the model blobs.
 
 ### Transfer Strategy
 
@@ -692,11 +692,11 @@ try {
 }
 
 # Step 2: Pull coding models
-Write-Host "`n[2/5] Pulling autocomplete model (qwen2.5-coder:1.5b)..." -ForegroundColor Yellow
-ollama pull qwen2.5-coder:1.5b
+Write-Host "`n[2/5] Pulling autocomplete model (phi4-mini:1.5b)..." -ForegroundColor Yellow
+ollama pull phi4-mini:1.5b
 
-Write-Host "`n[3/5] Pulling chat model (qwen2.5-coder:7b)..." -ForegroundColor Yellow
-ollama pull qwen2.5-coder:7b
+Write-Host "`n[3/5] Pulling chat model (phi4-mini:7b)..." -ForegroundColor Yellow
+ollama pull phi4-mini:7b
 
 Write-Host "`n[4/5] Pulling embedding model (nomic-embed-text)..." -ForegroundColor Yellow
 ollama pull nomic-embed-text
@@ -715,17 +715,17 @@ version: 1.0.0
 schema: v1
 allowAnonymousTelemetry: false
 models:
-  - name: Qwen 2.5 Coder 7B
+  - name: Phi-4 Mini 7B
     provider: ollama
-    model: qwen2.5-coder:7b
+    model: phi4-mini:7b
     roles:
       - chat
       - edit
       - apply
 autocompleteModel:
-  name: Qwen 2.5 Coder 1.5B
+  name: Phi-4 Mini 1.5B
   provider: ollama
-  model: qwen2.5-coder:1.5b
+  model: phi4-mini:1.5b
   roles:
     - autocomplete
 embeddingsProvider:

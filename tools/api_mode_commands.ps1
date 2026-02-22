@@ -9,7 +9,7 @@
 #     rag-cred-status     Check what credentials are stored
 #     rag-cred-delete     Remove stored credentials
 #     rag-mode-online     Switch to online API mode
-#     rag-mode-offline    Switch to offline AI mode (Ollama, Qwen, etc.)
+#     rag-mode-offline    Switch to offline AI mode (Ollama, Phi-4, Mistral, etc.)
 #     rag-models          Show all available AI models (offline + online)
 #     rag-test-api        Quick test that the API connection works
 #     rag-profile         View/switch performance profile
@@ -154,7 +154,7 @@ function rag-mode-offline {
     Switch to offline AI mode (local models via Ollama).
 
     WHAT HAPPENS:
-      1. Detects all installed local AI models (Llama3, Qwen, etc.)
+      1. Detects all installed local AI models (Phi-4, Mistral, etc.)
       2. Prompts you to choose which model to use
       3. Sets mode to "offline" in config/default_config.yaml
       4. Queries now route to your local model via Ollama
@@ -162,7 +162,7 @@ function rag-mode-offline {
     MODELS ARE AUTO-DETECTED:
       Any model you've pulled with 'ollama pull' appears in the list.
       Add models:    ollama pull mistral
-      Remove models: ollama rm llama2
+      Remove models: ollama rm phi4-mini
     #>
     python "$PROJECT_ROOT\scripts\_set_offline.py"
 

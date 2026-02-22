@@ -26,14 +26,14 @@ for model weights.
 
 ## 2. General-Purpose Stack (All Profiles)
 
-### 2.1 Offline LLM: `qwen3:8b`
+### 2.1 Offline LLM: `phi4-mini`
 
-- **Why**: Qwen3 8B rivals the original Llama 3 70B in STEM reasoning. Hybrid
+- **Why**: Phi-4 Mini rivals 70B-class models in STEM reasoning. Hybrid
   thinking mode (toggle between fast/deep reasoning). 128K native context.
   Runs at 25+ tok/s on 12 GB VRAM at Q4_K_M (~5.5 GB).
-- **Ollama pull**: `ollama pull qwen3:8b`
+- **Ollama pull**: `ollama pull phi4-mini`
 - **Benchmarks**: MMLU 79.1, HumanEval 88.4, MATH 82.3 (8B class leader)
-- **Current default**: `qwen2.5:7b-instruct-q5_K_M` -- Qwen3 is a direct upgrade
+- **Current default**: `phi4-mini` -- already configured
 
 ### 2.2 Online LLM: Claude Sonnet 4.5/4.6 via OpenRouter
 
@@ -63,8 +63,8 @@ for model weights.
 
 | Setting          | Value                        | Rationale |
 |------------------|------------------------------|-----------|
-| Ollama primary   | `qwen3:8b`                   | Best STEM reasoning at 8B. HumanEval 88.4 |
-| Ollama alt       | `deepseek-r1:8b`             | Chain-of-thought for complex multi-step technical questions |
+| Ollama primary   | `phi4-mini`                  | Best STEM reasoning at 8B. HumanEval 88.4 |
+| Ollama alt       | `mistral:7b`                 | Chain-of-thought for complex multi-step technical questions |
 | Cloud API        | Claude Sonnet 4.5 (current)  | Best-in-class code understanding |
 | Temperature      | 0.1                          | Low = deterministic technical answers |
 | Retrieval top_k  | 8                            | Broad retrieval across specs |
@@ -72,13 +72,13 @@ for model weights.
 | Reranker         | Enabled                      | Precision matters for spec lookup |
 
 **Why not Phi-4 14B as primary?** Fits at Q4_K_M (~10 GB) but leaves too
-little VRAM for KV cache at 16K context. Qwen3 8B at Q8_0 (~8 GB) gives
+little VRAM for KV cache at 16K context. Phi-4 Mini at Q8_0 (~8 GB) gives
 better output quality with more headroom.
 
 **Secondary test candidate: `phi4:14b-q4_K_M`** -- Added as WORK_ONLY
 secondary because the rejection is purely hardware margin, not quality.
 On machines with >12 GB VRAM (e.g., RTX 4080 16GB), Phi-4 14B may
-outperform Qwen3 8B on structured STEM tasks. Validate on work laptop
+outperform Phi-4 Mini on structured STEM tasks. Validate on work laptop
 by testing at 8K context (where KV cache pressure is lower).
 
 ### 3.2 Program Manager (Use case key: `pm`)
@@ -87,7 +87,7 @@ by testing at 8K context (where KV cache pressure is lower).
 
 | Setting          | Value                        | Rationale |
 |------------------|------------------------------|-----------|
-| Ollama primary   | `qwen3:8b`                   | Strong summarization and text generation |
+| Ollama primary   | `phi4-mini`                  | Strong summarization and text generation |
 | Ollama alt       | `gemma3:4b`                  | Faster inference for simple summarization tasks |
 | Cloud API        | `gpt-4o-mini`                | Best cost-to-quality ratio for writing tasks |
 | Temperature      | 0.25                         | Slightly higher for natural-sounding summaries |
@@ -111,7 +111,7 @@ on narrative content. This is a qualitative decision, not a hardware limit.
 | Setting          | Value                        | Rationale |
 |------------------|------------------------------|-----------|
 | Ollama primary   | `phi4:14b-q4_K_M`           | Best at structured/tabular data at small size |
-| Ollama alt       | `qwen3:8b`                   | Fallback if Phi-4 is too tight on VRAM |
+| Ollama alt       | `phi4-mini`                  | Fallback if Phi-4 is too tight on VRAM |
 | Cloud API        | `gpt-4o`                     | Strong tabular data extraction |
 | Temperature      | 0.0                          | Zero temp -- part numbers must be exact |
 | Retrieval top_k  | 10                           | Cross-reference across specs and schedules |
@@ -130,7 +130,7 @@ matters more than the LLM choice.
 
 | Setting          | Value                        | Rationale |
 |------------------|------------------------------|-----------|
-| Ollama primary   | `qwen3:8b`                   | Strong technical terminology handling |
+| Ollama primary   | `phi4-mini`                  | Strong technical terminology handling |
 | Ollama alt       | `phi4:14b-q4_K_M`           | Precision for standards references |
 | Cloud API        | Claude Sonnet 4.5 (current)  | Handles complex multi-part dimension queries |
 | Temperature      | 0.05                         | Near-zero for measurements and tolerances |
@@ -147,8 +147,8 @@ when generating descriptions. 0.05 gives determinism without repetition.
 
 | Setting          | Value                        | Rationale |
 |------------------|------------------------------|-----------|
-| Ollama primary   | `qwen3:8b`                   | General sysadmin queries, config parsing |
-| Ollama alt       | `deepseek-r1:8b`             | Step-by-step diagnostic reasoning |
+| Ollama primary   | `phi4-mini`                  | General sysadmin queries, config parsing |
+| Ollama alt       | `mistral:7b`                 | Step-by-step diagnostic reasoning |
 | Cloud API        | Claude Sonnet 4.5 (current)  | Best at config syntax and shell commands |
 | Temperature      | 0.1                          | Low -- wrong flags in CLI can be dangerous |
 | Retrieval top_k  | 8                            | Cross-reference related configs |
@@ -156,8 +156,8 @@ when generating descriptions. 0.05 gives determinism without repetition.
 | Reranker         | Enabled                      | Accurate command syntax matters |
 
 **Why no 14B model?** SysAdmin queries produce short outputs (commands,
-config snippets, troubleshooting steps). Qwen3 8B already scores 88.4 on
-HumanEval and handles shell/config syntax well. DeepSeek-R1 8B adds
+config snippets, troubleshooting steps). Phi-4 Mini already scores 88.4 on
+HumanEval and handles shell/config syntax well. Mistral 7B adds
 chain-of-thought for complex diagnostics. A 14B model would consume ~10 GB
 VRAM for outputs that are typically under 200 tokens -- the quality
 improvement does not justify the resource cost or latency increase.
@@ -169,11 +169,11 @@ This is a qualitative decision, not a hardware limit.
 
 | Profile       | UC Key | Primary Ollama     | Alt Ollama       | Secondary Test  | Cloud API       | Temp | top_k | ctx   |
 |---------------|--------|--------------------|------------------|-----------------|-----------------|------|-------|-------|
-| Engineer      | eng    | qwen3:8b           | deepseek-r1:8b   | phi4:14b-q4_K_M | Claude Sonnet   | 0.10 | 8     | 16384 |
-| PM            | pm     | qwen3:8b           | gemma3:4b        | --              | gpt-4o-mini     | 0.25 | 5     | 8192  |
-| Logistics     | log    | phi4:14b-q4_K_M    | qwen3:8b         | --              | gpt-4o          | 0.00 | 10    | 8192  |
-| CAD/Drafting  | draft  | qwen3:8b           | phi4:14b-q4_K_M  | --              | Claude Sonnet   | 0.05 | 8     | 16384 |
-| SysAdmin      | sys    | qwen3:8b           | deepseek-r1:8b   | --              | Claude Sonnet   | 0.10 | 8     | 16384 |
+| Engineer      | eng    | phi4-mini          | mistral:7b       | phi4:14b-q4_K_M | Claude Sonnet   | 0.10 | 8     | 16384 |
+| PM            | pm     | phi4-mini          | gemma3:4b        | --              | gpt-4o-mini     | 0.25 | 5     | 8192  |
+| Logistics     | log    | phi4:14b-q4_K_M    | phi4-mini        | --              | gpt-4o          | 0.00 | 10    | 8192  |
+| CAD/Drafting  | draft  | phi4-mini          | phi4:14b-q4_K_M  | --              | Claude Sonnet   | 0.05 | 8     | 16384 |
+| SysAdmin      | sys    | phi4-mini          | mistral:7b       | --              | Claude Sonnet   | 0.10 | 8     | 16384 |
 
 ---
 
@@ -181,10 +181,10 @@ This is a qualitative decision, not a hardware limit.
 
 ```bash
 # Primary (covers 4/5 profiles)
-ollama pull qwen3:8b
+ollama pull phi4-mini
 
 # Profile-specific alternatives
-ollama pull deepseek-r1:8b          # Engineer/SysAdmin reasoning
+ollama pull mistral:7b              # Engineer/SysAdmin reasoning
 ollama pull phi4:14b-q4_K_M         # Logistics/CAD precision
 ollama pull gemma3:4b               # PM fast summarization
 ```
@@ -218,20 +218,19 @@ VRAM hardware. These become available with GPU upgrades:
 
 | Model Tag            | Download | VRAM   | Replaces          | Benefit |
 |----------------------|----------|--------|--------------------|---------|
-| `qwen3:32b`          | ~20 GB   | ~24 GB | `qwen3:8b`        | Direct upgrade for all profiles using Qwen3 |
-| `deepseek-r1:32b`    | ~20 GB   | ~24 GB | `deepseek-r1:8b`  | Stronger chain-of-thought reasoning |
+| `mistral-small3.1:24b` | ~16 GB | ~20 GB | `phi4-mini`       | Direct upgrade for all profiles using Phi-4 Mini |
+| `mistral:32b`        | ~20 GB   | ~24 GB | `mistral:7b`      | Stronger chain-of-thought reasoning |
 | `gemma3:27b`         | ~17 GB   | ~24 GB | `gemma3:4b`        | 27B multimodal, strong summarization |
 
 ### Tier 2: 48 GB VRAM (Dual GPU, A6000, RTX A6000)
 
 | Model Tag            | Download | VRAM   | Replaces          | Benefit |
 |----------------------|----------|--------|--------------------|---------|
-| `deepseek-r1:70b`    | ~43 GB   | ~48 GB | `deepseek-r1:8b`  | Near-frontier reasoning |
-| `llama3.1:70b`       | ~43 GB   | ~48 GB | `llama3.1:8b`     | Meta 70B, 128K ctx, broad knowledge |
+| `mistral-large:70b`  | ~43 GB   | ~48 GB | `mistral:7b`      | Near-frontier reasoning |
+| `mistral-large:123b`  | ~43 GB   | ~48 GB | `mistral:7b`      | Mistral Large, 128K ctx, broad knowledge |
 
-**Note**: Neither `qwen3:72b` nor `qwen3:72b-q4_K_M` exist. Qwen3 available
-sizes are: 0.6b, 1.7b, 4b, 8b, 14b, 30b, 32b, 235b. The family jumps from
-32B directly to 235B (MoE). Use `qwen3:32b` as the stepping stone above 8B.
+**Note**: The Mistral family provides a range of sizes from 7B to 123B.
+Use `mistral-small3.1:24b` as the stepping stone above the 7B class.
 
 All Ollama pull tags verified against live library (2026-02-20, re-verified
 2026-02-20). Every tag in WORK_ONLY and PERSONAL_FUTURE confirmed valid.
@@ -255,9 +254,9 @@ cost is significant and the current model works well enough.
 ## 9. Sources
 
 - Ollama Model Library: https://ollama.com/library
-- Qwen3 Model Card: https://ollama.com/library/qwen3
+- Phi-4 Mini Model Card: https://ollama.com/library/phi4-mini
 - Phi-4 Model Card: https://ollama.com/library/phi4
-- DeepSeek-R1 Model Card: https://ollama.com/library/deepseek-r1
+- Mistral Model Card: https://ollama.com/library/mistral
 - Gemma3 Model Card: https://ollama.com/library/gemma3
 - Ollama VRAM Requirements Guide (localllm.in)
 - HuggingFace Open LLM Leaderboard v2

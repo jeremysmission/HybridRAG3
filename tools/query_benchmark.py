@@ -5,7 +5,7 @@
 # FILE: src/tools/query_benchmark.py
 #
 # WHAT THIS DOES (plain English):
-#   Runs the same questions through both online (API) and offline (Llama3)
+#   Runs the same questions through both online (API) and offline (Phi4-Mini)
 #   modes, times each phase (retrieval vs LLM response), and generates
 #   a visual bar chart comparing the results.
 #
@@ -51,7 +51,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 #   covering leadership styles, succession planning, organizational behavior.
 #
 # GENERAL_QUESTION: Something NOT in your documents. The LLM must answer
-#   from its training data (online API) or its local weights (Llama3).
+#   from its training data (online API) or its local weights (Phi4-Mini).
 #   This tests what happens when RAG retrieval returns low-relevance chunks.
 # ============================================================================
 
@@ -345,7 +345,7 @@ def generate_chart_html(results, output_path):
     </div>
     <div class="legend-item">
       <div class="legend-dot" style="background: #e07a3a;"></div>
-      Offline (Llama3)
+      Offline (Phi4-Mini)
     </div>
   </div>
 
@@ -424,9 +424,9 @@ def main():
     print()
 
     # ================================================================
-    # SCENARIO 3 & 4: Offline (Llama3) mode
+    # SCENARIO 3 & 4: Offline (Phi4-Mini) mode
     # ================================================================
-    print("  --- OFFLINE MODE (Llama3) ---")
+    print("  --- OFFLINE MODE (Phi4-Mini) ---")
     engine, config_or_err = init_engine("offline")
     if engine is None:
         print(f"    [SKIP] Cannot init offline mode: {config_or_err}")

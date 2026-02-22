@@ -14,7 +14,7 @@ The LLM must function as a **summarizer of retrieved content**, not as an
 independent knowledge source.
 
 This requirement applies equally to:
-- **Offline mode** (local Llama3 model)
+- **Offline mode** (local phi4-mini model)
 - **Online mode** (API GPT model)
 
 The only difference between modes is the generator model.
