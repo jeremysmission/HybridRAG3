@@ -61,6 +61,8 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 
@@ -68,6 +70,34 @@ from .vector_store import VectorStore
 from .embedder import Embedder
 
 logger = logging.getLogger(__name__)
+
+
+class _EmbeddingCache:
+    """Thread-safe LRU cache for query embeddings (maxsize entries)."""
+
+    def __init__(self, maxsize: int = 64):
+        self._maxsize = maxsize
+        self._cache: OrderedDict = OrderedDict()
+        self._lock = threading.Lock()
+
+    def get(self, key: str):
+        """Return cached embedding or None."""
+        with self._lock:
+            if key in self._cache:
+                self._cache.move_to_end(key)
+                return self._cache[key]
+            return None
+
+    def put(self, key: str, value):
+        """Store embedding, evicting oldest if full."""
+        with self._lock:
+            if key in self._cache:
+                self._cache.move_to_end(key)
+                self._cache[key] = value
+            else:
+                if len(self._cache) >= self._maxsize:
+                    self._cache.popitem(last=False)
+                self._cache[key] = value
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +204,9 @@ class Retriever:
         # Lazy-loaded reranker model (only loaded when first needed)
         self._reranker = None
 
+        # Query embedding cache -- repeat queries skip the embedding step
+        self._embed_cache = _EmbeddingCache(maxsize=64)
+
     # ------------------------------------------------------------------
     # Public API -- this is what query_engine.py calls
     # ------------------------------------------------------------------
@@ -217,6 +250,15 @@ class Retriever:
     # Hybrid search (vector + keyword via RRF)
     # ------------------------------------------------------------------
 
+    def _embed_query_cached(self, query):
+        """Embed a query string, using the LRU cache when possible."""
+        cached = self._embed_cache.get(query)
+        if cached is not None:
+            return cached
+        q_vec = self.embedder.embed_query(query)
+        self._embed_cache.put(query, q_vec)
+        return q_vec
+
     def _hybrid_search(self, query, candidate_k):
         """
         Run both vector search and keyword search, then merge results
@@ -225,7 +267,7 @@ class Retriever:
         This is the default and recommended search mode.
         """
         # Vector search: embed the query, find similar embeddings
-        q_vec = self.embedder.embed_query(query)
+        q_vec = self._embed_query_cached(query)
         vector_hits = self.vector_store.search(q_vec, top_k=candidate_k, block_rows=self.block_rows)
 
         # Keyword search: use SQLite FTS5 full-text index
@@ -325,7 +367,7 @@ class Retriever:
         but simpler and faster.
         """
         # Embed the query into a 384-dimensional vector
-        q_vec = self.embedder.embed_query(query)
+        q_vec = self._embed_query_cached(query)
 
         # Find the closest chunk embeddings by cosine similarity
         raw_hits = self.vector_store.search(q_vec, top_k=candidate_k, block_rows=self.block_rows)

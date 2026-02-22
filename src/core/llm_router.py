@@ -39,7 +39,7 @@ import os
 import time
 import logging
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Generator
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +212,76 @@ class OllamaRouter:
         except Exception as e:
             self.logger.error("ollama_error", error=str(e))
             return None
+
+    def query_stream(self, prompt: str) -> Generator[Dict[str, Any], None, None]:
+        """
+        Stream tokens from the local Ollama server.
+
+        Yields dicts with either:
+          {"token": str}        -- a partial text token
+          {"done": True, ...}   -- final metadata (tokens_in, tokens_out, model, latency_ms)
+
+        Returns nothing (via generator) if the call fails.
+        """
+        start_time = time.time()
+
+        try:
+            get_gate().check_allowed(
+                f"{self.base_url}/api/generate",
+                "ollama_query_stream", "ollama_router",
+            )
+        except NetworkBlockedError as e:
+            self.logger.error("ollama_stream_blocked_by_gate", error=str(e))
+            return
+
+        payload = {
+            "model": self.config.ollama.model,
+            "prompt": prompt,
+            "stream": True,
+        }
+
+        try:
+            with self._client.stream(
+                "POST",
+                f"{self.base_url}/api/generate",
+                json=payload,
+                timeout=self.config.ollama.timeout_seconds,
+            ) as response:
+                response.raise_for_status()
+                tokens_in = 0
+                tokens_out = 0
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    chunk = json.loads(line)
+                    token_text = chunk.get("response", "")
+                    if token_text:
+                        yield {"token": token_text}
+                    if chunk.get("done", False):
+                        tokens_in = chunk.get("prompt_eval_count", 0)
+                        tokens_out = chunk.get("eval_count", 0)
+                        break
+
+            latency_ms = (time.time() - start_time) * 1000
+            self.logger.info(
+                "ollama_stream_complete",
+                model=self.config.ollama.model,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                latency_ms=latency_ms,
+            )
+            yield {
+                "done": True,
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
+                "model": self.config.ollama.model,
+                "latency_ms": latency_ms,
+            }
+
+        except httpx.HTTPError as e:
+            self.logger.error("ollama_stream_http_error", error=str(e))
+        except Exception as e:
+            self.logger.error("ollama_stream_error", error=str(e))
 
     def close(self):
         """Release the persistent HTTP client."""
@@ -1056,6 +1126,32 @@ class LLMRouter:
 
         else:
             return self.ollama.query(prompt)
+
+    def query_stream(self, prompt: str) -> Generator[Dict[str, Any], None, None]:
+        """
+        Stream tokens from the appropriate backend.
+
+        Only supported in offline (Ollama) mode. Online mode falls back
+        to non-streaming query() wrapped as a single-chunk yield.
+
+        Yields dicts -- see OllamaRouter.query_stream() for format.
+        """
+        mode = self.config.mode
+
+        if mode == "offline":
+            yield from self.ollama.query_stream(prompt)
+        else:
+            # Online mode: no streaming support, yield full response as one chunk
+            result = self.query(prompt)
+            if result:
+                yield {"token": result.text}
+                yield {
+                    "done": True,
+                    "tokens_in": result.tokens_in,
+                    "tokens_out": result.tokens_out,
+                    "model": result.model,
+                    "latency_ms": result.latency_ms,
+                }
 
     def get_status(self) -> Dict[str, Any]:
         """
