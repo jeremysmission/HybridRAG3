@@ -1,11 +1,14 @@
-# ============================================================================
-# HybridRAG v3 -- GUI Integration Tests (tests/test_gui_integration_w4.py)
-# ============================================================================
-# 17 tests covering all GUI panels, settings view, and API admin tab with mocked backends.
-# No real indexing or API calls. Works offline with no API key.
-#
-# INTERNET ACCESS: NONE
-# ============================================================================
+# ===================================================================
+# WHAT: GUI integration tests covering all panels (query, index,
+#       settings, API admin tab) with mocked backends (17 tests)
+# WHY:  The GUI wires together many backend components (config, LLM
+#       router, cost tracker, vector store). These tests verify that
+#       the wiring is correct and panels render without crashing,
+#       even when backends are unavailable.
+# HOW:  Mocks all backends so no real indexing, API calls, or database
+#       needed. Works offline with no API key. Uses Tk test mode.
+# USAGE: pytest tests/test_gui_integration_w4.py -v
+# ===================================================================
 
 import sys
 import os
@@ -302,11 +305,11 @@ def test_05_use_case_dropdown_populates():
 
 
 # ============================================================================
-# TEST 06: Index panel browse button updates source folder field
+# TEST 06: Index panel shows read-only paths from config
 # ============================================================================
 
-def test_06_index_panel_browse_updates_folder():
-    """Browse button updates the folder entry field."""
+def test_06_index_panel_displays_paths_from_config():
+    """Index panel shows source and index folder from config (read-only)."""
     root = _make_root()
     config = FakeGUIConfig()
 
@@ -315,12 +318,20 @@ def test_06_index_panel_browse_updates_folder():
     panel = IndexPanel(root, config=config)
     panel.pack()
 
-    # Mock the folder dialog
-    test_path = os.path.join(os.path.dirname(__file__), "test_data")
-    with patch("src.gui.panels.index_panel.filedialog.askdirectory", return_value=test_path):
-        panel._on_browse()
+    # Source folder comes from config
+    assert panel.folder_var.get() == config.paths.source_folder
 
-    assert panel.folder_var.get() == test_path
+    # Index folder derived from database path (empty db = "(not set)")
+    if config.paths.database:
+        expected_index = os.path.dirname(config.paths.database)
+    else:
+        expected_index = "(not set)"
+    assert panel.index_var.get() == expected_index
+
+    # Paths are displayed as labels, not editable entries
+    assert hasattr(panel, "folder_display")
+    assert hasattr(panel, "index_display")
+    assert not hasattr(panel, "browse_btn")
 
     root.destroy()
 
@@ -718,3 +729,180 @@ def test_17_admin_defaults_round_trip(tmp_path):
 
     view.destroy()
     root.destroy()
+
+
+# ============================================================================
+# TEST 18: Data Paths panel reads config and validates save
+# ============================================================================
+
+def test_18_data_paths_panel_reads_and_saves(tmp_path):
+    """DataPathsPanel reads config paths, validates folders, writes to config."""
+    root = _make_root()
+    config = FakeGUIConfig()
+
+    # Create real temp folders so validation passes
+    src_dir = str(tmp_path / "source_docs")
+    idx_dir = str(tmp_path / "indexed_data")
+    os.makedirs(src_dir, exist_ok=True)
+    os.makedirs(idx_dir, exist_ok=True)
+
+    mock_creds = MagicMock()
+    mock_creds.endpoint = None
+    mock_creds.api_key = None
+    mock_creds.has_key = False
+    mock_creds.has_endpoint = False
+    mock_creds.is_online_ready = False
+    mock_creds.key_preview = "(not set)"
+    mock_creds.source_key = None
+    mock_creds.source_endpoint = None
+
+    # Write a temp config YAML for the save to target
+    cfg_dir = str(tmp_path / "config")
+    os.makedirs(cfg_dir, exist_ok=True)
+    cfg_file = os.path.join(cfg_dir, "default_config.yaml")
+    with open(cfg_file, "w") as f:
+        f.write("paths: {}\n")
+
+    with patch("src.gui.panels.api_admin_tab.resolve_credentials", return_value=mock_creds), \
+         patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": str(tmp_path)}):
+        from src.gui.panels.settings_view import SettingsView
+        app_ref = MagicMock()
+        app_ref._views = {}
+        view = SettingsView(root, config=config, app_ref=app_ref)
+        _pump_events(root, 50)
+
+        tab = view._api_admin_tab
+        paths_panel = tab._paths_panel
+
+        # Set valid source and index folders
+        paths_panel.source_var.set(src_dir)
+        paths_panel.index_var.set(idx_dir)
+
+        # Save paths
+        paths_panel._on_save()
+        _pump_events(root, 50)
+
+        # Verify config was updated
+        assert config.paths.source_folder == src_dir
+        expected_db = os.path.join(idx_dir, "hybridrag.sqlite3")
+        assert config.paths.database == expected_db
+
+        # Verify YAML was written
+        import yaml
+        with open(cfg_file, "r") as f:
+            saved = yaml.safe_load(f)
+        assert saved["paths"]["source_folder"] == src_dir
+        assert saved["paths"]["database"] == expected_db
+
+        # Verify status shows success
+        status = paths_panel.status_label.cget("text")
+        assert "OK" in status
+
+    view.destroy()
+    root.destroy()
+
+
+# ============================================================================
+# TEST 19: Data Paths panel rejects non-existent folders
+# ============================================================================
+
+def test_19_data_paths_rejects_bad_folders():
+    """DataPathsPanel shows error when folders don't exist."""
+    root = _make_root()
+    config = FakeGUIConfig()
+
+    mock_creds = MagicMock()
+    mock_creds.endpoint = None
+    mock_creds.api_key = None
+    mock_creds.has_key = False
+    mock_creds.has_endpoint = False
+    mock_creds.is_online_ready = False
+    mock_creds.key_preview = "(not set)"
+    mock_creds.source_key = None
+    mock_creds.source_endpoint = None
+
+    with patch("src.gui.panels.api_admin_tab.resolve_credentials", return_value=mock_creds):
+        from src.gui.panels.settings_view import SettingsView
+        app_ref = MagicMock()
+        app_ref._views = {}
+        view = SettingsView(root, config=config, app_ref=app_ref)
+        _pump_events(root, 50)
+
+        tab = view._api_admin_tab
+        paths_panel = tab._paths_panel
+
+        # Set non-existent folders
+        paths_panel.source_var.set("Z:\\does_not_exist_source_12345")
+        paths_panel.index_var.set("Z:\\does_not_exist_index_12345")
+
+        # Try to save
+        paths_panel._on_save()
+        _pump_events(root, 50)
+
+        # Should show FAIL status
+        status = paths_panel.status_label.cget("text")
+        assert "FAIL" in status
+
+        # Config should NOT have been updated
+        assert config.paths.source_folder == ""
+
+    view.destroy()
+    root.destroy()
+
+
+# ============================================================================
+# TEST 20: ScrollableFrame creates and scrolls
+# ============================================================================
+
+def test_20_scrollable_frame_creates():
+    """ScrollableFrame creates inner frame and canvas correctly."""
+    root = _make_root()
+
+    from src.gui.scrollable import ScrollableFrame
+
+    sf = ScrollableFrame(root, bg="#1e1e2e")
+    sf.pack(fill=tk.BOTH, expand=True)
+
+    # Inner frame exists and is a Frame
+    assert isinstance(sf.inner, tk.Frame)
+
+    # Can add widgets to inner
+    label = tk.Label(sf.inner, text="Test content")
+    label.pack()
+    _pump_events(root, 50)
+
+    assert label.winfo_exists()
+
+    # Apply theme works
+    sf.apply_theme({"bg": "#ffffff"})
+    assert sf.cget("bg") == "#ffffff"
+
+    sf.destroy()
+    root.destroy()
+
+
+# ============================================================================
+# TEST 21: Zoom scaling changes font sizes
+# ============================================================================
+
+def test_21_zoom_scaling():
+    """set_zoom() scales all font tuples correctly."""
+    from src.gui import theme
+
+    original_size = theme._BASE_SIZES["FONT"]
+
+    # Zoom to 200%
+    theme.set_zoom(2.0)
+    assert theme.FONT[1] == original_size * 2
+    assert theme.FONT_BOLD[1] == original_size * 2
+    assert theme.get_zoom() == 2.0
+
+    # Zoom to 50%
+    theme.set_zoom(0.5)
+    expected = max(7, int(original_size * 0.5))
+    assert theme.FONT[1] == expected
+
+    # Reset to 100%
+    theme.set_zoom(1.0)
+    assert theme.FONT[1] == original_size
+    assert theme.get_zoom() == 1.0
