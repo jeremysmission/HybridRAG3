@@ -63,8 +63,19 @@ class ScrollableFrame(tk.Frame):
         self._canvas.bind("<Leave>", self._unbind_mousewheel)
 
     def _on_canvas_resize(self, event):
-        """Sync inner frame width to canvas width."""
+        """Sync inner frame width to canvas width.
+
+        Also set the inner frame height to at least the canvas height so
+        that pack(fill=BOTH, expand=True) children fill visible space.
+        When children need more than the canvas height, the natural
+        (requested) height wins and the scrollbar activates.
+        """
         self._canvas.itemconfig("inner", width=event.width)
+        inner_h = self.inner.winfo_reqheight()
+        if inner_h < event.height:
+            self._canvas.itemconfig("inner", height=event.height)
+        else:
+            self._canvas.itemconfig("inner", height=inner_h)
 
     def _bind_mousewheel(self, event):
         self._canvas.bind_all("<MouseWheel>", self._on_mousewheel)

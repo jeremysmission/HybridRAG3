@@ -8,7 +8,7 @@
 
 import os
 import tkinter as tk
-from tkinter import ttk, filedialog
+from tkinter import ttk
 import threading
 import time
 import logging
@@ -26,7 +26,7 @@ class IndexPanel(tk.LabelFrame):
 
     def __init__(self, parent, config, indexer=None):
         t = current_theme()
-        super().__init__(parent, text="Index Panel", padx=16, pady=16,
+        super().__init__(parent, text="Index Panel", padx=16, pady=8,
                          bg=t["panel_bg"], fg=t["accent"],
                          font=FONT_BOLD)
         self.config = config
@@ -38,12 +38,13 @@ class IndexPanel(tk.LabelFrame):
 
     def _build_widgets(self, t):
         """Build all child widgets with theme colors."""
-        # -- Row 0: Source folder --
+        # -- Row 0: Source folder (read-only display) --
         row0 = tk.Frame(self, bg=t["panel_bg"])
-        row0.pack(fill=tk.X, pady=(0, 8))
+        row0.pack(fill=tk.X, pady=(0, 4))
 
-        self.folder_label = tk.Label(row0, text="Source folder:",
-                                     bg=t["panel_bg"], fg=t["fg"], font=FONT)
+        self.folder_label = tk.Label(row0, text="Source:",
+                                     bg=t["panel_bg"], fg=t["label_fg"],
+                                     font=FONT)
         self.folder_label.pack(side=tk.LEFT)
 
         default_source = getattr(
@@ -51,23 +52,40 @@ class IndexPanel(tk.LabelFrame):
         ) or ""
 
         self.folder_var = tk.StringVar(value=default_source)
-        self.folder_entry = tk.Entry(
-            row0, textvariable=self.folder_var, width=50,
-            bg=t["input_bg"], fg=t["input_fg"], font=FONT,
-            insertbackground=t["fg"], relief=tk.FLAT, bd=2,
+        self.folder_display = tk.Label(
+            row0, textvariable=self.folder_var, anchor=tk.W,
+            bg=t["panel_bg"], fg=t["fg"], font=FONT,
         )
-        self.folder_entry.pack(side=tk.LEFT, fill=tk.X, expand=True,
-                               padx=(8, 0), ipady=4)
+        self.folder_display.pack(side=tk.LEFT, fill=tk.X, expand=True,
+                                 padx=(8, 0))
 
-        self.browse_btn = tk.Button(
-            row0, text="Browse", command=self._on_browse, width=8,
-            bg=t["accent"], fg=t["accent_fg"], font=FONT,
-            relief=tk.FLAT, bd=0, padx=16, pady=8,
-            activebackground=t["accent_hover"],
-            activeforeground=t["accent_fg"],
+        # -- Row 0b: Index folder (read-only display) --
+        row0b = tk.Frame(self, bg=t["panel_bg"])
+        row0b.pack(fill=tk.X, pady=(0, 8))
+
+        self.index_label = tk.Label(row0b, text="Index:",
+                                    bg=t["panel_bg"], fg=t["label_fg"],
+                                    font=FONT)
+        self.index_label.pack(side=tk.LEFT)
+
+        db_path = getattr(
+            getattr(self.config, "paths", None), "database", ""
+        ) or ""
+        index_default = os.path.dirname(db_path) if db_path else "(not set)"
+
+        self.index_var = tk.StringVar(value=index_default)
+        self.index_display = tk.Label(
+            row0b, textvariable=self.index_var, anchor=tk.W,
+            bg=t["panel_bg"], fg=t["fg"], font=FONT,
         )
-        self.browse_btn.pack(side=tk.LEFT, padx=(8, 0))
-        bind_hover(self.browse_btn, normal_bg=t["accent"])
+        self.index_display.pack(side=tk.LEFT, fill=tk.X, expand=True,
+                                padx=(8, 0))
+
+        self.paths_hint = tk.Label(
+            row0b, text="(change in Settings > API & Admin)",
+            bg=t["panel_bg"], fg=t["gray"], font=("Segoe UI", 8),
+        )
+        self.paths_hint.pack(side=tk.RIGHT)
 
         # -- Row 1: Controls --
         row1 = tk.Frame(self, bg=t["panel_bg"])
@@ -130,16 +148,12 @@ class IndexPanel(tk.LabelFrame):
                 for child in row.winfo_children():
                     if isinstance(child, tk.Label):
                         child.configure(bg=t["panel_bg"])
-                        # Keep colored status labels
                         cur_fg = str(child.cget("fg"))
                         if cur_fg in ("#888888", "gray"):
                             child.configure(fg=t["gray"])
                         elif cur_fg not in ("green", "red", "orange",
                                             t["green"], t["red"], t["orange"]):
                             child.configure(fg=t["fg"])
-                    elif isinstance(child, tk.Entry):
-                        child.configure(bg=t["input_bg"], fg=t["input_fg"],
-                                        insertbackground=t["fg"])
                     elif isinstance(child, tk.Button):
                         if str(child.cget("state")) == "disabled":
                             child.configure(bg=t["inactive_btn_bg"],
@@ -147,6 +161,13 @@ class IndexPanel(tk.LabelFrame):
                         else:
                             child.configure(bg=t["accent"], fg=t["accent_fg"],
                                             activebackground=t["accent_hover"])
+
+        # Path labels
+        self.folder_label.configure(bg=t["panel_bg"], fg=t["label_fg"])
+        self.folder_display.configure(bg=t["panel_bg"], fg=t["fg"])
+        self.index_label.configure(bg=t["panel_bg"], fg=t["label_fg"])
+        self.index_display.configure(bg=t["panel_bg"], fg=t["fg"])
+        self.paths_hint.configure(bg=t["panel_bg"], fg=t["gray"])
 
         self.last_run_label.configure(bg=t["panel_bg"])
         if "none" in self.last_run_label.cget("text"):
@@ -164,15 +185,6 @@ class IndexPanel(tk.LabelFrame):
         else:
             self.start_btn.config(state=tk.DISABLED, bg=t["inactive_btn_bg"],
                                   fg=t["inactive_btn_fg"])
-
-    def _on_browse(self):
-        """Open folder picker dialog."""
-        folder = filedialog.askdirectory(
-            title="Select Source Document Folder",
-            initialdir=self.folder_var.get() or None,
-        )
-        if folder:
-            self.folder_var.set(folder)
 
     def _on_start(self):
         """Start indexing in a background thread."""
