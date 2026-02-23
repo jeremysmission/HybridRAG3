@@ -1,16 +1,28 @@
 # ============================================================================
 # HybridRAG v3 -- GUI Theme Engine (src/gui/theme.py)
 # ============================================================================
-# Centralized dark/light theme with ttk clam styling.
-# No external dependencies -- uses ttk built-in clam theme + manual colors.
+# WHAT: Centralized color palettes and font definitions for dark/light themes.
+# WHY:  Every widget in the GUI reads its colors from here, so changing
+#       one value here changes it everywhere.  This prevents the "50 shades
+#       of slightly-different-gray" problem that plagues hand-coded UIs.
+# HOW:  Two dictionaries (DARK, LIGHT) with identical keys.  The active
+#       theme is stored in a module-level variable swapped by set_theme().
+#       ttk widgets use apply_ttk_styles(); tk widgets read current_theme().
+# USAGE: from src.gui.theme import current_theme, FONT, FONT_BOLD
+#        t = current_theme()
+#        label = tk.Label(parent, bg=t["panel_bg"], fg=t["fg"], font=FONT)
 #
-# Palette (dark):
-#   Background:  #1e1e1e
-#   Panel bg:    #2d2d2d
-#   Text:        #ffffff
-#   Input bg:    #3c3c3c
-#   Accent:      #0078d4
-#   Font:        Segoe UI 11pt (body), 15pt (title), 10pt (small/mono)
+# COLOR SCHEME RATIONALE:
+#   Dark mode default -- matches VS Code / modern tooling expectations.
+#   Accent #0078d4 -- Windows system blue, universally recognized as
+#                     "clickable" without accessibility issues.
+#   Green/Orange/Red -- traffic light pattern for status indicators
+#                       (green=good, orange=caution, red=error).
+#
+# FONT CHOICES:
+#   Segoe UI -- Windows system font, renders crisply at all DPI levels.
+#   Consolas -- monospace for code, metrics, and aligned tables.
+#   11pt body -- large enough for readability at arm's length (demo use).
 #
 # Button hierarchy (research-based sizing):
 #   Primary  (Accent.TButton):   24x10 padding, bold  -- Ask, Start Indexing
@@ -24,6 +36,18 @@ from tkinter import ttk
 
 FONT_FAMILY = "Segoe UI"
 FONT_SIZE = 11
+
+# Base sizes (unscaled) -- used to recalculate on zoom
+_BASE_SIZES = {
+    "FONT": 11,
+    "FONT_BOLD": 11,
+    "FONT_TITLE": 15,
+    "FONT_SECTION": 13,
+    "FONT_SMALL": 10,
+    "FONT_MONO": 10,
+}
+_zoom_factor = 1.0
+
 FONT = (FONT_FAMILY, FONT_SIZE)
 FONT_BOLD = (FONT_FAMILY, FONT_SIZE, "bold")
 FONT_TITLE = (FONT_FAMILY, 15, "bold")
@@ -31,6 +55,8 @@ FONT_SECTION = (FONT_FAMILY, 13, "bold")
 FONT_SMALL = (FONT_FAMILY, 10)
 FONT_MONO = ("Consolas", 10)
 
+# --- DARK THEME (default) ---
+# Modeled after VS Code's dark theme for familiarity with developers.
 DARK = {
     "name": "dark",
     "bg": "#1e1e1e",
@@ -59,6 +85,8 @@ DARK = {
     "inactive_btn_fg": "#a0a0a0",
 }
 
+# --- LIGHT THEME ---
+# For conference rooms with bright projectors or accessibility needs.
 LIGHT = {
     "name": "light",
     "bg": "#f0f0f0",
@@ -87,7 +115,8 @@ LIGHT = {
     "inactive_btn_fg": "#555555",
 }
 
-# Default theme
+# --- THEME STATE ---
+# Module-level mutable -- swapped by set_theme(), read by current_theme().
 _current = DARK
 
 
@@ -100,6 +129,34 @@ def set_theme(theme_dict):
     """Set the active theme dict (DARK or LIGHT)."""
     global _current
     _current = theme_dict
+
+
+def get_zoom():
+    """Return the current zoom factor (1.0 = 100%)."""
+    return _zoom_factor
+
+
+def set_zoom(factor):
+    """Recalculate all FONT tuples for the given zoom factor.
+
+    Args:
+        factor: Float zoom multiplier (0.5 = 50%, 1.0 = 100%, 2.0 = 200%).
+    """
+    global _zoom_factor, FONT, FONT_BOLD, FONT_TITLE, FONT_SECTION
+    global FONT_SMALL, FONT_MONO, FONT_SIZE
+
+    _zoom_factor = factor
+
+    def _sz(key):
+        return max(7, int(_BASE_SIZES[key] * factor))
+
+    FONT_SIZE = _sz("FONT")
+    FONT = (FONT_FAMILY, _sz("FONT"))
+    FONT_BOLD = (FONT_FAMILY, _sz("FONT_BOLD"), "bold")
+    FONT_TITLE = (FONT_FAMILY, _sz("FONT_TITLE"), "bold")
+    FONT_SECTION = (FONT_FAMILY, _sz("FONT_SECTION"), "bold")
+    FONT_SMALL = (FONT_FAMILY, _sz("FONT_SMALL"))
+    FONT_MONO = ("Consolas", _sz("FONT_MONO"))
 
 
 def apply_ttk_styles(theme_dict):

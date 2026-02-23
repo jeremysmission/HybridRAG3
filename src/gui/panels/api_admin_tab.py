@@ -1,8 +1,16 @@
 # ============================================================================
 # HybridRAG v3 -- API & Admin Tab (src/gui/panels/api_admin_tab.py)    RevB
 # ============================================================================
-# Settings sub-tab for API credentials, data paths, online model
-# selection, and admin defaults (save/restore).
+# WHAT: Combined admin panel for API credentials, file paths, model
+#       selection, and system defaults -- everything an admin touches.
+# WHY:  Centralizes all "admin setup" tasks into one tabbed view so
+#       non-technical users can configure the system without editing
+#       YAML files or running command-line scripts.
+# HOW:  Four self-contained sections (LabelFrames) stacked inside a
+#       scrollable canvas.  Each section reads/writes the live config
+#       object and persists changes to disk (YAML or Credential Manager).
+# USAGE: Embedded inside SettingsView notebook as the "API & Admin" tab.
+#        Navigate via Admin menu or NavBar > Settings > API & Admin.
 #
 # Sections:
 #   A. API Credentials  -- endpoint URL, API key, save/test/clear
@@ -11,8 +19,9 @@
 #   D. Admin Defaults  -- save current / restore defaults
 #
 # Classes:
-#   ModelSelectionPanel -- self-contained treeview for online model pick
-#   ApiAdminTab        -- coordinator Frame embedding all four sections
+#   DataPathsPanel      -- folder pickers + validation for source/index
+#   ModelSelectionPanel  -- self-contained treeview for online model pick
+#   ApiAdminTab          -- coordinator Frame embedding all four sections
 #
 # INTERNET ACCESS:
 #   Test Connection + Refresh Models: one GET to /models endpoint
@@ -28,6 +37,7 @@ import logging
 from datetime import datetime
 
 from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_SMALL, FONT_MONO, bind_hover
+from src.gui.scrollable import ScrollableFrame
 from src.security.credentials import (
     resolve_credentials, validate_endpoint,
     store_api_key, store_endpoint, clear_credentials,
@@ -35,15 +45,25 @@ from src.security.credentials import (
 
 logger = logging.getLogger(__name__)
 
-# Path for admin defaults file (no secrets stored here)
+# --- MODULE CONSTANTS ---
+
+# Path for admin defaults file (no secrets stored here -- safe to commit)
 _DEFAULTS_PATH = os.path.join(
     os.environ.get("HYBRIDRAG_PROJECT_ROOT", "."),
     "config", "admin_defaults.json",
 )
 
 
+# --- THEME HELPER ---
+
 def _theme_widget(widget, t):
-    """Recursively apply theme to a widget and its children."""
+    """Recursively apply theme to a widget and its children.
+
+    Walks the entire widget tree starting from `widget` and sets
+    background/foreground colors based on each widget's class.
+    This is necessary because tk (not ttk) widgets do not inherit
+    theme changes automatically -- each one must be touched manually.
+    """
     try:
         wclass = widget.winfo_class()
         if wclass == "Frame":
@@ -78,6 +98,14 @@ class DataPathsPanel(tk.LabelFrame):
     """
 
     def __init__(self, parent, config, app_ref):
+        """Create the data paths panel.
+
+        Args:
+            parent: Parent tk widget to embed in.
+            config: Live config object -- paths are read from and written to this.
+            app_ref: Reference to the main HybridRAGApp, used to sync the
+                     index panel when paths change.
+        """
         t = current_theme()
         super().__init__(parent, text="Data Paths", padx=16, pady=8,
                          bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
@@ -88,6 +116,7 @@ class DataPathsPanel(tk.LabelFrame):
         self._refresh_info()
 
     def _build(self, t):
+        """Construct the folder entry rows, detection info, and save button."""
         # Source folder row
         row_src = tk.Frame(self, bg=t["panel_bg"])
         row_src.pack(fill=tk.X, pady=4)
@@ -168,6 +197,7 @@ class DataPathsPanel(tk.LabelFrame):
         self.status_label.pack(fill=tk.X, pady=(2, 0))
 
     def _on_browse_source(self):
+        """Open a native folder picker for the source documents directory."""
         current = self.source_var.get().strip()
         initial = current if current and os.path.isdir(current) else ""
         folder = filedialog.askdirectory(
@@ -176,6 +206,7 @@ class DataPathsPanel(tk.LabelFrame):
             self.source_var.set(os.path.normpath(folder))
 
     def _on_browse_index(self):
+        """Open a native folder picker for the index data directory."""
         current = self.index_var.get().strip()
         initial = current if current and os.path.isdir(current) else ""
         folder = filedialog.askdirectory(
@@ -238,8 +269,12 @@ class DataPathsPanel(tk.LabelFrame):
                 yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
             if hasattr(self._app, "index_panel"):
-                self._app.index_panel.folder_var.set(source)
-                self._app.index_panel.config = self.config
+                ip = self._app.index_panel
+                if source:
+                    ip.folder_var.set(source)
+                if index:
+                    ip.index_var.set(index)
+                ip.config = self.config
 
             self.status_label.config(
                 text="[OK] Paths saved to config.", fg=t["green"])
@@ -303,13 +338,21 @@ class ModelSelectionPanel(tk.LabelFrame):
     """
 
     def __init__(self, parent, config, endpoint_var, key_var):
+        """Create the model selection panel.
+
+        Args:
+            parent: Parent tk widget.
+            config: Live config object -- selected model is written to config.api.model.
+            endpoint_var: StringVar holding the API endpoint URL (from credentials section).
+            key_var: StringVar holding the API key (from credentials section).
+        """
         t = current_theme()
         super().__init__(parent, text="Online Model Selection", padx=16, pady=8,
                          bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
         self.config = config
         self._endpoint_var = endpoint_var
         self._key_var = key_var
-        self._models_data = []
+        self._models_data = []   # raw model dicts from API, cached after fetch
 
         self._build(t)
 
@@ -377,9 +420,11 @@ class ModelSelectionPanel(tk.LabelFrame):
     # -- Use case --
 
     def _on_uc_change(self, event=None):
+        """Re-sort and re-display models when the user picks a different use case."""
         self._populate()
 
     def _get_uc_key(self):
+        """Convert the human-readable dropdown label back to a key like 'sw' or 'pm'."""
         from scripts._model_meta import USE_CASES
         label = self.uc_var.get()
         for k, uc in USE_CASES.items():
@@ -390,6 +435,7 @@ class ModelSelectionPanel(tk.LabelFrame):
     # -- Refresh --
 
     def _on_refresh(self):
+        """Fetch model list from the API endpoint in a background thread."""
         t = current_theme()
         endpoint = self._endpoint_var.get().strip()
         key = self._key_var.get().strip()
@@ -403,6 +449,7 @@ class ModelSelectionPanel(tk.LabelFrame):
                          daemon=True).start()
 
     def _do_fetch(self, endpoint, key):
+        """Background thread: call the API's /models endpoint and parse the result."""
         try:
             from scripts._model_meta import fetch_online_models_with_meta
             by_provider, total = fetch_online_models_with_meta(endpoint, key)
@@ -417,6 +464,7 @@ class ModelSelectionPanel(tk.LabelFrame):
             self.after(0, self._fetch_failed, str(e)[:80])
 
     def _fetch_done(self, models, total):
+        """Main-thread callback: populate the treeview after a successful fetch."""
         t = current_theme()
         self._models_data = models
         self.status_label.config(
@@ -425,6 +473,7 @@ class ModelSelectionPanel(tk.LabelFrame):
         self._populate()
 
     def _fetch_failed(self, msg):
+        """Main-thread callback: show error when model fetch fails."""
         t = current_theme()
         self.status_label.config(text="[FAIL] {}".format(msg), fg=t["red"])
         self.refresh_btn.config(state=tk.NORMAL)
@@ -437,6 +486,12 @@ class ModelSelectionPanel(tk.LabelFrame):
     # -- Populate --
 
     def _populate(self):
+        """Fill the treeview with models sorted by use-case score.
+
+        Models are scored using the tier_eng/tier_gen weights for the
+        selected use case.  Recommended models (from RECOMMENDED_ONLINE)
+        get a green highlight row so admins can spot them instantly.
+        """
         for item in self.tree.get_children():
             self.tree.delete(item)
         if not self._models_data:
@@ -483,6 +538,7 @@ class ModelSelectionPanel(tk.LabelFrame):
             ), tags=tags)
 
     def _on_select(self, event=None):
+        """When the user clicks a model row, set it as the active online model."""
         sel = self.tree.selection()
         if not sel:
             return
@@ -516,28 +572,24 @@ class ApiAdminTab(tk.Frame):
     """
 
     def __init__(self, parent, config, app_ref):
+        """Build all four admin sections inside a scrollable canvas.
+
+        Args:
+            parent: Parent tk widget (typically the SettingsView notebook).
+            config: Live config object shared across the application.
+            app_ref: Reference to HybridRAGApp for cross-panel coordination
+                     (e.g. syncing tuning sliders after a defaults restore).
+        """
         t = current_theme()
         super().__init__(parent, bg=t["panel_bg"])
         self.config = config
         self._app = app_ref
 
-        # Scrollable container
-        self._canvas = tk.Canvas(self, bg=t["panel_bg"], highlightthickness=0)
-        self._scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL,
-                                         command=self._canvas.yview)
-        self._inner = tk.Frame(self._canvas, bg=t["panel_bg"])
-
-        self._inner.bind(
-            "<Configure>",
-            lambda e: self._canvas.configure(scrollregion=self._canvas.bbox("all")),
-        )
-        self._canvas_window = self._canvas.create_window(
-            (0, 0), window=self._inner, anchor="nw",
-        )
-        self._canvas.configure(yscrollcommand=self._scrollbar.set)
-        self._canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self._scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self._canvas.bind("<Configure>", self._on_canvas_configure)
+        # Scrollable container -- needed because all four sections together
+        # are taller than the window.
+        self._scroll = ScrollableFrame(self, bg=t["panel_bg"])
+        self._scroll.pack(fill=tk.BOTH, expand=True)
+        self._inner = self._scroll.inner
 
         # Build sections
         self._build_credentials_section(t)
@@ -550,9 +602,6 @@ class ApiAdminTab(tk.Frame):
 
         # Load initial credential status
         self._refresh_credential_status()
-
-    def _on_canvas_configure(self, event):
-        self._canvas.itemconfig(self._canvas_window, width=event.width)
 
     # ================================================================
     # SECTION A: API CREDENTIALS
@@ -641,6 +690,7 @@ class ApiAdminTab(tk.Frame):
         self.cred_status_label.pack(fill=tk.X, pady=(2, 0))
 
     def _toggle_key_visibility(self):
+        """Toggle between masked (****) and plain-text API key display."""
         self._key_visible = not self._key_visible
         if self._key_visible:
             self.key_entry.config(show="")
@@ -728,6 +778,13 @@ class ApiAdminTab(tk.Frame):
                          args=(endpoint, key), daemon=True).start()
 
     def _do_test_connection(self, endpoint, key):
+        """Background thread: verify the endpoint by fetching its model list.
+
+        A successful model fetch proves the endpoint URL is correct and the
+        API key has valid permissions.  As a bonus, the fetched models are
+        forwarded to the model selection panel so the admin sees them
+        immediately without clicking Refresh again.
+        """
         try:
             from scripts._model_meta import fetch_online_models_with_meta
             by_provider, total = fetch_online_models_with_meta(endpoint, key)
@@ -743,6 +800,7 @@ class ApiAdminTab(tk.Frame):
             self.after(0, self._test_failed, str(e)[:80])
 
     def _test_done(self, models, total):
+        """Main-thread callback: connection test succeeded."""
         t = current_theme()
         self.cred_status_label.config(
             text="[OK] Connected -- {} models available.".format(total),
@@ -751,11 +809,13 @@ class ApiAdminTab(tk.Frame):
         self._model_panel.set_models(models)
 
     def _test_failed(self, msg):
+        """Main-thread callback: connection test failed."""
         t = current_theme()
         self.cred_status_label.config(text="[FAIL] {}".format(msg), fg=t["red"])
         self.test_btn.config(state=tk.NORMAL)
 
     def _on_clear_credentials(self):
+        """Wipe all stored credentials from Windows Credential Manager."""
         t = current_theme()
         try:
             clear_credentials()
@@ -811,6 +871,12 @@ class ApiAdminTab(tk.Frame):
         self._refresh_defaults_status()
 
     def _capture_defaults_snapshot(self):
+        """Build a JSON-serializable dict of all current admin settings.
+
+        This snapshot captures paths, retrieval params, API params, Ollama
+        model, and mode -- everything needed to fully restore the system
+        to its current state later.  Saved to config/admin_defaults.json.
+        """
         retrieval = getattr(self.config, "retrieval", None)
         api = getattr(self.config, "api", None)
         ollama = getattr(self.config, "ollama", None)
@@ -841,6 +907,12 @@ class ApiAdminTab(tk.Frame):
         }
 
     def _on_save_defaults(self):
+        """Save the current system state as the admin baseline.
+
+        This lets admins set up the system once and restore it after
+        experiments or accidental changes.  The file is plain JSON,
+        not YAML, because it stores a flat snapshot -- not the full config.
+        """
         t = current_theme()
         try:
             snapshot = self._capture_defaults_snapshot()
@@ -856,6 +928,12 @@ class ApiAdminTab(tk.Frame):
                 text="[FAIL] {}".format(str(e)[:60]), fg=t["red"])
 
     def _on_restore_defaults(self):
+        """Restore all settings from the previously saved admin defaults.
+
+        Reads admin_defaults.json, writes values back into the live config,
+        syncs the tuning tab sliders, and refreshes the path entries --
+        so the entire UI reflects the restored state immediately.
+        """
         t = current_theme()
         if not os.path.isfile(_DEFAULTS_PATH):
             self.defaults_status_label.config(
@@ -918,6 +996,7 @@ class ApiAdminTab(tk.Frame):
                 text="[FAIL] {}".format(str(e)[:60]), fg=t["red"])
 
     def _refresh_defaults_status(self):
+        """Show when defaults were last saved (or 'not saved yet')."""
         t = current_theme()
         if os.path.isfile(_DEFAULTS_PATH):
             try:
@@ -940,8 +1019,7 @@ class ApiAdminTab(tk.Frame):
 
     def apply_theme(self, t):
         self.configure(bg=t["panel_bg"])
-        self._canvas.configure(bg=t["panel_bg"])
-        self._inner.configure(bg=t["panel_bg"])
+        self._scroll.apply_theme({"bg": t["panel_bg"]})
         self._paths_panel.apply_theme(t)
         self._model_panel.apply_theme(t)
         for frame_attr in ("_cred_frame", "_defaults_frame"):

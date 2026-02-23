@@ -1,8 +1,16 @@
 # ============================================================================
 # HybridRAG v3 -- PM Cost Dashboard (src/gui/panels/cost_dashboard.py) RevA
 # ============================================================================
-# Program Manager dashboard for tracking API token costs across a team.
-# Embeddable Frame view -- switched in-place via the NavBar.
+# WHAT: Live cost tracking dashboard for program managers and team leads.
+# WHY:  PMs need to justify RAG tool spending vs. manual research costs.
+#       This dashboard shows real-time API spend, calculates ROI using
+#       BLS wage data, and projects monthly team savings -- all the
+#       numbers a PM needs for a budget review or executive briefing.
+# HOW:  Reads token counts and cost data from CostTracker (SQLite-backed
+#       singleton).  Registers as a listener so numbers update live after
+#       every query without polling.  All calculations are local -- no
+#       network calls.
+# USAGE: Navigate via NavBar > Cost, or Admin > PM Cost Dashboard.
 #
 # LAYOUT: Header | Big Numbers | Budget Gauge | Token Breakdown |
 #         Data Volume | Cumulative Team | ROI Calculator | Rate Editor |
@@ -23,9 +31,11 @@ from src.gui.theme import (
     current_theme, FONT, FONT_BOLD, FONT_TITLE, FONT_SMALL, FONT_MONO,
     bind_hover,
 )
+from src.gui.scrollable import ScrollableFrame
 
 logger = logging.getLogger(__name__)
 
+# Large font sizes for the "big numbers" hero section at the top
 FONT_BIG = ("Segoe UI", 22, "bold")
 FONT_MED = ("Segoe UI", 14, "bold")
 
@@ -41,37 +51,29 @@ class CostDashboard(tk.Frame):
     """PM Cost Dashboard view. Updates live as queries execute."""
 
     def __init__(self, parent, cost_tracker):
+        """Create the cost dashboard.
+
+        Args:
+            parent: Parent tk widget (the content frame in HybridRAGApp).
+            cost_tracker: CostTracker singleton that records all query costs.
+                          The dashboard registers as a listener to get live
+                          updates after every query completes.
+        """
         t = current_theme()
         super().__init__(parent, bg=t["bg"])
 
         self._tracker = cost_tracker
         self._refresh_id = None
         # ROI calculator defaults (BLS May 2024 median PM: $48.44/hr)
+        # These are editable by the user via the ROI Calculator section
         self._roi_hourly = 48.44
         self._roi_team = 10
         self._roi_min_saved = 10
 
-        # Scrollable canvas wrapper
-        self._canvas = tk.Canvas(self, bg=t["bg"], highlightthickness=0)
-        self._scrollbar = ttk.Scrollbar(
-            self, orient="vertical", command=self._canvas.yview)
-        self._inner = tk.Frame(self._canvas, bg=t["bg"])
-        self._inner.bind(
-            "<Configure>",
-            lambda e: self._canvas.configure(
-                scrollregion=self._canvas.bbox("all")))
-        self._canvas_window = self._canvas.create_window(
-            (0, 0), window=self._inner, anchor="nw", tags="inner")
-        self._canvas.configure(yscrollcommand=self._scrollbar.set)
-        self._scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self._canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        # Resize inner frame width with canvas
-        self._canvas.bind("<Configure>", self._on_canvas_resize)
-
-        # Mousewheel scrolling
-        self._canvas.bind("<Enter>", self._bind_mousewheel)
-        self._canvas.bind("<Leave>", self._unbind_mousewheel)
+        # Scrollable container
+        self._scroll = ScrollableFrame(self, bg=t["bg"])
+        self._scroll.pack(fill=tk.BOTH, expand=True)
+        self._inner = self._scroll.inner
 
         # Build all sections into self._inner
         self._build_header(t)
@@ -86,25 +88,17 @@ class CostDashboard(tk.Frame):
         self._build_footer(t)
         self._refresh_all()
 
+        # Register as a cost tracker listener so we refresh automatically
+        # after every query.  The lambda wraps the refresh in after() to
+        # ensure it runs on the GUI main thread (cost events fire from
+        # background query threads).
         self._listener = lambda event: self.after(0, self._refresh_all)
         self._tracker.add_listener(self._listener)
-
-    def _on_canvas_resize(self, event):
-        """Keep inner frame width matched to canvas width."""
-        self._canvas.itemconfig("inner", width=event.width)
-
-    def _bind_mousewheel(self, event):
-        self._canvas.bind_all("<MouseWheel>", self._on_mousewheel)
-
-    def _unbind_mousewheel(self, event):
-        self._canvas.unbind_all("<MouseWheel>")
-
-    def _on_mousewheel(self, event):
-        self._canvas.yview_scroll(-1 * (event.delta // 120), "units")
 
     # -- Build sections (all into self._inner) ----------------------------
 
     def _build_header(self, t):
+        """Build the title row with session ID and start time."""
         frame = tk.Frame(self._inner, bg=t["panel_bg"], padx=16, pady=12)
         frame.pack(fill=tk.X)
         _label(frame, t, text="PM Cost Dashboard", font=FONT_TITLE).pack(side=tk.LEFT)
@@ -113,6 +107,11 @@ class CostDashboard(tk.Frame):
         self._session_label.pack(side=tk.RIGHT)
 
     def _build_big_numbers(self, t):
+        """Build the three hero numbers: session spend, query count, avg cost.
+
+        These are the first thing a PM sees -- large, color-coded numbers
+        that answer "how much have we spent?" at a glance.
+        """
         frame = tk.Frame(self._inner, bg=t["bg"], padx=16, pady=4)
         frame.pack(fill=tk.X)
 
@@ -135,6 +134,7 @@ class CostDashboard(tk.Frame):
         self._avg_label.pack()
 
     def _build_budget_gauge(self, t):
+        """Build the budget progress bar (green/yellow/red based on % used)."""
         frame = tk.LabelFrame(self._inner, text="Daily Budget", padx=16, pady=8,
                               bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=16, pady=4)
@@ -148,6 +148,7 @@ class CostDashboard(tk.Frame):
         self._savings_label.pack()
 
     def _build_token_breakdown(self, t):
+        """Build the input/output token table with rates and per-direction costs."""
         frame = tk.LabelFrame(self._inner, text="Token Breakdown (Session)", padx=16, pady=8,
                               bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=16, pady=4)
@@ -192,6 +193,7 @@ class CostDashboard(tk.Frame):
         self._ttotal_cost.pack(side=tk.LEFT)
 
     def _build_data_volume(self, t):
+        """Build the data volume row (KB sent/received/total)."""
         frame = tk.LabelFrame(self._inner, text="Data Volume (Session)", padx=16, pady=8,
                               bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=16, pady=4)
@@ -209,6 +211,7 @@ class CostDashboard(tk.Frame):
         self._data_total_label.pack(side=tk.LEFT, padx=4)
 
     def _build_cumulative(self, t):
+        """Build the all-time cumulative stats section (persists across sessions)."""
         frame = tk.LabelFrame(self._inner, text="Cumulative (All Sessions / Team)", padx=16,
                               pady=8, bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=16, pady=4)
@@ -217,6 +220,12 @@ class CostDashboard(tk.Frame):
         self._cum_text.pack(fill=tk.X)
 
     def _build_roi_calculator(self, t):
+        """Build the ROI calculator with editable hourly rate, team size, and time savings.
+
+        The ROI logic: each query saves X minutes of manual searching.
+        Multiply by the hourly wage rate to get dollar value saved.
+        Subtract API cost to get net ROI.  All backed by cited research.
+        """
         frame = tk.LabelFrame(self._inner, text="ROI Calculator -- Productivity Savings *",
                               padx=16, pady=8, bg=t["panel_bg"], fg=t["accent"],
                               font=FONT_BOLD)
@@ -270,6 +279,11 @@ class CostDashboard(tk.Frame):
         self._roi_projection.pack(fill=tk.X, pady=(4, 0))
 
     def _build_rate_editor(self, t):
+        """Build the token rate editor for custom pricing.
+
+        Rates are stored per 1M tokens (industry standard for 2026 pricing).
+        Admins can adjust these when the provider changes pricing tiers.
+        """
         frame = tk.LabelFrame(self._inner, text="Token Pricing (per 1M tokens)", padx=16,
                               pady=8, bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=16, pady=4)
@@ -298,6 +312,7 @@ class CostDashboard(tk.Frame):
         self._rate_status.pack(anchor=tk.W, pady=(4, 0))
 
     def _build_citations(self, t):
+        """Build the research citation footnotes that back the ROI methodology."""
         frame = tk.Frame(self._inner, bg=t["bg"], padx=16, pady=2)
         frame.pack(fill=tk.X)
         citations = (
@@ -316,6 +331,7 @@ class CostDashboard(tk.Frame):
         self._citations_label.pack(fill=tk.X)
 
     def _build_footer(self, t):
+        """Build the Export CSV and manual Refresh buttons at the bottom."""
         frame = tk.Frame(self._inner, bg=t["bg"], padx=16, pady=8)
         frame.pack(fill=tk.X)
 
@@ -356,6 +372,7 @@ class CostDashboard(tk.Frame):
         self._queries_label.config(text="{:,}".format(s.query_count))
         self._avg_label.config(text="${:.4f}".format(s.avg_cost_per_query))
 
+        # Color-code the spend number: green=safe, orange=caution, red=over budget
         if s.total_cost_usd < 2.5:
             self._spend_label.config(fg=t["green"])
         elif s.total_cost_usd < 4.0:
@@ -418,12 +435,13 @@ class CostDashboard(tk.Frame):
         h = canvas.winfo_height()
         canvas.create_rectangle(0, 0, w, h, fill=t["input_bg"], outline="")
 
+        # Traffic-light color thresholds for the budget gauge bar
         if pct < 0.60:
-            fill_color = t["green"]
+            fill_color = t["green"]    # Under 60% -- comfortable
         elif pct < 0.85:
-            fill_color = t["orange"]
+            fill_color = t["orange"]   # 60-85% -- caution
         else:
-            fill_color = t["red"]
+            fill_color = t["red"]      # Over 85% -- nearing/exceeding budget
 
         fill_w = int(w * pct)
         if fill_w > 0:
@@ -548,6 +566,5 @@ class CostDashboard(tk.Frame):
     def apply_theme(self, t):
         """Re-apply theme to dashboard."""
         self.configure(bg=t["bg"])
-        self._canvas.configure(bg=t["bg"])
-        self._inner.configure(bg=t["bg"])
+        self._scroll.apply_theme(t)
         self._refresh_all()

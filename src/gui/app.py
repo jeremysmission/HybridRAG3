@@ -1,6 +1,15 @@
 # ============================================================================
 # HybridRAG v3 -- Main GUI Application (src/gui/app.py)              RevA
 # ============================================================================
+# WHAT: The main application window that ties all panels together.
+# WHY:  Single-window coordinator that owns the lifecycle of every panel,
+#       handles mode switching (offline/online), theme toggling, backend
+#       initialization, and config propagation.
+# HOW:  Uses lazy view switching -- only the Query view is built at startup;
+#       Settings, Cost, and Reference views are built on first access.
+#       Views swap via pack_forget/pack (under 1ms, no flicker).
+# USAGE: Created by launch_gui.py.  Run `python src/gui/launch_gui.py`.
+#
 # Technology Decision: tkinter (Python standard library)
 #
 # WHY TKINTER:
@@ -42,7 +51,9 @@ from src.core.cost_tracker import get_cost_tracker
 from src.gui.theme import (
     DARK, LIGHT, FONT, FONT_BOLD, FONT_TITLE,
     current_theme, set_theme, apply_ttk_styles, bind_hover,
+    get_zoom, set_zoom,
 )
+from src.gui.scrollable import ScrollableFrame
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +72,7 @@ class HybridRAGApp(tk.Tk):
 
         self.title("HybridRAG v3")
         self.geometry("840x780")
-        self.minsize(700, 560)
+        self.minsize(700, 400)
 
         # Store backend references
         self.boot_result = boot_result
@@ -110,6 +121,21 @@ class HybridRAGApp(tk.Tk):
                             activeforeground=t["accent_fg"], font=FONT)
         file_menu.add_command(label="Exit", command=self._on_close)
         menubar.add_cascade(label="File", menu=file_menu)
+
+        # View menu -- zoom controls for accessibility
+        view_menu = tk.Menu(menubar, tearoff=0,
+                            bg=t["menu_bg"], fg=t["menu_fg"],
+                            activebackground=t["accent"],
+                            activeforeground=t["accent_fg"], font=FONT)
+        for pct in (50, 75, 100, 125, 150, 200):
+            label = "{}%".format(pct)
+            if pct == 100:
+                label += " (Default)"
+            view_menu.add_command(
+                label=label,
+                command=lambda p=pct: self._apply_zoom(p / 100.0),
+            )
+        menubar.add_cascade(label="View", menu=view_menu)
 
         # Admin menu -- commands switch views in-place
         admin_menu = tk.Menu(menubar, tearoff=0,
@@ -257,14 +283,14 @@ class HybridRAGApp(tk.Tk):
         self.show_view("query")
 
     def _build_query_view(self):
-        """Build QueryPanel + IndexPanel inside a container frame."""
-        view = tk.Frame(self._content, bg=self._theme["bg"])
+        """Build QueryPanel + IndexPanel inside a scrollable container."""
+        view = ScrollableFrame(self._content, bg=self._theme["bg"])
         self.query_panel = QueryPanel(
-            view, config=self.config, query_engine=self.query_engine,
+            view.inner, config=self.config, query_engine=self.query_engine,
         )
         self.query_panel.pack(fill=tk.BOTH, expand=True, padx=16, pady=(8, 4))
         self.index_panel = IndexPanel(
-            view, config=self.config, indexer=self.indexer,
+            view.inner, config=self.config, indexer=self.indexer,
         )
         self.index_panel.pack(fill=tk.X, padx=16, pady=4)
         self._views["query"] = view
@@ -288,8 +314,11 @@ class HybridRAGApp(tk.Tk):
         """Lazy-build a view the first time it is requested."""
         if name == "settings":
             from src.gui.panels.settings_view import SettingsView
-            view = SettingsView(self._content, config=self.config, app_ref=self)
-            self._views["settings"] = view
+            wrapper = ScrollableFrame(self._content, bg=self._theme["bg"])
+            view = SettingsView(wrapper.inner, config=self.config, app_ref=self)
+            view.pack(fill=tk.BOTH, expand=True)
+            self._settings_view = view   # keep ref for delegation
+            self._views["settings"] = wrapper
         elif name == "cost":
             view = CostDashboard(self._content, self.cost_tracker)
             self._views["cost"] = view
@@ -356,6 +385,16 @@ class HybridRAGApp(tk.Tk):
         for view in self._views.values():
             if hasattr(view, "apply_theme"):
                 view.apply_theme(t)
+
+    # ----------------------------------------------------------------
+    # ZOOM
+    # ----------------------------------------------------------------
+
+    def _apply_zoom(self, factor):
+        """Scale all fonts by the given factor and refresh the UI."""
+        set_zoom(factor)
+        apply_ttk_styles(self._theme)
+        self._apply_theme_to_all()
 
     # ----------------------------------------------------------------
     # MODE TOGGLING
@@ -426,7 +465,7 @@ class HybridRAGApp(tk.Tk):
             self.query_panel._on_use_case_change()
 
         # Refresh credential display in settings if it exists
-        settings = self._views.get("settings")
+        settings = getattr(self, "_settings_view", None)
         if settings is not None and hasattr(settings, "refresh_credential_status"):
             settings.refresh_credential_status()
 
@@ -511,7 +550,7 @@ class HybridRAGApp(tk.Tk):
             self.status_bar.force_refresh()
 
         # Propagate to settings view (both tabs) if it exists
-        settings = self._views.get("settings")
+        settings = getattr(self, "_settings_view", None)
         if settings is not None:
             settings.config = new_config
             if hasattr(settings, "_tuning_tab"):

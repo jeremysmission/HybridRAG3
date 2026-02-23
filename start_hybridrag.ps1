@@ -90,11 +90,23 @@ function Import-ScriptFolder {
 }
 
 
+function Write-StartupLog {
+    # Append a timestamped line to logs/startup.log for persistent diagnostics.
+    # Safe to call before log is initialized (silently skips).
+    param([string]$Message, [string]$Level = 'INFO')
+    if (-not $script:_startupLogPath) { return }
+    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    Add-Content -Path $script:_startupLogPath -Value "[$ts] [$Level] $Message" -Encoding UTF8
+}
+
+
 # Report detected environment on session load
 if (Test-MachineRestricted) {
     Write-Host '[WARN] Restricted machine -- IEX path active for script loading' -ForegroundColor Yellow
+    Write-StartupLog 'Environment: RESTRICTED (Group Policy IEX path)' 'WARN'
 } else {
     Write-Host '[OK]  Unrestricted machine -- dot-source active' -ForegroundColor Green
+    Write-StartupLog 'Environment: Unrestricted (dot-source path)'
 }
 
 # ---- ENCODING FIX (prevents garbled parentheses and special characters) ------
@@ -127,6 +139,16 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 
 # ---- 1) PROJECT ROOT -------------------------------------------------------
 $PROJECT_ROOT = $PSScriptRoot
+
+# ---- STARTUP LOG INIT --------------------------------------------------------
+$_logsDir = Join-Path $PROJECT_ROOT 'logs'
+if (-not (Test-Path $_logsDir)) {
+    New-Item -ItemType Directory -Path $_logsDir -Force | Out-Null
+}
+$script:_startupLogPath = Join-Path $_logsDir 'startup.log'
+$_tsInit = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+Set-Content -Path $script:_startupLogPath -Value "[$_tsInit] [INFO] === HybridRAG Startup ===" -Encoding UTF8
+Write-StartupLog "Project root: $PROJECT_ROOT"
 
 # ---- 2) CANONICAL PATHS ----------------------------------------------------
 $DATA_DIR   = "D:\RAG Indexed Data"
@@ -167,7 +189,9 @@ if (-not (Test-Path ".\.venv\Scripts\Activate.ps1")) {
 }
 
 Write-Host "Activating .venv..." -ForegroundColor Green
+Write-StartupLog 'Activating .venv...'
 Invoke-Script "$PROJECT_ROOT\.venv\Scripts\Activate.ps1"
+Write-StartupLog 'venv activated'
 
 # ---- 4) SET PYTHONPATH -----------------------------------------------------
 $env:PYTHONPATH = $PROJECT_ROOT
@@ -314,8 +338,22 @@ else:
 
 function rag-gui {
     Write-Host ""
-    Write-Host "Launching HybridRAG GUI..." -ForegroundColor Cyan
-    python "$PROJECT_ROOT\src\gui\launch_gui.py"
+    Write-Host "Launching HybridRAG GUI (detached)..." -ForegroundColor Cyan
+
+    # Resolve pythonw from the active venv (no console window, survives terminal close).
+    # Fallback to python.exe if pythonw is missing (e.g. embedded Python).
+    $pythonw = Join-Path (Split-Path (Get-Command python).Source) 'pythonw.exe'
+    if (-not (Test-Path $pythonw)) {
+        Write-Host "[WARN] pythonw.exe not found -- falling back to python.exe" -ForegroundColor Yellow
+        $pythonw = (Get-Command python).Source
+    }
+
+    # Group Policy preempt: Start-Process with -WindowStyle Hidden works even
+    # on AllSigned/Restricted machines because we are launching an .exe, not a
+    # .ps1 script. No execution policy applies to non-PowerShell executables.
+    # -WindowStyle Hidden suppresses the brief console flash on python.exe fallback.
+    Start-Process -FilePath $pythonw -ArgumentList "$PROJECT_ROOT\src\gui\launch_gui.py" -WorkingDirectory $PROJECT_ROOT -WindowStyle Hidden
+    Write-Host "[OK]  GUI launched -- you can close this terminal safely." -ForegroundColor Green
 }
 
 function rag-server {
@@ -333,10 +371,37 @@ function rag-server {
 # ---- 11) LOAD API MODE COMMANDS --------------------------------------------
 # Uses Invoke-Script -- works on both home PC and restricted work laptop.
 $apiCmdsPath = "$PROJECT_ROOT\tools\api_mode_commands.ps1"
+Write-StartupLog 'Loading api_mode_commands.ps1...'
 if (Test-Path $apiCmdsPath) {
     Invoke-Script $apiCmdsPath
+    Write-StartupLog 'api_mode_commands.ps1 loaded'
 } else {
     Write-Host "[WARN] tools\api_mode_commands.ps1 not found -- API commands not loaded." -ForegroundColor Yellow
+    Write-StartupLog 'api_mode_commands.ps1 NOT FOUND' 'FAIL'
+}
+
+# ---- 11b) POST-LOAD VERIFICATION -------------------------------------------
+# Check that all 17 expected rag- functions are available after loading.
+$_expectedCommands = @(
+    'rag-paths', 'rag-index', 'rag-query', 'rag-diag', 'rag-status', 'rag-gui', 'rag-server',
+    'rag-store-key', 'rag-store-endpoint', 'rag-cred-status', 'rag-cred-delete',
+    'rag-mode-online', 'rag-mode-offline', 'rag-models', 'rag-test-api', 'rag-profile', 'rag-set-model'
+)
+$_failCount = 0
+foreach ($_cmd in $_expectedCommands) {
+    if (Get-Command $_cmd -ErrorAction SilentlyContinue) {
+        Write-StartupLog "$_cmd [OK]"
+    } else {
+        Write-StartupLog "$_cmd NOT FOUND" 'FAIL'
+        $_failCount++
+    }
+}
+if ($_failCount -eq 0) {
+    Write-Host "[OK]  All 17 rag- commands verified" -ForegroundColor Green
+    Write-StartupLog 'All 17 rag- commands verified'
+} else {
+    Write-Host "[WARN] $_failCount command(s) failed -- see logs/startup.log" -ForegroundColor Yellow
+    Write-StartupLog "$_failCount command(s) failed verification" 'WARN'
 }
 
 # ---- 12) SHOW CURRENT MODE -------------------------------------------------
@@ -354,6 +419,8 @@ try:
 except Exception as e:
     print(f'  Could not read config: {e}')
 "
+
+Write-StartupLog 'Startup complete'
 
 # ---- 13) COMMAND REFERENCE BANNER -------------------------------------------
 Write-Host ""

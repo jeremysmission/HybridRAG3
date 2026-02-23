@@ -1,11 +1,19 @@
 # ============================================================================
 # HybridRAG v3 -- GUI Launcher (src/gui/launch_gui.py)
 # ============================================================================
-# Entry point: python src/gui/launch_gui.py
-#
-# Opens the GUI window FIRST, then loads backends in a background thread.
-# This ensures the user sees the window immediately instead of waiting
-# for heavy imports (torch, sentence-transformers) to finish.
+# WHAT: Entry point that boots the system and opens the GUI window.
+# WHY:  Heavy imports (torch, sentence-transformers) take 10-16s.  If we
+#       loaded them before showing the window, the user would stare at
+#       nothing.  This module shows the window immediately and loads
+#       backends in the background, so the user sees progress.
+# HOW:  Three-phase launch:
+#       Phase 1 - Eager preload: starts loading the embedding model at
+#                 module import time (before boot/config/GUI).
+#       Phase 2 - Boot + config + optional setup wizard (2-3s).
+#       Phase 3 - Open GUI window, load remaining backends in a thread.
+#       The preload runs in parallel with Phase 2, saving 2-3s of wall time.
+# USAGE: python src/gui/launch_gui.py
+#        or: from start_hybridrag.ps1 (PowerShell wrapper)
 #
 # PERFORMANCE: The Embedder is the cold-start bottleneck (~16s on 8GB
 # laptop). Three tricks to minimize perceived wait:
@@ -401,5 +409,31 @@ def main():
     app.mainloop()
 
 
+def _detach_and_exit():
+    """Re-launch this script as a detached process and exit immediately.
+
+    On Windows, DETACHED_PROCESS + CREATE_NEW_PROCESS_GROUP severs the
+    child from the parent console so the GUI survives terminal close.
+    Uses pythonw.exe (no console window) when available.
+    """
+    import subprocess
+    pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+    exe = pythonw if os.path.isfile(pythonw) else sys.executable
+
+    DETACHED_PROCESS = 0x00000008
+    CREATE_NEW_PROCESS_GROUP = 0x00000200
+    flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+
+    subprocess.Popen(
+        [exe, "-m", "src.gui.launch_gui"],
+        creationflags=flags,
+        cwd=_project_root,
+        close_fds=True,
+    )
+    sys.exit(0)
+
+
 if __name__ == "__main__":
+    if "--detach" in sys.argv:
+        _detach_and_exit()
     main()
