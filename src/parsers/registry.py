@@ -56,6 +56,7 @@ from .placeholder_parser import PlaceholderParser
 
 @dataclass(frozen=True)
 class ParserInfo:
+    """One entry in the parser registry: a human-readable name and the parser class."""
     name: str
     parser_cls: Type
 

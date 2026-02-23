@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-# ============================================================================
-# HybridRAG v3 -- Model Selection Wizard (scripts/_set_model.py)
-# ============================================================================
-#
-# FLOW:
-#   [auto-detect ALL models -- Ollama + API -- before any prompts]
-#   Prompt 1: "Which mode?"    -> O = Offline / A = Online API
-#             Shows detected models in each mode so you know what's there
-#   Prompt 2: "Which use case?" -> S/E/Y/D/L/P/G (7 roles)
-#             Only the selected use case's rank column is shown
-#   Prompt 3: "Which model?"   -> Pick by number, search, or M = show more
+# ===================================================================
+# WHAT: Interactive model selection wizard for HybridRAG
+# WHY:  Users need to pick the right AI model for their specific job
+#       role (software engineer, logistics analyst, etc.) -- this wizard
+#       auto-detects available models, ranks them by role-specific
+#       benchmarks, and writes the selection to config
+# HOW:  Three-step interactive prompt:
+#         1. Mode:      Offline (Ollama) or Online (API)
+#         2. Use case:  9 job roles with weighted ENG/GEN scoring
+#         3. Model:     Ranked table, pick by number or search
+#       Auto-detects all models before prompting, so the user sees
+#       what is actually available
+# USAGE: rag-set-model  (after sourcing start_hybridrag.ps1)
+#        python scripts/_set_model.py  (direct)
+# ===================================================================
 #
 # USE CASES (ranked by weighted blend of Engineering + General scores):
 #   S = Software Engineering   (90% eng, 10% gen)
@@ -25,9 +29,7 @@
 # COLUMNS:
 #   Offline:  #, Model, Size, RAM, VRAM, Rank, Price/Question=Free
 #   Online:   #, Model, Ctx, Rank, In/1M, Out/1M, Price/Question
-#
-# COMMAND: rag-set-model
-# ============================================================================
+# ===================================================================
 
 import os
 import sys

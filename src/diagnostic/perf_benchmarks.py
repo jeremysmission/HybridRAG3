@@ -1,22 +1,14 @@
-# ============================================================================
-# HybridRAG v3 -- Diagnostic: Performance Benchmarks
-# ============================================================================
-# FILE: src/diagnostic/perf_benchmarks.py
-#
-# WHAT THIS FILE DOES:
-#   Measures how fast each pipeline stage runs:
-#     Config load, SQLite query, chunker throughput, embedder throughput,
-#     vector search, FTS5 keyword search, hybrid search.
-#
-#   Each function returns a PerfMetric with min/max/avg/stddev stats
-#   and memory delta. All benchmarks are non-destructive (read-only).
-#
-# WHY MEASURE PERFORMANCE:
-#   - Detect regressions after code changes
-#   - Identify bottlenecks (is search slow because of vector or FTS5?)
-#   - Track trends over time with --json-file
-#   - Know your baseline before a week-long indexing run
-# ============================================================================
+# ===================================================================
+# WHAT: Performance benchmarks for every pipeline stage (config load,
+#       SQLite, chunker, embedder, vector search, FTS5, hybrid search)
+# WHY:  Detect regressions after code changes, identify bottlenecks,
+#       and establish baselines before long indexing runs. Each benchmark
+#       returns min/max/avg/stddev so you see variance, not just averages.
+# HOW:  Each function times an operation N iterations, computes stats,
+#       and returns a PerfMetric. All benchmarks are read-only and
+#       non-destructive -- safe to run on production data.
+# USAGE: Called by hybridrag_diagnostic.py --perf-only or rag-diag.
+# ===================================================================
 
 from __future__ import annotations
 

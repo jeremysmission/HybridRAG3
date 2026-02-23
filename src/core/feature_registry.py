@@ -1,26 +1,41 @@
 #!/usr/bin/env python3
-"""
-feature_registry.py -- HybridRAG3 Feature Toggle Registry
-==========================================================
-Single source of truth for every toggleable feature. Both CLI and
-future GUI read this registry for names, descriptions, and states.
-
-USAGE (Python):
-    reg = FeatureRegistry("config/default_config.yaml")
-    reg.list_features()                     # Show all with status
-    reg.enable("hallucination-filter")      # Turn feature ON
-    catalog = reg.get_feature_catalog()     # Dict list for GUI rendering
-
-USAGE (PowerShell): rag-features list | enable | disable | status
-
-GUI INTEGRATION: Call get_feature_catalog() to get feature dicts with
-    feature_id, display_name, category, description, enabled state.
-    Render each as a toggle switch grouped by category.
-
-NETWORK ACCESS: NONE
-AUTHOR: Jeremy (AI-assisted development)
-VERSION: 1.0.0 | DATE: 2026-02-16
-"""
+# ============================================================================
+# HybridRAG v3 -- Feature Toggle Registry (src/core/feature_registry.py)
+# ============================================================================
+#
+# WHAT: Single source of truth for every toggleable feature in the
+#       application. Both CLI and GUI read this registry for feature
+#       names, descriptions, dependencies, and on/off states.
+#
+# WHY:  Features like hallucination filtering, reranking, and PII
+#       scrubbing can be turned on/off by users. Without a central
+#       registry, feature state would be scattered across config files,
+#       environment variables, and code -- making it hard to see what
+#       is enabled and impossible to build a GUI toggle panel.
+#
+# HOW:  The "Registry Pattern": all features are defined once in
+#       FEATURE_CATALOG (a list of FeatureDefinition dataclasses).
+#       The FeatureRegistry class reads/writes their on/off state
+#       from the YAML config file. To add a new feature, you just
+#       add one FeatureDefinition to FEATURE_CATALOG -- the CLI
+#       and GUI automatically pick it up.
+#
+# USAGE (Python):
+#       reg = FeatureRegistry("config/default_config.yaml")
+#       reg.list_features()                     # Show all with status
+#       reg.enable("hallucination-filter")      # Turn feature ON
+#       catalog = reg.get_feature_catalog()     # Dict list for GUI
+#
+# USAGE (PowerShell):
+#       rag-features list | enable | disable | status
+#
+# GUI INTEGRATION:
+#       Call get_feature_catalog() to get feature dicts with
+#       feature_id, display_name, category, description, enabled state.
+#       Render each as a toggle switch grouped by category.
+#
+# NETWORK ACCESS: NONE
+# ============================================================================
 
 import os
 import sys
@@ -30,16 +45,28 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field, asdict
 
 
-# =========================================================================
-# FEATURE DEFINITION
-# =========================================================================
+# --- FEATURE DEFINITION DATACLASS ------------------------------------------
 # Each feature is defined ONCE here. The GUI and CLI both read this.
-# To add a new feature: add it to FEATURE_CATALOG below.
+# To add a new feature: add a FeatureDefinition to FEATURE_CATALOG below.
 # =========================================================================
 
 @dataclass
 class FeatureDefinition:
-    """Describes a single toggleable feature for CLI and GUI rendering."""
+    """
+    Describes a single toggleable feature for CLI and GUI rendering.
+
+    Fields explained:
+        feature_id:     Unique string ID used in CLI commands (e.g., "reranker")
+        display_name:   Human-readable name shown in GUI (e.g., "Cross-Encoder Reranker")
+        category:       Grouping for GUI tabs (Quality/Retrieval/Security/Cost)
+        description:    One-sentence summary for users
+        detail:         Longer explanation for tooltip or detail panel
+        impact_note:    Performance impact warning (e.g., "Adds ~2-4s per query")
+        config_section: Which YAML section holds the toggle (e.g., "retrieval")
+        config_key:     Which key within that section (e.g., "reranker_enabled")
+        default:        Default on/off state if not in YAML
+        requires:       List of feature_ids that should be enabled first
+    """
     feature_id: str
     display_name: str
     category: str
@@ -191,9 +218,7 @@ FEATURE_CATALOG: List[FeatureDefinition] = [
 ]
 
 
-# =========================================================================
-# FEATURE REGISTRY CLASS
-# =========================================================================
+# --- FEATURE REGISTRY CLASS ------------------------------------------------
 
 class FeatureRegistry:
     """
@@ -230,7 +255,9 @@ class FeatureRegistry:
         """
         Read the current on/off state from YAML config.
 
-        Walks the config_section.config_key path to find the value.
+        HOW: Each feature has a config_section (e.g., "retrieval") and
+        config_key (e.g., "reranker_enabled"). This method walks that
+        two-level path in the YAML dict: yaml_data["retrieval"]["reranker_enabled"].
         Returns the feature's default if not found in YAML.
         """
         section = self._yaml_data.get(feature.config_section, {})
@@ -419,9 +446,7 @@ class FeatureRegistry:
         return self._get_current_state(self._catalog[feature_id])
 
 
-# =========================================================================
-# CLI ENTRY POINT
-# =========================================================================
+# --- CLI ENTRY POINT -------------------------------------------------------
 # Called by: python -m feature_registry <command> [feature-id]
 # Or from PowerShell: rag-features <command> [feature-id]
 # =========================================================================

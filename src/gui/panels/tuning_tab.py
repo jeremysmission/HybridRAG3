@@ -1,8 +1,18 @@
 # ============================================================================
 # HybridRAG v3 -- Tuning Tab (src/gui/panels/tuning_tab.py)           RevA
 # ============================================================================
-# Extracted from settings_view.py. Contains all retrieval, LLM, profile,
-# and reset controls. Pure extract-and-move -- no new logic.
+# WHAT: Retrieval and LLM parameter sliders, hardware profile switcher,
+#       and ranked model table -- the performance tuning cockpit.
+# WHY:  Admins need to adjust search sensitivity (top_k, min_score),
+#       LLM behavior (temperature, timeout), and switch between hardware
+#       profiles (laptop vs workstation) without editing config files.
+#       Live sliders make it easy to experiment and see results instantly.
+# HOW:  Each slider writes directly to the live config object on change,
+#       so the next query immediately uses the new value.  Profile
+#       switching runs _profile_switch.py as a subprocess, then reloads
+#       config and resets backends -- the user sees a brief "Switching..."
+#       status, then the new profile takes effect.
+# USAGE: Embedded inside SettingsView notebook as the "Tuning" tab.
 #
 # Sections:
 #   1. Retrieval Settings (top_k, min_score, hybrid_search, reranker)
@@ -37,12 +47,19 @@ class TuningTab(tk.Frame):
     """
 
     def __init__(self, parent, config, app_ref):
+        """Create the tuning tab with all slider sections.
+
+        Args:
+            parent: Parent tk widget (the SettingsView notebook).
+            config: Live config object -- sliders read from and write to this.
+            app_ref: Reference to HybridRAGApp for backend reset after profile switch.
+        """
         t = current_theme()
         super().__init__(parent, bg=t["panel_bg"])
         self.config = config
         self._app = app_ref
 
-        # Store original values for reset
+        # Snapshot current values so Reset can restore them
         self._original_values = self._capture_values()
 
         # Build sections

@@ -2,25 +2,27 @@
 # ============================================================================
 # HybridRAG v3 -- Online API Validation (validate_online_api.py)
 # ============================================================================
-# PURPOSE:
-#   Test Azure OpenAI API connectivity and available models on the WORK
-#   laptop. This script is completely separate from offline validation
-#   and from any personal API credentials.
+#
+# WHAT: Tests Azure OpenAI API connectivity and discovers available models
+# WHY:  Before using the cloud LLM for queries, we need to confirm that
+#       the API key works, the endpoint is reachable through the enterprise
+#       network/VPN, and we know which model deployments are available.
+#       This script probes everything and gives detailed diagnostics if
+#       anything fails -- including specific remediation steps for common
+#       errors like 401 (bad key), 403 (VPN required), and 404 (wrong
+#       deployment name).
+# HOW:  Resolves credentials via a priority chain (Windows Credential
+#       Manager -> environment variables -> config file). Then probes the
+#       /models endpoint to list deployments, sends a test chat completion
+#       to each known deployment, and tests the offline/online mode
+#       switching in NetworkGate.
 #
 # IMPORTANT CONSTRAINTS:
 #   - Work laptop uses Azure OpenAI endpoint (NOT personal OpenAI)
 #   - Only GPT-3.5 Turbo and GPT-4 are CONFIRMED available
-#   - Only Azure-hosted models are available on this endpoint
-#   - This script PROBES the endpoint to discover models, does not assume
-#   - Handles 401/connection errors with full diagnostic output
+#   - This script PROBES the endpoint -- it does not assume availability
 #   - NEVER mixes personal and work credentials
-#
-# CREDENTIAL RESOLUTION:
-#   This script uses the HybridRAG credential system:
-#     1. Windows Credential Manager (keyring) -- preferred
-#     2. Environment variables (AZURE_OPENAI_API_KEY, etc.)
-#     3. Config file
-#   It does NOT accept command-line API keys (security policy).
+#   - Does NOT accept command-line API keys (security policy)
 #
 # USAGE:
 #   python validate_online_api.py

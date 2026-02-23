@@ -2,10 +2,31 @@
 # HybridRAG v3 -- Grounded Query Engine (src/core/grounded_query_engine.py)
 # ============================================================================
 #
-# WHAT THIS FILE DOES:
-#   Wraps the base QueryEngine with hallucination guard verification.
-#   When enabled, the pipeline becomes:
+# WHAT: QueryEngine subclass that adds hallucination detection and
+#       blocking before returning any LLM-generated answer.
 #
+# WHY:  LLMs sometimes "make up" facts that sound correct but are not
+#       in the source documents. In an engineering context, a fabricated
+#       tolerance or part number could cause real harm. This module adds
+#       a verification step that checks every claim in the LLM's answer
+#       against the actual source documents before showing it to the user.
+#
+# HOW:  Extends the base QueryEngine with three new stages:
+#       1. RETRIEVAL GATE -- refuses to answer if evidence is too weak
+#       2. PROMPT HARDENING -- injects extra grounding rules into the prompt
+#       3. NLI VERIFICATION -- uses a local AI model (Natural Language
+#          Inference) to check each claim against source text
+#       If verification fails, the answer is blocked, stripped, or flagged
+#       depending on config (guard_action: block / strip / flag).
+#
+# USAGE:
+#       from src.core.grounded_query_engine import GroundedQueryEngine
+#       engine = GroundedQueryEngine(config, vector_store, embedder, router)
+#       result = engine.query("What is the torque spec?")
+#       if result.grounding_blocked:
+#           print("Answer was not sufficiently supported by sources")
+#
+# THE PIPELINE (8 steps):
 #     1. Retrieve chunks          (inherited from QueryEngine)
 #     2. Build context            (inherited from QueryEngine)
 #     3. GATE: check evidence     (NEW -- refuses weak evidence)
@@ -15,11 +36,9 @@
 #     7. FILTER/FLAG RESULT       (NEW -- strips or blocks hallucination)
 #     8. Log + return             (inherited from QueryEngine)
 #
-# WHY A SUBCLASS INSTEAD OF MODIFYING query_engine.py:
-#   - Zero blast radius: base QueryEngine stays at 235 lines, untouched
+# DESIGN: Subclass instead of modifying query_engine.py because:
+#   - Zero blast radius: base QueryEngine stays untouched
 #   - All existing tests still pass with zero delta
-#   - Consumers who don't want the guard use QueryEngine directly
-#   - Consumers who want the guard import GroundedQueryEngine
 #   - Guard can be disabled at runtime via config toggle
 #
 # NETWORK ACCESS: NONE (NLI model runs locally after first download)
@@ -93,18 +112,26 @@ class GroundedQueryEngine(QueryEngine):
 
         self.guard_logger = get_app_logger("grounding_guard")
 
-        # Load guard config from the config object
+        # Load guard config from the config object.
         # Uses getattr for backward compatibility -- if config doesn't
-        # have hallucination_guard yet, we use safe defaults
+        # have hallucination_guard settings yet (older YAML), we use
+        # safe defaults. This prevents crashes when upgrading.
         self.guard_enabled = getattr(
             config, "hallucination_guard_enabled", False
         )
+        # Threshold: fraction of claims that must be verified (0.80 = 80%).
+        # Below this, the answer is considered unreliable.
         self.guard_threshold = getattr(
             config, "hallucination_guard_threshold", 0.80
         )
+        # Action on failure: "block" = replace with refusal message,
+        # "strip" = keep only verified sentences, "flag" = pass through
+        # with metadata so the UI can show a warning.
         self.guard_action = getattr(
             config, "hallucination_guard_action", "block"
         )
+        # Retrieval gate settings: how many chunks and what minimum score
+        # must pass before we even try to generate an answer.
         self.guard_min_chunks = getattr(
             config.retrieval, "min_chunks", 1
         )
@@ -113,7 +140,9 @@ class GroundedQueryEngine(QueryEngine):
             config.retrieval.min_score,
         )
 
-        # Try to load the guard modules (graceful if not installed)
+        # Try to load the guard modules (graceful degradation if the
+        # hallucination_guard package is not installed -- the system
+        # still works, just without verification).
         self._guard_available = False
         if self.guard_enabled:
             try:
@@ -171,10 +200,15 @@ class GroundedQueryEngine(QueryEngine):
             # Step 1: Retrieve (reuse base retriever)
             search_results = self.retriever.search(user_query)
 
-            # Step 2: RETRIEVAL GATE -- refuse if evidence is too weak
+            # Step 2: RETRIEVAL GATE -- refuse if evidence is too weak.
+            # WHY: If the search only found low-quality matches, it is
+            # better to refuse than to let the LLM guess with bad context.
+            # This prevents confident-sounding wrong answers.
             if not search_results:
                 return self._no_evidence_result(start_time)
 
+            # Filter to only chunks above the minimum relevance threshold.
+            # If not enough pass, we refuse to answer.
             passing = [
                 h for h in search_results
                 if h.score >= self.guard_min_score
@@ -215,12 +249,16 @@ class GroundedQueryEngine(QueryEngine):
                     error="LLM call failed",
                 )
 
-            # Step 5: VERIFY response against source chunks
+            # Step 5: VERIFY response against source chunks.
+            # The NLI model reads each claim in the answer and checks
+            # whether the source documents actually say that.
+            # Returns a score (0.0-1.0) = fraction of claims verified.
             score, details = self._verify_response(
                 llm_response.text, search_results
             )
 
-            # Step 6: Apply action based on score
+            # Step 6: Apply action based on score.
+            # If too many claims are unverified, take corrective action.
             answer = llm_response.text
             blocked = False
 

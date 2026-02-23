@@ -1,17 +1,21 @@
 # ============================================================================
 # HybridRAG v3 -- Settings View (src/gui/panels/settings_view.py)    RevB
 # ============================================================================
-# Coordinator Frame with a ttk.Notebook containing two tabs:
-#   1. Tuning      -- retrieval/LLM sliders, profile/model ranking, reset
-#   2. API & Admin -- credentials entry, online model selection, admin defaults
+# WHAT: Two-tab settings coordinator (Tuning + API & Admin).
+# WHY:  Admins need a single place to adjust retrieval parameters, switch
+#       hardware profiles, manage API credentials, and set defaults.
+#       This view combines those into one notebook so everything is
+#       reachable from a single NavBar click.
+# HOW:  A thin coordinator class that creates two tab objects (TuningTab
+#       and ApiAdminTab) inside a ttk.Notebook.  Public attributes like
+#       topk_var, temp_var are proxied via @property so existing test
+#       code and other panels can access them without knowing about the
+#       two-tab split.
+# USAGE: Navigate via NavBar > Settings, or Admin > Admin Settings.
 #
 # Module-level helpers (_load_profile_names, _detect_profile_name,
 # _build_ranking_text, _theme_widget) are kept here because TuningTab
 # imports them from this module.
-#
-# The SettingsView class delegates everything to the two tab classes but
-# exposes the same public attributes (topk_var, temp_var, etc.) via
-# property proxies so existing code and tests keep working.
 #
 # INTERNET ACCESS: Depends on tab.
 #   Tuning: NONE
@@ -33,7 +37,11 @@ logger = logging.getLogger(__name__)
 # ====================================================================
 
 def _load_profile_names():
-    """Read profile names from profiles.yaml."""
+    """Read profile names from profiles.yaml.
+
+    Returns a list like ['laptop_safe', 'desktop_power', 'server_max'].
+    Falls back to hardcoded defaults if the file is missing or unreadable.
+    """
     try:
         import yaml
         root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
@@ -48,7 +56,13 @@ def _load_profile_names():
 
 
 def _detect_profile_name(config):
-    """Return the best-matching profile name for the given config."""
+    """Return the best-matching profile name for the given config.
+
+    Compares the current embedding model + device + LLM model against
+    each profile in profiles.yaml.  This lets us show the user which
+    profile they are actually running, even if they never explicitly
+    selected one.
+    """
     try:
         import yaml
         root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
@@ -83,7 +97,11 @@ def _detect_profile_name(config):
 
 
 def _build_ranking_text(profile):
-    """Build the ranked model table text for a given profile."""
+    """Build the ranked model table text for a given profile.
+
+    Returns a formatted text table showing the #1 and #2 models
+    for each use case, ready to insert into a tk.Text widget.
+    """
     try:
         from scripts._model_meta import (
             get_profile_ranking_table, USE_CASES,

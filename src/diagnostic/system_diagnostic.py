@@ -1,15 +1,11 @@
-# ============================================================================
-# HybridRAG -- System Diagnostic Launcher (src/diagnostic/system_diagnostic.py)
-# ============================================================================
-#
-# WHAT THIS FILE IS:
-#   A convenience stub that opens the index_status tool in Notepad for
-#   quick review. This is a legacy helper from early development.
-#
-# NOTE:
-#   The real diagnostic suite lives in src/diagnostic/hybridrag_diagnostic.py
-#   For full system diagnostics, use: python -m src.diagnostic
-# ============================================================================
+# ===================================================================
+# WHAT: Legacy convenience stub that opens index_status in Notepad
+# WHY:  Early development helper, kept for backwards compatibility.
+#       The real diagnostic suite is hybridrag_diagnostic.py.
+# HOW:  Launches Notepad with the index_status.py tool file
+# USAGE: python -m src.diagnostic  (preferred -- runs full diagnostics)
+#        This file is not the main entry point.
+# ===================================================================
 import subprocess
 import sys
 import os

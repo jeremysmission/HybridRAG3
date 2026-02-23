@@ -1,9 +1,18 @@
 # ============================================================================
 # HybridRAG v3 -- First-Run Setup Wizard (src/gui/panels/setup_wizard.py)
 # ============================================================================
-# 4-step modal wizard that collects essential paths and mode preference
-# on first launch.  Writes results directly to config/default_config.yaml
-# so subsequent launches skip straight to the main GUI.
+# WHAT: A 4-step modal wizard that runs on first launch to configure
+#       the essential settings before the user can start searching.
+# WHY:  New users need to tell the system where their documents live
+#       and where to store the search index.  Without this, the app
+#       would start with empty paths and immediately fail.  A wizard
+#       is friendlier than editing a YAML file by hand.
+# HOW:  Four stacked frames with Back/Next/Finish navigation.  Each
+#       page collects one piece of information.  On Finish, the wizard
+#       writes everything to config/default_config.yaml and sets
+#       setup_complete: true so it never runs again.
+# USAGE: Launched automatically by launch_gui.py when needs_setup()
+#        returns True.  Can also be triggered manually for re-setup.
 #
 # Pages:
 #   1. Welcome          -- what this wizard does
@@ -75,7 +84,13 @@ _NUM_PAGES = 4
 
 
 class SetupWizard(tk.Toplevel):
-    """4-step first-run setup wizard."""
+    """4-step first-run setup wizard.
+
+    A modal dialog that walks the user through selecting data paths
+    and operating mode.  Sets self.completed = True if the user clicks
+    Finish, False if they cancel.  The caller checks this flag to decide
+    whether to proceed with app launch.
+    """
 
     def __init__(self, parent, project_root):
         t = current_theme()
@@ -130,6 +145,7 @@ class SetupWizard(tk.Toplevel):
     # ------------------------------------------------------------------
 
     def _build_welcome(self, frame, t):
+        """Page 1: Welcome message explaining what the wizard will do."""
         tk.Label(
             frame, text="Welcome to HybridRAG", font=FONT_TITLE,
             bg=t["bg"], fg=t["fg"],
@@ -149,6 +165,7 @@ class SetupWizard(tk.Toplevel):
         ).pack(fill="x", pady=(0, 8))
 
     def _build_paths(self, frame, t):
+        """Page 2: Source and index folder selection with browse buttons."""
         tk.Label(
             frame, text="Data Paths", font=FONT_TITLE,
             bg=t["bg"], fg=t["fg"],
@@ -212,6 +229,7 @@ class SetupWizard(tk.Toplevel):
         bind_hover(idx_btn, t["accent"])
 
     def _build_mode(self, frame, t):
+        """Page 3: Offline vs Online mode radio button selection."""
         tk.Label(
             frame, text="Mode Selection", font=FONT_TITLE,
             bg=t["bg"], fg=t["fg"],
@@ -260,6 +278,7 @@ class SetupWizard(tk.Toplevel):
         ).pack(anchor="w", padx=(24, 0))
 
     def _build_review(self, frame, t):
+        """Page 4: Read-only summary of all selections before saving."""
         tk.Label(
             frame, text="Review & Finish", font=FONT_TITLE,
             bg=t["bg"], fg=t["fg"],
@@ -284,6 +303,7 @@ class SetupWizard(tk.Toplevel):
     # ------------------------------------------------------------------
 
     def _build_nav(self, t):
+        """Build the Back/Next/Finish/Cancel navigation bar."""
         nav = tk.Frame(self, bg=t["bg"])
         nav.pack(fill="x", padx=24, pady=(8, 16))
 
@@ -330,6 +350,7 @@ class SetupWizard(tk.Toplevel):
     # ------------------------------------------------------------------
 
     def _show_page(self, idx):
+        """Switch to page `idx`, hiding all others and updating nav buttons."""
         for p in self._pages:
             p.pack_forget()
         self._pages[idx].pack(fill="both", expand=True)
@@ -351,6 +372,7 @@ class SetupWizard(tk.Toplevel):
             self._next_btn.pack(side="right", padx=(8, 0))
 
     def _go_next(self):
+        """Advance to the next page (with validation on the Paths page)."""
         if self._page == _PAGE_PATHS:
             err = self._validate_paths()
             if err:
@@ -359,6 +381,7 @@ class SetupWizard(tk.Toplevel):
         self._show_page(self._page + 1)
 
     def _go_back(self):
+        """Go back to the previous page."""
         if self._page > _PAGE_WELCOME:
             self._show_page(self._page - 1)
 
@@ -367,11 +390,13 @@ class SetupWizard(tk.Toplevel):
     # ------------------------------------------------------------------
 
     def _browse_dir(self, var):
+        """Open a native folder picker and set the result into the given StringVar."""
         d = filedialog.askdirectory(parent=self, title="Select Folder")
         if d:
             var.set(os.path.normpath(d))
 
     def _validate_paths(self):
+        """Check that both paths are valid. Returns error string or empty on success."""
         src = self._source_var.get().strip()
         idx = self._index_var.get().strip()
 
@@ -392,6 +417,7 @@ class SetupWizard(tk.Toplevel):
     # ------------------------------------------------------------------
 
     def _refresh_review(self):
+        """Populate the review text with a summary of all user selections."""
         src = self._source_var.get().strip()
         idx = self._index_var.get().strip()
         db = os.path.join(idx, "hybridrag.sqlite3")
@@ -420,6 +446,7 @@ class SetupWizard(tk.Toplevel):
     # ------------------------------------------------------------------
 
     def _on_finish(self):
+        """Save all settings to YAML, create directories, and close the wizard."""
         src = self._source_var.get().strip()
         idx = self._index_var.get().strip()
         mode = self._mode_var.get()
@@ -459,6 +486,7 @@ class SetupWizard(tk.Toplevel):
     # ------------------------------------------------------------------
 
     def _on_cancel(self):
+        """Close the wizard without saving. The app will exit."""
         self.completed = False
         self.grab_release()
         self.destroy()

@@ -30,6 +30,14 @@ from typing import Tuple, Dict, Any
 
 
 class PlainTextParser:
+    """
+    Read files that are already plain text (.txt, .md, .csv, .json, .xml, etc.).
+
+    The simplest parser -- just reads the file as UTF-8 text.
+    Uses errors='ignore' to skip the rare non-UTF-8 byte rather than
+    crashing on one bad character in an otherwise good file.
+    """
+
     def parse(self, file_path: str) -> str:
         text, _ = self.parse_with_details(file_path)
         return text

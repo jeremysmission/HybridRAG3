@@ -1,18 +1,13 @@
-# ============================================================================
-# HybridRAG v3 - Show Profile Status (scripts/_profile_status.py)
-# ============================================================================
-#
-# WHAT THIS FILE DOES:
-#   Reads config/default_config.yaml and shows the current performance
-#   profile settings: batch size, chunk size, and search depth.
-#   Then infers which profile is active based on the batch size:
-#     batch_size 16  = laptop_safe    (conservative, 8-16GB RAM)
-#     batch_size 64  = desktop_power  (aggressive, 32-64GB RAM)
-#     batch_size 128 = server_max     (maximum, 64GB+ RAM)
-#
-# WHO CALLS THIS:
-#   api_mode_commands.ps1 -> rag-profile status
-#   You never need to run this file directly.
+# ===================================================================
+# WHAT: Show the current hardware performance profile settings
+# WHY:  Users need to verify which profile is active (laptop_safe,
+#       desktop_power, or server_max) because batch size, chunk size,
+#       and search depth all affect RAM usage and indexing speed
+# HOW:  Reads config/default_config.yaml and infers the profile from
+#       the embedding batch_size setting (16=laptop, 64=desktop, 128=server)
+# USAGE: Called by api_mode_commands.ps1 -> rag-profile status.
+#        Not run directly by users.
+# ===================================================================
 #
 # WHY PROFILES MATTER:
 #   Higher batch sizes mean the embedder processes more chunks at once
@@ -26,7 +21,7 @@
 #   Falls back to current directory if the env var is not set.
 #
 # INTERNET ACCESS: NONE. Only reads a local file.
-# ============================================================================
+# ===================================================================
 
 import os
 import yaml

@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
-# ============================================================================
-# HybridRAG v3 -- List Available AI Models (scripts/_list_models.py)
-# ============================================================================
-#
-# WHAT THIS DOES (plain English):
-#   Shows ALL AI models available to HybridRAG in a single view:
-#     - Offline models: auto-detected from Ollama (localhost only)
-#     - Online models: queried from your API provider (one GET request)
-#   Highlights which model is currently active.
-#
-# HOW TO RUN:
-#   rag-models                (after sourcing start_hybridrag.ps1)
-#   python scripts/_list_models.py   (direct)
+# ===================================================================
+# WHAT: Display all AI models available to HybridRAG (offline + online)
+# WHY:  Quick inventory so users know what models are installed locally
+#       and what API models are reachable before switching modes
+# HOW:  Auto-detects offline models via `ollama list` (localhost only),
+#       fetches online models via GET /models (one API call), and marks
+#       which model is currently active in config
+# USAGE: rag-models  (after sourcing start_hybridrag.ps1)
+#        python scripts/_list_models.py  (direct)
+# ===================================================================
 #
 # HOW TO ADD/REMOVE MODELS:
 #   Offline:
@@ -26,7 +23,7 @@
 #   Offline section: NONE (Ollama query is localhost only)
 #   Online section: YES if API key is configured (one GET /models request)
 #                   Skipped gracefully if no key or no connectivity
-# ============================================================================
+# ===================================================================
 
 import os
 import subprocess

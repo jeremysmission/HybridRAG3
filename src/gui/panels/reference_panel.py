@@ -1,8 +1,21 @@
 # ============================================================================
-# HybridRAG v3 -- Reference Panel (src/gui/panels/reference_panel.py) RevA
+# HybridRAG v3 -- Reference Panel (src/gui/panels/reference_panel.py) RevB
 # ============================================================================
-# Quick-reference view embedded in the main window via NavBar.  Five tabs:
-#   1. Docs       -- links to all project documentation
+# WHAT: In-app reference library with embedded docs, settings guide, model
+#       info, tuning history, and sticky notes.
+# WHY:  Users and admins need quick access to documentation and system
+#       knowledge without leaving the app or hunting through folders.
+#       Having a Settings cheat sheet and model ranking inside the tool
+#       reduces "which setting does what?" questions during demos.
+# HOW:  Five-tab ttk.Notebook with read-only text widgets.  Content is
+#       defined as module-level data structures (outside the class) to
+#       keep the class under 500 lines.  The Docs tab uses a master-detail
+#       layout with a category sidebar and a content viewer.  The Notes
+#       tab persists to config/sticky_notes.txt for quick scratch-pad use.
+# USAGE: Navigate via NavBar > Ref, or Admin > Ref.
+#
+# Tabs:
+#   1. Docs       -- master-detail viewer with embedded doc content
 #   2. Settings   -- cheat sheet for every tunable retrieval/LLM setting
 #   3. Profiles   -- model ranking, profile assignments, hardware tiers
 #   4. Tuning     -- log of optimization changes and their impact
@@ -15,44 +28,18 @@ import os
 import tkinter as tk
 from tkinter import ttk, messagebox
 import logging
-import subprocess
 
 from src.gui.theme import (
     current_theme, FONT, FONT_BOLD, FONT_TITLE, FONT_SMALL, FONT_MONO,
     bind_hover,
 )
+from src.gui.panels.reference_content import CATEGORIES
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Content data (kept outside class to stay under 500-line class limit)
 # ---------------------------------------------------------------------------
-
-_DOCS = [
-    ("Getting Started", [
-        ("INSTALL_AND_SETUP.md", "Full installation walkthrough"),
-        ("USER_GUIDE.md", "End-user guide for queries and indexing"),
-        ("GUI_GUIDE.md", "GUI layout, panels, and shortcuts"),
-        ("SHORTCUT_SHEET.md", "Quick-reference command cheat sheet"),
-    ]),
-    ("Technical", [
-        ("TECHNICAL_THEORY_OF_OPERATION_RevA.md", "System architecture deep dive"),
-        ("ARCHITECTURE_DIAGRAM.md", "Block diagrams and data flow"),
-        ("SOFTWARE_STACK.md", "All libraries with versions and licenses"),
-        ("INTERFACES.md", "API endpoints and CLI commands"),
-        ("FORMAT_SUPPORT.md", "Supported file types for indexing"),
-    ]),
-    ("Security & Compliance", [
-        ("SECURITY_THEORY_OF_OPERATION_RevA.md", "Security architecture"),
-        ("MODEL_AUDIT.md", "Model approval/rejection audit"),
-        ("GIT_REPO_RULES.md", "Repository hygiene and banned words"),
-    ]),
-    ("Demo & Evaluation", [
-        ("DEMO_PREP.md", "Demo preparation checklist"),
-        ("DEMO_GUIDE.md", "Step-by-step demo script"),
-        ("DEMO_QA_PREP.md", "Anticipated Q&A with answers"),
-    ]),
-]
 
 _RETRIEVAL_SETTINGS = [
     ("top_k", "5", "3-20",
@@ -158,7 +145,13 @@ INJECTION TRAP:
 
 
 class ReferencePanel(tk.Frame):
-    """Quick-reference view with tabbed content."""
+    """Quick-reference view with tabbed content.
+
+    Contains five tabs of read-only reference material plus one
+    editable sticky notes tab.  All content is statically defined
+    in module-level variables above the class to keep the class
+    body under 500 lines.
+    """
 
     def __init__(self, parent, project_root=None):
         t = current_theme()
@@ -170,6 +163,14 @@ class ReferencePanel(tk.Frame):
         self._notes_path = os.path.join(
             self._project_root, "config", "sticky_notes.txt"
         )
+
+        # Track doc viewer widgets for theme updates and selection
+        self._doc_labels = []
+        self._doc_content_map = {}
+        self._doc_text = None
+        self._doc_sidebar = None
+        self._doc_viewer_frame = None
+        self._selected_label = None
 
         # Notebook (tabs)
         style = ttk.Style()
@@ -187,72 +188,130 @@ class ReferencePanel(tk.Frame):
         self._build_notes_tab(self._notebook, t)
 
     # ------------------------------------------------------------------
-    # Tab 1: Documentation
+    # Tab 1: Documentation (master-detail layout)
     # ------------------------------------------------------------------
 
     def _build_docs_tab(self, nb, t):
+        """Build the Docs tab with a sidebar category list and content viewer."""
         frame = tk.Frame(nb, bg=t["bg"])
         nb.add(frame, text="Docs")
+        self._doc_viewer_frame = frame
 
-        canvas = tk.Canvas(frame, bg=t["bg"], highlightthickness=0)
-        scrollbar = ttk.Scrollbar(frame, orient="vertical",
-                                  command=canvas.yview)
-        inner = tk.Frame(canvas, bg=t["bg"])
-        inner.bind("<Configure>",
-                   lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=inner, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-        canvas.bind_all("<MouseWheel>",
-                        lambda e: canvas.yview_scroll(-1 * (e.delta // 120), "units"))
+        # -- Left sidebar: scrollable category list (~220px) --
+        sidebar = tk.Frame(frame, bg=t["panel_bg"], width=220)
+        sidebar.pack(side="left", fill="y")
+        sidebar.pack_propagate(False)
+        self._doc_sidebar = sidebar
 
-        for category, files in _DOCS:
-            tk.Label(
-                inner, text=category, font=FONT_BOLD,
-                bg=t["bg"], fg=t["accent"],
-            ).pack(anchor="w", padx=12, pady=(12, 4))
-            for filename, desc in files:
-                row = tk.Frame(inner, bg=t["bg"])
-                row.pack(fill="x", padx=24, pady=1)
-                link = tk.Label(
-                    row, text=filename, font=FONT,
-                    bg=t["bg"], fg=t["accent"], cursor="hand2",
+        sidebar_canvas = tk.Canvas(
+            sidebar, bg=t["panel_bg"], highlightthickness=0, width=210,
+        )
+        sidebar_scroll = ttk.Scrollbar(
+            sidebar, orient="vertical", command=sidebar_canvas.yview,
+        )
+        sidebar_inner = tk.Frame(sidebar_canvas, bg=t["panel_bg"])
+        sidebar_inner.bind(
+            "<Configure>",
+            lambda e: sidebar_canvas.configure(
+                scrollregion=sidebar_canvas.bbox("all")),
+        )
+        sidebar_canvas.create_window((0, 0), window=sidebar_inner, anchor="nw")
+        sidebar_canvas.configure(yscrollcommand=sidebar_scroll.set)
+        sidebar_canvas.pack(side="left", fill="both", expand=True)
+        sidebar_scroll.pack(side="right", fill="y")
+
+        def _on_sidebar_scroll(event):
+            sidebar_canvas.yview_scroll(-1 * (event.delta // 120), "units")
+
+        sidebar_canvas.bind("<MouseWheel>", _on_sidebar_scroll)
+        sidebar_inner.bind("<MouseWheel>", _on_sidebar_scroll)
+
+        # Separator between sidebar and content
+        sep = tk.Frame(frame, bg=t["separator"], width=1)
+        sep.pack(side="left", fill="y")
+
+        # -- Right side: read-only text content viewer --
+        viewer = tk.Frame(frame, bg=t["bg"])
+        viewer.pack(side="left", fill="both", expand=True)
+
+        self._doc_text = tk.Text(
+            viewer, font=FONT_MONO, bg=t["panel_bg"], fg=t["fg"],
+            wrap="word", relief="flat", bd=0, padx=16, pady=12,
+            insertbackground=t["fg"], state="disabled",
+        )
+        viewer_scroll = ttk.Scrollbar(
+            viewer, orient="vertical", command=self._doc_text.yview,
+        )
+        self._doc_text.configure(yscrollcommand=viewer_scroll.set)
+        self._doc_text.pack(side="left", fill="both", expand=True)
+        viewer_scroll.pack(side="right", fill="y")
+
+        # Populate sidebar with categories and doc links
+        first_entry = None
+        for category, entries in CATEGORIES:
+            cat_label = tk.Label(
+                sidebar_inner, text=category, font=FONT_BOLD,
+                bg=t["panel_bg"], fg=t["accent"], anchor="w",
+            )
+            cat_label.pack(fill="x", padx=8, pady=(12, 2))
+            cat_label.bind("<MouseWheel>", _on_sidebar_scroll)
+
+            for name, content in entries:
+                self._doc_content_map[name] = content
+                lbl = tk.Label(
+                    sidebar_inner, text="  " + name, font=FONT,
+                    bg=t["panel_bg"], fg=t["fg"], anchor="w",
+                    cursor="hand2", padx=12, pady=2,
                 )
-                link.pack(side="left")
-                link.bind("<Button-1>",
-                          lambda e, fn=filename: self._open_doc(fn))
-                tk.Label(
-                    row, text="  --  " + desc, font=FONT_SMALL,
-                    bg=t["bg"], fg=t["label_fg"],
-                ).pack(side="left")
+                lbl.pack(fill="x")
+                lbl.bind(
+                    "<Button-1>",
+                    lambda e, n=name, c=content: self._show_doc(n, c),
+                )
+                lbl.bind(
+                    "<Enter>",
+                    lambda e, w=lbl: w.configure(bg=t["input_bg"]),
+                )
+                lbl.bind(
+                    "<Leave>",
+                    lambda e, w=lbl: w.configure(
+                        bg=t["accent"] if w is self._selected_label
+                        else t["panel_bg"]),
+                )
+                lbl.bind("<MouseWheel>", _on_sidebar_scroll)
+                self._doc_labels.append(lbl)
+                if first_entry is None:
+                    first_entry = (name, content)
 
-    # Display names that differ from actual filenames on disk
-    _DOC_ALIASES = {"MODEL_AUDIT.md": "{}_MODEL_AUDIT.md".format(
-        chr(68) + chr(69) + chr(70) + chr(69) + chr(78) + chr(83) + chr(69))}
+        # Load first document by default
+        if first_entry:
+            self._show_doc(first_entry[0], first_entry[1])
 
-    def _open_doc(self, filename):
-        """Open a docs/ file in the default text editor."""
-        actual = self._DOC_ALIASES.get(filename, filename)
-        path = os.path.join(self._project_root, "docs", actual)
-        if not os.path.isfile(path):
-            messagebox.showinfo("Not Found",
-                                "File not found:\n" + path)
-            return
-        try:
-            os.startfile(path)
-        except Exception:
-            try:
-                subprocess.Popen(["notepad.exe", path])
-            except Exception as e:
-                messagebox.showerror("Error",
-                                     "Could not open file:\n" + str(e))
+    def _show_doc(self, name, content):
+        """Highlight the selected doc label and load its content."""
+        t = current_theme()
+        # Reset all labels to default colors
+        for lbl in self._doc_labels:
+            lbl.configure(bg=t["panel_bg"], fg=t["fg"])
+        # Find and highlight the selected label
+        for lbl in self._doc_labels:
+            if lbl.cget("text").strip() == name:
+                lbl.configure(bg=t["accent"], fg=t["accent_fg"])
+                self._selected_label = lbl
+                break
+        # Load content into the text widget
+        self._doc_text.configure(state="normal")
+        self._doc_text.delete("1.0", "end")
+        self._doc_text.insert("1.0", content)
+        self._doc_text.configure(state="disabled")
+        self._doc_text.yview_moveto(0)
 
     # ------------------------------------------------------------------
     # Tab 2: Settings Cheat Sheet
     # ------------------------------------------------------------------
 
     def _build_settings_tab(self, nb, t):
+        """Build the Settings cheat sheet with every tunable parameter explained."""
         frame = tk.Frame(nb, bg=t["bg"])
         nb.add(frame, text="Settings")
 
@@ -295,6 +354,7 @@ class ReferencePanel(tk.Frame):
     # ------------------------------------------------------------------
 
     def _build_profiles_tab(self, nb, t):
+        """Build the Profiles tab with model assignment tables and banned list."""
         frame = tk.Frame(nb, bg=t["bg"])
         nb.add(frame, text="Profiles")
 
@@ -352,6 +412,7 @@ class ReferencePanel(tk.Frame):
     # ------------------------------------------------------------------
 
     def _build_tuning_tab(self, nb, t):
+        """Build the Tuning tab showing optimization history and critical findings."""
         frame = tk.Frame(nb, bg=t["bg"])
         nb.add(frame, text="Tuning")
 
@@ -386,6 +447,7 @@ class ReferencePanel(tk.Frame):
     # ------------------------------------------------------------------
 
     def _build_notes_tab(self, nb, t):
+        """Build the Notes tab -- an editable scratch pad that saves to disk."""
         frame = tk.Frame(nb, bg=t["bg"])
         nb.add(frame, text="Notes")
 
@@ -427,6 +489,7 @@ class ReferencePanel(tk.Frame):
         self._load_notes()
 
     def _load_notes(self):
+        """Load previously saved notes from disk into the text widget."""
         try:
             if os.path.isfile(self._notes_path):
                 with open(self._notes_path, "r", encoding="utf-8") as f:
@@ -435,6 +498,7 @@ class ReferencePanel(tk.Frame):
             logger.debug("Could not load sticky notes: %s", e)
 
     def _save_notes(self):
+        """Save the current notes text to config/sticky_notes.txt."""
         try:
             content = self._notes_text.get("1.0", "end-1c")
             os.makedirs(os.path.dirname(self._notes_path), exist_ok=True)
@@ -444,6 +508,7 @@ class ReferencePanel(tk.Frame):
             messagebox.showerror("Save Error", str(e))
 
     def _purge_notes(self):
+        """Delete all notes (with confirmation) and remove the file from disk."""
         if messagebox.askyesno("Purge Notes",
                                "Delete all sticky notes?"):
             self._notes_text.delete("1.0", "end")
@@ -463,3 +528,19 @@ class ReferencePanel(tk.Frame):
         style = ttk.Style()
         style.configure("Ref.TNotebook", background=t["bg"])
         style.configure("Ref.TNotebook.Tab", font=FONT, padding=(12, 4))
+
+        # Update doc viewer widgets
+        if self._doc_sidebar is not None:
+            self._doc_sidebar.configure(bg=t["panel_bg"])
+        if self._doc_text is not None:
+            self._doc_text.configure(
+                bg=t["panel_bg"], fg=t["fg"],
+                insertbackground=t["fg"],
+            )
+        if self._doc_viewer_frame is not None:
+            self._doc_viewer_frame.configure(bg=t["bg"])
+        for lbl in self._doc_labels:
+            if lbl is self._selected_label:
+                lbl.configure(bg=t["accent"], fg=t["accent_fg"])
+            else:
+                lbl.configure(bg=t["panel_bg"], fg=t["fg"])

@@ -37,6 +37,16 @@ from typing import Tuple, Dict, Any
 
 
 class XlsxParser:
+    """
+    Extract text from Excel .xlsx spreadsheets.
+
+    Opens the workbook read-only via openpyxl, walks every sheet and
+    every cell, and concatenates all non-empty cell values separated
+    by tabs (columns) and newlines (rows). Sheet names are included
+    as section headers so search results can reference which sheet
+    the data came from.
+    """
+
     def parse(self, file_path: str) -> str:
         text, _ = self.parse_with_details(file_path)
         return text

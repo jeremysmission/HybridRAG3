@@ -18,16 +18,23 @@ Web/forum research permitted without asking.
 <!-- detailed: docs/05_security/GIT_REPO_RULES.md -->
 - Commit/push only from home machine
 - Run sanitization check (docs/05_security/GIT_REPO_RULES.md) before every commit
+- Regression test BEFORE every push (never push untested code)
 - Banned words in repo: defense, contractor, classified, NGC, Northrop, NIST, DoD, Claude, Anthropic
 - deploy_comments.ps1 and .claude/ are intentionally untracked
-- Sync to educational: tools/sync_to_educational.py (one-way, sanitized)
 - Skip patterns: *.docx, *.xlsx, ~$* (binary Office files)
+
+# Push Sequence (every time, no exceptions)
+1. Regression test (pytest tests/ --ignore=tests/test_fastapi_server.py)
+2. Banned word scan on changed files
+3. git push origin main (HybridRAG3)
+4. python tools/sync_to_educational.py
+5. cd D:\HybridRAG3_Educational && git add -A && git commit && git push origin main
+- User pulls from Educational repo -- if step 4-5 is skipped, user gets stale code
 
 # Paths
 - Source data: D:\RAG Source Data
 - Indexed data: D:\RAG Indexed Data
-- DialedIn clone: D:\HybridRAG3_DialedIn
-- Educational clone: separate repo, never direct-push from here
+- Educational clone: D:\HybridRAG3_Educational (separate repo, sync via tools/sync_to_educational.py)
 
 # Banned Models (NDAA / ITAR)
 <!-- detailed: docs/05_security/DEFENSE_MODEL_AUDIT.md -->

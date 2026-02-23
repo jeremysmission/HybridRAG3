@@ -1,16 +1,34 @@
 # ============================================================================
 # HybridRAG v3 -- Built-In Test Engine (src/core/ibit.py)
 # ============================================================================
-# Two test modes:
+#
+# WHAT: Health-check system that verifies the application is working
+#       correctly, both at startup and continuously during operation.
+#
+# WHY:  Complex systems fail silently. The database file can get locked,
+#       Ollama can crash in the background, the disk can fill up, or
+#       the embedder model can fail to load. Without automated checks,
+#       the user only discovers these problems when their query fails
+#       with a cryptic error. IBIT catches problems early with clear
+#       pass/fail status visible in the GUI status bar.
+#
+# HOW:  Two test modes borrowed from aviation/military hardware testing:
 #
 #   IBIT (Initial BIT) -- runs once at startup after backends load.
 #     6 checks: Config, Paths, Database, Embedder, Router, Pipeline
 #     Performance: < 500ms total
+#     Purpose: verify the system is ready before accepting queries
 #
 #   CBIT (Continuous BIT) -- runs every 60s in the background.
 #     3 lightweight checks: Database, Router, Disk
 #     Performance: < 200ms total (no embedder call, no heavy I/O)
 #     Purpose: detect silent failures (DB lock, Ollama crash, disk full)
+#
+# USAGE:
+#       from src.core.ibit import run_ibit, run_cbit
+#       results = run_ibit(config, query_engine, indexer, router)
+#       for check in results:
+#           print(f"{'[OK]' if check.ok else '[FAIL]'} {check.name}: {check.detail}")
 #
 # INTERNET ACCESS: NONE (reads local state only)
 # ============================================================================
@@ -34,7 +52,13 @@ class IBITCheck:
 
 
 def run_ibit(config, query_engine=None, indexer=None, router=None):
-    """Run all IBIT checks and return results.
+    """
+    Run all IBIT checks and return results.
+
+    Called once at startup by the boot pipeline. Each check is independent
+    and catches its own exceptions, so one failure does not prevent others
+    from running. The GUI status bar shows the results as a pass/fail
+    count (e.g., "IBIT: 5/6 passed").
 
     Parameters
     ----------
@@ -53,12 +77,14 @@ def run_ibit(config, query_engine=None, indexer=None, router=None):
         Six results, one per check, in order.
     """
     results = []
-    results.append(_check_config(config))
-    results.append(_check_paths(config))
-    results.append(_check_database(config))
-    results.append(_check_embedder(query_engine))
-    results.append(_check_router(config, router))
-    results.append(_check_pipeline(query_engine))
+    # Each check verifies one component in the system stack.
+    # Order matters for readability in logs, not for correctness.
+    results.append(_check_config(config))       # Check 1: Config loaded?
+    results.append(_check_paths(config))        # Check 2: Directories exist?
+    results.append(_check_database(config))     # Check 3: SQLite accessible?
+    results.append(_check_embedder(query_engine))  # Check 4: Can we embed text?
+    results.append(_check_router(config, router))  # Check 5: LLM backend alive?
+    results.append(_check_pipeline(query_engine))  # Check 6: Everything wired?
 
     passed = sum(1 for r in results if r.ok)
     total = len(results)
@@ -70,8 +96,12 @@ def run_ibit(config, query_engine=None, indexer=None, router=None):
     return results
 
 
-# ---------------------------------------------------------------------------
-# Individual checks
+# --- IBIT INDIVIDUAL CHECKS ------------------------------------------------
+# Each check follows the same pattern:
+#   1. Start a high-precision timer
+#   2. Try to verify the component
+#   3. Return IBITCheck(name, ok, detail, elapsed_ms)
+#   4. Catch ALL exceptions (a check failure must never crash the app)
 # ---------------------------------------------------------------------------
 
 def _check_config(config):
@@ -141,7 +171,12 @@ def _check_database(config):
 
 
 def _check_embedder(query_engine):
-    """Check 4: Embedder is loaded and can produce vectors."""
+    """Check 4: Embedder is loaded and can produce vectors.
+
+    WHY: The embedder converts text to numeric vectors. If it fails to
+    load (missing model file, out of memory), no queries will work.
+    We do a minimal encode test with a short string to verify.
+    """
     t0 = time.perf_counter()
     try:
         if query_engine is None:
@@ -152,7 +187,7 @@ def _check_embedder(query_engine):
             return IBITCheck("Embedder", False,
                              "embedder not attached", _elapsed(t0))
         model_name = getattr(embedder, "model_name", "unknown")
-        # Quick encode test
+        # Quick encode test: embed a short string and verify we get a vector
         vec = embedder.embed_query("IBIT test")
         if vec is None or len(vec) == 0:
             return IBITCheck("Embedder", False,
@@ -199,7 +234,13 @@ def _check_router(config, router):
 
 
 def _check_pipeline(query_engine):
-    """Check 6: QueryEngine is fully wired with all components."""
+    """Check 6: QueryEngine is fully wired with all components.
+
+    WHY: The QueryEngine needs three internal components to work:
+    VectorStore (search), Embedder (text->vectors), and Router (LLM calls).
+    If boot_hybridrag() partially failed, some might be None. This check
+    catches that before the first user query hits a NoneType error.
+    """
     t0 = time.perf_counter()
     try:
         if query_engine is None:
@@ -227,8 +268,11 @@ def _elapsed(t0):
     return (time.perf_counter() - t0) * 1000
 
 
-# ============================================================================
-# CBIT -- Continuous Built-In Test
+# --- SECTION: CBIT -- Continuous Built-In Test -----------------------------
+# CBIT is the "background health monitor" that runs every 60 seconds.
+# It uses lighter-weight checks than IBIT (no embedder test, no heavy I/O)
+# to detect problems that develop during operation: database locks, Ollama
+# crashes, disk space exhaustion, etc.
 # ============================================================================
 
 def run_cbit(config, query_engine=None, router=None):
@@ -329,7 +373,10 @@ def _cbit_router(config, router):
         return IBITCheck("Router", False, str(e)[:80], _elapsed(t0))
 
 
-# Minimum free disk space before warning (100 MB)
+# Minimum free disk space before warning (100 MB).
+# WHY 100 MB: enough headroom for a few thousand more chunks plus SQLite
+# journal files, but signals imminent trouble. A full disk causes SQLite
+# write failures, which silently corrupt the index.
 _MIN_DISK_MB = 100
 
 

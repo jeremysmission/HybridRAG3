@@ -1,28 +1,15 @@
-# ============================================================================
-# HybridRAG -- Parser Smoke Test (src/diagnostic/parser_smoke_test_APPEND.py)
-# ============================================================================
-#
-# WHAT THIS FILE IS:
-#   A standalone test function that checks whether every document parser
-#   library is actually installed. This is NOT a complete runnable script --
-#   it contains one function meant to be added to component_tests.py.
-#
-# WHY THIS EXISTS:
-#   The #1 portability problem: requirements.txt lists a package (like
-#   python-docx for reading Word files) but it wasn't actually installed
-#   in the virtual environment. This test catches that before you try to
-#   parse a real file and get a confusing ImportError.
-#
-# WHAT IT TESTS:
-#   PDF (pdfplumber, pypdf), Word (python-docx), PowerPoint (python-pptx),
-#   Excel (openpyxl), HTTP (httpx), ML models (transformers,
-#   sentence-transformers), Config (PyYAML), Logging (structlog),
-#   Images (Pillow)
-#
-# HOW TO INTEGRATE:
-#   Copy the test_parser_smoke() function below and paste it at the end
-#   of src/diagnostic/component_tests.py
-# ============================================================================
+# ===================================================================
+# WHAT: Parser library import smoke test -- verifies every document
+#       parser dependency is actually installed
+# WHY:  The #1 portability problem: requirements.txt lists a package
+#       (like python-docx) but it was not installed in the venv. This
+#       test catches it before a real file triggers a confusing error.
+# HOW:  Tries to __import__ each parser library (PDF, Word, Excel,
+#       PowerPoint, etc.) and reports which are missing with the exact
+#       pip install command to fix them
+# USAGE: This is an APPEND file -- its function should be copied into
+#        component_tests.py. It is not a standalone runnable script.
+# ===================================================================
 
 
 def test_parser_smoke() -> TestResult:

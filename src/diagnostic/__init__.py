@@ -1,23 +1,14 @@
-# ============================================================================
-# HybridRAG v3 -- Diagnostic Package: Core Data Structures & Helpers
-# ============================================================================
-# FILE: src/diagnostic/__init__.py
-#
-# WHAT THIS FILE DOES:
-#   Provides the shared building blocks that every diagnostic module uses:
-#   - TestResult: outcome of one health check
-#   - PerfMetric: one performance measurement with statistics
-#   - DiagnosticReport: collects all results, metrics, and bugs
-#   - Terminal color helpers for pretty output
-#   - Memory measurement utility
-#   - Benchmark runner (times a function N times, computes stats)
-#   - Safe test wrapper (catches crashes so other tests keep running)
-#
-# WHY IT'S SEPARATE:
-#   Every test module (health_tests.py, perf_benchmarks.py, etc.) needs
-#   these same structures. Putting them here avoids circular imports and
-#   keeps each file focused on one job.
-# ============================================================================
+# ===================================================================
+# WHAT: Shared data structures and utilities for the diagnostic system
+# WHY:  Every diagnostic module (health tests, benchmarks, fault analysis)
+#       needs the same building blocks -- result types, color helpers,
+#       benchmark runner, memory measurement. Centralizing them here
+#       avoids circular imports and duplication.
+# HOW:  Defines TestResult, PerfMetric, DiagnosticReport dataclasses
+#       plus utilities (benchmark runner, safe test wrapper, terminal
+#       colors) that all diagnostic modules import
+# USAGE: from src.diagnostic import TestResult, run_test, benchmark
+# ===================================================================
 
 from __future__ import annotations
 

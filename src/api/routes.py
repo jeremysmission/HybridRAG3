@@ -1,16 +1,23 @@
 # ============================================================================
 # HybridRAG -- API Routes (src/api/routes.py)
 # ============================================================================
-#
-# WHAT THIS FILE DOES:
-#   Defines all REST API endpoints for HybridRAG. Each endpoint is a thin
-#   wrapper around the existing core pipeline classes.
+# WHAT: All REST API endpoint handlers for the HybridRAG FastAPI server.
+# WHY:  Provides a headless (no GUI) interface for automation, scripts,
+#       MCP integrations, and CI/CD pipelines that need to query or
+#       index documents programmatically.
+# HOW:  Each endpoint is a thin async wrapper around the core pipeline
+#       classes (QueryEngine, Indexer, etc.).  Heavy work runs in
+#       background threads via asyncio.to_thread() or threading.Thread
+#       so the event loop stays responsive.
+# USAGE: Endpoints are mounted on the FastAPI app in server.py.
+#        Access docs at http://127.0.0.1:8000/docs (Swagger UI).
 #
 # ENDPOINTS:
 #   GET  /health         Fast health check (no pipeline deps)
 #   GET  /status         Database stats and mode info
-#   GET  /config         Current configuration (read-only)
+#   GET  /config         Current configuration (read-only, no secrets)
 #   POST /query          Ask a question about your documents
+#   POST /query/stream   Stream answer tokens via Server-Sent Events
 #   POST /index          Start indexing (runs in background thread)
 #   GET  /index/status   Check indexing progress
 #   PUT  /mode           Switch between offline and online mode
@@ -57,11 +64,18 @@ router = APIRouter()
 # Lazy import of shared state (avoids circular imports)
 # -------------------------------------------------------------------
 def _state():
+    """Get the shared AppState singleton.
+
+    Uses a function (not a top-level import) to avoid circular imports --
+    server.py imports routes.py, so routes.py cannot import server.py
+    at module level.
+    """
     from src.api.server import state
     return state
 
 
 def _version():
+    """Get the app version string (same lazy-import pattern as _state)."""
     from src.api.server import APP_VERSION
     return APP_VERSION
 
@@ -71,7 +85,12 @@ def _version():
 # -------------------------------------------------------------------
 @router.get("/health", response_model=HealthResponse)
 async def health():
-    """Fast health check. Returns 200 if the server is running."""
+    """Fast health check. Returns 200 if the server process is alive.
+
+    This endpoint has zero dependencies -- it does not check the database,
+    embedder, or LLM.  Use GET /status for a deeper readiness check.
+    Useful for load balancer health probes and uptime monitors.
+    """
     return HealthResponse(status="ok", version=_version())
 
 
@@ -80,7 +99,12 @@ async def health():
 # -------------------------------------------------------------------
 @router.get("/status", response_model=StatusResponse)
 async def status():
-    """Database stats, current mode, and component status."""
+    """Database stats, current mode, and component status.
+
+    Returns chunk count, source count, embedding model name, and
+    current mode (offline/online).  Returns 503 if the server has
+    not finished initializing.
+    """
     s = _state()
     if not s.vector_store or not s.config:
         raise HTTPException(status_code=503, detail="Server not initialized")
@@ -108,7 +132,12 @@ async def status():
 # -------------------------------------------------------------------
 @router.get("/config", response_model=ConfigResponse)
 async def get_config():
-    """Return current configuration (read-only, no secrets)."""
+    """Return current configuration (read-only, no secrets).
+
+    Exposes retrieval parameters, model names, chunk sizes, and mode.
+    API keys and endpoints are NOT included -- only a boolean flag
+    indicating whether an endpoint is configured.
+    """
     s = _state()
     if not s.config:
         raise HTTPException(status_code=503, detail="Server not initialized")
@@ -254,7 +283,9 @@ async def start_indexing(req: IndexRequest = None):
             detail=f"Source folder not found: {source_folder}",
         )
 
-    # Path validation: only allow the configured source folder
+    # Path traversal prevention: the requested folder must be within
+    # the configured source directory.  This blocks "../../../etc/passwd"
+    # style attacks via the source_folder parameter.
     allowed_root = os.path.realpath(s.config.paths.source_folder)
     requested = os.path.realpath(source_folder)
     if not requested.startswith(allowed_root):
@@ -305,7 +336,12 @@ async def start_indexing(req: IndexRequest = None):
 # -------------------------------------------------------------------
 @router.get("/index/status", response_model=IndexStatusResponse)
 async def index_status():
-    """Check the progress of a running indexing job."""
+    """Check the progress of a running indexing job.
+
+    Returns file counts (processed, skipped, errored), current file name,
+    and elapsed time.  Safe to poll repeatedly -- this is a read-only
+    check against in-memory counters updated by the indexing callback.
+    """
     s = _state()
     p = s.index_progress
     elapsed = time.time() - p["start_time"] if p["start_time"] else 0.0

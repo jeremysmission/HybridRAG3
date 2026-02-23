@@ -1,21 +1,17 @@
-# ============================================================================
-# HybridRAG v3 - Switch Performance Profile (scripts/_profile_switch.py)
-# ============================================================================
-#
-# WHAT THIS FILE DOES:
-#   Changes ALL hardware-dependent settings in config/default_config.yaml
-#   to match one of three predefined profiles. This controls:
-#     - Embedding model (which AI embeds your documents)
-#     - Embedding dimension (384 / 768 / 1024)
-#     - Embedding device (cpu / cuda)
-#     - LLM model (which AI answers your questions)
-#     - LLM context window (how much text the AI can read)
-#     - Batch size, top_k, block_chars (performance tuning)
-#
-# USAGE (called by PowerShell, not directly):
-#   python scripts/_profile_switch.py laptop_safe
-#   python scripts/_profile_switch.py desktop_power
-#   python scripts/_profile_switch.py server_max
+# ===================================================================
+# WHAT: Switch ALL hardware-dependent settings to match a predefined
+#       performance profile (laptop / desktop / server)
+# WHY:  Different machines have wildly different RAM and GPU capacity.
+#       The same settings that work on a 64GB desktop would crash a
+#       16GB laptop. Profiles bundle all hardware-sensitive settings
+#       so one command adapts the entire system to the machine.
+# HOW:  Deep-merges profile-specific settings (embedding model, batch
+#       size, LLM model, context window, top_k) into the existing
+#       config YAML, detects embedding model changes and warns about
+#       required re-indexing
+# USAGE: rag-profile laptop_safe|desktop_power|server_max
+#        python scripts/_profile_switch.py <profile_name>
+# ===================================================================
 #
 # PROFILE DETAILS:
 #
@@ -34,23 +30,13 @@
 #     - LLM: phi4:14b-q4_K_M (14B, 16K context)
 #     - batch_size=128, top_k=15, block=1M
 #
-# WHO CALLS THIS:
-#   api_mode_commands.ps1 -> rag-profile [profile_name]
-#
-# WHAT IT CHANGES:
-#   config/default_config.yaml (embedding, ollama, retrieval, indexing)
-#
 # IMPORTANT:
 #   If the embedding model changes, ALL documents must be RE-INDEXED.
 #   Existing 384-dim vectors are incompatible with a 768-dim model.
 #   This script detects model changes and prints a clear warning.
 #
-# PORTABILITY:
-#   Uses HYBRIDRAG_PROJECT_ROOT env var to find config on any machine.
-#   Falls back to current directory if the env var is not set.
-#
 # INTERNET ACCESS: NONE. Only modifies a local file.
-# ============================================================================
+# ===================================================================
 
 import os
 import sys

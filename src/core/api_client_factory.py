@@ -3,37 +3,34 @@
 # ===========================================================================
 # FILE: src/core/api_client_factory.py
 #
-# WHAT THIS IS:
-#   The GATE that prevents broken API clients from being created.
-#   Before this redesign, the LLMRouter would create an API client
-#   even when the endpoint was empty, leading to mysterious runtime
-#   failures like "syntax error" or "invalid URL."
+# WHAT: Pre-flight validation gate that prevents broken API clients
+#       from being created. Validates endpoint, key, provider, auth,
+#       deployment, and URL construction BEFORE making any HTTP call.
 #
-#   Now, the factory validates EVERYTHING before instantiating:
-#     - Endpoint exists and is well-formed
-#     - API key exists
-#     - Provider is correctly detected
-#     - Auth scheme matches provider
-#     - Deployment name is present (for Azure)
-#     - Final URL is correctly constructed
+# WHY:  Before this redesign, the LLMRouter would create API clients
+#       even when the endpoint was empty, leading to mysterious runtime
+#       failures ("syntax error", "invalid URL"). Now you get a clear
+#       typed exception that tells you exactly what is wrong and how
+#       to fix it -- like an aircraft pre-flight checklist.
 #
-#   If ANY validation fails, you get a clear typed exception that
-#   tells you exactly what's wrong and how to fix it.
+# HOW:  8-step validation pipeline:
+#       1. Verify credentials exist
+#       2. Validate endpoint URL format
+#       3. Detect provider (Azure vs OpenAI)
+#       4. Resolve deployment name and API version
+#       5. Construct the final URL (one place, no doubling)
+#       6. Determine auth scheme (api-key vs Bearer)
+#       7. Create the HTTP client
+#       8. Return a validated ApiClient
 #
-# ANALOGY:
-#   Think of an aircraft pre-flight checklist. A pilot doesn't start
-#   the engines and hope for the best -- they verify fuel, instruments,
-#   control surfaces, and weather BEFORE moving. This factory is the
-#   pre-flight checklist for API connections.
+# USAGE:
+#       from src.core.api_client_factory import ApiClientFactory
+#       from src.security.credentials import resolve_credentials
 #
-# HOW IT'S USED:
-#   from src.core.api_client_factory import ApiClientFactory
-#   from src.security.credentials import resolve_credentials
-#
-#   creds = resolve_credentials()
-#   factory = ApiClientFactory(config_dict)
-#   client = factory.build(creds)  # Raises if anything is wrong
-#   result = client.chat("What is X?")
+#       creds = resolve_credentials()
+#       factory = ApiClientFactory(config_dict)
+#       client = factory.build(creds)  # Raises if anything is wrong
+#       result = client.chat("What is X?")
 #
 # DESIGN DECISIONS:
 #   - Provider detection uses EXPLICIT config.yaml setting first,
@@ -41,6 +38,8 @@
 #   - URL construction is done ONCE, in ONE place, with clear logic.
 #   - The ApiClient returned is a simple wrapper around HttpClient
 #     that knows how to format chat completion requests.
+#
+# INTERNET ACCESS: YES -- ApiClient.chat() makes HTTP requests
 # ===========================================================================
 
 from __future__ import annotations
@@ -72,9 +71,7 @@ from src.security.credentials import ApiCredentials, validate_endpoint
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# SUPPORTED PROVIDERS AND AUTH SCHEMES
-# ---------------------------------------------------------------------------
+# --- CONSTANTS: SUPPORTED PROVIDERS AND AUTH SCHEMES -----------------------
 
 # These are the recognized providers. "auto" means detect from URL.
 VALID_PROVIDERS = ("azure", "openai", "auto")
@@ -82,8 +79,8 @@ VALID_PROVIDERS = ("azure", "openai", "auto")
 # These are the recognized auth schemes.
 VALID_AUTH_SCHEMES = ("api_key", "bearer", "auto")
 
-# URL patterns that indicate Azure OpenAI (used by "auto" detection)
-# Your company uses "aoai" which is Azure OpenAI abbreviated
+# URL patterns that indicate Azure OpenAI (used by "auto" detection).
+# "aoai" is a common enterprise abbreviation for Azure OpenAI.
 AZURE_URL_PATTERNS = [
     "azure",
     ".openai.azure.com",
@@ -98,9 +95,7 @@ AZURE_URL_PATTERNS = [
 DEFAULT_AZURE_API_VERSION = "2024-02-02"
 
 
-# ---------------------------------------------------------------------------
-# API CLIENT: The object that actually makes chat completion requests
-# ---------------------------------------------------------------------------
+# --- API CLIENT: The object that actually makes chat completion requests ---
 
 @dataclass
 class ApiClientConfig:
@@ -297,9 +292,7 @@ class ApiClient:
         }
 
 
-# ---------------------------------------------------------------------------
-# API CLIENT FACTORY: The validation gate
-# ---------------------------------------------------------------------------
+# --- API CLIENT FACTORY: The validation gate --------------------------------
 
 class ApiClientFactory:
     """
@@ -395,9 +388,7 @@ class ApiClientFactory:
 
         return ApiClient(client_config, http_client)
 
-    # -----------------------------------------------------------------------
-    # STEP 3: Provider detection
-    # -----------------------------------------------------------------------
+    # --- STEP 3: Provider detection ------------------------------------------
 
     def _detect_provider(self, endpoint: str) -> str:
         """
@@ -438,9 +429,7 @@ class ApiClientFactory:
         logger.info("No Azure patterns found in URL -- defaulting to OpenAI")
         return "openai"
 
-    # -----------------------------------------------------------------------
-    # STEP 4a: Resolve deployment name
-    # -----------------------------------------------------------------------
+    # --- STEP 4a: Resolve deployment name ------------------------------------
 
     def _resolve_deployment(
         self, credentials: ApiCredentials, provider: str
@@ -474,9 +463,7 @@ class ApiClientFactory:
             "(AZURE_OPENAI_DEPLOYMENT), or include it in the endpoint URL."
         )
 
-    # -----------------------------------------------------------------------
-    # STEP 4b: Resolve API version
-    # -----------------------------------------------------------------------
+    # --- STEP 4b: Resolve API version ----------------------------------------
 
     def _resolve_api_version(
         self, credentials: ApiCredentials, provider: str
@@ -506,9 +493,7 @@ class ApiClientFactory:
         )
         return DEFAULT_AZURE_API_VERSION
 
-    # -----------------------------------------------------------------------
-    # STEP 5: Build the final URL
-    # -----------------------------------------------------------------------
+    # --- STEP 5: Build the final URL -----------------------------------------
 
     def _build_url(
         self,
@@ -567,9 +552,7 @@ class ApiClientFactory:
                 return f"{base}/chat/completions"
             return f"{base}/v1/chat/completions"
 
-    # -----------------------------------------------------------------------
-    # STEP 6: Resolve auth scheme
-    # -----------------------------------------------------------------------
+    # --- STEP 6: Resolve auth scheme -----------------------------------------
 
     def _resolve_auth(
         self, api_key: str, provider: str
@@ -600,9 +583,7 @@ class ApiClientFactory:
         # Default fallback
         return ("api-key", api_key)
 
-    # -----------------------------------------------------------------------
-    # DIAGNOSTIC: Pre-flight check without building
-    # -----------------------------------------------------------------------
+    # --- DIAGNOSTIC: Pre-flight check without building -----------------------
 
     def diagnose(self, credentials: ApiCredentials) -> dict:
         """

@@ -1,21 +1,33 @@
 # ============================================================================
-# HybridRAG - Image OCR Parser (src/parsers/image_parser.py)
+# HybridRAG -- Image OCR Parser (src/parsers/image_parser.py)
 # ============================================================================
-# Purpose:
-# - Parse image files by OCR (extract readable text)
 #
-# Supported formats we will register:
-# - .png, .jpg, .jpeg, .tif, .tiff, .bmp, .gif, .webp
+# WHAT: Extracts text from image files using Optical Character Recognition (OCR)
+# WHY:  Engineers often scan paper documents, take photos of whiteboards, or
+#       receive screenshots. These images contain valuable text that RAG
+#       cannot search unless we "read" it with OCR. Without this parser,
+#       all image-based knowledge is invisible to search.
+# HOW:  Opens the image with Pillow (Python Imaging Library), converts to
+#       RGB, then feeds it to Tesseract OCR -- the industry-standard open
+#       source text recognition engine. Tesseract identifies letters/words
+#       in the image and returns them as a text string.
 #
-# Dependencies:
-# - pillow (PIL)  -> pip install pillow
-# - pytesseract   -> pip install pytesseract
-# - Tesseract OCR application must be installed on Windows
-#   (the EXE is not installed by pip).
+# SUPPORTED FORMATS:
+#   .png, .jpg, .jpeg, .tif, .tiff, .bmp, .gif, .webp
 #
-# Behavior:
-# - If OCR is unavailable, we return "" text but include a clear reason
-#   in details so the indexer can log it.
+# DEPENDENCIES (TWO separate installs):
+#   1. Python packages:  pip install pillow pytesseract
+#   2. Tesseract binary: Must install the Tesseract OCR application
+#      separately (the .exe is NOT installed by pip).
+#      Windows: available via Software Center or https://github.com/tesseract-ocr
+#      Set TESSERACT_CMD env var if not on PATH.
+#
+# GRACEFUL FALLBACK:
+#   If either Pillow or Tesseract is missing, the parser returns empty
+#   text with a diagnostic reason in the details dict. The indexer logs
+#   it and moves on -- no crash.
+#
+# INTERNET ACCESS: NONE
 # ============================================================================
 
 from __future__ import annotations

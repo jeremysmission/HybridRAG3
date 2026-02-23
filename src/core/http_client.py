@@ -3,31 +3,28 @@
 # ===========================================================================
 # FILE: src/core/http_client.py
 #
-# WHAT THIS IS:
-#   The ONE AND ONLY place that creates HTTP connections. Every module
-#   that needs to talk to the network goes through this. No module
-#   should ever create its own urllib/requests/httpx session directly.
+# WHAT: The single point of control for ALL outbound HTTP connections.
+#       Every module that talks to the network goes through this file.
 #
-# WHY THIS MATTERS:
-#   In a corporate/secure environment, HTTP connections need:
-#     - Proxy configuration (corporate proxy servers)
-#     - TLS/SSL certificate handling (corporate CA certs)
-#     - Timeout enforcement (no hanging requests)
-#     - Retry logic (transient failures)
-#     - Audit logging (every request logged for compliance)
+# WHY:  In a corporate/secure environment, HTTP connections need:
+#       - Proxy configuration (corporate proxy servers)
+#       - TLS/SSL certificate handling (corporate CA certs)
+#       - Timeout enforcement (no hanging requests)
+#       - Retry logic (transient failures)
+#       - Audit logging (every request logged for compliance)
+#       Centralizing all of this in one file means a proxy change in
+#       config.yaml automatically applies everywhere.
 #
-#   Before this redesign, proxy settings were scattered across
-#   start_hybridrag.ps1, environment variables, and inline code.
-#   A change in one place wouldn't affect the others. Now everything
-#   is centralized here.
+# HOW:  Uses Python's built-in urllib.request (no extra dependency).
+#       Builds one SSL context at startup, reuses it for every request.
+#       Retries on 5xx/429 with exponential backoff. Logs URL + status
+#       (never the body or API key) for audit compliance.
 #
-# DESIGN DECISIONS:
-#   - Uses Python's built-in urllib.request (no extra dependency)
-#     instead of httpx or requests. This keeps the "zero magic"
-#     dependency philosophy -- one less thing to install and debug.
-#   - Falls back gracefully if SSL context can't be created
-#   - Logs every request (URL + method + status, never the body or key)
-#   - Configurable via config.yaml, not hardcoded
+# USAGE:
+#       client = HttpClient(config)
+#       response = client.post(url, headers=headers, json_body=payload)
+#       if response.is_success:
+#           data = response.json()
 #
 # NETWORK ACCESS CONTROL:
 #   Network access is controlled by the centralized NetworkGate

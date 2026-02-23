@@ -60,9 +60,7 @@ from typing import Optional, List, Dict, Any, Tuple
 import numpy as np
 
 
-# -------------------------------------------------------------------
-# Data classes
-# -------------------------------------------------------------------
+# --- DATA CLASSES -----------------------------------------------------------
 
 @dataclass
 class ChunkMetadata:
@@ -76,9 +74,7 @@ class ChunkMetadata:
     created_at: str       # ISO timestamp when this chunk was indexed
 
 
-# -------------------------------------------------------------------
-# Memmap embedding store
-# -------------------------------------------------------------------
+# --- MEMMAP EMBEDDING STORE ------------------------------------------------
 
 class EmbeddingMemmapStore:
     """
@@ -199,9 +195,7 @@ class EmbeddingMemmapStore:
         return True, "OK"
 
 
-# -------------------------------------------------------------------
-# VectorStore -- the main class that everything else uses
-# -------------------------------------------------------------------
+# --- VECTOR STORE (MAIN CLASS) ---------------------------------------------
 
 class VectorStore:
     """
@@ -230,7 +224,14 @@ class VectorStore:
 
         self.conn = sqlite3.connect(self.db_path)
 
-        # SQLite performance tuning (safe for single-user desktop use)
+        # SQLite performance tuning (safe for single-user desktop use).
+        # WHY THESE PRAGMAS:
+        #   WAL mode: allows reads while writes happen (no blocking during search)
+        #   NORMAL sync: 2x faster writes, safe because WAL protects against corruption
+        #   MEMORY temp_store: temp tables live in RAM, not on disk
+        #   cache_size -200000: use ~200MB of RAM for page cache (faster reads)
+        #   busy_timeout 5000: wait up to 5s for a lock instead of instant failure
+        #   foreign_keys ON: enforce referential integrity
         self.conn.execute("PRAGMA journal_mode=WAL;")
         self.conn.execute("PRAGMA synchronous=NORMAL;")
         self.conn.execute("PRAGMA temp_store=MEMORY;")
@@ -441,17 +442,34 @@ class VectorStore:
         """
         Find the most similar chunks to a query vector.
 
+        This is the core search algorithm for HybridRAG. Think of it
+        like searching a library catalog by "meaning" instead of keywords.
+
         How it works:
           1. Load embeddings from disk in blocks (not all at once)
           2. For each block, compute cosine similarity with the query
           3. Keep top-k highest scoring chunks across all blocks
           4. Look up text and metadata from SQLite
           5. Return sorted results
+
+        WHY BLOCK-BASED:
+          Loading all embeddings at once would use too much RAM on
+          laptops (39,602 chunks x 384 dims x 4 bytes = 58 MB).
+          Block processing reads 25,000 rows at a time, keeping
+          peak RAM usage low even with millions of chunks.
+
+        WHY COSINE SIMILARITY:
+          Cosine similarity measures the angle between two vectors,
+          ignoring their length. Two passages about the same topic
+          will have vectors pointing in similar directions, even if
+          one is longer than the other. Score ranges from -1 to +1
+          where +1 means identical meaning.
         """
         assert self.conn is not None
         if self.mem_store.count == 0:
             return []
 
+        # Normalize the query vector to unit length for cosine similarity
         q = np.asarray(query_vec, dtype=np.float32).reshape(-1)
         dim = self.mem_store.dim
         if q.shape[0] != dim:
@@ -461,24 +479,33 @@ class VectorStore:
         if q_norm > 0:
             q = q / q_norm
 
+        # Block size controls the memory/speed tradeoff.
+        # 25,000 rows x 384 dims x 4 bytes = ~37 MB per block.
         if block_rows is None:
             block_rows = int(os.getenv("HYBRIDRAG_RETRIEVAL_BLOCK_ROWS", "25000"))
 
         n = int(self.mem_store.count)
+        # Running top-k buffer: tracks the best scores seen so far
         best_scores = np.full((top_k,), -1e9, dtype=np.float32)
         best_rows = np.full((top_k,), -1, dtype=np.int64)
 
+        # Process embeddings in blocks to limit peak RAM usage
         for start in range(0, n, block_rows):
             end = min(start + block_rows, n)
             block = self.mem_store.read_block(start, end)
             if block.shape[0] == 0:
                 continue
 
+            # Normalize block vectors to unit length
             norms = np.linalg.norm(block, axis=1, keepdims=True)
             norms[norms == 0] = 1.0
             block = block / norms
+
+            # Dot product of unit vectors = cosine similarity
             scores = block @ q
 
+            # Use argpartition (O(n)) instead of argsort (O(n log n))
+            # to find the top-k candidates in each block
             if scores.shape[0] <= top_k:
                 cand_idx = np.arange(scores.shape[0])
             else:
@@ -487,16 +514,19 @@ class VectorStore:
             cand_scores = scores[cand_idx]
             cand_rows = cand_idx + start
 
+            # Merge this block's candidates into the global top-k buffer
             for s, r in zip(cand_scores, cand_rows):
                 worst_i = int(np.argmin(best_scores))
                 if float(s) > float(best_scores[worst_i]):
                     best_scores[worst_i] = float(s)
                     best_rows[worst_i] = int(r)
 
+        # Sort by score descending (best match first)
         order = np.argsort(best_scores)[::-1]
         best_scores = best_scores[order]
         best_rows = best_rows[order]
 
+        # Filter out unfilled slots (rows that stayed at -1)
         valid = best_rows >= 0
         best_scores = best_scores[valid]
         best_rows = best_rows[valid]
@@ -504,6 +534,7 @@ class VectorStore:
         if best_rows.size == 0:
             return []
 
+        # Look up text and metadata from SQLite using the memmap row indices
         placeholders = ",".join(["?"] * len(best_rows))
         fetched = self.conn.execute(
             f"SELECT embedding_row, source_path, chunk_index, text "
@@ -532,12 +563,26 @@ class VectorStore:
         return hits
 
     def fts_search(self, query_text, top_k=20):
-        """Keyword search using SQLite FTS5 (BM25 ranking)."""
+        """
+        Keyword search using SQLite FTS5 (BM25 ranking).
+
+        WHY FTS5:
+            Semantic search (embeddings) finds related topics but can miss
+            exact terms like part numbers ("ABC-1234") or acronyms ("TCXO").
+            FTS5 does traditional keyword matching: if the word appears in
+            the document, it will be found. Hybrid search combines both.
+
+        The BM25 score is normalized to 0.0-1.0 range so it can be merged
+        with semantic scores in the Retriever's hybrid ranking.
+        """
         assert self.conn is not None
+        # Extract words of 3+ characters for keyword matching.
+        # Short words (a, an, of, to) create too many false matches.
         words = re.findall(r'[A-Za-z0-9]+', query_text or '')
         words = [w for w in words if len(w) >= 3]
         if not words:
             return []
+        # OR logic: find chunks containing ANY of the search words
         fts_query = ' OR '.join(words)
         try:
             rows = self.conn.execute(
@@ -552,6 +597,9 @@ class VectorStore:
             return []
         hits = []
         for source_path, chunk_index, text, rank_score in rows:
+            # FTS5 rank is negative (lower = better match). We negate it
+            # then normalize to 0.0-1.0 using x/(x+1) so it blends well
+            # with semantic similarity scores in hybrid search.
             raw = -float(rank_score)
             normalized = raw / (raw + 1.0) if raw > 0 else 0.0
             hits.append({
@@ -562,9 +610,7 @@ class VectorStore:
             })
         return hits
 
-    # ------------------------------------------------------------------
-    # Statistics and health checks
-    # ------------------------------------------------------------------
+    # --- Statistics and health checks -----------------------------------------
 
     def get_stats(self) -> Dict[str, Any]:
         """Return summary statistics about what's stored."""

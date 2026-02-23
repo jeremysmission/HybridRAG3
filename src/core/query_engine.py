@@ -111,6 +111,12 @@ class QueryEngine:
     def query(self, user_query: str) -> QueryResult:
         """
         Execute a query and return an answer plus metadata.
+
+        This is the main entry point for the entire RAG pipeline.
+        Think of it as asking the librarian a question: the librarian
+        searches the catalog, pulls relevant books, reads key passages,
+        and gives you a summarized answer. Every failure path returns a
+        safe result (never raises to the caller).
         """
         start_time = time.time()
 
@@ -118,6 +124,9 @@ class QueryEngine:
             # ------------------------------------------------------------
             # Step 1: Retrieve (vector search)
             # ------------------------------------------------------------
+            # The retriever converts the question into a numeric vector,
+            # then finds the closest matching document chunks by cosine
+            # similarity. Returns a ranked list of "hits" (chunks + scores).
             search_results = self.retriever.search(user_query)
 
             if not search_results:
@@ -135,6 +144,9 @@ class QueryEngine:
             # ------------------------------------------------------------
             # Step 2: Build context text
             # ------------------------------------------------------------
+            # Combine the best matching chunks into a single text block
+            # that the LLM will read as its "reference material."
+            # Also extract source file info for citation in the UI.
             context = self.retriever.build_context(search_results)
             sources = self.retriever.get_sources(search_results)
 
@@ -156,11 +168,18 @@ class QueryEngine:
             # ------------------------------------------------------------
             # Step 3: Build LLM prompt
             # ------------------------------------------------------------
+            # Wrap the context + question in a carefully engineered prompt
+            # with 9 rules that prevent hallucination, handle ambiguity,
+            # and resist injection attacks. See _build_prompt() below.
             prompt = self._build_prompt(user_query, context)
 
             # ------------------------------------------------------------
             # Step 4: Call the LLM
             # ------------------------------------------------------------
+            # The LLMRouter decides WHERE to send the prompt:
+            #   Offline mode -> Ollama on localhost (free, no internet)
+            #   Online mode  -> Azure/OpenAI API (cloud, costs money)
+            # The caller never knows which backend answered.
             llm_response = self.llm_router.query(prompt)
 
             if not llm_response:
@@ -228,6 +247,11 @@ class QueryEngine:
     def query_stream(self, user_query: str) -> Generator[Dict[str, Any], None, None]:
         """
         Stream a query response token-by-token.
+
+        WHY STREAMING:
+            Without streaming, the user sees nothing for 3-10 seconds while
+            the LLM generates its answer. With streaming, tokens appear
+            one-by-one like someone typing -- much better user experience.
 
         Yields dicts in this order:
           {"phase": "searching"}                   -- retrieval started
@@ -346,6 +370,26 @@ class QueryEngine:
         - Clarification for ambiguous queries
         - Anti-hallucination / injection resistance
         """
+        # ------------------------------------------------------------------
+        # THE 9-RULE PROMPT (v4)
+        # ------------------------------------------------------------------
+        # This prompt was tuned over 400 evaluation questions to achieve
+        # 98% accuracy. The rules are in priority order -- injection
+        # resistance and refusal are more important than formatting.
+        #
+        # WHY SO MANY RULES?
+        #   Each rule addresses a specific failure mode discovered during
+        #   evaluation testing:
+        #     Rule 1 (GROUNDING):    Prevents hallucinated facts
+        #     Rule 2 (COMPLETENESS): Ensures numbers/specs are included
+        #     Rule 3 (REFUSAL):      Handles unanswerable questions
+        #     Rule 4 (AMBIGUITY):    Handles vague questions
+        #     Rule 5 (INJECTION):    Resists prompt injection attacks
+        #     Rule 6 (ACCURACY):     Redundant safety net for fabrication
+        #     Rule 7 (VERBATIM):     Prevents unit reformatting errors
+        #     Rule 8 (SOURCE QUALITY): Filters test metadata from context
+        #     Rule 9 (EXACT LINE):   Enables automated fact-checking
+        # ------------------------------------------------------------------
         return (
             "You are a precise technical assistant. Answer the question "
             "using ONLY the context provided below. Follow these rules:\n"
@@ -412,11 +456,18 @@ class QueryEngine:
         """
         Calculate cost of LLM call (online only).
 
-        Offline mode cost is 0 because it runs locally.
+        Offline mode cost is 0 because it runs locally on your machine.
+        Online mode cost is based on token counts and configured rates.
+
+        WHY PER-1K PRICING:
+            API providers charge per 1,000 tokens. A "token" is roughly
+            3/4 of a word. A typical query uses ~500 input tokens (prompt +
+            context) and ~200 output tokens (the answer), costing ~$0.002.
         """
         if self.config.mode == "offline":
             return 0.0
 
+        # Input tokens = the prompt we sent; output tokens = the answer we got
         input_cost = (llm_response.tokens_in / 1000) * self.config.cost.input_cost_per_1k
         output_cost = (llm_response.tokens_out / 1000) * self.config.cost.output_cost_per_1k
         return input_cost + output_cost

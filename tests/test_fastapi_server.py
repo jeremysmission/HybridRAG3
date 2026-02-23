@@ -1,16 +1,14 @@
-# ============================================================================
-# HybridRAG -- FastAPI Server Tests (tests/test_fastapi_server.py)
-# ============================================================================
-#
-# WHAT THIS FILE DOES:
-#   Tests all FastAPI REST API endpoints using FastAPI TestClient.
-#   No live server needed -- TestClient runs everything in-process.
-#
-# USAGE:
-#   pytest tests/test_fastapi_server.py -v
-#
-# INTERNET ACCESS: NONE
-# ============================================================================
+# ===================================================================
+# WHAT: Tests for the FastAPI REST API server endpoints (/health,
+#       /query, /index, /config, /status, /mode)
+# WHY:  The REST API is the integration point for external tools,
+#       dashboards, and MCP clients. Each endpoint must return correct
+#       status codes and JSON structure even when backends fail.
+# HOW:  Uses FastAPI TestClient (in-process, no live server needed).
+#       TestClient MUST be used with `with` context manager for the
+#       lifespan to execute properly.
+# USAGE: pytest tests/test_fastapi_server.py -v
+# ===================================================================
 
 import os
 import sys

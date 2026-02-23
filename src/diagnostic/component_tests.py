@@ -1,14 +1,13 @@
-# ============================================================================
-# HybridRAG v3 -- Diagnostic: Component & Security Health Tests
-# ============================================================================
-# FILE: src/diagnostic/component_tests.py
-#
-# WHAT THIS FILE DOES:
-#   Health checks for the "processing pipeline" components and security:
-#     Parsers -> Chunker -> Embedder -> Memmap Storage -> Security
-#
-# SPLIT FROM health_tests.py TO KEEP FILES UNDER 500 LINES.
-# ============================================================================
+# ===================================================================
+# WHAT: Health checks for processing pipeline components and security:
+#       parsers, chunker, embedder, memmap storage, network gate
+# WHY:  Each processing stage can fail independently (parser missing
+#       a library, embedder dimension mismatch, memmap file corruption).
+#       These tests verify each component before it handles real data.
+# HOW:  Each function tests one component in isolation and returns a
+#       TestResult. Split from health_tests.py to stay under 500 lines.
+# USAGE: Called by hybridrag_diagnostic.py -- not run directly.
+# ===================================================================
 
 from __future__ import annotations
 

@@ -1,15 +1,14 @@
-# ============================================================================
-# test_query_engine.py -- Tests for QueryEngine pipeline
-# ============================================================================
-#
-# COVERS:
-#   TestQueryEngine -- full query pipeline: retrieve -> context -> LLM -> result
-#
-# RUN:
-#   python -m pytest tests/test_query_engine.py -v
-#
-# INTERNET ACCESS: NONE -- all external calls are mocked
-# ============================================================================
+# ===================================================================
+# WHAT: Tests for the QueryEngine -- the central pipeline that turns
+#       a user question into a grounded, cited answer
+# WHY:  The query pipeline has multiple stages (retrieve chunks, build
+#       context, call LLM, format result). Each stage can fail
+#       independently. These tests verify the full pipeline end-to-end
+#       using mocked LLM and retriever backends.
+# HOW:  Mocks all external dependencies (LLM router, vector store,
+#       embedder) so tests run instantly with no network or GPU needed
+# USAGE: python -m pytest tests/test_query_engine.py -v
+# ===================================================================
 
 import time
 from unittest.mock import MagicMock, Mock, patch, PropertyMock

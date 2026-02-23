@@ -31,6 +31,14 @@ from typing import Tuple, Dict, Any
 
 
 class PptxParser:
+    """
+    Extract text from PowerPoint .pptx files.
+
+    Walks every slide, reads text from every shape (titles, bullets,
+    text boxes, tables, grouped shapes). Produces one text block
+    with slide markers for indexing.
+    """
+
     def parse(self, file_path: str) -> str:
         text, _ = self.parse_with_details(file_path)
         return text

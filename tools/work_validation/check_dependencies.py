@@ -2,19 +2,22 @@
 # ============================================================================
 # HybridRAG v3 -- Dependency Check (check_dependencies.py)
 # ============================================================================
-# PURPOSE:
-#   Pre-flight check for the work laptop. Run this FIRST before any other
-#   validation script. Checks:
-#     1. PyPI reachability through enterprise proxy
-#     2. Ollama installed and reachable
-#     3. Git installed (informational only)
-#     4. Python version
-#     5. Key Python packages
 #
+# WHAT: Pre-flight validation that all required software is available
+# WHY:  Before running HybridRAG on a new machine, you need to know what
+#       is missing. This script checks Python version, network access to
+#       PyPI, Ollama (local LLM server), Git, and all key Python packages.
+#       Running this FIRST prevents confusing errors later. It also provides
+#       clear instructions for fixing each missing dependency.
+# HOW:  Runs a series of independent checks (Python version, network probe
+#       to pypi.org, Ollama API health check, git --version, importlib probe
+#       for key packages). Each check prints [OK], [WARN], or [FAIL] with
+#       specific remediation steps. Optionally installs missing packages
+#       from PyPI (--install) or from a pre-built wheels bundle (--wheels).
 # USAGE:
-#   python check_dependencies.py
-#   python check_dependencies.py --install     # Also install from requirements.txt
-#   python check_dependencies.py --wheels      # Install from wheels/ bundle instead
+#   python check_dependencies.py                # Check everything, install nothing
+#   python check_dependencies.py --install      # Check + install from PyPI
+#   python check_dependencies.py --wheels       # Check + install from offline bundle
 #
 # INTERNET ACCESS: Tested (PyPI check), not required (wheels fallback)
 # ============================================================================

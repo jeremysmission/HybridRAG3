@@ -2,15 +2,34 @@
 # HybridRAG -- File Validator (src/core/file_validator.py)
 # ============================================================================
 #
-# WHAT THIS FILE DOES:
-#   Pre-flight integrity checks and text validation for the indexing pipeline.
-#   Extracted from indexer.py to keep class sizes under 500 lines.
+# WHAT: Pre-flight integrity checks that decide whether a file is safe
+#       and valid to index. Catches corrupt, empty, binary, and locked
+#       files before the indexer wastes time trying to parse them.
 #
-# WHY SEPARATE:
-#   The Indexer class was 599 lines. Extracting validation logic (165 lines)
-#   into this module keeps both under 500 while maintaining a clean single-
-#   responsibility boundary: this module decides IF a file should be indexed,
-#   while indexer.py handles HOW to index it.
+# WHY:  The "source data" folder can contain thousands of files in mixed
+#       formats. Some will be corrupt (incomplete downloads), locked
+#       (Office temp files), or binary garbage (misnamed executables).
+#       Without pre-flight checks, the indexer would crash or produce
+#       nonsense chunks from unreadable data.
+#
+# HOW:  Six fast structural checks (under 1ms each, no parsing):
+#       1. Office temp lock file (~$ prefix) -> skip
+#       2. Zero-byte file -> skip
+#       3. ZIP integrity for Office formats (.docx/.pptx/.xlsx) -> skip if corrupt
+#       4. PDF structure (%PDF header + %%EOF trailer) -> skip if truncated
+#       5. High null-byte ratio (>20%) -> skip (incomplete download)
+#       6. File too small for its type -> skip (likely corrupt)
+#       Plus a post-parse text validator that catches binary garbage.
+#
+# USAGE:
+#       validator = FileValidator(excluded_dirs={"__pycache__", ".git"})
+#       reason = validator.preflight_check(file_path)
+#       if reason:
+#           skip(file_path, reason)
+#       else:
+#           text = parse(file_path)
+#           if not validator.validate_text(text):
+#               skip(file_path, "binary garbage")
 #
 # INTERNET ACCESS: NONE
 # ============================================================================
@@ -22,12 +41,15 @@ from pathlib import Path
 from typing import Optional, Set
 
 
-# -------------------------------------------------------------------
-# Pre-flight check constants
-# -------------------------------------------------------------------
+# --- Pre-flight check constants --------------------------------------------
 
+# Office documents (.docx, .pptx, .xlsx) are actually ZIP archives
+# containing XML files. We can verify their integrity by testing the ZIP.
 _ZIP_BASED_FORMATS = {".docx", ".pptx", ".xlsx"}
 
+# Minimum expected file sizes by type. Files smaller than these are almost
+# certainly corrupt or empty stubs. Values are empirical: the smallest
+# valid PDF is ~200 bytes, the smallest valid .docx is ~2000 bytes, etc.
 _MIN_FILE_SIZES = {
     ".pdf":  200,
     ".docx": 2000,
@@ -36,8 +58,8 @@ _MIN_FILE_SIZES = {
     ".eml":  100,
 }
 
-_PREFLIGHT_SAMPLE_SIZE = 16384  # 16KB for null-byte sampling
-_NULL_BYTE_THRESHOLD = 0.20     # 20% null bytes = suspect
+_PREFLIGHT_SAMPLE_SIZE = 16384  # 16KB sample for null-byte detection
+_NULL_BYTE_THRESHOLD = 0.20     # >20% null bytes = likely corrupt/binary
 
 
 class FileValidator:
@@ -153,6 +175,12 @@ class FileValidator:
         """
         Check if extracted text is readable, not binary garbage.
 
+        WHY THIS EXISTS:
+            Some files pass the structural pre-flight checks but produce
+            garbage when parsed (e.g., an encrypted PDF that pdfminer
+            "reads" as random characters). This post-parse check catches
+            those cases.
+
         Takes a sample of the text (first 2000 chars) and checks
         what proportion of characters are "normal" (letters, digits,
         spaces, common punctuation). If less than 30%, it is garbage.
@@ -178,6 +206,12 @@ class FileValidator:
         return ratio >= 0.30
 
     def is_excluded(self, file_path: Path) -> bool:
-        """Check if any parent directory is in the exclusion list."""
+        """
+        Check if any parent directory is in the exclusion list.
+
+        WHY: Some directories contain files that look valid but should
+        not be indexed (e.g., __pycache__ has .pyc bytecode, .git has
+        pack files). This prevents wasting time on known-bad paths.
+        """
         parts_lower = {p.lower() for p in file_path.parts}
         return bool(parts_lower & {d.lower() for d in self._excluded_dirs})

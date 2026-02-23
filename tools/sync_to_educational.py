@@ -112,6 +112,7 @@ SKIP_PATTERNS = [
     "~$*",                         # Word/Excel temp lock files
     "Handover",                    # case variant of HANDOVER (session-specific docs)
     "SESSION11",                   # session-specific detailed reports
+    "AI_ASSISTED_DEVELOPMENT_NOTES",  # private project mgmt notes (also Bond-marked)
     "WORK_LAPTOP_DEPLOY",         # work-specific deployment session docs
     "waiver_cheat_sheet",         # work-specific waiver docs
     "Product_Roadmap",            # internal roadmap docs
@@ -296,6 +297,13 @@ def sanitize_text(text):
     return text
 
 
+# Content-based private document marker.  If this word appears in the
+# first 5 lines of any text file, the file is skipped entirely (not
+# sanitized, not copied).  Innocuous by design -- means nothing outside
+# this project.
+_PRIVATE_DOC_MARKER = "Bond"
+
+
 def copy_and_sanitize_file(src_path, dst_path):
     """Copy a file, sanitizing text content."""
     os.makedirs(os.path.dirname(dst_path), exist_ok=True)
@@ -313,6 +321,11 @@ def copy_and_sanitize_file(src_path, dst_path):
     except (UnicodeDecodeError, PermissionError):
         shutil.copy2(src_path, dst_path)
         return "copied (binary)"
+
+    # Private doc marker -- check first 5 lines for kill switch
+    head = "\n".join(text.split("\n")[:5])
+    if _PRIVATE_DOC_MARKER in head:
+        return "skipped:private"
 
     sanitized = sanitize_text(text)
 
@@ -367,7 +380,10 @@ def main():
                 dst_path = os.path.join(DST_ROOT, rel_path)
 
                 result = copy_and_sanitize_file(src_path, dst_path)
-                if "sanitized" in result:
+                if "skipped:private" in result:
+                    stats["skipped"] += 1
+                    print("  [SKIP-PRIVATE] %s" % rel_path)
+                elif "sanitized" in result:
                     stats["sanitized"] += 1
                     print("  [SANITIZED] %s" % rel_path)
                 else:
@@ -387,7 +403,10 @@ def main():
             continue
 
         result = copy_and_sanitize_file(src_path, dst_path)
-        if "sanitized" in result:
+        if "skipped:private" in result:
+            stats["skipped"] += 1
+            print("  [SKIP-PRIVATE] %s" % rel_file)
+        elif "sanitized" in result:
             stats["sanitized"] += 1
             print("  [SANITIZED] %s" % rel_file)
         else:
@@ -404,7 +423,10 @@ def main():
             if os.path.isfile(src_path):
                 dst_path = os.path.join(DST_ROOT, "docs", fname)
                 result = copy_and_sanitize_file(src_path, dst_path)
-                if "sanitized" in result:
+                if "skipped:private" in result:
+                    stats["skipped"] += 1
+                    print("  [SKIP-PRIVATE] docs/%s" % fname)
+                elif "sanitized" in result:
                     stats["sanitized"] += 1
                     print("  [SANITIZED] docs/%s" % fname)
                 else:

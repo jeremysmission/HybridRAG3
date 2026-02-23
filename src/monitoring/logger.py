@@ -1,45 +1,29 @@
-# ============================================================================
-# HybridRAG -- Structured Logger (src/monitoring/logger.py)
-# ============================================================================
-#
-# WHAT THIS FILE DOES:
-#   Sets up the logging system for the entire application. Every important
-#   event (file indexed, query executed, error occurred, cost incurred) gets
-#   recorded in structured log files.
-#
-# WHY "STRUCTURED" LOGGING?
-#   Normal logging: "Indexed file manual.pdf in 2.3 seconds"
-#   Structured logging: {"event": "file_indexed", "file": "manual.pdf", "seconds": 2.3}
-#
-#   Structured logs are machine-readable JSON. This means you can:
-#   - Search logs with tools like jq, grep, or Python scripts
-#   - Build dashboards showing indexing speed over time
-#   - Prove to auditors exactly what happened and when
-#   - Debug problems by filtering for specific events
+# ===================================================================
+# WHAT: Structured (JSON) logging system for the entire application
+# WHY:  Every event (file indexed, query executed, error, cost) needs
+#       to be auditable. Structured logs are machine-readable JSON so
+#       you can search, filter, build dashboards, and prove to auditors
+#       exactly what happened and when.
+# HOW:  Uses the structlog library on top of Python's logging module.
+#       Creates daily log files by type (app, error, audit, cost).
+#       Builder classes at the bottom ensure uniform log entry format.
+# USAGE: from src.monitoring.logger import get_app_logger
+#        logger = get_app_logger("my_module")
+#        logger.info("something_happened", key="value", count=42)
+# ===================================================================
 #
 # LOG FILE TYPES:
-#   The system creates separate log files for different purposes:
 #   - app_YYYY-MM-DD.log:   General application events (indexing, queries)
 #   - error_YYYY-MM-DD.log: Errors and failures (things that went wrong)
 #   - audit_YYYY-MM-DD.log: Security-relevant events (who did what when)
 #   - cost_YYYY-MM-DD.log:  API cost tracking (online mode token usage)
-#
-# LOG ENTRY BUILDERS:
-#   The bottom of this file has "builder" classes that create consistent
-#   log entries. Instead of each piece of code formatting its own log
-#   messages differently, everyone uses these builders for uniformity.
-#
-# HOW TO USE (from other code):
-#   from src.monitoring.logger import get_app_logger
-#   logger = get_app_logger("my_module")
-#   logger.info("something_happened", key="value", count=42)
 #
 # DEPENDENCIES:
 #   - structlog: A structured logging library that outputs JSON
 #   - Python's built-in logging module (structlog builds on top of it)
 #
 # INTERNET ACCESS: None -- writes to local files only
-# ============================================================================
+# ===================================================================
 
 import sys
 import logging

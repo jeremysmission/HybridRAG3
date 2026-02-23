@@ -2,24 +2,21 @@
 # ============================================================================
 # HybridRAG v3 -- Wheels Bundle Builder (build_wheels_bundle.py)
 # ============================================================================
-# PURPOSE:
-#   Run this on the HOME PC to download all Python dependencies as .whl
-#   files for offline installation on the work laptop. This is the fallback
-#   when PyPI is blocked by enterprise firewall.
 #
-# WHAT IT DOES:
-#   1. Reads requirements.txt
-#   2. Downloads all wheels for the target platform (Windows, Python 3.11)
-#   3. Packages them into a wheels/ folder
-#   4. Copies requirements.txt alongside for reference
-#
-# USAGE (on home PC):
-#   python build_wheels_bundle.py
+# WHAT: Downloads all Python dependencies as .whl files for offline install
+# WHY:  The work laptop cannot reach PyPI (blocked by enterprise firewall).
+#       This script runs on the HOME PC (which has internet) and pre-downloads
+#       every package into a portable folder that can be transferred via USB
+#       or approved file share. Without this, pip install fails at work.
+# HOW:  Reads requirements.txt, calls pip download with platform-specific
+#       flags (Windows AMD64, Python 3.11), and saves all .whl files to a
+#       wheels/ folder. If platform-specific wheels fail (some packages are
+#       pure Python), falls back to a generic download.
+# USAGE:
+#   python build_wheels_bundle.py                                # defaults
 #   python build_wheels_bundle.py --platform win_amd64 --python 3.11
-#
-# THEN:
-#   Copy the wheels/ folder into the transfer package before zipping.
-#   On the work laptop: python check_dependencies.py --wheels
+#   Then copy wheels/ folder to work laptop and run:
+#     python check_dependencies.py --wheels
 #
 # INTERNET ACCESS: YES (downloads from PyPI)
 # ============================================================================

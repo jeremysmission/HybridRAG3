@@ -1,16 +1,16 @@
-# ============================================================================
-# test_indexer.py -- Tests for Indexer and Integration
-# ============================================================================
-#
-# COVERS:
-#   TestIndexer     -- file scanning, chunking, hashing, storage pipeline
-#   TestIntegration -- end-to-end integration tests
-#
-# RUN:
-#   python -m pytest tests/test_indexer.py -v
-#
-# INTERNET ACCESS: NONE -- all external calls are mocked
-# ============================================================================
+# ===================================================================
+# WHAT: Tests for the Indexer -- the pipeline that scans source files,
+#       parses text, chunks it, generates embeddings, and stores them
+# WHY:  Indexing is the foundation of the entire RAG system. If files
+#       are skipped, chunks are malformed, or hashes are wrong, every
+#       query downstream will return bad results. These tests verify
+#       the full indexing pipeline with mocked storage.
+# HOW:  Uses temp directories and mocked vector store / embedder so
+#       tests run instantly with no real database or model needed.
+#       TestIndexer covers scanning/chunking/hashing, TestIntegration
+#       covers end-to-end flows.
+# USAGE: python -m pytest tests/test_indexer.py -v
+# ===================================================================
 
 import os
 import time

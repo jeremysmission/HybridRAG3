@@ -1,36 +1,44 @@
 #!/usr/bin/env python3
-# ============================================================================
-# HybridRAG v3 -- VIRTUAL TEST FRAMEWORK (Reusable Engine)
-# ============================================================================
-# FILE: tests/virtual_test_framework.py
+# ===================================================================
+# WHAT: Reusable virtual test framework -- a "flight simulator" for
+#       code changes that validates modifications before deployment
+# WHY:  Catches bugs BEFORE code reaches the user. During the Feb 15
+#       kill-switch removal, this framework caught two bugs that would
+#       have caused runtime failures (duplicate gate check, wrong
+#       attribute name). It ensures that rigor is repeatable.
+# HOW:  Provides a decorator-based test runner (@test), reusable
+#       utilities (syntax check, ASCII scan, blast radius search),
+#       and standard test sections (file integrity, Python syntax,
+#       regression). Each change creates a new virtual_test_*.py file
+#       using the template, fills in change-specific tests, and runs
+#       them. All tests are offline -- stdlib only, no pip packages.
+# USAGE:
+#   For AI sessions:
+#     1. Copy tests/virtual_test_TEMPLATE.py
+#     2. Fill in change-specific tests
+#     3. Run: python tests/virtual_test_<change>.py
+#     4. Fix failures, re-run until 0 FAIL, then deliver
+#   For Jeremy:
+#     Tell the AI: "Use the virtual test framework to validate."
+# ===================================================================
 #
-#   Think of it as a flight simulator for code changes -- you test the change
-#   in a sandbox, check every module that could be affected, and only deploy
-#   when every check passes.
+# ARCHITECTURE:
+#   VirtualTestResult  -- One test outcome (PASS/FAIL/WARN/SKIP)
+#   VirtualTestReport  -- Collects all results, prints summary
+#   @test decorator    -- Wraps a function, catches exceptions, records result
+#   Utilities:
+#     check_no_non_ascii()     -- Scan for illegal characters
+#     check_python_syntax()    -- AST-parse for syntax errors
+#     check_file_references()  -- Verify expected imports/paths exist
+#     scan_blast_radius()      -- Find every file affected by a change
+#   Standard sections:
+#     run_file_integrity_checks()    -- SIM-01: encoding, size, ASCII
+#     run_python_syntax_checks()     -- SIM-03: AST compile all .py files
+#     run_existing_test_regression() -- SIM-10/11: pytest baseline check
 #
-# WHY IT EXISTS:
-#   During the Feb 15 kill-switch removal, Claude caught two bugs during
-#   virtual testing that would have caused runtime failures:
-#     1. A duplicate NETWORK_GATE check that doubled diagnostic output
-#     2. Using gate.allowed_hosts (doesn't exist) vs gate._allowed_hosts
-#   Both were caught by running this framework BEFORE giving Jeremy the files.
-#   This framework ensures that rigor is repeatable in future sessions.
-#
-# HOW TO USE (for future Claude sessions):
-#   1. Read this file to understand the test patterns
-#   2. Copy tests/virtual_test_TEMPLATE.py for your specific change
-#   3. Fill in the template sections with your change-specific tests
-#   4. Run: python tests/virtual_test_<your_change>.py
-#   5. Fix any failures, re-run until 0 FAIL
-#   6. Only THEN deliver the files to Jeremy
-#
-# HOW TO USE (for Jeremy):
-#   Tell Claude: "Use the virtual test framework in tests/ to validate
-#   your changes before giving them to me."
-#
-# INTERNET ACCESS: NONE -- all tests are offline simulation
+# INTERNET ACCESS: NONE
 # DEPENDENCIES: Python stdlib only (no pip packages needed)
-# ============================================================================
+# ===================================================================
 
 import os
 import re

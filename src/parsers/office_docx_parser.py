@@ -36,6 +36,14 @@ from typing import Tuple, Dict, Any
 
 
 class DocxParser:
+    """
+    Extract text from Microsoft Word .docx files.
+
+    Opens the .docx (which is a ZIP of XML files) via python-docx,
+    iterates all paragraphs, and joins them into one text block.
+    Skips empty paragraphs to avoid cluttering the output.
+    """
+
     def parse(self, file_path: str) -> str:
         text, _ = self.parse_with_details(file_path)
         return text

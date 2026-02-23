@@ -1,24 +1,18 @@
-# ============================================================================
-# HybridRAG v3 - Set Mode to Offline (scripts/_set_offline.py)
-# ============================================================================
-#
-# WHAT THIS FILE DOES:
-#   Opens the config file (config/default_config.yaml), changes the
-#   "mode" setting from "online" to "offline", and saves it.
-#
-#   After this runs, the next time you use rag-query, HybridRAG will
-#   use local Ollama instead of the cloud API.
-#
-# WHO CALLS THIS:
-#   api_mode_commands.ps1 -> rag-mode-offline function
-#   You never need to run this file directly.
+# ===================================================================
+# WHAT: Switch HybridRAG to offline mode (local Ollama)
+# WHY:  When you want queries answered by a local AI model running on
+#       your own hardware -- no internet, no API costs, full privacy
+# HOW:  Opens config/default_config.yaml, sets mode: offline, saves it
+# USAGE: Called by api_mode_commands.ps1 -> rag-mode-offline.
+#        Not run directly by users.
+# ===================================================================
 #
 # PORTABILITY:
 #   Uses HYBRIDRAG_PROJECT_ROOT env var to find config on any machine.
 #   Falls back to current directory if the env var is not set.
 #
 # INTERNET ACCESS: NONE. Only modifies a local file.
-# ============================================================================
+# ===================================================================
 
 import os
 import yaml

@@ -1,11 +1,14 @@
-# ============================================================================
-# HybridRAG v3 -- Cost Tracker Tests (tests/test_cost_tracker.py)
-# ============================================================================
-# 19 tests covering the CostTracker backend, PM dashboard, and ROI calculator.
-# All tests use temp directories for SQLite -- no side effects.
-#
-# INTERNET ACCESS: NONE
-# ============================================================================
+# ===================================================================
+# WHAT: Tests for the CostTracker backend, PM cost dashboard GUI,
+#       and ROI calculator (19 tests total)
+# WHY:  Cost tracking is critical for project management -- incorrect
+#       token counts or rate calculations produce wrong budget reports.
+#       These tests verify the full chain: event recording, SQLite
+#       persistence, rate editing, CSV export, and ROI math.
+# HOW:  Uses temp directories for SQLite so tests have no side effects.
+#       Dashboard tests use mocked Tk to avoid display requirements.
+# USAGE: pytest tests/test_cost_tracker.py -v
+# ===================================================================
 
 import sys
 import os

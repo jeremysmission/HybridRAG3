@@ -1,20 +1,14 @@
-# ============================================================================
-# HybridRAG v3 - API Connectivity Test (scripts/_test_api.py)
-# ============================================================================
-#
-# WHAT THIS FILE DOES:
-#   Sends a tiny test question to your company's GPT API to verify that:
-#     1. Your API key is valid (not expired or rejected)
-#     2. The endpoint URL is reachable (you're on the right network)
-#     3. The model actually responds with an answer
-#
-#   Think of it like pinging a website to see if it's alive, except
-#   instead of a ping we send a real question ("Say hello in 5 words")
-#   and check that we get a real answer back.
-#
-# WHO CALLS THIS:
-#   api_mode_commands.ps1 -> rag-test-api function
-#   You never need to run this file directly.
+# ===================================================================
+# WHAT: API connectivity test -- sends a tiny query to verify the
+#       cloud API is reachable, authenticated, and responsive
+# WHY:  Before switching to online mode, users need to confirm their
+#       API key works and the endpoint is reachable from this network
+# HOW:  Temporarily forces online mode, sends "Say hello in 5 words"
+#       to the API, measures latency, and reports PASS/FAIL with
+#       troubleshooting hints if it fails
+# USAGE: rag-test-api  (after sourcing start_hybridrag.ps1)
+#        Called by api_mode_commands.ps1 -> rag-test-api.
+# ===================================================================
 #
 # WHAT IT PRINTS:
 #   - Mode, API readiness, and endpoint URL
@@ -22,8 +16,8 @@
 #   - How many tokens were used and estimated cost
 #   - PASS or FAIL with troubleshooting hints
 #
-# INTERNET ACCESS: YES - makes one HTTP request to your API endpoint.
-# ============================================================================
+# INTERNET ACCESS: YES -- makes one HTTP request to your API endpoint.
+# ===================================================================
 
 import sys
 import time

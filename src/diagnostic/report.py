@@ -1,17 +1,14 @@
-# ============================================================================
-# HybridRAG v3 -- Diagnostic: Bug Detection & Report Printer
-# ============================================================================
-# FILE: src/diagnostic/report.py
-#
-# WHAT THIS FILE DOES:
-#   1. detect_known_bugs() -- scans test results and flags known issues
-#   2. print_report()      -- color-coded terminal output
-#   3. save_json_report()  -- JSON file for automated trend tracking
-#
-# WHY IT'S SEPARATE:
-#   Presentation logic shouldn't be mixed with test logic. This file
-#   only reads from DiagnosticReport -- it never modifies test behavior.
-# ============================================================================
+# ===================================================================
+# WHAT: Diagnostic report formatter -- terminal output, JSON export,
+#       and known-bug detection
+# WHY:  Separates presentation from test logic so test files focus on
+#       testing and this file focuses on clear, readable output for
+#       both humans (terminal) and machines (JSON for trend tracking)
+# HOW:  detect_known_bugs() scans test results against a registry of
+#       known issues. print_report() renders color-coded terminal output.
+#       save_json_report() writes structured JSON for dashboards.
+# USAGE: Called by hybridrag_diagnostic.py after all tests complete.
+# ===================================================================
 
 from __future__ import annotations
 

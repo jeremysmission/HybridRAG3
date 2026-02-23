@@ -2,14 +2,20 @@
 # HybridRAG v3 -- Vector Field Loading Overlay                        RevA
 # (src/gui/panels/loading_overlay.py)
 # ============================================================================
-# Procedural Canvas animation that plays during long-running queries.
-# Shows drifting nodes connected by lines with bright sparks traveling
-# along connections -- an "obsidian vector field" visual that distorts
-# the user's sense of waiting time.
-#
-# Banner text shows the current phase ("Searching documents...",
-# "Embedding Vectors...", "Generating answer...").  On completion the
-# banner flashes green "Complete!" then slides up and disappears.
+# WHAT: Animated "vector field" overlay that plays during query execution.
+# WHY:  Users perceive animated waits as shorter than static spinners
+#       (research: motion creates "time distortion" that compresses
+#       perceived duration).  The node-and-spark visual also reinforces
+#       the "vector search" concept, making the tool feel purposeful
+#       rather than just "loading."
+# HOW:  Pure tkinter Canvas drawing at ~30fps via after().  Nodes drift
+#       around the canvas, connections form between nearby nodes, and
+#       bright sparks travel along connections.  A banner at the bottom
+#       shows the current phase text.  On completion, "Complete!" flashes
+#       green and the overlay slides up to reveal the answer.
+# USAGE: Created by QueryPanel, placed over the answer area.
+#        query_panel._overlay.start("Searching...")
+#        query_panel._overlay.stop()   # triggers slide-up animation
 #
 # Uses pure tkinter Canvas + after() -- no external files, no GIFs,
 # no licensing concerns, fully theme-aware.
@@ -24,18 +30,20 @@ import tkinter as tk
 from src.gui.theme import FONT_BOLD, current_theme
 
 # -- Animation constants ----------------------------------------------------
-NODE_COUNT = 25
-NODE_MIN_R = 3
-NODE_MAX_R = 6
-DRIFT_MIN = 0.3
-DRIFT_MAX = 0.8
-CONN_DIST = 120          # max px between nodes to draw a connection
-SPARK_TRAVEL = 30         # frames for a spark to travel a connection
+# These control the look and feel of the vector field animation.
+# Tuned by hand for a calm, professional appearance at ~30fps.
+NODE_COUNT = 25           # number of drifting dots on screen
+NODE_MIN_R = 3            # smallest node radius (px)
+NODE_MAX_R = 6            # largest node radius (px)
+DRIFT_MIN = 0.3           # slowest drift speed (px/frame)
+DRIFT_MAX = 0.8           # fastest drift speed (px/frame)
+CONN_DIST = 120           # max px between nodes to draw a connection line
+SPARK_TRAVEL = 30         # frames for a spark to travel one connection
 SPARK_SPAWN_INTERVAL = 18 # frames between new sparks (~600ms at 30fps)
-FRAME_MS = 33             # ~30 fps
-FADEOUT_HOLD_MS = 400     # hold "Complete!" before slide-up
-FADEOUT_STEPS = 6
-FADEOUT_STEP_MS = 50
+FRAME_MS = 33             # milliseconds per frame (~30 fps)
+FADEOUT_HOLD_MS = 400     # hold "Complete!" banner before slide-up begins
+FADEOUT_STEPS = 6         # number of slide-up animation steps
+FADEOUT_STEP_MS = 50      # milliseconds between slide-up steps
 
 
 def _lerp_color(hex_a, hex_b, t):

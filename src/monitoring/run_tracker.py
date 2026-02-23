@@ -1,24 +1,23 @@
-# ============================================================================
-# HybridRAG - Run Tracker (src/monitoring/run_tracker.py)
-# ============================================================================
-# What this file does (plain English):
-# - Creates an auditable "run_id" for a long indexing job
-# - Writes run information and per-file events into SQLite
-# - Tracks progress: stages, MB processed, text produced, chunks, embeddings
-# - Estimates "tokens" (as an estimate) and ETA based on observed throughput
-#
-# Why this exists:
-# - Week-long runs need audit trails + resumability + clear status
-# - "Auditable logging" usually means:
-#     - every file has a hash
-#     - every run has a unique ID
-#     - you can prove what happened and when (events + errors)
-#     - evidence is reproducible (config + versions recorded)
+# ===================================================================
+# WHAT: Indexing run tracker -- auditable per-file progress logging
+#       with ETA estimation and SQLite-backed event history
+# WHY:  Week-long indexing runs need audit trails, resumability, and
+#       clear status. Every file gets a hash, every run gets a unique
+#       ID, and you can prove what happened and when.
+# HOW:  Creates SQLite tables (index_runs, doc_events) and writes
+#       per-file stage events (scan, parse, chunk, embed, done, error).
+#       ETA uses exponential moving average of bytes/sec to smooth out
+#       OCR-heavy file spikes.
+# USAGE: tracker = RunTracker(db_path)
+#        tracker.set_discovery_totals(files, bytes)
+#        tracker.mark_file_done(path, bytes, chars, chunks, embeds, ms)
+#        tracker.finish()
+# ===================================================================
 #
 # IMPORTANT:
 # - This does NOT sanitize PII (PII is query-only later)
 # - This does NOT store file contents in logs; it stores metrics + errors only
-# ============================================================================
+# ===================================================================
 
 from __future__ import annotations
 

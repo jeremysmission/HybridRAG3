@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-"""
-guard_diagnostic.py -- Hallucination Guard Diagnostics (5 levels)
-Config -> BIT -> NLI Model -> Golden Probes (69 claims, 13 STEM domains) -> Integration
-Level 4 (probes) is critical: catches silent filter failures.
-
-FILE: src/diagnostic/guard_diagnostic.py
-NETWORK: NONE | VERSION: 1.0.0 | DATE: 2026-02-16
-"""
+# ===================================================================
+# WHAT: Hallucination guard diagnostics -- 5-level verification that
+#       the guard system is correctly catching fabricated information
+# WHY:  The hallucination guard is safety-critical. If the NLI model
+#       silently fails to load, or golden probes stop catching known
+#       false claims, wrong information reaches the user. These tests
+#       verify every layer end-to-end.
+# HOW:  5 levels: Config validation, BIT (built-in tests), NLI model
+#       loading, golden probe verification (69 claims across 13 STEM
+#       domains), and integration test with full pipeline
+# USAGE: Called by hybridrag_diagnostic.py. Not run directly.
+# ===================================================================
 
 from __future__ import annotations
 

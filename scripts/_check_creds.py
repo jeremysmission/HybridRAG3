@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
-# ============================================================================
-# HybridRAG v3 - Check Credential Status (scripts/_check_creds.py)
-# ============================================================================
-#
-# WHAT THIS FILE DOES:
-#   Checks whether an API key and endpoint URL are available via the
-#   3-layer credential system (keyring -> env vars -> config).
-#   Prints results so rag-mode-online in PowerShell can decide whether
-#   to proceed or show an error.
-#
-# WHO CALLS THIS:
-#   api_mode_commands.ps1 -> rag-mode-online function
-#   You never need to run this file directly.
+# ===================================================================
+# WHAT: Check whether API credentials (key + endpoint) are available
+# WHY:  PowerShell rag-mode-online needs to know if credentials exist
+#       before trying to switch to online mode -- this script provides
+#       a machine-readable answer (KEY:True/False) that PS can parse
+# HOW:  Calls resolve_credentials() which checks keyring, env vars,
+#       and config YAML in priority order, then prints KEY:True/False
+#       and ENDPOINT:True/False for PowerShell to parse
+# USAGE: Called by api_mode_commands.ps1 -> rag-mode-online.
+#        Not run directly by users.
+# ===================================================================
 #
 # WHAT IT PRINTS:
 #   KEY:True        (or KEY:False if no API key found anywhere)
@@ -27,7 +25,7 @@
 #   ApiCredentials dataclass with .has_key, .has_endpoint, .source_key.
 #
 # INTERNET ACCESS: NONE. Only reads from local credential stores.
-# ============================================================================
+# ===================================================================
 
 import sys
 import os

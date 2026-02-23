@@ -1,10 +1,14 @@
 # ============================================================================
 # HybridRAG -- API Pydantic Models (src/api/models.py)
 # ============================================================================
-#
-# WHAT THIS FILE DOES:
-#   Defines request/response schemas for the FastAPI web server.
-#   All inbound and outbound data is validated through these models.
+# WHAT: Request/response schemas for every FastAPI endpoint.
+# WHY:  Pydantic models enforce data validation at the API boundary.
+#       Invalid requests get clear error messages before any pipeline
+#       code runs.  Response models ensure the client always gets a
+#       consistent JSON shape, even on errors.
+# HOW:  Each endpoint has a paired Request and Response model.  FastAPI
+#       auto-generates OpenAPI docs from these (visible at /docs).
+# USAGE: Imported by routes.py.  Not used directly by end users.
 #
 # INTERNET ACCESS: NONE
 # ============================================================================

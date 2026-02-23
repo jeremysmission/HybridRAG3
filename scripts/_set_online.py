@@ -1,17 +1,12 @@
-# ============================================================================
-# HybridRAG v3 - Set Mode to Online (scripts/_set_online.py)
-# ============================================================================
-#
-# WHAT THIS FILE DOES:
-#   Opens the config file (config/default_config.yaml), changes the
-#   "mode" setting from "offline" to "online", and saves it.
-#
-#   After this runs, the next time you use rag-query, HybridRAG will
-#   send your question to the company GPT API instead of local Ollama.
-#
-# WHO CALLS THIS:
-#   api_mode_commands.ps1 -> rag-mode-online function
-#   You never need to run this file directly.
+# ===================================================================
+# WHAT: Switch HybridRAG to online mode (cloud API)
+# WHY:  When you want queries answered by a cloud AI model (GPT, etc.)
+#       for faster, more powerful responses at a per-query cost
+# HOW:  Opens config/default_config.yaml, sets mode: online, saves it.
+#       Security layers (HF lockdown, model caches) remain unchanged.
+# USAGE: Called by api_mode_commands.ps1 -> rag-mode-online.
+#        Not run directly by users.
+# ===================================================================
 #
 # WHAT IT CHANGES:
 #   config/default_config.yaml -> mode: online
@@ -26,7 +21,7 @@
 #   Falls back to current directory if the env var is not set.
 #
 # INTERNET ACCESS: NONE. Only modifies a local file.
-# ============================================================================
+# ===================================================================
 
 # os gives us access to environment variables and path building.
 # yaml reads and writes YAML files (the .yaml config format).

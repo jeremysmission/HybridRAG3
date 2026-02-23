@@ -1,21 +1,17 @@
-# ============================================================================
-# HybridRAG v3 -- Diagnostic: Pipeline Health Tests
-# ============================================================================
-# FILE: src/diagnostic/health_tests.py
-#
-# WHAT THIS FILE DOES:
-#   Contains every pipeline health check, organized by subsystem:
-#     Config -> Database -> Indexer -> Parsers -> Chunker -> Embedder ->
-#     Storage -> Security
-#
-#   Each function is self-contained, takes no complex arguments, and
-#   returns a TestResult. If it crashes, the safe wrapper in __init__
-#   catches it and reports an ERROR without stopping other tests.
-#
-# HOW TO ADD A NEW TEST:
-#   1. Write a function that returns TestResult(name, category, status, message)
-#   2. Register it in the run list inside hybridrag_diagnostic.py main()
-#   That's it -- the reporting and JSON export handle everything else.
+# ===================================================================
+# WHAT: Pipeline health checks -- one function per subsystem verifying
+#       config, database, indexer, parsers, chunker, embedder, storage,
+#       and security are all working correctly
+# WHY:  One broken component (bad memmap, missing FTS5 index, wrong
+#       embedding dimension) silently degrades results without obvious
+#       errors. These checks catch problems before they affect queries.
+# HOW:  Each function is self-contained, catches its own exceptions, and
+#       returns a TestResult. The safe wrapper in __init__ ensures one
+#       crash does not stop other tests from running.
+# USAGE: Called by hybridrag_diagnostic.py -- not run directly.
+#        To add a test: write a function returning TestResult, register
+#        it in hybridrag_diagnostic.py main().
+# ===================================================================
 #
 # PERFORMANCE NOTES (2026-02-15):
 #   Two checks were eating 126 of 130 seconds in rag-diag:
@@ -31,7 +27,7 @@
 #   Result: rag-diag dropped from ~130s to ~4s with no loss of
 #   day-to-day diagnostic value. Full integrity is covered by the
 #   scheduled overnight job (rag-scan-log / Task Scheduler).
-# ============================================================================
+# ===================================================================
 
 from __future__ import annotations
 

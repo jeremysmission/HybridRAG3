@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
-# ============================================================================
-# HybridRAG v3 -- Model Metadata Helper (scripts/_model_meta.py)
-# ============================================================================
-#
-# WHAT THIS DOES (plain English):
-#   Provides model information for both offline and online AI models
-#   with DUAL RANKING:
-#
-#     ENG = Engineering rank (code, math, structured data, STEM)
-#     GEN = General knowledge rank (broad reasoning, world knowledge, writing)
-#
-#   This lets you see at a glance:
-#     - Which model to use for engineering/RAG work (sort by ENG)
-#     - Which model to use for general questions (sort by GEN)
+# ===================================================================
+# WHAT: Central model metadata -- rankings, specs, and scoring for all
+#       approved offline and online AI models
+# WHY:  Every model has different strengths. A software engineer needs
+#       code-focused models; a program manager needs writing-focused
+#       models. This file defines the scoring system that ranks models
+#       per job role so the wizard and auto-selector pick correctly
+# HOW:  Dual ranking (ENG score + GEN score) with per-role weighted
+#       blending. Three-layer model detection: API endpoint, built-in
+#       knowledge base, and name-pattern estimation for unknowns
+# USAGE: Imported by _set_model.py, _list_models.py, _profile_switch.py,
+#        and the GUI admin panel. Not run directly.
+# ===================================================================
 #
 # THREE-LAYER MODEL DETECTION:
 #   1. API /models endpoint (OpenRouter, OpenAI)
@@ -23,7 +22,7 @@
 #   Offline functions: NONE
 #   Online fetch: YES (one GET to /models) -- fails gracefully
 #   Knowledge base lookup: NONE (all data is built-in)
-# ============================================================================
+# ===================================================================
 
 import re
 import subprocess

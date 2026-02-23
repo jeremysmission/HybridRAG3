@@ -2,9 +2,19 @@
 # ============================================================================
 # HybridRAG v3 -- Offline Model Validation (validate_offline_models.py)
 # ============================================================================
-# PURPOSE:
-#   Test each WORK_ONLY Ollama model against each profile with a test query.
-#   Logs [OK]/[FAIL]/[WARN] per model-profile combination.
+#
+# WHAT: Tests every local Ollama model against every user profile
+# WHY:  After pulling new models (ollama pull phi4-mini, etc.), we need to
+#       confirm they actually work -- that they load, respond to queries,
+#       and produce sensible output for each use case profile (software
+#       engineering, logistics, cybersecurity, etc.). A model might install
+#       successfully but produce garbage output for a specific domain.
+#       This script catches that before real users hit it.
+# HOW:  For each of 9 profiles (sw, eng, pm, sys, log, draft, fe, cyber,
+#       gen), sends a domain-specific test query to the profile's primary,
+#       alt, and upgrade models via Ollama's REST API. Checks that the
+#       response contains expected keywords (e.g., a GPS question should
+#       mention "1575 MHz"). Reports [OK]/[FAIL]/[WARN] per combination.
 #
 # PREREQUISITES:
 #   - Ollama installed and running (ollama serve)
@@ -14,7 +24,7 @@
 #   python validate_offline_models.py
 #   python validate_offline_models.py --log validation_results.log
 #
-# INTERNET ACCESS: NONE (all queries go to local Ollama)
+# INTERNET ACCESS: NONE (all queries go to local Ollama at 127.0.0.1:11434)
 # ============================================================================
 
 from __future__ import annotations

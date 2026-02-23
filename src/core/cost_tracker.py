@@ -1,14 +1,37 @@
 # ============================================================================
 # HybridRAG v3 -- Cost Tracker (src/core/cost_tracker.py)
 # ============================================================================
-# In-memory cost accumulator with SQLite persistence for the PM Dashboard.
 #
-# DESIGN:
-#   - Thread-safe singleton via module-level factory
-#   - Accumulates per-query cost events in memory for instant display
-#   - Persists to SQLite on timer (every 30s) and on shutdown
-#   - Separates session data (in-memory) from historical (SQLite)
-#   - Supports 10-person team: each session is one user's app launch
+# WHAT: Tracks how much money each API query costs and stores the data
+#       for the PM Cost Dashboard to display.
+#
+# WHY:  When using cloud AI APIs, every query costs money (typically
+#       $0.001-$0.01 per query). For a 10-person team running hundreds
+#       of queries per day, costs add up. This module provides real-time
+#       cost visibility so project managers can set budgets and spot
+#       anomalies (like a runaway script burning through the API budget).
+#
+# HOW:  Two-tier storage for speed and durability:
+#       - IN-MEMORY list: instant access for GUI updates (no disk I/O)
+#       - SQLITE database: durable storage for cross-session history
+#       Events accumulate in memory and flush to SQLite every 30 seconds
+#       (and on shutdown). This design means the GUI never waits for disk.
+#
+# USAGE:
+#       tracker = get_cost_tracker()  # Returns the singleton instance
+#       tracker.record(tokens_in=500, tokens_out=200, model="gpt-4o", ...)
+#       summary = tracker.get_session_summary()
+#       tracker.add_listener(my_gui_callback)  # Live updates
+#
+# SINGLETON PATTERN:
+#   Only one CostTracker exists per process (enforced by get_cost_tracker).
+#   WHY: Multiple trackers would create conflicting SQLite writes and
+#   duplicate events. The singleton ensures one source of truth.
+#
+# LISTENER PATTERN:
+#   GUI panels register callbacks via add_listener(). When a new cost
+#   event is recorded, all listeners are notified immediately so they
+#   can update their displays without polling.
 #
 # DATA MODEL:
 #   cost_events table:
@@ -109,16 +132,27 @@ class CostTracker:
     """
 
     def __init__(self, db_path: str = "", rates: Optional[CostRates] = None):
+        # Each app launch gets a unique session ID so we can tell apart
+        # different users' sessions in the cumulative team stats.
         self._session_id = uuid.uuid4().hex[:12]
         self._start_time = datetime.now().isoformat(timespec="seconds")
+
+        # In-memory event list: the "fast tier" for GUI display.
+        # Protected by a lock because GUI reads and query callbacks write
+        # from different threads.
         self._events: List[CostEvent] = []
         self._lock = threading.Lock()
+
+        # Listener callbacks: GUI panels register here to get notified
+        # instantly when a new cost event is recorded. This avoids the
+        # GUI having to poll on a timer.
         self._listeners: List[Callable[[CostEvent], None]] = []
 
-        # Rates (per 1M tokens)
+        # Rates (per 1M tokens) -- industry standard pricing unit in 2026
         self._rates = rates or CostRates()
 
-        # SQLite persistence
+        # SQLite persistence: the "durable tier" for cross-session data.
+        # Events flush here every 30s and on shutdown.
         if not db_path:
             project_root = os.environ.get(
                 "HYBRIDRAG_PROJECT_ROOT",
@@ -141,14 +175,23 @@ class CostTracker:
     def record(self, tokens_in: int, tokens_out: int, model: str,
                mode: str, profile: str, latency_ms: float,
                data_bytes_in: int = 0, data_bytes_out: int = 0) -> CostEvent:
-        """Record a cost event from a completed query."""
+        """
+        Record a cost event from a completed query.
+
+        Called by query_panel.py after each query completes. Calculates
+        cost from token counts and current rates, stores the event in
+        memory, and notifies all GUI listeners.
+        """
+        # Calculate cost using industry-standard per-1M-token pricing.
+        # Example: 500 input tokens at $1.50/1M = $0.00075
         input_cost = (tokens_in / 1_000_000) * self._rates.input_rate_per_1m
         output_cost = (tokens_out / 1_000_000) * self._rates.output_rate_per_1m
         total_cost = input_cost + output_cost
 
-        # Estimate data bytes from token counts if not provided
+        # Estimate data bytes from token counts if not provided.
+        # The ~4 bytes/token ratio is an empirical average for English text.
         if data_bytes_in == 0 and tokens_in > 0:
-            data_bytes_in = tokens_in * 4  # ~4 bytes per token average
+            data_bytes_in = tokens_in * 4
         if data_bytes_out == 0 and tokens_out > 0:
             data_bytes_out = tokens_out * 4
 
@@ -171,7 +214,10 @@ class CostTracker:
         with self._lock:
             self._events.append(event)
 
-        # Notify listeners (GUI updates)
+        # Notify all registered listeners (GUI panels).
+        # Each listener is a callback function that receives the new event.
+        # We catch exceptions per-listener so one broken callback does not
+        # prevent others from updating.
         for cb in self._listeners:
             try:
                 cb(event)
@@ -332,7 +378,20 @@ class CostTracker:
     # ----------------------------------------------------------------
 
     def flush(self) -> None:
-        """Persist unflushed session events to SQLite."""
+        """
+        Persist unflushed session events to SQLite.
+
+        WHY INSERT OR IGNORE:
+            If the app crashes and restarts, some events may already be
+            in SQLite from a previous flush. The UNIQUE constraint on
+            (session_id, timestamp, tokens_in, tokens_out) prevents
+            duplicates, and INSERT OR IGNORE silently skips them.
+
+        WHY FLUSH ALL EVENTS (not just new ones):
+            Simpler and safer. The duplicate check via UNIQUE constraint
+            is fast, and avoids the complexity of tracking a "last flushed"
+            pointer that could get out of sync after a crash.
+        """
         with self._lock:
             events = list(self._events)
 
@@ -443,7 +502,14 @@ class CostTracker:
             logger.warning("Rate persist failed: %s", e)
 
     def _schedule_flush(self) -> None:
-        """Schedule next auto-flush in 30 seconds."""
+        """
+        Schedule next auto-flush in 30 seconds.
+
+        WHY 30 SECONDS:
+            Short enough that you lose at most 30s of data on a crash.
+            Long enough that SQLite writes are batched (not one per query).
+            Daemon thread ensures the timer dies when the app exits.
+        """
         self._flush_timer = threading.Timer(30.0, self._auto_flush)
         self._flush_timer.daemon = True
         self._flush_timer.start()
@@ -455,7 +521,22 @@ class CostTracker:
 
 
 # ============================================================================
-# SINGLETON
+# SINGLETON FACTORY
+# ============================================================================
+# WHY A SINGLETON:
+#   The entire application shares one CostTracker. Multiple instances
+#   would cause double-counting of costs, conflicting SQLite writes,
+#   and listeners that only see half the events.
+#
+# HOW IT WORKS:
+#   get_cost_tracker() creates the instance on first call, then returns
+#   the same instance on every subsequent call. A threading.Lock ensures
+#   only one thread can create the instance (avoids race conditions at
+#   startup when multiple modules import simultaneously).
+#
+# TESTING:
+#   reset_cost_tracker() destroys the singleton so each test starts
+#   fresh. Production code never calls this.
 # ============================================================================
 
 _tracker: Optional[CostTracker] = None
@@ -473,7 +554,7 @@ def get_cost_tracker(db_path: str = "",
 
 
 def reset_cost_tracker() -> None:
-    """Shut down and clear the singleton (for testing)."""
+    """Shut down and clear the singleton (for testing only)."""
     global _tracker
     with _tracker_lock:
         if _tracker is not None:

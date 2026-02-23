@@ -1,12 +1,15 @@
 # ============================================================================
 # HybridRAG -- FastAPI Server (src/api/server.py)
 # ============================================================================
-#
-# WHAT THIS FILE DOES:
-#   Creates and configures the FastAPI application with lifecycle
-#   management for RAG pipeline components (embedder, vector store,
-#   LLM router, query engine, indexer).
-#
+# WHAT: FastAPI application factory with lifecycle management for all
+#       RAG pipeline components (embedder, vector store, LLM router,
+#       query engine).
+# WHY:  Provides a headless REST API for automation, CI/CD, and MCP
+#       integrations that do not need the GUI.  Also serves as the
+#       backend for future web frontends.
+# HOW:  Uses FastAPI's async lifespan context manager to initialize
+#       heavy components (embedder, vector store) on startup and clean
+#       them up on shutdown.  Routes are in routes.py; models in models.py.
 # USAGE:
 #   python -m src.api.server                    # Start on port 8000
 #   python -m src.api.server --port 9000        # Custom port

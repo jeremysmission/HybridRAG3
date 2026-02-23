@@ -1,13 +1,10 @@
-# ===========================================================================
-# test_all.py -- Test Suite Aggregator
-# ===========================================================================
-#
-# WHAT THIS IS:
-#   A lightweight aggregator that confirms all test modules are present.
-#   The quality audit (tests/run_audit.py) checks for this file by name.
-#
-# INTERNET ACCESS: NONE
-# ===========================================================================
+# ===================================================================
+# WHAT: Test suite aggregator -- confirms all expected test files exist
+# WHY:  Acts as a manifest so the quality audit (run_audit.py) can
+#       detect if any test file was accidentally deleted or renamed
+# HOW:  Lists all expected test file names and checks they exist on disk
+# USAGE: python tests/test_all.py  (or called by run_audit.py)
+# ===================================================================
 
 from pathlib import Path
 

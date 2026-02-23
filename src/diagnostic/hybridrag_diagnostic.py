@@ -1,29 +1,18 @@
 #!/usr/bin/env python3
-# ============================================================================
-# HybridRAG v3 -- Diagnostic Tool (Entry Point)
-# ============================================================================
-# FILE: src/diagnostic/hybridrag_diagnostic.py
-#
-# HOW TO RUN:
-#   . .\start_hybridrag.ps1
-#   rag-diag                                              # Quick check + fault analysis
-#   rag-diag --verbose                                    # Full details + evidence trail
-#   rag-diag --test-embed                                 # Embedding benchmark
-#   rag-diag --test-query "freq range"
-#   rag-diag --test-parse "C:\docs\manual.pdf"
-#   rag-diag --json-file report.json                      # Trend tracking
-#   rag-diag --fix-preview --verbose                      # Bug fix details
-#   rag-diag --perf-only                                  # Benchmarks only
-#   rag-diag --no-fault-analysis                          # Skip fault analysis
-#
-# WHAT'S NEW (2026-02-09):
-#   - FAULT ANALYSIS ENGINE: After all tests run, the system examines
-#     combined results and produces a ranked list of the 3 most likely
-#     root causes, each with a recommended next diagnostic step.
-#   - Parser smoke tests added to catch missing dependencies early.
-#   - Fault analysis logs written to logs/fault_analysis_*.json for
-#     future GUI admin panel consumption.
-# ============================================================================
+# ===================================================================
+# WHAT: Main diagnostic entry point -- runs all health checks,
+#       performance benchmarks, and fault analysis in one command
+# WHY:  A single "rag-diag" command tells you whether the system is
+#       healthy, what is broken, and what to fix first. Essential for
+#       troubleshooting after setup, after updates, or on new machines.
+# HOW:  Runs tests from health_tests.py, component_tests.py, and
+#       guard_diagnostic.py, then feeds results to fault_analysis.py
+#       which ranks the top 3 most likely root causes with next steps
+# USAGE: rag-diag              (quick check + fault analysis)
+#        rag-diag --verbose    (full details + evidence trail)
+#        rag-diag --perf-only  (benchmarks only, no health checks)
+#        rag-diag --json-file report.json  (structured output)
+# ===================================================================
 
 from __future__ import annotations
 

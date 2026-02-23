@@ -1,42 +1,23 @@
-# ============================================================================
-# HybridRAG v3 -- Diagnostic: Fault Analysis Engine
-# ============================================================================
-# FILE: src/diagnostic/fault_analysis.py
-#
-# WHAT THIS FILE DOES:
-#   After all health checks and benchmarks run, this module examines the
-#   combined results and produces an intelligent fault analysis:
-#
-#   1. CORRELATES failures across subsystems (e.g., if embedding fails AND
-#      memmap is bad, the root cause is likely the embedding model, not
-#      the memmap file itself)
-#
-#   2. RANKS the top 3 most likely root causes by probability, using a
-#      weighted scoring system based on which tests failed and how they
-#      relate to each other
-#
-#   3. RECOMMENDS the next diagnostic step for each ranked cause --
-#      the single most useful action to isolate the problem further
-#
-# WHY THIS MATTERS:
-#   When you're troubleshooting at 2am or handing off to another engineer,
-#   you don't want to stare at 14 test results and guess. You want the
-#   system to tell you: "Here are the 3 most likely problems, ranked by
-#   probability, and here's exactly what to check next for each one."
-#
-# HOW IT WORKS:
-#   - Each "fault hypothesis" has a base weight (prior probability)
-#   - Test results add or subtract evidence points from each hypothesis
-#   - Hypotheses are ranked by total evidence score
-#   - Top 3 are reported with next-step recommendations
+# ===================================================================
+# WHAT: Fault analysis engine -- examines combined diagnostic results
+#       and produces a ranked list of the 3 most likely root causes
+# WHY:  When troubleshooting, staring at 14 test results and guessing
+#       wastes time. This engine correlates failures across subsystems,
+#       ranks hypotheses by evidence weight, and recommends the single
+#       most useful next step for each cause.
+# HOW:  Each fault hypothesis starts with a base weight. Test results
+#       add or subtract evidence points. Hypotheses are ranked by total
+#       score. Top 3 are reported with copy-paste-ready fix commands.
+# USAGE: Called automatically by hybridrag_diagnostic.py after all
+#        tests complete. Also available as:
+#        from src.diagnostic.fault_analysis import run_fault_analysis
+# ===================================================================
 #
 # LOG FORMAT:
 #   Results are structured as JSON-serializable dicts for future GUI
 #   integration. The admin GUI will display these in a "Fault Analysis"
 #   panel with expandable details per hypothesis.
-#
-# AUTHOR: HybridRAG Team  |  DATE: 2026-02-09
-# ============================================================================
+# ===================================================================
 
 from __future__ import annotations
 

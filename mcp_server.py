@@ -1,44 +1,31 @@
-# ============================================================================
-# HybridRAG3 -- MCP Server (mcp_server.py)
-# ============================================================================
-#
-# WHAT THIS FILE DOES (plain English):
-#   This file turns HybridRAG3 into an MCP "tool server" -- a background
-#   process that any MCP-compatible AI client can call
-#   to search your indexed documents.
-#
-#   Think of it like a vending machine for knowledge:
-#     - The AI agent puts in a question (via MCP protocol)
-#     - This server searches HybridRAG3's vector database
-#     - It returns the answer, sources, and metadata
+# ===================================================================
+# WHAT: MCP (Model Context Protocol) server that exposes HybridRAG3
+#       as a tool server for AI agents to search indexed documents
+# WHY:  AI tools need a standard way to call HybridRAG3 without
+#       importing Python code directly. MCP provides a JSON-based
+#       protocol over stdio so any compatible client can search,
+#       check status, and get answers with source citations.
+# HOW:  FastMCP handles protocol plumbing (JSON-RPC over stdin/stdout).
+#       Three tools exposed: hybridrag_search, hybridrag_status,
+#       hybridrag_index_status. Lazy boot on first tool call so the
+#       client does not wait for model loading during discovery.
+# USAGE: python mcp_server.py  (spawned by MCP clients, not run directly)
+# ===================================================================
 #
 # WHAT IS MCP?
-#   Model Context Protocol. It's a standard way for AI tools to talk to
-#   external services. Instead of the AI having to know how to import
-#   your Python code, it just sends a JSON message over stdio, and this
+#   Model Context Protocol -- a standard way for AI tools to talk to
+#   external services. The AI sends a JSON message over stdio, and this
 #   server handles the rest.
 #
-# HOW IT WORKS:
-#   1. An MCP client spawns this script as a subprocess
-#   2. Communication happens over stdin/stdout (called "stdio transport")
-#   3. The client sends tool calls like hybridrag_search(query="...")
-#   4. This server runs the HybridRAG3 pipeline and returns results
-#   5. The client gets structured data back (answer, sources, scores)
-#
 # THREE TOOLS EXPOSED:
-#   hybridrag_search   -- Search the knowledge base and get an answer
-#   hybridrag_status   -- Check what mode/model is active
+#   hybridrag_search       -- Search the knowledge base and get an answer
+#   hybridrag_status       -- Check what mode/model is active
 #   hybridrag_index_status -- How many documents are indexed
 #
 # REQUIREMENTS:
 #   pip install mcp
 #   HybridRAG3 must be importable (this file lives in the project root)
-#
-# LAUNCH:
-#   python mcp_server.py          (stdio mode, for MCP clients)
-#   Not meant to be run directly -- MCP clients spawn it automatically.
-#
-# ============================================================================
+# ===================================================================
 
 import os
 import sys

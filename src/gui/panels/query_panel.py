@@ -1,7 +1,24 @@
 # ============================================================================
 # HybridRAG v3 -- Query Panel (src/gui/panels/query_panel.py)
 # ============================================================================
-# The main query interface: use case selector, question input, answer display.
+# WHAT: The main search interface -- type a question, get an answer.
+# WHY:  This is the primary user-facing panel.  Everything else in the
+#       GUI exists to support this: settings tune the retrieval, the
+#       cost dashboard tracks spending, and the index panel populates
+#       the database that this panel searches.
+# HOW:  User selects a use case, types a question, clicks Ask.  The
+#       query runs in a background thread (so the GUI stays responsive).
+#       Streaming responses appear token-by-token in real time.  A
+#       vector field animation plays during the wait to reduce perceived
+#       latency (research: animated feedback makes waits feel shorter).
+# USAGE: Always visible as the default view when the app launches.
+#
+# QUERY LIFECYCLE (state transitions):
+#   1. IDLE       -- Ask button enabled, answer area shows previous result
+#   2. SEARCHING  -- Ask disabled, overlay plays, "Searching documents..."
+#   3. GENERATING -- overlay stops, tokens stream into answer area
+#   4. COMPLETE   -- sources/metrics displayed, cost event emitted, Ask re-enabled
+#   5. ERROR      -- red error text in answer area, Ask re-enabled
 #
 # INTERNET ACCESS: Online mode sends query to API via QueryEngine.
 #   Shows "Sending to API..." indicator during online queries.
@@ -31,21 +48,31 @@ class QueryPanel(tk.LabelFrame):
     """
 
     def __init__(self, parent, config, query_engine=None):
+        """Create the query panel.
+
+        Args:
+            parent: Parent tk widget.
+            config: Live config object (mode, model names, retrieval params).
+            query_engine: QueryEngine instance. None at startup -- set later
+                          by launch_gui._load_backends() once the heavy
+                          imports finish.
+        """
         t = current_theme()
         super().__init__(parent, text="Query Panel", padx=16, pady=16,
                          bg=t["panel_bg"], fg=t["accent"],
                          font=FONT_BOLD)
         self.config = config
         self.query_engine = query_engine
-        self._query_thread = None
-        self._streaming = False
-        self._stream_start = 0.0
-        self._elapsed_timer_id = None
+        self._query_thread = None       # handle to the background query thread
+        self._streaming = False          # True while tokens are being appended
+        self._stream_start = 0.0         # time.time() when the query started
+        self._elapsed_timer_id = None    # after() id for the elapsed time display
 
         self._build_widgets(t)
 
         # Defer initial model selection so GUI renders immediately.
-        # get_available_deployments() may do a network call on first use.
+        # get_available_deployments() may do a network call on first use,
+        # so we push it out of __init__ with a 100ms delay.
         self.after(100, self._on_use_case_change)
 
     def _build_widgets(self, t):
@@ -231,7 +258,11 @@ class QueryPanel(tk.LabelFrame):
             self.after(0, self.model_var.set, "(discovery failed)")
 
     def _on_ask(self, event=None):
-        """Handle Ask button click or Enter key."""
+        """Handle Ask button click or Enter key.
+
+        State transition: IDLE -> SEARCHING
+        The query runs in a background thread to keep the GUI responsive.
+        """
         question = self.question_entry.get().strip()
         if not question or question == "Type your question here...":
             return
@@ -240,23 +271,23 @@ class QueryPanel(tk.LabelFrame):
             self._show_error("[FAIL] Query engine not initialized. Run boot first.")
             return
 
-        # Disable button during query
-        self.ask_btn.config(state=tk.DISABLED)
+        # --- Transition to SEARCHING state ---
+        self.ask_btn.config(state=tk.DISABLED)  # prevent double-submit
         self._stream_start = time.time()
 
-        # Clear answer area for fresh output
+        # Clear previous answer for fresh output
         self.answer_text.config(state=tk.NORMAL)
         self.answer_text.delete("1.0", tk.END)
         self.answer_text.config(state=tk.DISABLED)
         self.sources_label.config(text="Sources: (none)", fg=current_theme()["gray"])
         self.metrics_label.config(text="")
 
-        # Phase 1: show immediate "Searching..." status + vector field overlay
+        # Show immediate visual feedback: status text + animated overlay
         t = current_theme()
         self.network_label.config(text="Searching documents...", fg=t["gray"])
         self._overlay.start("Searching documents...")
 
-        # Choose streaming or fallback path
+        # Choose streaming path (token-by-token) or fallback (wait for full result)
         has_stream = hasattr(self.query_engine, "query_stream")
         if has_stream:
             self._query_thread = threading.Thread(
@@ -278,13 +309,22 @@ class QueryPanel(tk.LabelFrame):
             self.after(0, self._show_error, error_msg)
 
     def _run_query_stream(self, question):
-        """Execute streaming query in background thread."""
+        """Execute streaming query in background thread.
+
+        State transitions driven by the query engine's yield chunks:
+          "searching" phase -> stay in SEARCHING state
+          "generating" phase -> transition to GENERATING state
+          "token" chunks -> append tokens (GENERATING)
+          "done" chunk -> transition to COMPLETE state
+        """
         try:
             for chunk in self.query_engine.query_stream(question):
                 if "phase" in chunk:
                     if chunk["phase"] == "searching":
+                        # Still in SEARCHING -- update status text
                         self.after(0, self._set_status, "Searching documents...")
                     elif chunk["phase"] == "generating":
+                        # --- Transition: SEARCHING -> GENERATING ---
                         n = chunk.get("chunks", 0)
                         ms = chunk.get("retrieval_ms", 0)
                         msg = "Found {} chunks ({:.0f}ms) -- Generating answer...".format(n, ms)
@@ -348,7 +388,10 @@ class QueryPanel(tk.LabelFrame):
             self._elapsed_timer_id = None
 
     def _finish_stream(self, result):
-        """Finalize the UI after streaming completes."""
+        """Finalize the UI after streaming completes.
+
+        State transition: GENERATING -> COMPLETE
+        """
         self._streaming = False
         self._stop_elapsed_timer()
         self.answer_text.config(state=tk.DISABLED)
@@ -441,7 +484,10 @@ class QueryPanel(tk.LabelFrame):
         self._emit_cost_event(result)
 
     def _show_error(self, error_msg):
-        """Display an error message in the answer area."""
+        """Display an error message in the answer area.
+
+        State transition: any state -> ERROR (then effectively IDLE)
+        """
         t = current_theme()
         self.ask_btn.config(state=tk.NORMAL)
         self.network_label.config(text="")
