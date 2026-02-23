@@ -1,3 +1,9 @@
+# Python package dependencies (pinned versions).
+# IMPORTANT: This file only covers pip packages. AI model weights
+# (Ollama models + HuggingFace model files) are separate downloads
+# documented in: config/model_manifest.yaml
+# Security audit reference: docs/05_security/ (model audit document)
+#
 annotated-types==0.7.0
 anyio==4.12.1
 certifi==2026.1.4

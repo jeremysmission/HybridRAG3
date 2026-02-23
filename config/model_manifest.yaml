@@ -1,0 +1,295 @@
+# ============================================================================
+# HybridRAG v3 -- Model Download Manifest (config/model_manifest.yaml)
+# ============================================================================
+# WHAT: Complete inventory of all AI model weights required by HybridRAG.
+# WHY:  pip requirements.txt only covers Python packages. Model weights are
+#       separate multi-GB downloads invisible to pip/security scanners.
+#       This manifest makes them auditable for security compliance.
+# HOW:  Lists every model download with exact name, version, size, vendor,
+#       license, download source, and pre-caching instructions.
+#
+# SECURITY NOTE: All models run 100% locally. No data leaves the machine.
+#   - Ollama models: downloaded once via `ollama pull`, stored locally
+#   - HuggingFace models: downloaded once, cached in .model_cache/
+#   - HF_HUB_OFFLINE=1 prevents any runtime downloads after initial cache
+#
+# LAST UPDATED: 2026-02-22
+# APPROVED BY: See docs/05_security/ (model audit document)
+# ============================================================================
+
+# ============================================================================
+# SECTION 1: REQUIRED FOR BASIC OPERATION
+# These models MUST be present for the application to function.
+# ============================================================================
+
+required:
+
+  # --- Embedding Model (converts text to vectors for search) ---
+  - name: "all-MiniLM-L6-v2"
+    type: "embedding"
+    vendor: "Microsoft"
+    vendor_country: "USA"
+    license: "Apache 2.0"
+    size_mb: 87
+    dimensions: 384
+    download_source: "HuggingFace (sentence-transformers/all-MiniLM-L6-v2)"
+    download_url: "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2"
+    local_cache_path: ".model_cache/"
+    pip_dependency: "sentence-transformers==2.7.0"
+    config_key: "embedding.model_name"
+    security_controls:
+      - "HF_HUB_OFFLINE=1 blocks runtime downloads"
+      - "TRANSFORMERS_OFFLINE=1 blocks runtime downloads"
+      - "HF_HUB_DISABLE_TELEMETRY=1 blocks telemetry"
+      - "HF_HUB_DISABLE_IMPLICIT_TOKEN=1 blocks token auth"
+    install_command: |
+      # One-time download (requires internet):
+      $env:HF_HUB_OFFLINE = "0"
+      python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+      $env:HF_HUB_OFFLINE = "1"
+    airgap_transfer: |
+      # Copy from home machine to work machine:
+      # Source: <home>\.model_cache\  (entire folder)
+      # Dest:   <work>\HybridRAG3\.model_cache\
+      # The folder contains model weights, tokenizer, and config files.
+    notes: >
+      Primary embedding model. Converts document chunks and queries into
+      384-dimensional vectors for semantic search. Small, fast, CPU-friendly.
+      Required for ALL operations (indexing and querying).
+
+  # --- LLM Model (generates answers from retrieved context) ---
+  - name: "phi4-mini"
+    type: "llm"
+    full_name: "Phi-4-mini (3.8B parameters)"
+    vendor: "Microsoft"
+    vendor_country: "USA"
+    license: "MIT"
+    size_mb: 2300
+    vram_mb: 5500
+    download_source: "Ollama Library"
+    download_url: "https://ollama.com/library/phi4-mini"
+    ollama_tag: "phi4-mini"
+    runtime: "Ollama"
+    runtime_url: "https://ollama.com/download/windows"
+    config_key: "ollama.model"
+    install_command: "ollama pull phi4-mini"
+    airgap_transfer: |
+      # Export from home machine:
+      # Ollama models stored in: %USERPROFILE%\.ollama\models\
+      # Copy entire .ollama\models\ folder to work machine same path.
+      # Or use: ollama cp phi4-mini <backup-path> (if supported)
+    notes: >
+      Default offline LLM. Primary model for 7 of 9 job profiles.
+      Required for ALL query operations in offline mode.
+
+# ============================================================================
+# SECTION 2: APPROVED ALTERNATE LLMs (pull as needed per job profile)
+# These are optional -- only needed if users switch profiles.
+# ============================================================================
+
+approved_alternates:
+
+  - name: "mistral:7b"
+    type: "llm"
+    full_name: "Mistral 7B (7B parameters)"
+    vendor: "Mistral AI"
+    vendor_country: "France (NATO ally)"
+    license: "Apache 2.0"
+    size_mb: 4100
+    vram_mb: 5500
+    download_source: "Ollama Library"
+    download_url: "https://ollama.com/library/mistral"
+    ollama_tag: "mistral:7b"
+    install_command: "ollama pull mistral:7b"
+    profiles: "Alt for eng, sys, fe, cyber, gen"
+    notes: "Good general knowledge. Alt model for technical profiles."
+
+  - name: "phi4:14b-q4_K_M"
+    type: "llm"
+    full_name: "Phi-4 14B Q4_K_M quantized (14B parameters)"
+    vendor: "Microsoft"
+    vendor_country: "USA"
+    license: "MIT"
+    size_mb: 9100
+    vram_mb: 11000
+    download_source: "Ollama Library"
+    download_url: "https://ollama.com/library/phi4"
+    ollama_tag: "phi4:14b-q4_K_M"
+    install_command: "ollama pull phi4:14b-q4_K_M"
+    profiles: "Primary for logistics, alt for CAD/drafting"
+    notes: "Largest approved model. Requires 12GB VRAM. Best for precision tasks."
+
+  - name: "gemma3:4b"
+    type: "llm"
+    full_name: "Gemma 3 4B (4B parameters)"
+    vendor: "Google"
+    vendor_country: "USA"
+    license: "Apache 2.0"
+    size_mb: 3300
+    vram_mb: 4000
+    download_source: "Ollama Library"
+    download_url: "https://ollama.com/library/gemma3"
+    ollama_tag: "gemma3:4b"
+    install_command: "ollama pull gemma3:4b"
+    profiles: "Alt for program management"
+    notes: "Fast summarization. Review Gemma license for restricted environments."
+
+  - name: "mistral-nemo:12b"
+    type: "llm"
+    full_name: "Mistral Nemo 12B (12B parameters)"
+    vendor: "Mistral AI + NVIDIA"
+    vendor_country: "France/USA (NATO allies)"
+    license: "Apache 2.0"
+    size_mb: 7100
+    vram_mb: 10000
+    download_source: "Ollama Library"
+    download_url: "https://ollama.com/library/mistral-nemo"
+    ollama_tag: "mistral-nemo:12b"
+    install_command: "ollama pull mistral-nemo:12b"
+    profiles: "Upgrade for sw, eng, sys, cyber, gen"
+    notes: "128K context window. Best reasoning of approved offline models."
+
+# ============================================================================
+# SECTION 3: OPTIONAL FEATURE MODELS (disabled by default)
+# These are only needed if specific features are enabled in config.
+# ============================================================================
+
+optional:
+
+  # --- NLI Model (hallucination guard -- disabled by default) ---
+  - name: "cross-encoder/nli-deberta-v3-base"
+    type: "nli_cross_encoder"
+    vendor: "Microsoft (DeBERTa architecture)"
+    vendor_country: "USA"
+    license: "MIT"
+    size_mb: 440
+    download_source: "HuggingFace"
+    download_url: "https://huggingface.co/cross-encoder/nli-deberta-v3-base"
+    local_cache_path: ".model_cache/nli_model/"
+    pip_dependency: "sentence-transformers==2.7.0"
+    config_key: "hallucination_guard.nli_model"
+    enabled_by_default: false
+    enable_config: "hallucination_guard.enabled: true"
+    install_command: |
+      # One-time download (requires internet):
+      $env:HF_HUB_OFFLINE = "0"
+      python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cross-encoder/nli-deberta-v3-base')"
+      $env:HF_HUB_OFFLINE = "1"
+    notes: >
+      Natural Language Inference model for hallucination detection.
+      Only needed if hallucination_guard.enabled=true in config.
+      Disabled by default. 440MB download.
+
+  # --- Reranker Model (reranking -- disabled by default) ---
+  - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    type: "reranker_cross_encoder"
+    vendor: "Microsoft"
+    vendor_country: "USA"
+    license: "MIT"
+    size_mb: 80
+    download_source: "HuggingFace"
+    download_url: "https://huggingface.co/cross-encoder/ms-marco-MiniLM-L-6-v2"
+    local_cache_path: ".model_cache/"
+    pip_dependency: "sentence-transformers==2.7.0"
+    config_key: "retrieval.reranker_model"
+    enabled_by_default: false
+    enable_config: "retrieval.reranker_enabled: true"
+    install_command: |
+      # One-time download (requires internet):
+      $env:HF_HUB_OFFLINE = "0"
+      python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
+      $env:HF_HUB_OFFLINE = "1"
+    notes: >
+      Reranker for improved retrieval accuracy.
+      Only needed if retrieval.reranker_enabled=true in config.
+      Currently disabled because it degrades injection detection scores.
+
+# ============================================================================
+# SECTION 4: RUNTIME DEPENDENCIES (not model weights, but required software)
+# ============================================================================
+
+runtime_dependencies:
+
+  - name: "Ollama"
+    type: "inference_server"
+    vendor: "Ollama Inc."
+    vendor_country: "USA"
+    license: "MIT"
+    minimum_version: "0.7.0"
+    download_url: "https://ollama.com/download/windows"
+    install_method: "Windows installer (.exe) from ollama.com/download/windows"
+    install_powershell: "irm https://ollama.com/install.ps1 | iex"
+    config_key: "ollama.base_url"
+    default_bind: "http://127.0.0.1:11434"
+    security_controls:
+      - "Binds to localhost only (127.0.0.1)"
+      - "Never exposed to network"
+      - "Only loads models from official ollama.com/library"
+    notes: >
+      Local LLM inference server. Runs all Ollama models listed above.
+      Must be installed and running (ollama serve) before launching HybridRAG.
+      The installer adds ollama.exe to PATH automatically.
+
+  - name: "Python packages"
+    type: "pip_packages"
+    manifest: "requirements.txt"
+    key_packages:
+      - "sentence-transformers==2.7.0  # Loads embedding + cross-encoder models"
+      - "torch==2.10.0                 # PyTorch backend for model inference"
+      - "transformers==4.57.6          # HuggingFace model loading"
+      - "openai==1.45.1                # API client for online mode (pinned, never upgrade to 2.x)"
+    install_command: "pip install -r requirements.txt"
+    notes: "All Python packages pinned to exact versions in requirements.txt."
+
+# ============================================================================
+# SECTION 5: BANNED MODELS (do NOT download or use)
+# See docs/05_security/ (model audit document) for full rationale.
+# ============================================================================
+
+banned:
+  - "Any Qwen model (Alibaba/China)"
+  - "Any DeepSeek model (China)"
+  - "Any BGE model (BAAI/China, US Entity List)"
+  - "Any Llama model (Meta, military use prohibited)"
+  - "Any Stella/Jasper embedding (Alibaba GTE architecture)"
+  - "mxbai-rerank-v2 (Qwen-2.5 architecture, Alibaba dependency)"
+  - "Jina embeddings v3 (non-commercial license)"
+
+# ============================================================================
+# SECTION 6: DEPLOYMENT CHECKLIST
+# ============================================================================
+#
+# For air-gapped or restricted machines:
+#
+# Step 1: Install Python 3.11+ and create venv
+#   python -m venv .venv
+#   .venv\Scripts\activate
+#   pip install -r requirements.txt
+#
+# Step 2: Install Ollama
+#   Download from https://ollama.com/download/windows
+#   Run installer, open new terminal, verify: ollama --version
+#
+# Step 3: Pull required Ollama models (requires internet, one-time)
+#   ollama pull phi4-mini              # 2.3 GB -- REQUIRED
+#   ollama pull mistral:7b             # 4.1 GB -- optional
+#   ollama pull phi4:14b-q4_K_M        # 9.1 GB -- optional
+#   ollama pull gemma3:4b              # 3.3 GB -- optional
+#   ollama pull mistral-nemo:12b       # 7.1 GB -- optional
+#
+# Step 4: Cache HuggingFace embedding model (requires internet, one-time)
+#   $env:HF_HUB_OFFLINE = "0"
+#   python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+#   $env:HF_HUB_OFFLINE = "1"
+#
+# Step 5: Verify
+#   ollama list                        # Should show pulled models
+#   python -c "from src.core.embedder import Embedder; e = Embedder(); print(e.dimension)"
+#   # Should print: 384
+#
+# For fully air-gapped transfer (no internet on target):
+#   Copy from internet-connected machine:
+#   - .model_cache\ folder          -> target .model_cache\
+#   - %USERPROFILE%\.ollama\models\ -> target same path
+#   - .venv\ folder (or re-install from wheels bundle)
+# ============================================================================

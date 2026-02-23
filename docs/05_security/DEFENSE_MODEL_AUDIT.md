@@ -114,7 +114,23 @@ Before evaluating candidates, the following publishers/entities are **categorica
 
 ---
 
-## SECTION 8: OLLAMA SECURITY
+## SECTION 8: MODEL DOWNLOAD MANIFEST
+
+All AI model weight downloads are documented in **`config/model_manifest.yaml`**.
+
+This manifest covers:
+- Required models (embedding + default LLM) with exact versions and sizes
+- Approved alternate LLMs per job profile
+- Optional feature models (NLI, reranker -- disabled by default)
+- Runtime dependencies (Ollama, key pip packages)
+- Banned models list
+- Air-gapped deployment checklist
+
+**For security review:** `requirements.txt` covers pip packages. `config/model_manifest.yaml` covers model weights. Together they form the complete software bill of materials.
+
+---
+
+## SECTION 9: OLLAMA SECURITY
 
 **Minimum version:** v0.7.0 or later (critical CVE patches)
 
