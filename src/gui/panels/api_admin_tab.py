@@ -116,80 +116,61 @@ class DataPathsPanel(tk.LabelFrame):
         self._refresh_info()
 
     def _build(self, t):
-        """Construct the folder entry rows, detection info, and save button."""
-        # Source folder row
-        row_src = tk.Frame(self, bg=t["panel_bg"])
-        row_src.pack(fill=tk.X, pady=4)
-        tk.Label(
-            row_src, text="Source folder:", width=14, anchor=tk.W,
-            bg=t["panel_bg"], fg=t["fg"], font=FONT,
-        ).pack(side=tk.LEFT)
+        """Construct two blue buttons (Source / Index) with path labels."""
+        # Buttons row -- two prominent blue buttons side by side
+        btn_row = tk.Frame(self, bg=t["panel_bg"])
+        btn_row.pack(fill=tk.X, pady=(4, 8))
 
+        self.source_browse_btn = tk.Button(
+            btn_row, text="Source", command=self._on_browse_source, width=10,
+            bg=t["accent"], fg=t["accent_fg"], font=FONT_BOLD,
+            relief=tk.FLAT, bd=0, padx=12, pady=6,
+            activebackground=t["accent_hover"], activeforeground=t["accent_fg"],
+        )
+        self.source_browse_btn.pack(side=tk.LEFT, padx=(0, 8))
+        bind_hover(self.source_browse_btn)
+
+        self.index_browse_btn = tk.Button(
+            btn_row, text="Index", command=self._on_browse_index, width=10,
+            bg=t["accent"], fg=t["accent_fg"], font=FONT_BOLD,
+            relief=tk.FLAT, bd=0, padx=12, pady=6,
+            activebackground=t["accent_hover"], activeforeground=t["accent_fg"],
+        )
+        self.index_browse_btn.pack(side=tk.LEFT, padx=(0, 8))
+        bind_hover(self.index_browse_btn)
+
+        # Path display labels (show selected paths beneath the buttons)
         source_default = getattr(
             getattr(self.config, "paths", None), "source_folder", ""
         ) or ""
         self.source_var = tk.StringVar(value=source_default)
-        self.source_entry = tk.Entry(
-            row_src, textvariable=self.source_var, font=FONT,
-            bg=t["input_bg"], fg=t["input_fg"], relief=tk.FLAT, bd=2,
-        )
-        self.source_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
-
-        self.source_browse_btn = tk.Button(
-            row_src, text="Browse", command=self._on_browse_source, width=8,
-            bg=t["accent"], fg=t["accent_fg"], font=FONT,
-            relief=tk.FLAT, bd=0, padx=8, pady=4,
-            activebackground=t["accent_hover"], activeforeground=t["accent_fg"],
-        )
-        self.source_browse_btn.pack(side=tk.LEFT, padx=(4, 0))
-
-        # Index folder row
-        row_idx = tk.Frame(self, bg=t["panel_bg"])
-        row_idx.pack(fill=tk.X, pady=4)
-        tk.Label(
-            row_idx, text="Index folder:", width=14, anchor=tk.W,
-            bg=t["panel_bg"], fg=t["fg"], font=FONT,
-        ).pack(side=tk.LEFT)
 
         db_path = getattr(
             getattr(self.config, "paths", None), "database", ""
         ) or ""
         index_default = os.path.dirname(db_path) if db_path else ""
         self.index_var = tk.StringVar(value=index_default)
-        self.index_entry = tk.Entry(
-            row_idx, textvariable=self.index_var, font=FONT,
-            bg=t["input_bg"], fg=t["input_fg"], relief=tk.FLAT, bd=2,
-        )
-        self.index_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
 
-        self.index_browse_btn = tk.Button(
-            row_idx, text="Browse", command=self._on_browse_index, width=8,
-            bg=t["accent"], fg=t["accent_fg"], font=FONT,
-            relief=tk.FLAT, bd=0, padx=8, pady=4,
-            activebackground=t["accent_hover"], activeforeground=t["accent_fg"],
+        self.source_label = tk.Label(
+            self, textvariable=self.source_var, anchor=tk.W,
+            bg=t["panel_bg"], fg=t["fg"], font=FONT_SMALL,
         )
-        self.index_browse_btn.pack(side=tk.LEFT, padx=(4, 0))
+        self.source_label.pack(fill=tk.X)
+
+        self.index_label = tk.Label(
+            self, textvariable=self.index_var, anchor=tk.W,
+            bg=t["panel_bg"], fg=t["fg"], font=FONT_SMALL,
+        )
+        self.index_label.pack(fill=tk.X)
 
         # Detection info
         self.info_label = tk.Label(
             self, text="", anchor=tk.W,
             bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
         )
-        self.info_label.pack(fill=tk.X, pady=(2, 0))
+        self.info_label.pack(fill=tk.X, pady=(4, 0))
 
-        # Save button + status
-        btn_row = tk.Frame(self, bg=t["panel_bg"])
-        btn_row.pack(fill=tk.X, pady=(8, 4))
-
-        self.save_btn = tk.Button(
-            btn_row, text="Save Paths", command=self._on_save,
-            bg=t["accent"], fg=t["accent_fg"], font=FONT,
-            relief=tk.FLAT, bd=0, padx=12, pady=6,
-            activebackground=t["accent_hover"], activeforeground=t["accent_fg"],
-        )
-        self.save_btn.pack(side=tk.LEFT, padx=(0, 8))
-        bind_hover(self.save_btn)
-
+        # Status label (save feedback)
         self.status_label = tk.Label(
             self, text="", anchor=tk.W,
             bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
@@ -204,6 +185,7 @@ class DataPathsPanel(tk.LabelFrame):
             title="Select Source Documents Folder", initialdir=initial)
         if folder:
             self.source_var.set(os.path.normpath(folder))
+            self._on_save()
 
     def _on_browse_index(self):
         """Open a native folder picker for the index data directory."""
@@ -213,6 +195,7 @@ class DataPathsPanel(tk.LabelFrame):
             title="Select Index Data Folder", initialdir=initial)
         if folder:
             self.index_var.set(os.path.normpath(folder))
+            self._on_save()
 
     def _on_save(self):
         """Write source and index paths to config YAML and live config."""
