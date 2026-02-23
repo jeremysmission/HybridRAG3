@@ -207,6 +207,29 @@ class VLLMConfig:
 
 
 @dataclass
+class TransformersConfig:
+    """
+    Direct HuggingFace Transformers inference (no server needed).
+
+    Loads a model directly into GPU/CPU memory using the transformers
+    library. No Ollama or vLLM server required. The model is loaded
+    once at startup and stays in memory for subsequent queries.
+
+    Use 4-bit quantization (load_in_4bit=True) to fit larger models
+    like phi-4 (14B) into 12GB VRAM.
+
+    License: MIT (Microsoft phi-4).
+    """
+    enabled: bool = False
+    model: str = "microsoft/phi-4"
+    max_new_tokens: int = 2048
+    temperature: float = 0.05
+    load_in_4bit: bool = True
+    device_map: str = "auto"
+    trust_remote_code: bool = True
+
+
+@dataclass
 class APIConfig:
     """
     Online LLM (OpenAI-compatible API) settings.
@@ -395,6 +418,7 @@ class Config:
     chunking: ChunkingConfig = field(default_factory=ChunkingConfig)
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
     vllm: VLLMConfig = field(default_factory=VLLMConfig)
+    transformers_llm: TransformersConfig = field(default_factory=TransformersConfig)
     api: APIConfig = field(default_factory=APIConfig)
     cost: CostConfig = field(default_factory=CostConfig)
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)

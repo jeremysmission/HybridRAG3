@@ -2,35 +2,43 @@
 # llm_router.py -- LLM Backend Router (Offline + Online)
 # ============================================================================
 #
-# WHAT THIS FILE DOES (plain English):
-#   This is the "switchboard" that decides where your AI queries go:
+# WHAT: The "switchboard" that decides where AI queries go based on mode.
 #
-#   OFFLINE MODE (no internet needed):
-#     Query --> Ollama (local model on your machine) --> Answer
+# WHY:  The rest of HybridRAG should not care whether answers come from
+#       a local model or a cloud API. This module hides that complexity
+#       behind a single query() method. It also handles credential
+#       resolution, model discovery, and error classification so callers
+#       get clean results or clear error messages.
 #
-#   ONLINE MODE (needs enterprise network or home API key):
-#     Query --> Azure OpenAI API (or standard OpenAI) --> Answer
+# HOW:  Four backend router classes, one orchestrator:
+#       - OllamaRouter:  localhost Ollama server (offline, free)
+#       - VLLMRouter:    localhost vLLM server (workstation, free, faster)
+#       - APIRouter:     Azure/OpenAI cloud API (online, costs money)
+#       - LLMRouter:     The orchestrator that picks the right backend
 #
-#   The rest of HybridRAG only talks to LLMRouter. It never needs
-#   to know whether the answer came from Ollama or Azure -- the
-#   router handles all of that behind the scenes.
+# USAGE:
+#       router = LLMRouter(config)
+#       answer = router.query("What is the operating frequency?")
+#       # or stream:
+#       for chunk in router.query_stream("What is X?"):
+#           print(chunk.get("token", ""), end="")
 #
-# WHY WE CHANGED THIS FILE (February 2026):
-#   The old version used raw httpx HTTP calls to talk to Azure. This
-#   caused two painful bugs:
-#     1. 401 Unauthorized -- wrong auth header format
-#     2. 404 Not Found    -- URL path doubling
-#   The new version uses the official 'openai' Python SDK, which
-#   builds URLs and headers correctly every time. Same SDK your
-#   company's own example code uses.
+# FILE LAYOUT (section markers for navigation):
+#   Line ~70:   LLMResponse dataclass
+#   Line ~95:   OllamaRouter (localhost Ollama)
+#   Line ~310:  VLLMRouter (localhost vLLM)
+#   Line ~500:  APIRouter (Azure/OpenAI cloud)
+#   Line ~1060: Deployment Discovery (model listing)
+#   Line ~1250: LLMRouter (main orchestrator)
 #
 # INTERNET ACCESS:
 #   OllamaRouter -- NONE (talks to localhost only)
+#   VLLMRouter   -- NONE (talks to localhost only)
 #   APIRouter    -- YES (connects to Azure or OpenAI endpoint)
 #
 # DEPENDENCIES:
-#   - httpx      (for Ollama -- already installed)
-#   - openai     (for Azure/OpenAI API -- new addition)
+#   - httpx      (for Ollama/vLLM -- already installed)
+#   - openai     (for Azure/OpenAI API -- lazy loaded)
 #   - keyring    (optional, for credential storage)
 # ============================================================================
 
@@ -64,6 +72,8 @@ from .network_gate import get_gate, NetworkBlockedError
 from ..monitoring.logger import get_app_logger
 
 
+# --- SECTION 1: RESPONSE FORMAT -------------------------------------------
+
 # ============================================================================
 # LLMResponse -- The standard answer format
 # ============================================================================
@@ -80,6 +90,8 @@ class LLMResponse:
     model: str             # Which model answered (e.g., "phi4-mini")
     latency_ms: float      # How long the call took in milliseconds
 
+
+# --- SECTION 2: OLLAMA ROUTER (OFFLINE, LOCALHOST) -------------------------
 
 # ============================================================================
 # OllamaRouter -- Talks to local Ollama server (offline mode)
@@ -288,6 +300,8 @@ class OllamaRouter:
         if hasattr(self, "_client") and self._client:
             self._client.close()
 
+
+# --- SECTION 3: VLLM ROUTER (WORKSTATION OFFLINE, LOCALHOST) ---------------
 
 # ============================================================================
 # VLLMRouter -- Talks to local vLLM server (workstation offline mode)
@@ -499,6 +513,180 @@ class VLLMRouter:
             self._client.close()
 
 
+# --- SECTION 3B: TRANSFORMERS ROUTER (DIRECT GPU, NO SERVER) ---------------
+
+# ============================================================================
+# TransformersRouter -- Loads model directly via HuggingFace transformers
+# ============================================================================
+#
+# No Ollama, no vLLM, no server. The model loads once into GPU memory
+# at startup and stays there. Queries go straight to the GPU via Python.
+#
+# Uses 4-bit quantization (bitsandbytes) to fit 14B parameter models
+# into 12GB VRAM. Requires: transformers, torch, accelerate, bitsandbytes.
+#
+# INTERNET ACCESS: NONE after initial model download
+# ============================================================================
+class TransformersRouter:
+    """Route queries to a locally loaded HuggingFace transformers model."""
+
+    def __init__(self, config: Config):
+        """
+        Load the model into GPU memory.
+
+        Args:
+            config: HybridRAG config. Reads config.transformers_llm.*
+        """
+        self.config = config
+        self.logger = get_app_logger("transformers_router")
+        self._model = None
+        self._tokenizer = None
+        self._pipe = None
+        self._available = False
+
+        tc = config.transformers_llm
+        self.model_name = tc.model
+        self.max_new_tokens = tc.max_new_tokens
+        self.temperature = tc.temperature
+
+        try:
+            import torch
+            from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+
+            load_kwargs = {
+                "device_map": tc.device_map,
+                "torch_dtype": "auto",
+                "trust_remote_code": tc.trust_remote_code,
+            }
+
+            if tc.load_in_4bit:
+                try:
+                    from transformers import BitsAndBytesConfig
+                    load_kwargs["quantization_config"] = BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_compute_dtype=torch.float16,
+                    )
+                    self.logger.info("transformers_4bit_enabled", model=self.model_name)
+                except ImportError:
+                    self.logger.warning(
+                        "transformers_no_bitsandbytes",
+                        hint="pip install bitsandbytes for 4-bit quantization",
+                    )
+
+            self.logger.info("transformers_loading_model", model=self.model_name)
+            self._model = AutoModelForCausalLM.from_pretrained(
+                self.model_name, **load_kwargs
+            )
+            self._tokenizer = AutoTokenizer.from_pretrained(
+                self.model_name, trust_remote_code=tc.trust_remote_code
+            )
+            self._pipe = pipeline(
+                "text-generation",
+                model=self._model,
+                tokenizer=self._tokenizer,
+            )
+            self._available = True
+            self.logger.info("transformers_model_loaded", model=self.model_name)
+
+        except ImportError as e:
+            self.logger.warning("transformers_import_error", error=str(e))
+        except Exception as e:
+            self.logger.error("transformers_load_error", error=str(e))
+
+    def is_available(self) -> bool:
+        """Check if the model is loaded and ready."""
+        return self._available
+
+    def query(self, prompt: str) -> Optional[LLMResponse]:
+        """
+        Send a prompt directly to the loaded model.
+
+        Args:
+            prompt: The complete prompt (context + user question)
+
+        Returns:
+            LLMResponse with the answer, or None if the call failed
+        """
+        if not self._available:
+            return None
+
+        start_time = time.time()
+
+        try:
+            messages = [{"role": "user", "content": prompt}]
+
+            output = self._pipe(
+                messages,
+                max_new_tokens=self.max_new_tokens,
+                temperature=self.temperature if self.temperature > 0 else None,
+                do_sample=self.temperature > 0,
+                return_full_text=False,
+            )
+
+            response_text = output[0]["generated_text"]
+            if isinstance(response_text, list):
+                response_text = response_text[0].get("content", "") if response_text else ""
+            elif isinstance(response_text, dict):
+                response_text = response_text.get("content", str(response_text))
+
+            latency_ms = (time.time() - start_time) * 1000
+
+            # Estimate token counts (transformers doesn't always report exact)
+            tokens_in = len(self._tokenizer.encode(prompt))
+            tokens_out = len(self._tokenizer.encode(str(response_text)))
+
+            self.logger.info(
+                "transformers_query_success",
+                model=self.model_name,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                latency_ms=latency_ms,
+            )
+
+            return LLMResponse(
+                text=str(response_text),
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                model=self.model_name,
+                latency_ms=latency_ms,
+            )
+
+        except Exception as e:
+            self.logger.error("transformers_query_error", error=str(e))
+            return None
+
+    def query_stream(self, prompt: str) -> Generator[Dict[str, Any], None, None]:
+        """
+        Stream is not natively supported by pipeline.
+        Falls back to non-streaming query wrapped as a single chunk.
+        """
+        result = self.query(prompt)
+        if result:
+            yield {"token": result.text}
+            yield {
+                "done": True,
+                "tokens_in": result.tokens_in,
+                "tokens_out": result.tokens_out,
+                "model": result.model,
+                "latency_ms": result.latency_ms,
+            }
+
+    def close(self):
+        """Release model from GPU memory."""
+        self._model = None
+        self._tokenizer = None
+        self._pipe = None
+        self._available = False
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
+
+
+# --- SECTION 4: API ROUTER (CLOUD, ONLINE MODE) ---------------------------
+
 # ============================================================================
 # APIRouter -- Talks to Azure OpenAI or standard OpenAI API
 # ============================================================================
@@ -568,8 +756,8 @@ class APIRouter:
         self.base_endpoint = endpoint.rstrip("/") if endpoint else config.api.endpoint.rstrip("/")
 
         # -- Auto-detect Azure vs standard OpenAI --
-        # If the URL contains "azure" or "aoai" anywhere, it's Azure.
-        # Otherwise, it's standard OpenAI (or an OpenAI-compatible service).
+        # Azure and standard OpenAI use different URL formats and auth headers.
+        # "aoai" is a common enterprise abbreviation for Azure OpenAI.
         self.is_azure = (
             "azure" in self.base_endpoint.lower()
             or "aoai" in self.base_endpoint.lower()
@@ -871,8 +1059,7 @@ class APIRouter:
         start_time = time.time()
 
         # -- Pick the model name --
-        # Azure: use the deployment name (gpt-35-turbo)
-        # Standard OpenAI: use the model from config (gpt-4o-mini, etc.)
+        # Azure uses "deployment" names (company-chosen); OpenAI uses fixed model names.
         model_name = self.deployment if self.is_azure else self.config.api.model
 
         try:
@@ -1027,6 +1214,8 @@ class APIRouter:
         return status
 
 
+# --- SECTION 5: DEPLOYMENT DISCOVERY (MODEL LISTING) ----------------------
+
 # ============================================================================
 # DEPLOYMENT DISCOVERY -- Detects available models on Azure or OpenAI
 # ============================================================================
@@ -1056,7 +1245,10 @@ class APIRouter:
 # INTERNET ACCESS: YES (one GET request per call)
 # ============================================================================
 
-# Module-level cache for deployment discovery results
+# Module-level cache for deployment discovery results.
+# WHY CACHE: Deployment discovery makes an HTTP request to the API endpoint,
+# which takes ~200ms. We cache the result so subsequent calls (e.g., refreshing
+# the Admin GUI model dropdown) return instantly.
 _deployment_cache = None
 _deployment_lock = __import__("threading").Lock()
 
@@ -1072,7 +1264,9 @@ def _is_azure_endpoint(endpoint):
     return "azure" in lower or "aoai" in lower
 
 
-# Banned model families (NDAA / ITAR policy from CLAUDE.md)
+# Banned model families (NDAA / ITAR policy).
+# These model families are disqualified for use in this environment.
+# See docs/05_security/ for the full audit and reasoning.
 _BANNED_PREFIXES = ["qwen", "deepseek", "llama", "baidu", "bge"]
 
 
@@ -1232,6 +1426,8 @@ def refresh_deployments():
     return result
 
 
+# --- SECTION 6: LLM ROUTER (MAIN ORCHESTRATOR) ----------------------------
+
 # ============================================================================
 # LLMRouter -- The main switchboard
 # ============================================================================
@@ -1276,17 +1472,33 @@ class LLMRouter:
         self.logger = get_app_logger("llm_router")
 
         # -- Always create the Ollama router (offline mode) --
-        # This is lightweight and doesn't need any credentials
+        # This is lightweight (no network call) and doesn't need any
+        # credentials, so we always create it even in online mode.
+        # It serves as the fallback if the API is unreachable.
         self.ollama = OllamaRouter(config)
 
         # -- Create vLLM router if enabled (workstation offline mode) --
-        # When enabled, offline queries prefer vLLM over Ollama.
+        # vLLM is 2-3x faster than Ollama for the same model because it
+        # uses continuous batching and prefix caching. When enabled,
+        # offline queries prefer vLLM over Ollama.
         # If vLLM is unreachable, queries fall back to Ollama silently.
         if config.vllm.enabled:
             self.vllm = VLLMRouter(config)
             self.logger.info("llm_router_vllm_enabled", model=config.vllm.model)
         else:
             self.vllm = None
+
+        # -- Create Transformers router if enabled (direct GPU mode) --
+        # Loads model directly into GPU memory via HuggingFace transformers.
+        # No server needed. Preferred over Ollama and vLLM when enabled.
+        if config.transformers_llm.enabled:
+            self.transformers_rt = TransformersRouter(config)
+            self.logger.info(
+                "llm_router_transformers_enabled",
+                model=config.transformers_llm.model,
+            )
+        else:
+            self.transformers_rt = None
 
         # -- Resolve credentials -------------------------------------------
         # Use pre-resolved credentials from boot if available (saves the
@@ -1373,7 +1585,12 @@ class LLMRouter:
             return self.api.query(prompt)
 
         else:
-            # Offline mode: prefer vLLM if enabled and available, else Ollama
+            # Offline mode priority: Transformers > vLLM > Ollama
+            if self.transformers_rt and self.transformers_rt.is_available():
+                result = self.transformers_rt.query(prompt)
+                if result is not None:
+                    return result
+                self.logger.warning("transformers_query_failed_falling_back")
             if self.vllm and self.vllm.is_available():
                 result = self.vllm.query(prompt)
                 if result is not None:
@@ -1393,8 +1610,10 @@ class LLMRouter:
         mode = self.config.mode
 
         if mode == "offline":
-            # Prefer vLLM if enabled and available, else Ollama
-            if self.vllm and self.vllm.is_available():
+            # Priority: Transformers > vLLM > Ollama
+            if self.transformers_rt and self.transformers_rt.is_available():
+                yield from self.transformers_rt.query_stream(prompt)
+            elif self.vllm and self.vllm.is_available():
                 yield from self.vllm.query_stream(prompt)
             else:
                 yield from self.ollama.query_stream(prompt)
@@ -1421,6 +1640,10 @@ class LLMRouter:
             "ollama_available": self.ollama.is_available(),
             "vllm_enabled": self.vllm is not None,
             "vllm_available": self.vllm.is_available() if self.vllm else False,
+            "transformers_enabled": self.transformers_rt is not None,
+            "transformers_available": (
+                self.transformers_rt.is_available() if self.transformers_rt else False
+            ),
             "api_configured": self.api is not None,
             "sdk_available": _openai_sdk_available(),
         }

@@ -45,6 +45,14 @@ vllm:
   timeout_seconds: 120
   context_window: 16384
   enabled: false
+transformers_llm:
+  enabled: false
+  model: microsoft/phi-4
+  max_new_tokens: 2048
+  temperature: 0.05
+  load_in_4bit: true
+  device_map: auto
+  trust_remote_code: true
 paths:
   database: ''
   embeddings_cache: ''
