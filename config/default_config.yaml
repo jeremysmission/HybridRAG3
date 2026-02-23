@@ -54,9 +54,10 @@ transformers_llm:
   device_map: auto
   trust_remote_code: true
 paths:
-  database: ''
-  embeddings_cache: ''
-  source_folder: ''
+  database: D:\RAG Indexed Data\hybridrag.sqlite3
+  embeddings_cache: D:\RAG Indexed Data\_embeddings
+  source_folder: D:\RAG Source Data
+setup_complete: true
 retrieval:
   hybrid_search: true
   min_chunks: 1
