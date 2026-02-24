@@ -9,7 +9,7 @@ Last Updated: 2026-02-21
 | Requirement | Details |
 |-------------|---------|
 | **OS** | Windows 10 or 11 |
-| **Python** | 3.11.x (must match across all machines) |
+| **Python** | 3.11 or 3.12 (work laptop: 3.12rc3 approved) |
 | **Disk** | ~3 GB minimum (venv + model cache + embeddings) |
 | **RAM** | 8 GB minimum, 16 GB recommended |
 | **GPU** | Optional (CPU works fine, GPU speeds up offline LLM) |
@@ -45,9 +45,11 @@ cd HybridRAG3
 
 ```powershell
 cd "D:\HybridRAG3"
-py -3.11 -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
+
+If you have Python 3.11 instead of 3.12, use `py -3.11` in the command above.
 
 If the activate script fails with an execution policy error:
 
@@ -66,14 +68,43 @@ pip install -r requirements.txt
 This downloads ~800 MB of packages (PyTorch alone is ~280 MB). Takes
 5-15 minutes depending on internet speed.
 
+**Enterprise proxy / SSL certificate errors:**
+
+If your corporate proxy intercepts HTTPS and pip fails with certificate
+errors (common on managed laptops), use the `--trusted-host` flags:
+
+```powershell
+python -m pip install --upgrade pip --trusted-host pypi.org --trusted-host files.pythonhosted.org
+pip install -r requirements.txt --trusted-host pypi.org --trusted-host files.pythonhosted.org
+```
+
+For a permanent fix (no flags needed on every install), create or edit
+`%APPDATA%\pip\pip.ini`:
+
+```ini
+[global]
+trusted-host =
+    pypi.org
+    files.pythonhosted.org
+```
+
+If pip.ini does not work (some proxies are stricter), ask IT for the
+enterprise root CA bundle (.crt or .pem file) and set:
+
+```powershell
+$env:SSL_CERT_FILE = 'C:\path\to\enterprise-ca-bundle.crt'
+$env:REQUESTS_CA_BUNDLE = 'C:\path\to\enterprise-ca-bundle.crt'
+```
+
 **Common install issues:**
 
 | Problem | Fix |
 |---------|-----|
-| `py -3.11` not found | Install Python 3.11 from python.org. Check "Add to PATH" during install. Verify with `py --list`. |
+| `py -3.12` not found | Install Python 3.11 or 3.12 from your software portal. Check "Add to PATH" during install. Verify with `py --list`. |
 | Activate.ps1 blocked | Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
 | pip access denied | Run `python -m ensurepip --upgrade` first |
 | torch install fails | Verify requirements.txt has `torch==2.10.0` (not an older version) |
+| SSL certificate error | Use `--trusted-host` flags (see above) or set `SSL_CERT_FILE` env var |
 
 ### Step 4 -- Configure Machine-Specific Paths
 
@@ -338,8 +369,8 @@ approval requirements.
 
 ### Pre-Flight Checklist
 
-- [ ] Python 3.11 installed (`py -3.11 --version`)
-- [ ] pip accessible (`py -3.11 -m pip --version`)
+- [ ] Python 3.11 or 3.12 installed (`py --list` to check)
+- [ ] pip accessible (`python -m pip --version`)
 - [ ] PyPI reachable OR wheel bundles prepared
 - [ ] D: drive available with write access
 - [ ] Browser can reach GitHub (for ZIP download)
@@ -357,8 +388,11 @@ Transfer the `wheels\` folder to the work laptop via USB.
 **On the work laptop:**
 
 ```powershell
-pip install --no-index --find-links=wheels\ -r requirements.txt
+pip install --no-index --find-links=wheels\ -r requirements_approved.txt
 ```
+
+**IMPORTANT:** On the work laptop, always use `requirements_approved.txt`
+(the software-cleared package list), not `requirements.txt`.
 
 ### Air-Gapped Model Caching
 
@@ -421,7 +455,7 @@ rag-diag
 After completing installation, run through this checklist:
 
 ```
-[ ] py -3.11 --version                    Shows 3.11.x
+[ ] python --version                      Shows 3.11.x or 3.12.x
 [ ] .\.venv\Scripts\Activate.ps1          Activates without error
 [ ] . .\start_hybridrag.ps1               Commands load, paths shown
 [ ] rag-diag                              Most tests pass
@@ -457,7 +491,7 @@ If using online API:
 
 | Problem | Cause | Fix |
 |---------|-------|-----|
-| `py -3.11` not found | Python 3.11 not installed | Install from python.org, check "Add to PATH" |
+| Python not found | Python not installed | Install 3.11 or 3.12 from software portal, check "Add to PATH" |
 | `rag-diag` not found | Script not sourced | Run `. .\start_hybridrag.ps1` (dot-space) |
 | Execution policy error | PowerShell blocks scripts | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
 | Model download fails | No internet or HuggingFace blocked | First run needs internet. Copy `.model_cache/` from connected machine for air-gapped setup. |

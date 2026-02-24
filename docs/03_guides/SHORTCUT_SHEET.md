@@ -10,7 +10,7 @@
 ### Prerequisites Checklist
 ```
 [ ] Windows 10/11
-[ ] Python 3.11 (py -3.11 --version)
+[ ] Python 3.11 or 3.12 (python --version)
 [ ] Git installed (git --version)
 [ ] ~3 GB free disk space
 [ ] Ollama installed (optional, for offline LLM mode)
@@ -22,8 +22,8 @@
 # 1. Clone or extract the project
 cd D:\HybridRAG3
 
-# 2. Create virtual environment (MUST use Python 3.11)
-py -3.11 -m venv .venv
+# 2. Create virtual environment (use 3.11 or 3.12)
+py -3.12 -m venv .venv
 
 # 3. Activate it
 .\.venv\Scripts\Activate.ps1
@@ -46,12 +46,13 @@ rag-diag
 
 | Problem | Cause | Fix |
 |---------|-------|-----|
-| `py -3.11` not found | Python 3.11 not installed or not in PATH | Install from python.org, check "Add to PATH" |
+| `py -3.12` not found | Python not installed or not in PATH | Install 3.11 or 3.12 from software portal, check "Add to PATH" |
 | `pip install` hangs on torch | PyTorch is ~280 MB | Be patient, or use `--timeout 300` |
 | `rag-diag` command not found | start_hybridrag.ps1 not sourced | Run `. .\start_hybridrag.ps1` (note the dot-space) |
 | "Execution policy" error | PowerShell blocks scripts | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
-| Wrong Python version in venv | Created venv with wrong Python | Delete .venv/, recreate with `py -3.11 -m venv .venv` |
+| Wrong Python version in venv | Created venv with wrong Python | Delete .venv/, recreate with `py -3.12 -m venv .venv` |
 | Model download fails | No internet / firewall blocks HuggingFace | First run needs internet. Model caches locally after. |
+| SSL certificate error during pip install | Corporate proxy intercepts HTTPS | Use `pip install -r requirements.txt --trusted-host pypi.org --trusted-host files.pythonhosted.org` |
 
 
 ## 2. DAILY USE
@@ -482,11 +483,11 @@ src/api/models.py              Request/response schemas
 ### "Everything is Broken"
 ```powershell
 # 1. Check Python version
-py -3.11 --version
+python --version
 
 # 2. Recreate virtual environment
 Remove-Item -Recurse .venv
-py -3.11 -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 

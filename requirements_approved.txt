@@ -65,7 +65,11 @@ python-multipart==0.0.22       # Apache 2.0 -- Form data parsing (fastapi dep)
 click==8.3.1                   # BSD-3 -- CLI toolkit (uvicorn dep, Pallets/USA)
 
 # -- GPU LLM Inference (Workstation Only) ------------------------------------
-vllm==0.10.1                   # Apache 2.0 -- GPU LLM inference server (UC Berkeley/USA, pinned)
+# vllm==0.10.1                 # Apache 2.0 -- GPU LLM inference server (UC Berkeley/USA)
+#   ^^^ COMMENTED OUT: conflicts with openai==1.45.1 (vllm needs openai>=1.99.1)
+#   TODO: When submitting vllm for software approval, ALSO request openai>=1.99.1
+#   Both packages must be approved together or vllm cannot install.
+#   Not needed for demo -- Ollama handles local GPU inference for now.
 
 # -- Configuration / Logging ------------------------------------------------
 pyyaml==6.0.2                  # MIT -- YAML parsing (ALREADY APPROVED in store)

@@ -73,5 +73,5 @@ typing-inspection==0.4.2
 typing_extensions==4.15.0
 urllib3==2.6.3
 uvicorn==0.41.0
-vllm==0.10.1
+# vllm==0.10.1  # COMMENTED OUT: conflicts with openai==1.45.1 pin
 xlsxwriter==3.2.9

@@ -18,7 +18,7 @@ three tiers:
 
 | Package | Version | License | Purpose |
 |---------|---------|---------|---------|
-| Python | 3.10.x | PSF-2.0 | Runtime |
+| Python | 3.12rc3 (work) / 3.11.9 (home) | PSF-2.0 | Runtime |
 | pydantic | 2.11.1 | MIT | Data validation (config, API models) |
 | pyyaml | 6.0.2 | MIT | Config file parsing |
 | structlog | 24.4.0 | MIT | Structured logging |
@@ -144,8 +144,11 @@ hardware delivery, license paperwork, or store approval before activation.
 | License | Apache 2.0 (UC Berkeley/USA) |
 | Config | src/core/config.py VLLMConfig (enabled: false) |
 | Purpose | OpenAI-compatible local API with continuous batching, prefix caching, tensor parallelism |
-| Blocker | Requires dual RTX 3090 workstation (arriving soon) |
+| Blocker 1 | Requires dual RTX 3090 workstation (arriving soon) |
+| Blocker 2 | Requires openai>=1.99.1 (conflicts with current openai==1.45.1 pin) |
+| Waiver Note | **Must request vllm AND openai>=1.99.1 together** -- both packages needed on same waiver |
 | Activation | Set `vllm.enabled: true` in YAML once hardware verified |
+| Current Status | Commented out of requirements_approved.txt -- not needed for demo |
 
 ### Direct HuggingFace Transformers Inference
 
@@ -291,7 +294,7 @@ does not re-evaluate them.
 
 | Package | Pinned At | Reason |
 |---------|----------|--------|
-| openai | 1.45.1 | v2.x has breaking changes; pinned to 1.x permanently |
+| openai | 1.45.1 | v2.x has breaking changes; pinned to 1.x until vllm waiver requires upgrade to >=1.99.1 |
 | numpy | 1.26.4 | Last 1.x release; 2.x has breaking API changes |
 | pydantic | 2.11.1 | Store-approved version |
 | cryptography | 44.0.2 | Store-approved version |

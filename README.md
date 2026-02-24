@@ -28,8 +28,8 @@
 # 1. Navigate to the project folder
 cd "D:\HybridRAG3"
 
-# 2. Create a virtual environment (match Python version across machines)
-py -3.11 -m venv .venv
+# 2. Create a virtual environment (use whichever Python you have: 3.11 or 3.12)
+py -3.12 -m venv .venv
 
 # 3. Activate it
 .\.venv\Scripts\Activate.ps1
@@ -345,7 +345,7 @@ All packages sourced from PyPI (pypi.org) -- open-source with permissive license
 ## Requirements
 
 - Windows 10/11
-- Python 3.11 (tested on 3.11.9, must match across machines)
+- Python 3.11 or 3.12 (work laptop: 3.12rc3, home: 3.11.9)
 - ~3 GB disk space (venv + model cache)
 - Ollama (optional, for offline LLM mode)
 - Tesseract (optional, for OCR on scanned documents)

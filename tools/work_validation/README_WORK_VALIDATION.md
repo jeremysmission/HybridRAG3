@@ -174,13 +174,27 @@ $env:AZURE_OPENAI_ENDPOINT = 'https://your-endpoint.openai.azure.com'
 
 ### Enterprise SSL/proxy issues
 
-If you see SSL certificate errors, ask IT for the enterprise root CA:
+If your corporate proxy intercepts HTTPS and pip fails with certificate
+verification errors, the quickest fix is `--trusted-host`:
+
+```powershell
+pip install -r requirements.txt --trusted-host pypi.org --trusted-host files.pythonhosted.org
+```
+
+To make it permanent, create `%APPDATA%\pip\pip.ini`:
+
+```ini
+[global]
+trusted-host =
+    pypi.org
+    files.pythonhosted.org
+```
+
+If `--trusted-host` is not enough (some proxies are stricter), ask IT
+for the enterprise root CA bundle (.crt or .pem) and set both variables:
 
 ```powershell
 $env:SSL_CERT_FILE = 'C:\path\to\enterprise-ca-bundle.crt'
-```
-
-```powershell
 $env:REQUESTS_CA_BUNDLE = 'C:\path\to\enterprise-ca-bundle.crt'
 ```
 
