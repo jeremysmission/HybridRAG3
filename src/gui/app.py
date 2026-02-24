@@ -322,6 +322,13 @@ class HybridRAGApp(tk.Tk):
                 view.pack(fill=tk.BOTH, expand=True)
                 self._settings_view = view   # keep ref for delegation
                 self._views["settings"] = wrapper
+            elif name == "data":
+                from src.gui.panels.data_panel import DataPanel
+                wrapper = ScrollableFrame(self._content, bg=self._theme["bg"])
+                view = DataPanel(wrapper.inner, config=self.config, app_ref=self)
+                view.pack(fill=tk.BOTH, expand=True)
+                self._data_panel = view
+                self._views["data"] = wrapper
             elif name == "cost":
                 view = CostDashboard(self._content, self.cost_tracker)
                 self._views["cost"] = view
@@ -386,6 +393,8 @@ class HybridRAGApp(tk.Tk):
             self.index_panel.apply_theme(t)
         if hasattr(self, "status_bar"):
             self.status_bar.apply_theme(t)
+        if hasattr(self, "_data_panel"):
+            self._data_panel.apply_theme(t)
 
         # Propagate to all cached views
         for view in self._views.values():
@@ -449,6 +458,7 @@ class HybridRAGApp(tk.Tk):
 
         if self.config:
             self.config.mode = "online"
+            self._persist_mode("online")
 
         try:
             from src.core.network_gate import configure_gate
@@ -474,13 +484,25 @@ class HybridRAGApp(tk.Tk):
         settings = getattr(self, "_settings_view", None)
         if settings is not None and hasattr(settings, "refresh_credential_status"):
             settings.refresh_credential_status()
+        # Update API field state (enable for online)
+        if settings is not None and hasattr(settings, "_api_admin_tab"):
+            settings._api_admin_tab._apply_mode_state()
 
         logger.info("Switched to ONLINE mode")
+
+    def _persist_mode(self, new_mode):
+        """Write mode change to YAML so it survives restart."""
+        try:
+            from src.core.config import save_config_field
+            save_config_field("mode", new_mode)
+        except Exception as e:
+            logger.warning("Could not persist mode to YAML: %s", e)
 
     def _switch_to_offline(self):
         """Switch to offline mode (always safe)."""
         if self.config:
             self.config.mode = "offline"
+            self._persist_mode("offline")
 
         try:
             from src.core.network_gate import configure_gate
@@ -492,6 +514,10 @@ class HybridRAGApp(tk.Tk):
         self.status_bar.force_refresh()
         if hasattr(self, "query_panel"):
             self.query_panel._on_use_case_change()
+        # Update API field state (gray out for offline)
+        settings = getattr(self, "_settings_view", None)
+        if settings is not None and hasattr(settings, "_api_admin_tab"):
+            settings._api_admin_tab._apply_mode_state()
         logger.info("Switched to OFFLINE mode")
 
     # ----------------------------------------------------------------

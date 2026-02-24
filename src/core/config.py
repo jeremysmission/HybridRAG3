@@ -663,6 +663,38 @@ def validate_config(config: Config) -> List[str]:
     return errors
 
 
+def save_config_field(key: str, value, config_filename: str = "default_config.yaml") -> None:
+    """
+    Persist a single top-level config key to the YAML file on disk.
+
+    Reads the existing YAML, updates one key, writes back.  This is
+    used by the GUI to persist mode changes, path changes, etc.
+    without overwriting the entire file or losing comments.
+
+    Parameters
+    ----------
+    key : str
+        Top-level YAML key to update (e.g. "mode", "paths").
+    value
+        New value for the key (str, int, dict, etc.).
+    config_filename : str
+        YAML file inside config/ to update.
+    """
+    root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
+    cfg_path = os.path.join(root, "config", config_filename)
+
+    if os.path.isfile(cfg_path):
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    else:
+        data = {}
+
+    data[key] = value
+
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+
 def ensure_directories(config: Config) -> None:
     """
     Create the data directories if they don't exist yet.

@@ -586,6 +586,9 @@ class ApiAdminTab(tk.Frame):
         # Load initial credential status
         self._refresh_credential_status()
 
+        # Gray out API fields if starting in offline mode
+        self._apply_mode_state()
+
     # ================================================================
     # SECTION A: API CREDENTIALS
     # ================================================================
@@ -810,6 +813,44 @@ class ApiAdminTab(tk.Frame):
         except Exception as e:
             self.cred_status_label.config(
                 text="[FAIL] {}".format(str(e)[:60]), fg=t["red"])
+
+    # ================================================================
+    # MODE-AWARE FIELD STATE
+    # ================================================================
+
+    def _apply_mode_state(self):
+        """Gray out API credential fields when in offline mode.
+
+        Called at init and after every mode toggle so that non-technical
+        users are not confused by editable but irrelevant fields.
+        Preserves the credential status text (Key:/Endpoint:) populated
+        by _refresh_credential_status() and appends an offline note.
+        """
+        t = current_theme()
+        mode = getattr(self.config, "mode", "offline") if self.config else "offline"
+        if mode == "offline":
+            for widget in (self.endpoint_entry, self.key_entry):
+                widget.config(state=tk.DISABLED, disabledbackground=t["input_bg"],
+                              disabledforeground=t["disabled_fg"])
+            for btn in (self.save_cred_btn, self.test_btn, self.clear_cred_btn):
+                btn.config(state=tk.DISABLED)
+            # Append offline note without clobbering credential info
+            current_text = self.cred_status_label.cget("text")
+            if "(offline)" not in current_text:
+                suffix = "  (offline -- not needed)"
+                if current_text:
+                    self.cred_status_label.config(
+                        text=current_text + suffix, fg=t["disabled_fg"])
+                else:
+                    self.cred_status_label.config(
+                        text="(offline mode -- API credentials not needed)",
+                        fg=t["disabled_fg"])
+        else:
+            for widget in (self.endpoint_entry, self.key_entry):
+                widget.config(state=tk.NORMAL, fg=t["input_fg"])
+            for btn in (self.save_cred_btn, self.test_btn, self.clear_cred_btn):
+                btn.config(state=tk.NORMAL)
+            self._refresh_credential_status()
 
     # ================================================================
     # SECTION D: ADMIN DEFAULTS
