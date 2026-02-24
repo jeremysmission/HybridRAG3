@@ -219,12 +219,21 @@ def _load_backends(app, logger):
             fut_embedder = pool.submit(_init_embedder)
             fut_router = pool.submit(_init_router)
 
-            store = fut_store.result()
-            embedder = fut_embedder.result()
-            router = fut_router.result()
+            try:
+                store = fut_store.result()
+            except Exception as e:
+                logger.warning("[WARN] VectorStore init failed: %s", e)
+            try:
+                embedder = fut_embedder.result()
+            except Exception as e:
+                logger.warning("[WARN] Embedder init failed: %s", e)
+            try:
+                router = fut_router.result()
+            except Exception as e:
+                logger.warning("[WARN] LLMRouter init failed: %s", e)
 
         # -- Ollama warmup: pre-load model weights into memory --
-        if router and router.ollama.is_available():
+        if router and getattr(router, "ollama", None) and router.ollama.is_available():
             _set_stage(app, "Warming up model...")
             try:
                 router.ollama._client.post(

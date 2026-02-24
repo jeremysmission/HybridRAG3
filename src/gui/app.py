@@ -305,26 +305,32 @@ class HybridRAGApp(tk.Tk):
         if name not in self._views:
             self._build_view(name)
 
-        # Show target view
+        # Show target view (guard against failed build)
+        if name not in self._views:
+            return
         self._views[name].pack(in_=self._content, fill=tk.BOTH, expand=True)
         self._current_view = name
         self.nav_bar.select(name)
 
     def _build_view(self, name):
         """Lazy-build a view the first time it is requested."""
-        if name == "settings":
-            from src.gui.panels.settings_view import SettingsView
-            wrapper = ScrollableFrame(self._content, bg=self._theme["bg"])
-            view = SettingsView(wrapper.inner, config=self.config, app_ref=self)
-            view.pack(fill=tk.BOTH, expand=True)
-            self._settings_view = view   # keep ref for delegation
-            self._views["settings"] = wrapper
-        elif name == "cost":
-            view = CostDashboard(self._content, self.cost_tracker)
-            self._views["cost"] = view
-        elif name == "reference":
-            view = ReferencePanel(self._content)
-            self._views["reference"] = view
+        try:
+            if name == "settings":
+                from src.gui.panels.settings_view import SettingsView
+                wrapper = ScrollableFrame(self._content, bg=self._theme["bg"])
+                view = SettingsView(wrapper.inner, config=self.config, app_ref=self)
+                view.pack(fill=tk.BOTH, expand=True)
+                self._settings_view = view   # keep ref for delegation
+                self._views["settings"] = wrapper
+            elif name == "cost":
+                view = CostDashboard(self._content, self.cost_tracker)
+                self._views["cost"] = view
+            elif name == "reference":
+                view = ReferencePanel(self._content)
+                self._views["reference"] = view
+        except Exception as e:
+            import logging
+            logging.getLogger("app").warning("[WARN] Failed to build view '%s': %s", name, e)
 
     # ----------------------------------------------------------------
     # THEME TOGGLE
