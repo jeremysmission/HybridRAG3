@@ -381,9 +381,9 @@ $stepTimer.Stop()
 Write-Ok "Virtual environment ready ($(Format-Elapsed $stepTimer))"
 
 # ==================================================================
-# Step 5: Upgrade pip (with corporate proxy workaround)
+# Step 5: Upgrade pip + detect corporate proxy
 # ==================================================================
-Write-Step 5 "Upgrading pip (with proxy bypass)"
+Write-Step 5 "Upgrading pip (with proxy detection)"
 $stepTimer = [System.Diagnostics.Stopwatch]::StartNew()
 
 $PYTHON = "$PROJECT_ROOT\.venv\Scripts\python.exe"
@@ -392,6 +392,69 @@ $PIP = "$PROJECT_ROOT\.venv\Scripts\pip.exe"
 # is too short -- packages time out before the proxy finishes relaying.
 # We increase to 120 seconds and allow 5 retries for TCP RST recovery.
 $TRUSTED = "--trusted-host", "pypi.org", "--trusted-host", "files.pythonhosted.org", "--timeout", "120", "--retries", "5"
+
+# --- Detect corporate proxy from Windows registry ---
+# Corporate networks configure proxy via Group Policy / Internet Settings.
+# pip reads HTTP_PROXY/HTTPS_PROXY env vars but these are often NOT set.
+# Without them pip tries to connect DIRECTLY to PyPI -- which the corporate
+# firewall blocks with TCP RST (WinError 10054: forcibly closed).
+# We read the proxy from the registry and set the env vars so pip uses it.
+$proxyDetected = $false
+try {
+    $inetSettings = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+    $proxyEnabled = (Get-ItemProperty $inetSettings -ErrorAction SilentlyContinue).ProxyEnable
+    $proxyServer  = (Get-ItemProperty $inetSettings -ErrorAction SilentlyContinue).ProxyServer
+    if ($proxyEnabled -eq 1 -and $proxyServer) {
+        # ProxyServer may be "host:port" or "http=host:port;https=host:port"
+        if ($proxyServer -match "https=([^;]+)") {
+            $httpsProxy = $Matches[1]
+        } elseif ($proxyServer -match "http=([^;]+)") {
+            $httpsProxy = $Matches[1]
+        } else {
+            $httpsProxy = $proxyServer
+        }
+        # Ensure scheme prefix
+        if ($httpsProxy -notmatch "^https?://") {
+            $httpsProxy = "http://$httpsProxy"
+        }
+        if (-not $env:HTTP_PROXY)  { $env:HTTP_PROXY  = $httpsProxy }
+        if (-not $env:HTTPS_PROXY) { $env:HTTPS_PROXY = $httpsProxy }
+        $proxyDetected = $true
+        Write-Ok "Detected corporate proxy: $httpsProxy"
+    } else {
+        # Check for PAC auto-config
+        $autoConfigUrl = (Get-ItemProperty $inetSettings -ErrorAction SilentlyContinue).AutoConfigURL
+        if ($autoConfigUrl) {
+            Write-Warn "Proxy uses auto-config (PAC): $autoConfigUrl"
+            Write-Host "  pip cannot read PAC files. If packages fail to install,"
+            Write-Host "  ask IT for the direct proxy address and set it manually:"
+            Write-Host "  `$env:HTTPS_PROXY = 'http://proxy.yourcompany.com:8080'"
+        } else {
+            Write-Host "  No system proxy detected (direct internet or VPN)"
+        }
+    }
+} catch {
+    Write-Host "  Could not read proxy settings from registry"
+}
+$env:NO_PROXY = "localhost,127.0.0.1"
+
+# --- Create .venv\pip.ini with proxy-safe defaults ---
+# This ensures ALL pip commands inside the venv automatically get trusted
+# hosts, timeout, and retries -- even manual troubleshooting commands.
+$pipIni = "$PROJECT_ROOT\.venv\pip.ini"
+$pipIniContent = @"
+[global]
+trusted-host =
+    pypi.org
+    files.pythonhosted.org
+timeout = 120
+retries = 5
+"@
+if ($proxyDetected -and $env:HTTPS_PROXY) {
+    $pipIniContent += "`nproxy = $($env:HTTPS_PROXY)"
+}
+$pipIniContent | Out-File $pipIni -Encoding UTF8
+Write-Ok "Created .venv\pip.ini (proxy-safe defaults baked in)"
 
 $stepDone = $false
 while (-not $stepDone) {
@@ -436,7 +499,6 @@ while (-not $stepDone) {
         }
     }
 }
-$env:NO_PROXY = "localhost,127.0.0.1"
 
 $stepTimer.Stop()
 Write-Ok "Certificate support installed ($(Format-Elapsed $stepTimer))"
