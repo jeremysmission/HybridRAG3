@@ -593,12 +593,10 @@ foreach ($group in $groups) {
                                 Write-Fail "$pkg"
                                 "[$(Get-Date -Format 'HH:mm:ss')]   7${letter}-${pkgIdx} : FAIL (exit code $pkgExitCode)" | Add-Content $LOG_FILE -Encoding UTF8
                                 Write-Host ""
-                                Write-Host "  Proxy is blocking this package. Try these:" -ForegroundColor Yellow
-                                Write-Host "    1. Retry (proxy may allow on next attempt):" -ForegroundColor White
-                                Write-Host "       .venv\Scripts\pip.exe install $pkg --no-deps --timeout 120 --retries 10 --trusted-host pypi.org --trusted-host files.pythonhosted.org" -ForegroundColor Gray
-                                Write-Host "    2. Download wheel on personal network, copy to:" -ForegroundColor White
-                                Write-Host "       $wheelDir" -ForegroundColor Gray
-                                Write-Host "       Then: .venv\Scripts\pip.exe install $wheelDir\$($pkg.Split('==')[0])*.whl --no-deps" -ForegroundColor Gray
+                                Write-Host "  Proxy is blocking this package. Try:" -ForegroundColor Yellow
+                                Write-Host "    Retry with aggressive timeouts (proxy may allow on next attempt):" -ForegroundColor White
+                                Write-Host "    .venv\Scripts\pip.exe install $pkg --no-deps --timeout 120 --retries 10 --trusted-host pypi.org --trusted-host files.pythonhosted.org" -ForegroundColor Gray
+                                Write-Host "    If repeated retries fail, request $($pkg.Split('==')[0]) in the enterprise software store." -ForegroundColor Gray
                                 Write-Host ""
                                 Write-Host "  [R] Retry   [S] Skip   [X] Exit"
                                 $pkgChoice = Read-Host "  Choose [R/S/X]"
