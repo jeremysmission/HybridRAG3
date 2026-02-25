@@ -44,6 +44,51 @@ function Format-Elapsed {
     return "$([math]::Ceiling($secs))s"
 }
 
+function Request-Recovery {
+    param([string]$StepName, [int]$StepNum, [switch]$DrillDown)
+    Write-Host ""
+    Write-Host "  Step $StepNum ($StepName) did not complete successfully." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  [R] Retry this step"
+    if ($DrillDown) {
+        Write-Host "  [D] Drill down -- install each package one at a time"
+    }
+    Write-Host "  [S] Skip this step and continue"
+    Write-Host "  [X] Save progress and exit (manual troubleshooting)"
+    Write-Host ""
+    if ($DrillDown) {
+        $choice = Read-Host "  Choose [R/D/S/X]"
+    } else {
+        $choice = Read-Host "  Choose [R/S/X]"
+    }
+    return $choice.ToUpper()
+}
+
+function Write-ManualResume {
+    param([int]$FailedStep, [int]$TotalSteps)
+    Write-Host ""
+    Write-Host "  ============================================================" -ForegroundColor Cyan
+    Write-Host "  SETUP PAUSED -- Progress saved" -ForegroundColor Cyan
+    Write-Host "  ============================================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  Completed steps: 1 through $($FailedStep - 1) of $TotalSteps"
+    Write-Host "  Failed on step:  $FailedStep"
+    Write-Host ""
+    Write-Host "  Your .venv and config changes are saved on disk."
+    Write-Host "  To troubleshoot and finish manually:" -ForegroundColor White
+    Write-Host ""
+    Write-Host "    1. Activate the venv:"
+    Write-Host "       .venv\Scripts\Activate.ps1"
+    Write-Host ""
+    Write-Host "    2. Retry the failed package install:"
+    Write-Host "       .venv\Scripts\pip.exe install -r requirements.txt"
+    Write-Host ""
+    Write-Host "    3. Re-run this script to pick up where you left off"
+    Write-Host "       (it detects existing .venv and skips completed steps)"
+    Write-Host ""
+    Write-Host "  ============================================================" -ForegroundColor Cyan
+}
+
 # ------------------------------------------------------------------
 # Welcome banner
 # ------------------------------------------------------------------
@@ -306,8 +351,22 @@ $stepTimer = [System.Diagnostics.Stopwatch]::StartNew()
 $PYTHON = "$PROJECT_ROOT\.venv\Scripts\python.exe"
 $PIP = "$PROJECT_ROOT\.venv\Scripts\pip.exe"
 
-Write-Host "  Upgrading pip to latest version..."
-& $PYTHON -m pip install --upgrade pip
+$stepDone = $false
+while (-not $stepDone) {
+    Write-Host "  Upgrading pip to latest version..."
+    & $PYTHON -m pip install --upgrade pip
+    if ($LASTEXITCODE -eq 0) {
+        $stepDone = $true
+    } else {
+        $choice = Request-Recovery "Upgrading pip" 5
+        switch ($choice) {
+            "R" { continue }
+            "S" { Write-Warn "Skipped pip upgrade"; $stepDone = $true }
+            "X" { Write-ManualResume 5 $TOTAL_STEPS; exit 0 }
+            default { continue }
+        }
+    }
+}
 $pipVer = & $PIP --version 2>&1
 $stepTimer.Stop()
 Write-Ok "pip ready: $pipVer ($(Format-Elapsed $stepTimer))"
@@ -328,28 +387,38 @@ Write-Host "  If interrupted, re-run -- pip resumes from cache."
 Write-Host ""
 Write-Host "  ---- pip output starts ----" -ForegroundColor DarkGray
 
-$maxAttempts = 3
-$attempt = 0
-$pipSuccess = $false
-do {
-    $attempt++
-    if ($attempt -gt 1) {
-        Write-Host ""
-        Write-Warn "Retrying... (attempt $attempt of $maxAttempts)"
+$stepDone = $false
+while (-not $stepDone) {
+    $maxAttempts = 3
+    $attempt = 0
+    $pipSuccess = $false
+    do {
+        $attempt++
+        if ($attempt -gt 1) {
+            Write-Host ""
+            Write-Warn "Retrying... (attempt $attempt of $maxAttempts)"
+        }
+        & $PIP install -r requirements.txt
+        if ($LASTEXITCODE -eq 0) { $pipSuccess = $true; break }
+        Write-Warn "Package install had issues (exit code $LASTEXITCODE)"
+    } while ($attempt -lt $maxAttempts)
+
+    if ($pipSuccess) {
+        $stepDone = $true
+    } else {
+        Write-Fail "Package installation failed after $maxAttempts attempts"
+        $choice = Request-Recovery "Installing packages" 6
+        switch ($choice) {
+            "R" { continue }
+            "S" { Write-Warn "Skipped package install"; $stepDone = $true }
+            "X" { Write-ManualResume 6 $TOTAL_STEPS; exit 0 }
+            default { continue }
+        }
     }
-    & $PIP install -r requirements.txt
-    if ($LASTEXITCODE -eq 0) { $pipSuccess = $true; break }
-    Write-Warn "Package install had issues (exit code $LASTEXITCODE)"
-} while ($attempt -lt $maxAttempts)
+}
 
 Write-Host "  ---- pip output ends ----" -ForegroundColor DarkGray
 $stepTimer.Stop()
-
-if (-not $pipSuccess) {
-    Write-Fail "Package installation failed after $maxAttempts attempts"
-    Write-Host "  Check internet and retry: .venv\Scripts\pip.exe install -r requirements.txt"
-    exit 1
-}
 Write-Ok "All packages installed ($(Format-Elapsed $stepTimer))"
 
 # ==================================================================
@@ -398,25 +467,32 @@ if (-not (Test-Path "$logsDir")) {
 # ==================================================================
 Write-Step 9 "Checking Ollama"
 
-try {
-    $response = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 3 -ErrorAction Stop
-    Write-Ok "Ollama is running"
-    $models = $response.models | ForEach-Object { $_.name }
-    if ($models -contains "nomic-embed-text:latest" -or $models -contains "nomic-embed-text") {
-        Write-Ok "nomic-embed-text model found"
-    } else {
-        Write-Warn "nomic-embed-text NOT found -- run: ollama pull nomic-embed-text"
+$stepDone = $false
+while (-not $stepDone) {
+    try {
+        $response = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 3 -ErrorAction Stop
+        Write-Ok "Ollama is running"
+        $models = $response.models | ForEach-Object { $_.name }
+        if ($models -contains "nomic-embed-text:latest" -or $models -contains "nomic-embed-text") {
+            Write-Ok "nomic-embed-text model found"
+        } else {
+            Write-Warn "nomic-embed-text NOT found -- run: ollama pull nomic-embed-text"
+        }
+        if ($models -contains "phi4-mini:latest" -or $models -contains "phi4-mini") {
+            Write-Ok "phi4-mini model found"
+        } else {
+            Write-Warn "phi4-mini NOT found -- run: ollama pull phi4-mini"
+        }
+        $stepDone = $true
+    } catch {
+        $choice = Request-Recovery "Checking Ollama" 9
+        switch ($choice) {
+            "R" { continue }
+            "S" { Write-Warn "Skipped Ollama check"; $stepDone = $true }
+            "X" { Write-ManualResume 9 $TOTAL_STEPS; exit 0 }
+            default { continue }
+        }
     }
-    if ($models -contains "phi4-mini:latest" -or $models -contains "phi4-mini") {
-        Write-Ok "phi4-mini model found"
-    } else {
-        Write-Warn "phi4-mini NOT found -- run: ollama pull phi4-mini"
-    }
-} catch {
-    Write-Warn "Ollama is not running (OK for now)"
-    Write-Host "  Install from https://ollama.com, then run:"
-    Write-Host "    ollama pull nomic-embed-text" -ForegroundColor White
-    Write-Host "    ollama pull phi4-mini" -ForegroundColor White
 }
 
 # ======================================================================
