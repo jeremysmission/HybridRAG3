@@ -13,7 +13,7 @@
 # ============================================================================
 
 # -- Core AI / Model APIs --------------------------------------------------
-openai==1.51.2                 # MIT -- PINNED v1.x forever; never 2.x syntax (APPLYING FOR APPROVAL)
+openai==1.51.2                 # MIT -- PINNED v1.x forever; never 2.x syntax (YELLOW: applying, not yet on mirror)
 tiktoken==0.8.0                # MIT -- OpenAI token counting (offline, no network)
 
 # -- Embeddings ------------------------------------------------------------
