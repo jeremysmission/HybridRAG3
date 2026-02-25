@@ -175,7 +175,7 @@ def _load_backends(app, logger):
         logger.info("Loading backends (this may take a moment)...")
         from src.core.vector_store import VectorStore
         from src.core.llm_router import LLMRouter
-        from src.core.query_engine import QueryEngine
+        from src.core.grounded_query_engine import GroundedQueryEngine
         from src.core.chunker import Chunker
         from src.core.indexer import Indexer
 
@@ -254,7 +254,7 @@ def _load_backends(app, logger):
         # -- Sequential phase: assemble QueryEngine + Indexer --
         _set_stage(app, "QueryEngine...")
         if store and embedder:
-            query_engine = QueryEngine(config, store, embedder, router)
+            query_engine = GroundedQueryEngine(config, store, embedder, router)
             logger.info("[OK] Query engine ready")
 
             chunker = Chunker(config)

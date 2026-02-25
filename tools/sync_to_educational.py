@@ -89,6 +89,7 @@ SKIP_PATTERNS = [
     "*.pyo",
     "start_hybridrag.ps1",        # machine-specific
     "eval guides",                 # gitignored personal folder
+    "USB Installer Research",      # personal-only: offline USB installer prototype
     "releases",                    # zip transfers
     "data",                        # indexed data
     "logs",                        # runtime logs

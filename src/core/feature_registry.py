@@ -113,7 +113,7 @@ FEATURE_CATALOG: List[FeatureDefinition] = [
         impact_note="Adds ~2-4s per query (GPU) or ~3-8s (CPU)",
         config_section="hallucination_guard",
         config_key="enabled",
-        default=False,
+        default=True,
     ),
 
     # --- RETRIEVAL ---------------------------------------------------------

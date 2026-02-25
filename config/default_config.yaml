@@ -25,7 +25,7 @@ embedding:
 hallucination_guard:
   chunk_prune_k: 3
   enable_dual_path: false
-  enabled: false
+  enabled: true
   failure_action: block
   model_cache_dir: .model_cache
   nli_model: cross-encoder/nli-deberta-v3-base

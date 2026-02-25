@@ -14,12 +14,23 @@ Last Updated: 2026-02-24
 | **RAM** | 8 GB minimum, 16 GB recommended |
 | **GPU** | Optional (CPU works fine, GPU speeds up offline LLM) |
 
+**Included in requirements.txt** (no separate install needed):
+
+| Package | Purpose |
+|---------|---------|
+| pytest | Test runner for `pytest tests/` |
+| psutil | System hardware detection for profiles |
+
 **Optional software:**
 
 | Software | Purpose | License |
 |----------|---------|---------|
 | Ollama | Offline LLM inference + embeddings | MIT |
 | Tesseract OCR | Image text extraction | Apache 2.0 |
+
+**Note on managed machines:** Corporate Group Policy may block PowerShell
+script execution. See Step 2 below for workarounds before creating the
+virtual environment.
 
 ---
 
@@ -43,22 +54,55 @@ cd HybridRAG3
 
 ### Step 2 -- Create Virtual Environment
 
+**Group Policy workaround (managed machines):**
+
+Corporate machines often block script execution via Group Policy. Run these
+commands first (they only need to be run once per machine):
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
+```
+
+If that command fails with "Access Denied" (Group Policy overrides user
+settings on some machines), use the per-process bypass instead:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup_step.ps1
+```
+
+Or start every PowerShell session with:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+
+**Create the virtual environment:**
+
 ```powershell
 cd "D:\HybridRAG3"
-py -3.12 -m venv .venv
+py -3.11 -m venv .venv
+```
+
+If `py -3.11` fails, try `py -3.12` or `py -3.10`. Check installed
+versions with `py --list`.
+
+**Activate the virtual environment:**
+
+```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
-If you have Python 3.11 instead of 3.12, use `py -3.11` in the command above.
+Your prompt should now show `(.venv)` at the beginning. If activation
+fails after setting execution policy, use the cmd alternative:
 
-If the activate script fails with an execution policy error:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-.\.venv\Scripts\Activate.ps1
+```cmd
+.\.venv\Scripts\activate.bat
 ```
 
 ### Step 3 -- Install Dependencies
+
+**Upgrade pip first** -- Python 3.10/3.11 ships with pip 21.x which can
+fail to resolve modern dependency trees. Always upgrade before installing:
 
 ```powershell
 python -m pip install --upgrade pip
@@ -68,6 +112,9 @@ pip install -r requirements.txt
 This downloads ~200 MB of packages. Takes 2-5 minutes depending on
 internet speed. (PyTorch/HuggingFace were removed -- embeddings are
 now served by Ollama.)
+
+**Note:** `pytest` and `psutil` are included in requirements.txt. You do
+not need to install them separately.
 
 **Enterprise proxy / SSL certificate errors:**
 
@@ -125,7 +172,19 @@ the project directory so they are never affected by code updates.
 
 ### Step 5 -- Launch the Environment
 
+Run these commands in order every time you open a new terminal:
+
 ```powershell
+# 1. Navigate to project
+cd "D:\HybridRAG3"
+
+# 2. Bypass execution policy (if Group Policy blocks scripts)
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+# 3. Activate virtual environment
+.\.venv\Scripts\Activate.ps1
+
+# 4. Source the startup script (dot-space is required)
 . .\start_hybridrag.ps1
 ```
 
@@ -553,6 +612,196 @@ python src/gui/launch_gui.py      Launch desktop GUI (dark/light theme)
 ```
 
 For full GUI documentation, see [GUI_GUIDE.md](GUI_GUIDE.md).
+
+---
+
+## Part 11: Complete Setup Commands (Copy-Paste Order)
+
+These are every command needed for a fresh install, in exact order.
+Copy and paste them one at a time into PowerShell.
+
+### First-Time Setup (run once)
+
+```powershell
+# Step 1: Open PowerShell as your normal user (NOT admin)
+
+# Step 2: Bypass Group Policy script restrictions
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+# Step 3: Navigate to drive
+cd "D:\"
+
+# Step 4: Clone the repository (home PC with Git)
+git clone https://github.com/jeremysmission/HybridRAG3.git
+cd HybridRAG3
+
+# Step 5: Create virtual environment (use 3.11, 3.12, or 3.10)
+py -3.11 -m venv .venv
+
+# Step 6: Activate virtual environment
+.\.venv\Scripts\Activate.ps1
+
+# Step 7: Upgrade pip (ships outdated with Python)
+python -m pip install --upgrade pip
+
+# Step 8: Install all dependencies
+pip install -r requirements.txt
+
+# Step 9: Create data directories (update paths for your machine)
+New-Item -ItemType Directory -Path "D:\RAG Indexed Data" -Force
+New-Item -ItemType Directory -Path "D:\RAG Source Data" -Force
+
+# Step 10: Edit start_hybridrag.ps1 -- update DATA_DIR and SOURCE_DIR paths
+
+# Step 11: Source the startup script
+. .\start_hybridrag.ps1
+
+# Step 12: Run diagnostics
+rag-diag
+```
+
+### Ollama Setup (run once, separate terminal)
+
+```powershell
+# Download Ollama from https://ollama.com and run installer
+
+# Pull required embedding model (274 MB)
+ollama pull nomic-embed-text
+
+# Pull primary LLM (2.3 GB)
+ollama pull phi4-mini
+
+# Start Ollama server (leave this terminal open)
+ollama serve
+```
+
+### Every Session (run each time you open a new terminal)
+
+```powershell
+# Step 1: Bypass Group Policy (if needed on managed machines)
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+# Step 2: Navigate to project
+cd "D:\HybridRAG3"
+
+# Step 3: Activate virtual environment
+.\.venv\Scripts\Activate.ps1
+
+# Step 4: Source startup script (dot-space required)
+. .\start_hybridrag.ps1
+
+# Step 5: (Optional) Launch the GUI
+python src/gui/launch_gui.py
+```
+
+### Group Policy Workarounds Reference
+
+Corporate Group Policy often blocks PowerShell script execution. Use
+these workarounds depending on what your machine allows:
+
+| Method | Scope | Command |
+|--------|-------|---------|
+| **Per-process bypass** | Current session only | `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` |
+| **User-level setting** | Persists across sessions | `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force` |
+| **Cmd fallback** | Bypasses PowerShell entirely | `.\.venv\Scripts\activate.bat` then `python -c "exec(open('start_hybridrag.ps1').read())"` |
+| **Direct Python** | No PowerShell needed | `python src/gui/launch_gui.py` (GUI) or `python -m pytest tests/` (tests) |
+
+If `Set-ExecutionPolicy` itself is blocked (returns "Access to the
+registry key is denied"), use the per-process method or the cmd fallback.
+
+### Regression Test Verification
+
+After installation, verify everything works:
+
+```powershell
+# Activate venv first, then:
+python -m pytest tests/ --ignore=tests/test_fastapi_server.py -v
+```
+
+Expected result: 373 passed, 1 skipped. The skipped test requires
+a display (Tk GUI) and is normal on headless systems.
+
+---
+
+## Part 12: Automated Setup Scripts
+
+Two scripts automate the entire setup process.
+
+### Home/Personal Setup
+
+Double-click or run from cmd:
+
+```
+tools\setup_home.bat
+```
+
+This script:
+1. Bypasses Group Policy execution restrictions automatically
+2. Detects Python (3.12, 3.11, 3.10)
+3. Prompts for your data and source directories (with defaults)
+4. Creates the virtual environment
+5. Upgrades pip and installs all dependencies from requirements.txt
+6. Configures default_config.yaml with your paths
+7. Configures start_hybridrag.ps1 with your paths
+8. Checks Ollama status and model availability
+9. Runs the full regression test suite
+
+### Work/Educational Setup
+
+```
+tools\setup_work.bat
+```
+
+Uses requirements_approved.txt (enterprise-approved only). Adds proxy
+handling, pip-system-certs, API credential configuration, and Group
+Policy bypass. See WORK_LAPTOP_VENV_SETUP.md for details.
+
+### Running from PowerShell directly
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\tools\setup_home.ps1
+```
+
+---
+
+## Part 13: Setup Script Troubleshooting
+
+### Script will not run
+
+| Problem | Fix |
+|---------|-----|
+| "Running scripts is disabled" | Use the `.bat` launcher instead of `.ps1` |
+| `.bat` also blocked | From cmd: `powershell -ExecutionPolicy Bypass -File tools\setup_home.ps1` |
+| PowerShell blocked entirely | Use cmd: `.venv\Scripts\activate.bat` then `python` directly |
+
+### pip install fails
+
+| Problem | Fix |
+|---------|-----|
+| SSL errors | Use `--trusted-host pypi.org --trusted-host files.pythonhosted.org` |
+| Timeout | Check internet connection |
+| "No matching distribution" | Python version may be too old. Check `py --list`. |
+
+### Python not detected
+
+| Problem | Fix |
+|---------|-----|
+| "Python 3.10+ not found" | Install from https://www.python.org/downloads/ |
+| `py` command not found | Check "Add to PATH" was selected during Python install |
+
+### Regression tests fail
+
+| Problem | Fix |
+|---------|-----|
+| ModuleNotFoundError | Re-run: `.venv\Scripts\pip.exe install -r requirements.txt` |
+| GUI tests skipped | Normal on headless systems |
+| All tests fail | Verify `.venv` is activated (look for `(.venv)` in prompt) |
+
+### Re-running the script
+
+Safe to re-run. Skips completed steps (existing .venv, etc.).
+For a fresh start: delete `.venv`, then re-run `tools\setup_home.bat`.
 
 ---
 

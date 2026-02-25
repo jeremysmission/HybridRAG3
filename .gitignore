@@ -81,3 +81,9 @@ eval_out/
 scored_out/
 eval_baseline_*.jsonl
 eval_v2_*.jsonl
+
+# Personal reference guides (contain tool-specific names, not for repo)
+docs/06_guides/
+
+# USB installer staging output (built at runtime, not source)
+USB Installer Research/_staging/

@@ -1,5 +1,5 @@
 # ============================================================================
-# HybridRAG v3 -- Settings View (src/gui/panels/settings_view.py)    RevB
+# HybridRAG v3 -- Settings View (src/gui/panels/settings_view.py)    RevA
 # ============================================================================
 # WHAT: Two-tab settings coordinator (Tuning + API & Admin).
 # WHY:  Admins need a single place to adjust retrieval parameters, switch
@@ -233,6 +233,10 @@ class SettingsView(tk.Frame):
         return self._tuning_tab.profile_var
 
     @property
+    def profile_dropdown(self):
+        return self._tuning_tab.profile_dropdown
+
+    @property
     def profile_apply_btn(self):
         return self._tuning_tab.profile_apply_btn
 
@@ -262,6 +266,7 @@ class SettingsView(tk.Frame):
         self._tuning_tab._on_profile_change(event)
 
     def _on_reset(self):
+        """Delegate the 'Reset to Defaults' action to the TuningTab."""
         self._tuning_tab._on_reset()
 
     def _sync_sliders_to_config(self):
