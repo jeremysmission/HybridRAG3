@@ -60,6 +60,51 @@ function Format-Elapsed {
     return "$([math]::Ceiling($secs))s"
 }
 
+function Request-Recovery {
+    param([string]$StepName, [int]$StepNum, [switch]$DrillDown)
+    Write-Host ""
+    Write-Host "  Step $StepNum ($StepName) did not complete successfully." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  [R] Retry this step"
+    if ($DrillDown) {
+        Write-Host "  [D] Drill down -- install each package one at a time"
+    }
+    Write-Host "  [S] Skip this step and continue"
+    Write-Host "  [X] Save progress and exit (manual troubleshooting)"
+    Write-Host ""
+    if ($DrillDown) {
+        $choice = Read-Host "  Choose [R/D/S/X]"
+    } else {
+        $choice = Read-Host "  Choose [R/S/X]"
+    }
+    return $choice.ToUpper()
+}
+
+function Write-ManualResume {
+    param([int]$FailedStep, [int]$TotalSteps)
+    Write-Host ""
+    Write-Host "  ============================================================" -ForegroundColor Cyan
+    Write-Host "  SETUP PAUSED -- Progress saved" -ForegroundColor Cyan
+    Write-Host "  ============================================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  Completed steps: 1 through $($FailedStep - 1) of $TotalSteps"
+    Write-Host "  Failed on step:  $FailedStep"
+    Write-Host ""
+    Write-Host "  Your .venv and config changes are saved on disk."
+    Write-Host "  To troubleshoot and finish manually:" -ForegroundColor White
+    Write-Host ""
+    Write-Host "    1. Activate the venv:"
+    Write-Host "       .venv\Scripts\Activate.ps1"
+    Write-Host ""
+    Write-Host "    2. Retry the failed package install:"
+    Write-Host "       .venv\Scripts\pip.exe install -r requirements_approved.txt --trusted-host pypi.org --trusted-host files.pythonhosted.org"
+    Write-Host ""
+    Write-Host "    3. Re-run this script to pick up where you left off"
+    Write-Host "       (it detects existing .venv and skips completed steps)"
+    Write-Host ""
+    Write-Host "  ============================================================" -ForegroundColor Cyan
+}
+
 # ------------------------------------------------------------------
 # Welcome banner
 # ------------------------------------------------------------------
@@ -348,8 +393,22 @@ $PIP = "$PROJECT_ROOT\.venv\Scripts\pip.exe"
 # We increase to 120 seconds and add 2 retries (low to avoid tripping security sensors).
 $TRUSTED = "--trusted-host", "pypi.org", "--trusted-host", "files.pythonhosted.org", "--timeout", "120", "--retries", "2"
 
-Write-Host "  Upgrading pip with proxy-safe timeouts (120s per request)..."
-& $PYTHON -m pip install --upgrade pip --progress-bar on @TRUSTED 2>&1
+$stepDone = $false
+while (-not $stepDone) {
+    Write-Host "  Upgrading pip with proxy-safe timeouts (120s per request)..."
+    & $PYTHON -m pip install --upgrade pip --progress-bar on @TRUSTED 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        $stepDone = $true
+    } else {
+        $choice = Request-Recovery "Upgrading pip" 5
+        switch ($choice) {
+            "R" { continue }
+            "S" { Write-Warn "Skipped pip upgrade"; $stepDone = $true }
+            "X" { Write-ManualResume 5 $TOTAL_STEPS; exit 0 }
+            default { continue }
+        }
+    }
+}
 $pipVer = & $PIP --version 2>&1
 $stepTimer.Stop()
 Write-Ok "pip ready: $pipVer ($(Format-Elapsed $stepTimer))"
@@ -360,55 +419,207 @@ Write-Ok "pip ready: $pipVer ($(Format-Elapsed $stepTimer))"
 Write-Step 6 "Installing corporate certificate support"
 $stepTimer = [System.Diagnostics.Stopwatch]::StartNew()
 
-Write-Host "  Installing pip-system-certs (makes Python trust Windows certs)..."
-Write-Host "  (This teaches Python to use your Windows certificate store)"
-& $PIP install pip-system-certs --progress-bar on @TRUSTED 2>&1
+$stepDone = $false
+while (-not $stepDone) {
+    Write-Host "  Installing pip-system-certs (makes Python trust Windows certs)..."
+    Write-Host "  (This teaches Python to use your Windows certificate store)"
+    & $PIP install pip-system-certs --progress-bar on @TRUSTED 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        $stepDone = $true
+    } else {
+        $choice = Request-Recovery "Certificate support" 6
+        switch ($choice) {
+            "R" { continue }
+            "S" { Write-Warn "Skipped pip-system-certs"; $stepDone = $true }
+            "X" { Write-ManualResume 6 $TOTAL_STEPS; exit 0 }
+            default { continue }
+        }
+    }
+}
 $env:NO_PROXY = "localhost,127.0.0.1"
 
 $stepTimer.Stop()
 Write-Ok "Certificate support installed ($(Format-Elapsed $stepTimer))"
 
 # ==================================================================
-# Step 7: Install approved packages
+# Step 7: Install approved packages (7A through 7R)
 # ==================================================================
-# You will see EVERY package being downloaded and installed below.
-# pip shows progress bars for each download. If interrupted, re-run
-# this script -- pip keeps its cache and resumes from where it stopped.
+# Packages are installed in small groups (7A-7R) so that if the
+# corporate proxy drops a connection, we know exactly which group
+# failed. If a group fails, choose [D] to drill into individual
+# packages. openai is attempted LAST (7Q) since it may not be on
+# the corporate mirror yet.
 # ------------------------------------------------------------------
-Write-Step 7 "Installing packages (full output below)"
+Write-Step 7 "Installing packages (7A-7R, grouped for proxy resilience)"
 $stepTimer = [System.Diagnostics.Stopwatch]::StartNew()
+
+# Create detailed log for AI-assisted troubleshooting
+$logsDir = "$PROJECT_ROOT\logs"
+if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
+$LOG_FILE = "$logsDir\setup_install_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+
+@(
+    "=" * 70,
+    "HybridRAG3 Setup Install Log",
+    "=" * 70,
+    "Date       : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')",
+    "Python     : $PY_EXE $(if($PY_VER_FLAG){$PY_VER_FLAG}else{'(system)'})",
+    "pip        : $(& $PIP --version 2>&1)",
+    "OS         : $([System.Environment]::OSVersion.VersionString)",
+    "Machine    : $env:COMPUTERNAME",
+    "HTTP_PROXY : $(if($env:HTTP_PROXY){$env:HTTP_PROXY}else{'(not set)'})",
+    "HTTPS_PROXY: $(if($env:HTTPS_PROXY){$env:HTTPS_PROXY}else{'(not set)'})",
+    "NO_PROXY   : $(if($env:NO_PROXY){$env:NO_PROXY}else{'(not set)'})",
+    "Project    : $PROJECT_ROOT",
+    "Req file   : requirements_approved.txt",
+    "=" * 70,
+    ""
+) | Out-File $LOG_FILE -Encoding UTF8
+
 Write-Host ""
-Write-Host "  This is the longest step (2-5 minutes on first install)."
-Write-Host "  You will see each package being downloaded and installed."
-Write-Host "  If interrupted, re-run this script -- pip resumes from cache."
+Write-Host "  Packages are split into small groups (7A through 7R)."
+Write-Host "  If a group fails, choose [D] to drill into individual packages."
+Write-Host "  openai is attempted last (7Q) -- may not be on corporate mirror."
+Write-Host ""
+Write-Host "  Log file: $LOG_FILE" -ForegroundColor DarkGray
 Write-Host ""
 
 Write-Host "  ---- pip output starts ----" -ForegroundColor DarkGray
 
-$maxAttempts = 2
-$attempt = 0
-$pipSuccess = $false
-do {
-    $attempt++
-    if ($attempt -gt 1) {
-        Write-Host ""
-        Write-Warn "Retrying... (attempt $attempt of $maxAttempts)"
+$groups = @(
+    @{ name = "Config basics";      pkgs = @("pyyaml==6.0.2", "numpy==1.26.4") },
+    @{ name = "Typing support";     pkgs = @("typing_extensions==4.15.0", "annotated-types==0.7.0", "typing-inspection==0.4.2") },
+    @{ name = "Data validation";    pkgs = @("pydantic==2.11.1") },
+    @{ name = "HTTP async";         pkgs = @("httpx==0.28.1", "sniffio==1.3.1") },
+    @{ name = "HTTP sync";          pkgs = @("requests==2.32.5", "urllib3==2.6.3") },
+    @{ name = "Encryption";         pkgs = @("cryptography==44.0.2") },
+    @{ name = "PDF parsing";        pkgs = @("pdfplumber==0.11.9", "pdfminer.six==20251230") },
+    @{ name = "PDF utilities";      pkgs = @("pypdf==6.6.2", "pypdfium2==5.3.0") },
+    @{ name = "Office documents";   pkgs = @("python-docx==1.2.0", "python-pptx==1.0.2") },
+    @{ name = "Excel support";      pkgs = @("openpyxl==3.1.5", "xlsxwriter==3.2.9", "et_xmlfile==2.0.0") },
+    @{ name = "XML and images";     pkgs = @("lxml==6.0.2", "pillow==12.1.0") },
+    @{ name = "Web framework";      pkgs = @("fastapi==0.115.0", "starlette==0.38.6", "python-multipart==0.0.22") },
+    @{ name = "Web server";         pkgs = @("uvicorn==0.41.0", "click==8.3.1") },
+    @{ name = "Credential storage"; pkgs = @("keyring==23.13.1", "jaraco.classes==3.4.0", "more-itertools==10.8.0") },
+    @{ name = "Vector search";      pkgs = @("faiss-cpu==1.9.0") },
+    @{ name = "Utilities";          pkgs = @("structlog==24.4.0", "rich==13.9.4", "tqdm==4.67.3", "regex==2026.1.15") },
+    @{ name = "AI core (openai)";   pkgs = @("openai==1.51.2", "tiktoken==0.8.0") }
+)
+
+$groupNum = 0
+$groupsFailed = 0
+foreach ($group in $groups) {
+    $groupNum++
+    $letter = [char](64 + $groupNum)
+    Write-Host ""
+    Write-Host "  --- Step 7$letter : $($group.name) ---" -ForegroundColor White
+    "[$(Get-Date -Format 'HH:mm:ss')] Step 7$letter : $($group.name) -- START" | Add-Content $LOG_FILE -Encoding UTF8
+    "  Packages: $($group.pkgs -join ', ')" | Add-Content $LOG_FILE -Encoding UTF8
+
+    $stepDone = $false
+    while (-not $stepDone) {
+        $pipOutput = & $PIP install $($group.pkgs) --progress-bar on @TRUSTED 2>&1
+        $pipExitCode = $LASTEXITCODE
+        $pipOutput
+        $pipOutput | Out-String | Add-Content $LOG_FILE -Encoding UTF8
+
+        if ($pipExitCode -eq 0) {
+            Write-Ok "7$letter $($group.name)"
+            "[$(Get-Date -Format 'HH:mm:ss')] Step 7$letter : OK" | Add-Content $LOG_FILE -Encoding UTF8
+            $stepDone = $true
+        } else {
+            Write-Fail "7$letter $($group.name)"
+            "[$(Get-Date -Format 'HH:mm:ss')] Step 7$letter : FAIL (exit code $pipExitCode)" | Add-Content $LOG_FILE -Encoding UTF8
+            $choice = Request-Recovery "7$letter $($group.name)" 7 -DrillDown
+            "[$(Get-Date -Format 'HH:mm:ss')] Step 7$letter : User chose $choice" | Add-Content $LOG_FILE -Encoding UTF8
+            switch ($choice) {
+                "R" { continue }
+                "D" {
+                    # Drill down: install each package one at a time
+                    $pkgIdx = 0
+                    foreach ($pkg in $group.pkgs) {
+                        $pkgIdx++
+                        Write-Host ""
+                        Write-Host "    --- Step 7${letter}-${pkgIdx} : $pkg ---" -ForegroundColor White
+                        "[$(Get-Date -Format 'HH:mm:ss')]   7${letter}-${pkgIdx} : $pkg -- START" | Add-Content $LOG_FILE -Encoding UTF8
+                        $pkgDone = $false
+                        while (-not $pkgDone) {
+                            $pkgOutput = & $PIP install $pkg --progress-bar on @TRUSTED 2>&1
+                            $pkgExitCode = $LASTEXITCODE
+                            $pkgOutput
+                            $pkgOutput | Out-String | Add-Content $LOG_FILE -Encoding UTF8
+                            if ($pkgExitCode -eq 0) {
+                                Write-Ok "$pkg"
+                                "[$(Get-Date -Format 'HH:mm:ss')]   7${letter}-${pkgIdx} : OK" | Add-Content $LOG_FILE -Encoding UTF8
+                                $pkgDone = $true
+                            } else {
+                                Write-Fail "$pkg"
+                                "[$(Get-Date -Format 'HH:mm:ss')]   7${letter}-${pkgIdx} : FAIL (exit code $pkgExitCode)" | Add-Content $LOG_FILE -Encoding UTF8
+                                Write-Host ""
+                                Write-Host "  To troubleshoot in another window:" -ForegroundColor Yellow
+                                Write-Host "    .venv\Scripts\pip.exe install $pkg --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120" -ForegroundColor White
+                                Write-Host ""
+                                Write-Host "  [R] Retry   [S] Skip   [X] Exit"
+                                $pkgChoice = Read-Host "  Choose [R/S/X]"
+                                "[$(Get-Date -Format 'HH:mm:ss')]   7${letter}-${pkgIdx} : User chose $($pkgChoice.ToUpper())" | Add-Content $LOG_FILE -Encoding UTF8
+                                switch ($pkgChoice.ToUpper()) {
+                                    "R" { continue }
+                                    "S" { Write-Warn "Skipped $pkg"; $pkgDone = $true }
+                                    "X" { Write-ManualResume 7 $TOTAL_STEPS; exit 0 }
+                                    default { continue }
+                                }
+                            }
+                        }
+                    }
+                    $stepDone = $true
+                }
+                "S" { Write-Warn "Skipped 7$letter $($group.name)"; $groupsFailed++; $stepDone = $true }
+                "X" { Write-ManualResume 7 $TOTAL_STEPS; exit 0 }
+                default { continue }
+            }
+        }
     }
-    # pip runs unfiltered -- 2>&1 merges stderr so progress bars show
-    & $PIP install -r "$PROJECT_ROOT\requirements_approved.txt" --progress-bar on @TRUSTED 2>&1
-    if ($LASTEXITCODE -eq 0) { $pipSuccess = $true; break }
-    Write-Warn "Package install had issues (exit code $LASTEXITCODE)"
-} while ($attempt -lt $maxAttempts)
+}
+
+# Final pass: verify all requirements satisfied (catches missed deps)
+Write-Host ""
+Write-Host "  --- Step 7R : Dependency verification ---" -ForegroundColor White
+"[$(Get-Date -Format 'HH:mm:ss')] Step 7R : Dependency verification -- START" | Add-Content $LOG_FILE -Encoding UTF8
+$stepDone = $false
+while (-not $stepDone) {
+    $pipOutput = & $PIP install -r "$PROJECT_ROOT\requirements_approved.txt" --progress-bar on @TRUSTED 2>&1
+    $pipExitCode = $LASTEXITCODE
+    $pipOutput
+    $pipOutput | Out-String | Add-Content $LOG_FILE -Encoding UTF8
+    if ($pipExitCode -eq 0) {
+        Write-Ok "7R All dependencies verified"
+        "[$(Get-Date -Format 'HH:mm:ss')] Step 7R : OK" | Add-Content $LOG_FILE -Encoding UTF8
+        $stepDone = $true
+    } else {
+        "[$(Get-Date -Format 'HH:mm:ss')] Step 7R : FAIL (exit code $pipExitCode)" | Add-Content $LOG_FILE -Encoding UTF8
+        $choice = Request-Recovery "7R Dependency verification" 7
+        "[$(Get-Date -Format 'HH:mm:ss')] Step 7R : User chose $choice" | Add-Content $LOG_FILE -Encoding UTF8
+        switch ($choice) {
+            "R" { continue }
+            "S" { Write-Warn "Skipped dependency verification"; $stepDone = $true }
+            "X" { Write-ManualResume 7 $TOTAL_STEPS; exit 0 }
+            default { continue }
+        }
+    }
+}
+
+# Log summary
+"" | Add-Content $LOG_FILE -Encoding UTF8
+"[$(Get-Date -Format 'HH:mm:ss')] SUMMARY: $($groups.Count) groups attempted, $groupsFailed skipped" | Add-Content $LOG_FILE -Encoding UTF8
 
 Write-Host "  ---- pip output ends ----" -ForegroundColor DarkGray
+Write-Host "  Full log: $LOG_FILE" -ForegroundColor DarkGray
 $stepTimer.Stop()
-
-if (-not $pipSuccess) {
-    Write-Fail "Package installation failed after $maxAttempts attempts"
-    Write-Host "  Try: .venv\Scripts\pip.exe install -r requirements_approved.txt --trusted-host pypi.org --trusted-host files.pythonhosted.org"
-    exit 1
+if ($groupsFailed -gt 0) {
+    Write-Warn "Packages installed ($groupsFailed group(s) skipped) ($(Format-Elapsed $stepTimer))"
+} else {
+    Write-Ok "All packages installed ($(Format-Elapsed $stepTimer))"
 }
-Write-Ok "Packages installed ($(Format-Elapsed $stepTimer))"
 
 # ==================================================================
 # Step 8: Install test tools (optional)
@@ -419,8 +630,22 @@ Write-Host ""
 $installTests = Read-Host "  Install test tools? [Y/n]"
 if ($installTests -ne "n" -and $installTests -ne "N") {
     $stepTimer = [System.Diagnostics.Stopwatch]::StartNew()
-    Write-Host "  Installing pytest and psutil..."
-    & $PIP install pytest==9.0.2 psutil==7.2.2 --progress-bar on @TRUSTED 2>&1
+    $stepDone = $false
+    while (-not $stepDone) {
+        Write-Host "  Installing pytest and psutil..."
+        & $PIP install pytest==9.0.2 psutil==7.2.2 --progress-bar on @TRUSTED 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            $stepDone = $true
+        } else {
+            $choice = Request-Recovery "Test tools install" 8
+            switch ($choice) {
+                "R" { continue }
+                "S" { Write-Warn "Skipped test tools"; $stepDone = $true }
+                "X" { Write-ManualResume 8 $TOTAL_STEPS; exit 0 }
+                default { continue }
+            }
+        }
+    }
     $stepTimer.Stop()
     Write-Ok "Test packages installed ($(Format-Elapsed $stepTimer))"
 } else {
@@ -512,20 +737,28 @@ if ($configureApi -eq "y" -or $configureApi -eq "Y") {
 # ==================================================================
 Write-Step 12 "Checking Ollama"
 
-try {
-    $env:NO_PROXY = "localhost,127.0.0.1"
-    $response = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 3 -ErrorAction Stop -Proxy ([System.Net.WebProxy]::new())
-    Write-Ok "Ollama is running"
-    $models = $response.models | ForEach-Object { $_.name }
-    if ($models -contains "nomic-embed-text:latest" -or $models -contains "nomic-embed-text") {
-        Write-Ok "nomic-embed-text model found"
-    } else {
-        Write-Warn "nomic-embed-text NOT found -- run: ollama pull nomic-embed-text"
+$stepDone = $false
+while (-not $stepDone) {
+    try {
+        $env:NO_PROXY = "localhost,127.0.0.1"
+        $response = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 3 -ErrorAction Stop -Proxy ([System.Net.WebProxy]::new())
+        Write-Ok "Ollama is running"
+        $models = $response.models | ForEach-Object { $_.name }
+        if ($models -contains "nomic-embed-text:latest" -or $models -contains "nomic-embed-text") {
+            Write-Ok "nomic-embed-text model found"
+        } else {
+            Write-Warn "nomic-embed-text NOT found -- run: ollama pull nomic-embed-text"
+        }
+        $stepDone = $true
+    } catch {
+        $choice = Request-Recovery "Checking Ollama" 12
+        switch ($choice) {
+            "R" { continue }
+            "S" { Write-Warn "Skipped Ollama check"; $stepDone = $true }
+            "X" { Write-ManualResume 12 $TOTAL_STEPS; exit 0 }
+            default { continue }
+        }
     }
-} catch {
-    Write-Warn "Ollama is not running (OK for now -- set up later)"
-    Write-Host "  If approved at your organization: download from https://ollama.com"
-    Write-Host "  Then run: ollama pull nomic-embed-text"
 }
 
 # ======================================================================
