@@ -167,27 +167,67 @@ while ($wizStep -le 3) {
     # ==============================================================
     # Wizard Step 3: Configure paths
     # ==============================================================
+    # HybridRAG3 needs two folders:
+    #   Index folder = where the search database and AI embeddings are stored
+    #   Source folder = where your documents (PDFs, Word, Excel) live
+    #
+    # Option C creates both inside a "data" folder next to the project,
+    # so everything stays organized in one place.
+    # ==============================================================
     if ($wizStep -eq 3) {
         Write-Step 3 "Configure paths"
         Write-Host ""
-        Write-Host "  Where should HybridRAG3 store its search database?"
-        Write-Host "  Suggested: $DEFAULT_DATA" -ForegroundColor White
-        Write-Host "  Press Enter to accept. Type B to go back."
+        Write-Host "  HybridRAG3 needs two folders: one for its search database"
+        Write-Host "  and one where your documents live."
         Write-Host ""
-        $input = Read-Host "  Database folder [$DEFAULT_DATA]"
-        if ($input -eq "B" -or $input -eq "b") { $wizStep = 2; continue }
-        if ([string]::IsNullOrWhiteSpace($input)) { $input = $DEFAULT_DATA }
-        $DATA_DIR = $input
+        Write-Host "  OPTIONS:" -ForegroundColor White
+        Write-Host "    C = Create them for me (recommended)" -ForegroundColor Green
+        Write-Host "        Creates: $PROJECT_ROOT\data\index"
+        Write-Host "        Creates: $PROJECT_ROOT\data\source"
+        Write-Host "    D = Use default paths ($DEFAULT_DATA / $DEFAULT_SOURCE)"
+        Write-Host "    M = I will enter my own folder paths"
+        Write-Host "    B = Go back to previous step"
+        Write-Host ""
+        $pathChoice = Read-Host "  Choose [C/D/M/B]"
 
-        Write-Host ""
-        Write-Host "  Where are the documents you want to search?"
-        Write-Host "  Suggested: $DEFAULT_SOURCE" -ForegroundColor White
-        Write-Host "  Press Enter to accept. Type B to redo database folder."
-        Write-Host ""
-        $input = Read-Host "  Documents folder [$DEFAULT_SOURCE]"
-        if ($input -eq "B" -or $input -eq "b") { continue }
-        if ([string]::IsNullOrWhiteSpace($input)) { $input = $DEFAULT_SOURCE }
-        $SOURCE_DIR = $input
+        if ($pathChoice -eq "B" -or $pathChoice -eq "b") { $wizStep = 2; continue }
+
+        if ($pathChoice -eq "D" -or $pathChoice -eq "d") {
+            # Use the default paths
+            $DATA_DIR = $DEFAULT_DATA
+            $SOURCE_DIR = $DEFAULT_SOURCE
+            Write-Ok "Using defaults: $DEFAULT_DATA / $DEFAULT_SOURCE"
+        } elseif ($pathChoice -eq "M" -or $pathChoice -eq "m") {
+            # Manual path entry
+            Write-Host ""
+            Write-Host "  Where should HybridRAG3 store its search database?"
+            Write-Host "  Suggested: $DEFAULT_DATA" -ForegroundColor White
+            Write-Host ""
+            $input = Read-Host "  Database folder [$DEFAULT_DATA]"
+            if ($input -eq "B" -or $input -eq "b") { continue }
+            if ([string]::IsNullOrWhiteSpace($input)) { $input = $DEFAULT_DATA }
+            $DATA_DIR = $input
+
+            Write-Host ""
+            Write-Host "  Where are the documents you want to search?"
+            Write-Host "  Suggested: $DEFAULT_SOURCE" -ForegroundColor White
+            Write-Host ""
+            $input = Read-Host "  Documents folder [$DEFAULT_SOURCE]"
+            if ($input -eq "B" -or $input -eq "b") { continue }
+            if ([string]::IsNullOrWhiteSpace($input)) { $input = $DEFAULT_SOURCE }
+            $SOURCE_DIR = $input
+        } else {
+            # Auto-create data/index and data/source inside project root
+            $DATA_DIR = "$PROJECT_ROOT\data\index"
+            $SOURCE_DIR = "$PROJECT_ROOT\data\source"
+            New-Item -ItemType Directory -Path "$DATA_DIR" -Force | Out-Null
+            New-Item -ItemType Directory -Path "$SOURCE_DIR" -Force | Out-Null
+            Write-Ok "Created: $DATA_DIR"
+            Write-Ok "Created: $SOURCE_DIR"
+            Write-Host ""
+            Write-Host "  Put your documents (PDFs, Word, Excel, etc.) into:"
+            Write-Host "    $SOURCE_DIR" -ForegroundColor White
+        }
 
         $wizStep = 4
     }
