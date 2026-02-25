@@ -1,64 +1,9 @@
 # ============================================================================
 # HybridRAG -- Transfer Manifest Database (src/tools/transfer_manifest.py)
 # ============================================================================
-#
-# WHAT THIS FILE DOES (plain English):
-#   A SQLite database that tracks every single file encountered during a
-#   bulk transfer from network drives to HybridRAG's source folder.
-#
-#   Think of it like a shipping company's manifest -- when a cargo ship
-#   arrives at port, the manifest says what's on board, what was supposed
-#   to be on board, and what's missing. This does the same for files.
-#
-#   It answers three critical questions after any transfer:
-#     1. What did I get? (successfully transferred and verified files)
-#     2. What did I miss? (skipped, locked, permission denied, failed)
-#     3. What changed since last time? (delta sync: new, modified, deleted,
-#        renamed files detected by comparing manifests between runs)
-#
-#   The manifest is the "ground truth" -- every file in the source must
-#   be accounted for. Nothing disappears silently.
-#
-# WHY THIS MATTERS:
-#   Without a manifest, you have no idea if a transfer actually got
-#   everything. A 10,000-file transfer might silently drop 50 files
-#   due to permission errors, locked files, or network hiccups. You
-#   would never know unless you manually counted. The manifest makes
-#   these invisible failures visible.
-#
-# HOW IT WORKS (non-programmer summary):
-#   1. When a transfer starts, a new "run" is created (like opening
-#      a new page in a logbook)
-#   2. As the engine discovers files on the network drive, every single
-#      file is recorded in the source_manifest table -- even files we
-#      will not transfer (wrong type, too big, locked, etc.)
-#   3. For files we DO transfer, the transfer_log table records the
-#      result (success, failed, hash mismatch) with timing data
-#   4. For files we SKIP, the skipped_files table records why
-#   5. At the end, the verification report checks:
-#      (transferred + skipped) = total discovered. If not, something
-#      fell through the cracks (a "gap").
-#
-# TABLES (what each database table stores):
-#   transfer_runs   -- One row per transfer run (start/end/status)
-#   source_manifest -- Every file discovered at source (the ground truth)
-#   transfer_log    -- Per-file transfer result (success/fail/skip + timing)
-#   skipped_files   -- Files not transferred, with full path and reason
-#
-# DELTA SYNC (incremental transfers):
-#   On the second run, the manifest compares current files against the
-#   previous run's manifest to detect:
-#     - New files (exist now but not before)
-#     - Deleted files (existed before but not now)
-#     - Modified files (same path, different hash)
-#     - Renamed files (same hash, different path)
-#   This allows transferring ONLY what changed, saving hours on re-runs.
-#
-# THREAD SAFETY:
-#   Multiple transfer workers write to this database simultaneously.
-#   A threading lock prevents them from stepping on each other, and
-#   SQLite's WAL mode allows readers and writers to work in parallel.
-#
+# SQLite database tracking every file in a bulk transfer operation.
+# Tables: transfer_runs, source_manifest, transfer_log, skipped_files.
+# Thread-safe (lock + WAL mode). All timestamps UTC ISO-8601.
 # INTERNET ACCESS: NONE
 # ============================================================================
 
@@ -72,157 +17,227 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 
-class TransferManifest:
+# ============================================================================
+# Module-level constants
+# ============================================================================
+
+_SCHEMA_SQL = """
+    CREATE TABLE IF NOT EXISTS transfer_runs (
+        run_id         TEXT NOT NULL PRIMARY KEY,
+        started_at     TEXT NOT NULL,
+        finished_at    TEXT,
+        source_paths   TEXT,
+        dest_path      TEXT,
+        account        TEXT DEFAULT '',
+        status         TEXT DEFAULT 'running',
+        config_json    TEXT DEFAULT '{}'
+    );
+
+    CREATE TABLE IF NOT EXISTS source_manifest (
+        source_path    TEXT NOT NULL,
+        run_id         TEXT NOT NULL,
+        file_size      INTEGER DEFAULT 0,
+        file_mtime     REAL DEFAULT 0,
+        file_ctime     REAL DEFAULT 0,
+        extension      TEXT DEFAULT '',
+        is_hidden      INTEGER DEFAULT 0,
+        is_system      INTEGER DEFAULT 0,
+        is_readonly    INTEGER DEFAULT 0,
+        is_symlink     INTEGER DEFAULT 0,
+        is_accessible  INTEGER DEFAULT 1,
+        path_length    INTEGER DEFAULT 0,
+        encoding_issue INTEGER DEFAULT 0,
+        owner          TEXT DEFAULT '',
+        content_hash   TEXT DEFAULT '',
+        PRIMARY KEY (source_path, run_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS transfer_log (
+        source_path       TEXT NOT NULL,
+        dest_path         TEXT DEFAULT '',
+        run_id            TEXT NOT NULL,
+        file_size_source  INTEGER DEFAULT 0,
+        file_size_dest    INTEGER DEFAULT 0,
+        hash_source       TEXT DEFAULT '',
+        hash_dest         TEXT DEFAULT '',
+        hash_match        INTEGER DEFAULT 0,
+        transfer_start    TEXT DEFAULT '',
+        transfer_end      TEXT DEFAULT '',
+        duration_sec      REAL DEFAULT 0,
+        speed_mbps        REAL DEFAULT 0,
+        result            TEXT DEFAULT 'pending',
+        retry_count       INTEGER DEFAULT 0,
+        error_message     TEXT DEFAULT '',
+        PRIMARY KEY (source_path, run_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS skipped_files (
+        source_path    TEXT NOT NULL,
+        run_id         TEXT NOT NULL,
+        file_size      INTEGER DEFAULT 0,
+        extension      TEXT DEFAULT '',
+        reason         TEXT NOT NULL,
+        detail         TEXT DEFAULT '',
+        logged_at      TEXT DEFAULT ''
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_manifest_hash
+        ON source_manifest(content_hash);
+    CREATE INDEX IF NOT EXISTS idx_manifest_run
+        ON source_manifest(run_id);
+    CREATE INDEX IF NOT EXISTS idx_transfer_result
+        ON transfer_log(result);
+    CREATE INDEX IF NOT EXISTS idx_transfer_run
+        ON transfer_log(run_id);
+    CREATE INDEX IF NOT EXISTS idx_skipped_reason
+        ON skipped_files(reason);
+    CREATE INDEX IF NOT EXISTS idx_skipped_run
+        ON skipped_files(run_id);
+"""
+
+
+# ============================================================================
+# Module-level helpers
+# ============================================================================
+
+def _utc_now() -> str:
+    """Return current UTC time as ISO-8601 string."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _build_verification_report(
+    conn: sqlite3.Connection,
+    lock: threading.Lock,
+    run_id: str,
+) -> str:
+    """Build a zero-gap verification report for a transfer run.
+
+    Queries manifest, transfer log, and skip log, then checks that
+    (transferred + skipped) == total discovered. Returns report text.
     """
-    SQLite database tracking every file in a bulk transfer operation.
+    with lock:
+        manifest_count = conn.execute(
+            "SELECT COUNT(*) FROM source_manifest WHERE run_id=?",
+            (run_id,),
+        ).fetchone()[0]
+
+        results = conn.execute(
+            "SELECT result, COUNT(*) FROM transfer_log "
+            "WHERE run_id=? GROUP BY result ORDER BY COUNT(*) DESC",
+            (run_id,),
+        ).fetchall()
+
+        skip_results = conn.execute(
+            "SELECT reason, COUNT(*), SUM(file_size) "
+            "FROM skipped_files WHERE run_id=? "
+            "GROUP BY reason ORDER BY COUNT(*) DESC",
+            (run_id,),
+        ).fetchall()
+
+        skip_samples: Dict[str, List[Tuple]] = {}
+        for reason, _, _ in skip_results:
+            samples = conn.execute(
+                "SELECT source_path, file_size, detail "
+                "FROM skipped_files WHERE run_id=? AND reason=? LIMIT 5",
+                (run_id, reason),
+            ).fetchall()
+            skip_samples[reason] = samples
+
+        failed = conn.execute(
+            "SELECT source_path, error_message, file_size_source "
+            "FROM transfer_log WHERE run_id=? AND result='failed' "
+            "LIMIT 20",
+            (run_id,),
+        ).fetchall()
+        failed_total = conn.execute(
+            "SELECT COUNT(*) FROM transfer_log "
+            "WHERE run_id=? AND result='failed'",
+            (run_id,),
+        ).fetchone()[0]
+
+    # Build report text (outside lock -- read-only from here)
+    lines = [
+        "", "=" * 70,
+        "  TRANSFER VERIFICATION REPORT",
+        "=" * 70, "",
+        f"  Files in source manifest:  {manifest_count:,}",
+    ]
+    transfer_total = sum(r[1] for r in results)
+    skip_total = sum(r[1] for r in skip_results)
+
+    # Use DISTINCT union to avoid double-counting files that appear
+    # in both transfer_log and skipped_files.
+    distinct_accounted = conn.execute(
+        "SELECT COUNT(*) FROM ("
+        "  SELECT source_path FROM transfer_log WHERE run_id=?"
+        "  UNION"
+        "  SELECT source_path FROM skipped_files WHERE run_id=?"
+        ")",
+        (run_id, run_id),
+    ).fetchone()[0]
+
+    lines.append(f"  Files in transfer log:     {transfer_total:,}")
+    lines.append(f"  Files in skip log:         {skip_total:,}")
+    lines.append(f"  Total accounted:           {distinct_accounted:,}")
+    gap = manifest_count - distinct_accounted
+    if gap == 0:
+        lines.append("  GAP:                       0 (ZERO-GAP VERIFIED)")
+    else:
+        lines.append(f"  GAP:                       {gap:,} [WARN] UNACCOUNTED")
+    lines.append("")
+
+    for result, count in results:
+        lines.append(f"  [{result.upper()}] {count:,}")
+    lines.append("")
+
+    if skip_results:
+        lines.append("  SKIPPED FILES:")
+        for reason, count, size_sum in skip_results:
+            sz = (size_sum or 0) / (1024 * 1024)
+            lines.append(f"    [{reason}] {count:,} ({sz:.1f} MB)")
+            for path, fsize, detail in skip_samples.get(reason, []):
+                d = f" -- {detail}" if detail else ""
+                lines.append(f"      {path}{d}")
+            if count > 5:
+                lines.append(f"      ... and {count - 5} more")
+        lines.append("")
+
+    if failed:
+        lines.append(f"  FAILED FILES ({failed_total:,} total):")
+        for path, err, sz in failed:
+            lines.append(f"    {path} -- {err[:80]}")
+        if failed_total > 20:
+            lines.append(f"    ... and {failed_total - 20} more")
+        lines.append("")
+
+    lines.extend(["=" * 70, ""])
+    return "\n".join(lines)
+
+
+# ============================================================================
+# TransferManifest class
+# ============================================================================
+
+class TransferManifest:
+    """SQLite database tracking every file in a bulk transfer operation.
 
     Thread-safe. All timestamps stored in UTC ISO-8601.
-
-    NON-PROGRAMMER NOTE:
-      This class is a "database wrapper" -- it hides the ugly SQL
-      commands behind simple Python method calls. Instead of writing
-      raw SQL, the rest of the code calls methods like
-      record_source_file() or record_skip().
     """
 
     def __init__(self, db_path: str) -> None:
-        # ------------------------------------------------------------------
-        # Open (or create) the SQLite database file at db_path.
-        #
-        # PRAGMA journal_mode=WAL:
-        #   WAL = "Write-Ahead Log". Normal SQLite locks the entire
-        #   database when writing. WAL mode lets readers continue
-        #   reading while a write is happening. Critical for 8-thread
-        #   parallel transfers.
-        #
-        # PRAGMA synchronous=NORMAL:
-        #   Tells SQLite "you don't need to flush to disk after every
-        #   single write." Faster, and safe with WAL mode. The tiny
-        #   risk: if the power cuts mid-write, the last ~50 rows might
-        #   be lost. Acceptable because the transfer would restart anyway.
-        #
-        # check_same_thread=False:
-        #   SQLite normally complains if Thread A opens a connection
-        #   and Thread B tries to use it. This flag says "I know what
-        #   I'm doing, I have my own lock." (We do -- see self._lock.)
-        # ------------------------------------------------------------------
+        """Open or create the manifest database at db_path."""
         self.db_path = db_path
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self._lock = threading.Lock()
-
-        # Batch commit counter: instead of writing to disk after every
-        # single row, we accumulate 50 rows and write them all at once.
-        # This is ~10x faster for bulk inserts.
         self._pending_writes = 0
-
         self._create_tables()
 
     def _create_tables(self) -> None:
-        """
-        Create the four database tables if they don't already exist.
-
-        NON-PROGRAMMER NOTE:
-          "CREATE TABLE IF NOT EXISTS" means "make this table, but
-          don't complain if it already exists from a previous run."
-          This makes the database self-initializing -- no separate
-          setup step needed.
-        """
+        """Create the four database tables if they don't already exist."""
         with self._lock:
-            c = self.conn.cursor()
-            c.executescript("""
-                -- =====================================================
-                -- transfer_runs: one row per transfer session
-                -- Think of this as the "header page" of the logbook.
-                -- =====================================================
-                CREATE TABLE IF NOT EXISTS transfer_runs (
-                    run_id         TEXT NOT NULL PRIMARY KEY,  -- Timestamp-based ID
-                    started_at     TEXT NOT NULL,       -- When did it start
-                    finished_at    TEXT,                -- When did it finish
-                    source_paths   TEXT,                -- JSON list of source dirs
-                    dest_path      TEXT,                -- Where files go
-                    account        TEXT DEFAULT '',     -- Who ran it
-                    status         TEXT DEFAULT 'running',  -- running / complete
-                    config_json    TEXT DEFAULT '{}'    -- Settings snapshot
-                );
-
-                -- =====================================================
-                -- source_manifest: the GROUND TRUTH.
-                -- Every file discovered at the source, even ones we skip.
-                -- If a file exists on the network drive, it has a row here.
-                -- =====================================================
-                CREATE TABLE IF NOT EXISTS source_manifest (
-                    source_path    TEXT NOT NULL,       -- Full path on network drive
-                    run_id         TEXT NOT NULL,       -- Which transfer run
-                    file_size      INTEGER DEFAULT 0,   -- Bytes
-                    file_mtime     REAL DEFAULT 0,      -- Last modified time
-                    file_ctime     REAL DEFAULT 0,      -- Creation time
-                    extension      TEXT DEFAULT '',      -- .pdf, .docx, etc.
-                    is_hidden      INTEGER DEFAULT 0,   -- Windows hidden flag
-                    is_system      INTEGER DEFAULT 0,   -- Windows system flag
-                    is_readonly    INTEGER DEFAULT 0,   -- Read-only flag
-                    is_symlink     INTEGER DEFAULT 0,   -- Symlink/junction
-                    is_accessible  INTEGER DEFAULT 1,   -- Can we read it?
-                    path_length    INTEGER DEFAULT 0,   -- Chars in path
-                    encoding_issue INTEGER DEFAULT 0,   -- Bad filename chars
-                    owner          TEXT DEFAULT '',      -- File owner
-                    content_hash   TEXT DEFAULT '',      -- SHA-256 of contents
-                    PRIMARY KEY (source_path, run_id)   -- One entry per file per run
-                );
-
-                -- =====================================================
-                -- transfer_log: what happened to each file we TRIED to copy.
-                -- Records timing, hash verification, retry count, errors.
-                -- =====================================================
-                CREATE TABLE IF NOT EXISTS transfer_log (
-                    source_path       TEXT NOT NULL,    -- Original location
-                    dest_path         TEXT DEFAULT '',  -- Where it ended up
-                    run_id            TEXT NOT NULL,
-                    file_size_source  INTEGER DEFAULT 0, -- Size at source
-                    file_size_dest    INTEGER DEFAULT 0, -- Size at destination
-                    hash_source       TEXT DEFAULT '',  -- SHA-256 before copy
-                    hash_dest         TEXT DEFAULT '',  -- SHA-256 after copy
-                    hash_match        INTEGER DEFAULT 0, -- 1 = match, 0 = mismatch
-                    transfer_start    TEXT DEFAULT '',  -- When copy began
-                    transfer_end      TEXT DEFAULT '',  -- When copy finished
-                    duration_sec      REAL DEFAULT 0,   -- How long it took
-                    speed_mbps        REAL DEFAULT 0,   -- MB/sec for this file
-                    result            TEXT DEFAULT 'pending', -- success/failed/locked/etc
-                    retry_count       INTEGER DEFAULT 0,  -- How many retries
-                    error_message     TEXT DEFAULT '',  -- What went wrong (if anything)
-                    PRIMARY KEY (source_path, run_id)
-                );
-
-                -- =====================================================
-                -- skipped_files: files we CHOSE not to transfer, with why.
-                -- This is how you answer "what did I miss?"
-                -- =====================================================
-                CREATE TABLE IF NOT EXISTS skipped_files (
-                    source_path    TEXT NOT NULL,       -- Full path of skipped file
-                    run_id         TEXT NOT NULL,
-                    file_size      INTEGER DEFAULT 0,
-                    extension      TEXT DEFAULT '',
-                    reason         TEXT NOT NULL,       -- Category (locked, hidden, etc.)
-                    detail         TEXT DEFAULT '',     -- Human-readable explanation
-                    logged_at      TEXT DEFAULT ''      -- When we logged it
-                );
-
-                -- Indexes speed up common queries (like "find by hash"
-                -- or "show all skipped files for this run").
-                CREATE INDEX IF NOT EXISTS idx_manifest_hash
-                    ON source_manifest(content_hash);
-                CREATE INDEX IF NOT EXISTS idx_manifest_run
-                    ON source_manifest(run_id);
-                CREATE INDEX IF NOT EXISTS idx_transfer_result
-                    ON transfer_log(result);
-                CREATE INDEX IF NOT EXISTS idx_transfer_run
-                    ON transfer_log(run_id);
-                CREATE INDEX IF NOT EXISTS idx_skipped_reason
-                    ON skipped_files(reason);
-                CREATE INDEX IF NOT EXISTS idx_skipped_run
-                    ON skipped_files(run_id);
-            """)
+            self.conn.executescript(_SCHEMA_SQL)
             self.conn.commit()
 
     # ------------------------------------------------------------------
@@ -233,14 +248,7 @@ class TransferManifest:
         self, run_id: str, source_paths: List[str], dest_path: str,
         account: str = "", config_json: str = "{}",
     ) -> None:
-        """
-        Record the start of a new transfer run.
-
-        NON-PROGRAMMER NOTE:
-          Like writing the date and "STARTED" at the top of a new
-          logbook page. The run_id is a timestamp string so runs sort
-          chronologically.
-        """
+        """Record the start of a new transfer run."""
         with self._lock:
             self.conn.execute(
                 "INSERT OR REPLACE INTO transfer_runs "
@@ -274,16 +282,7 @@ class TransferManifest:
         encoding_issue: bool = False, owner: str = "",
         content_hash: str = "",
     ) -> None:
-        """
-        Record a single file in the source manifest (ground truth).
-
-        NON-PROGRAMMER NOTE:
-          This is called for EVERY file found on the network drive,
-          regardless of whether we plan to transfer it. Even .exe files
-          we will never copy get recorded here. This is what makes the
-          "zero-gap" verification possible -- we know exactly what was
-          out there.
-        """
+        """Record a discovered file in the source manifest (ground truth)."""
         with self._lock:
             self.conn.execute(
                 "INSERT OR REPLACE INTO source_manifest "
@@ -312,27 +311,17 @@ class TransferManifest:
         result: str = "pending", retry_count: int = 0,
         error_message: str = "",
     ) -> None:
-        """
-        Record the outcome of transferring one file.
-
-        NON-PROGRAMMER NOTE:
-          After copying a file, this logs whether it succeeded or
-          failed, how long it took, and whether the hash matched.
-          Think of it like a shipping receipt with a signature
-          confirming the package arrived intact.
-        """
+        """Record the outcome of transferring one file."""
         hash_match = 1 if (hash_source and hash_source == hash_dest) else 0
         with self._lock:
-            # Guard: never overwrite a 'success' record with a failure.
-            # This prevents a retry or duplicate call from corrupting
-            # the transfer log. If a success record exists, skip.
+            # Never overwrite a 'success' record with a failure
             existing = self.conn.execute(
                 "SELECT result FROM transfer_log "
                 "WHERE source_path=? AND run_id=?",
                 (source_path, run_id),
             ).fetchone()
             if existing and existing[0] == "success" and result != "success":
-                return  # Do not overwrite success with failure
+                return
 
             self.conn.execute(
                 "INSERT OR REPLACE INTO transfer_log "
@@ -349,22 +338,14 @@ class TransferManifest:
             self._batch_commit()
 
     # ------------------------------------------------------------------
-    # Skipped files (missed file log)
+    # Skipped files
     # ------------------------------------------------------------------
 
     def record_skip(
         self, run_id: str, source_path: str, file_size: int = 0,
         extension: str = "", reason: str = "", detail: str = "",
     ) -> None:
-        """
-        Record a file we intentionally did NOT transfer.
-
-        NON-PROGRAMMER NOTE:
-          Every skipped file gets a reason ("locked", "hidden",
-          "unsupported_extension", "path_too_long", etc.) and a
-          human-readable detail string. After a transfer, you can
-          query this table to see exactly what was missed and why.
-        """
+        """Record a file intentionally not transferred, with reason."""
         with self._lock:
             self.conn.execute(
                 "INSERT INTO skipped_files "
@@ -380,17 +361,7 @@ class TransferManifest:
     # ------------------------------------------------------------------
 
     def get_previous_manifest(self, run_id: str) -> Dict[str, str]:
-        """
-        Return {source_path: content_hash} from the most recent
-        completed run before this one.
-
-        NON-PROGRAMMER NOTE:
-          This is the heart of "delta sync." By comparing the current
-          file list against the previous run's list, we can tell which
-          files are new, which were deleted, and which were modified.
-          Files that haven't changed can be skipped entirely, saving
-          potentially hours of re-copying.
-        """
+        """Return {source_path: content_hash} from the most recent completed run before this one."""
         with self._lock:
             row = self.conn.execute(
                 "SELECT run_id FROM transfer_runs "
@@ -411,17 +382,9 @@ class TransferManifest:
     def is_already_transferred(
         self, source_path: str, current_mtime: float = 0,
     ) -> bool:
-        """
-        Check if this exact file was already successfully transferred
-        in a previous run AND has not been modified since.
-
-        If current_mtime > 0, also checks that the source file's mtime
-        has not changed since the last successful transfer. This prevents
-        silently skipping files that were modified between runs.
-        """
+        """Check if this file was already successfully transferred (and unmodified if mtime given)."""
         with self._lock:
             if current_mtime > 0:
-                # Check both success AND that mtime matches what we recorded
                 row = self.conn.execute(
                     "SELECT sm.file_mtime FROM transfer_log tl "
                     "JOIN source_manifest sm ON "
@@ -432,7 +395,6 @@ class TransferManifest:
                 ).fetchone()
                 if row is None:
                     return False
-                # Allow 2-second tolerance for filesystem timestamp precision
                 return abs(row[0] - current_mtime) < 2.0
             else:
                 row = self.conn.execute(
@@ -443,16 +405,7 @@ class TransferManifest:
                 return row is not None
 
     def find_by_hash(self, content_hash: str) -> Optional[str]:
-        """
-        Find an already-transferred file with this content hash.
-
-        NON-PROGRAMMER NOTE:
-          If two files have the same SHA-256 hash, they are identical.
-          This is used for deduplication: if file B has the same hash
-          as file A (which was already copied), we can skip copying B
-          entirely. The SHA-256 collision probability is astronomically
-          small (1 in 2^256) -- effectively zero.
-        """
+        """Find an already-transferred file with this content hash (for dedup)."""
         with self._lock:
             row = self.conn.execute(
                 "SELECT dest_path FROM transfer_log "
@@ -466,148 +419,23 @@ class TransferManifest:
     # ------------------------------------------------------------------
 
     def get_verification_report(self, run_id: str) -> str:
-        """
-        Zero-gap verification report -- every file accounted for.
-
-        NON-PROGRAMMER NOTE:
-          This is the "audit report" you run after a transfer. It tells
-          you: "I found X files on the source. I successfully copied Y.
-          I skipped Z (here's why). The total is X = Y + Z. Zero gap."
-
-          If Y + Z does NOT equal X, something fell through the cracks
-          and the report will flag it as [WARN] UNACCOUNTED.
-        """
-        with self._lock:
-            manifest_count = self.conn.execute(
-                "SELECT COUNT(*) FROM source_manifest WHERE run_id=?",
-                (run_id,),
-            ).fetchone()[0]
-
-            results = self.conn.execute(
-                "SELECT result, COUNT(*) FROM transfer_log "
-                "WHERE run_id=? GROUP BY result ORDER BY COUNT(*) DESC",
-                (run_id,),
-            ).fetchall()
-
-            skip_results = self.conn.execute(
-                "SELECT reason, COUNT(*), SUM(file_size) "
-                "FROM skipped_files WHERE run_id=? "
-                "GROUP BY reason ORDER BY COUNT(*) DESC",
-                (run_id,),
-            ).fetchall()
-
-            # Pull sample files for each skip reason (up to 5 examples)
-            skip_samples: Dict[str, List[Tuple]] = {}
-            for reason, _, _ in skip_results:
-                samples = self.conn.execute(
-                    "SELECT source_path, file_size, detail "
-                    "FROM skipped_files WHERE run_id=? AND reason=? LIMIT 5",
-                    (run_id, reason),
-                ).fetchall()
-                skip_samples[reason] = samples
-
-            # Pull sample failed files (up to 20 examples)
-            failed = self.conn.execute(
-                "SELECT source_path, error_message, file_size_source "
-                "FROM transfer_log WHERE run_id=? AND result='failed' "
-                "LIMIT 20",
-                (run_id,),
-            ).fetchall()
-            failed_total = self.conn.execute(
-                "SELECT COUNT(*) FROM transfer_log "
-                "WHERE run_id=? AND result='failed'",
-                (run_id,),
-            ).fetchone()[0]
-
-        # Build the report text
-        lines = [
-            "", "=" * 70,
-            "  TRANSFER VERIFICATION REPORT",
-            "=" * 70, "",
-            f"  Files in source manifest:  {manifest_count:,}",
-        ]
-        transfer_total = sum(r[1] for r in results)
-        skip_total = sum(r[1] for r in skip_results)
-        # A file can appear in both transfer_log (failed/locked) and
-        # skipped_files. Use DISTINCT source_path count to avoid
-        # double-counting, which would produce negative gaps.
-        distinct_accounted = self.conn.execute(
-            "SELECT COUNT(*) FROM ("
-            "  SELECT source_path FROM transfer_log WHERE run_id=?"
-            "  UNION"
-            "  SELECT source_path FROM skipped_files WHERE run_id=?"
-            ")",
-            (run_id, run_id),
-        ).fetchone()[0]
-        lines.append(f"  Files in transfer log:     {transfer_total:,}")
-        lines.append(f"  Files in skip log:         {skip_total:,}")
-        lines.append(f"  Total accounted:           {distinct_accounted:,}")
-        gap = manifest_count - distinct_accounted
-        if gap == 0:
-            lines.append("  GAP:                       0 (ZERO-GAP VERIFIED)")
-        else:
-            lines.append(f"  GAP:                       {gap:,} [WARN] UNACCOUNTED")
-        lines.append("")
-
-        for result, count in results:
-            lines.append(f"  [{result.upper()}] {count:,}")
-        lines.append("")
-
-        if skip_results:
-            lines.append("  SKIPPED FILES:")
-            for reason, count, size_sum in skip_results:
-                sz = (size_sum or 0) / (1024 * 1024)
-                lines.append(f"    [{reason}] {count:,} ({sz:.1f} MB)")
-                for path, fsize, detail in skip_samples.get(reason, []):
-                    d = f" -- {detail}" if detail else ""
-                    lines.append(f"      {path}{d}")
-                if count > 5:
-                    lines.append(f"      ... and {count - 5} more")
-            lines.append("")
-
-        if failed:
-            lines.append(f"  FAILED FILES ({failed_total:,} total):")
-            for path, err, sz in failed:
-                lines.append(f"    {path} -- {err[:80]}")
-            if failed_total > 20:
-                lines.append(f"    ... and {failed_total - 20} more")
-            lines.append("")
-
-        lines.extend(["=" * 70, ""])
-        return "\n".join(lines)
+        """Zero-gap verification report -- delegates to module-level builder."""
+        return _build_verification_report(self.conn, self._lock, run_id)
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
 
     def _batch_commit(self) -> None:
-        """
-        Accumulate writes and commit every 50 rows.
-
-        NON-PROGRAMMER NOTE:
-          Imagine writing checks -- you could drive to the bank after
-          each check, or you could save up 50 and make one trip. Same
-          idea. SQLite disk commits are expensive; batching them makes
-          the transfer engine ~10x faster during discovery.
-        """
+        """Accumulate writes and commit every 50 rows for performance."""
         self._pending_writes += 1
         if self._pending_writes >= 50:
             self.conn.commit()
             self._pending_writes = 0
 
     def rotate_old_runs(self, keep: int = 10) -> int:
-        """
-        Delete data from runs older than the most recent `keep` runs.
-        Returns the number of runs deleted.
-
-        NON-PROGRAMMER NOTE:
-          Over time, the manifest database grows with every transfer run.
-          This method keeps only the last N runs and deletes older data,
-          then compacts the database file (VACUUM). Call this after
-          finish_run() to keep the DB lean.
-        """
+        """Delete data from runs older than the most recent `keep` runs. Returns count deleted."""
         with self._lock:
-            # Find runs to keep (most recent N completed + any running)
             keep_ids = self.conn.execute(
                 "SELECT run_id FROM transfer_runs "
                 "ORDER BY run_id DESC LIMIT ?",
@@ -617,7 +445,6 @@ class TransferManifest:
                 return 0
             keep_set = {r[0] for r in keep_ids}
 
-            # Find runs to delete
             all_ids = self.conn.execute(
                 "SELECT run_id FROM transfer_runs",
             ).fetchall()
@@ -644,11 +471,10 @@ class TransferManifest:
             )
             self.conn.commit()
 
-            # Compact the database file
             try:
                 self.conn.execute("VACUUM")
             except Exception:
-                pass  # VACUUM may fail if another connection is open
+                pass
 
             return len(delete_ids)
 
@@ -664,15 +490,6 @@ class TransferManifest:
             try:
                 self.conn.commit()
             except Exception:
-                pass  # Best-effort flush before close
+                pass
             finally:
                 self.conn.close()
-
-
-# ============================================================================
-# Module-level helpers
-# ============================================================================
-
-def _utc_now() -> str:
-    """Return current UTC time as ISO-8601 string (e.g. '2026-02-20T14:30:00+00:00')."""
-    return datetime.now(timezone.utc).isoformat()

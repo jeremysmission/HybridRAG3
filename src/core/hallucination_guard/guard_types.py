@@ -20,19 +20,13 @@ AUTHOR: Jeremy (AI-assisted development)
 VERSION: 1.1.0
 DATE: 2026-02-14
 
-PINNED STACK (from HybridRAG3 rag8.zip, verified Feb 2026):
-    sentence-transformers==2.7.0   (DIRECT -- only non-stdlib import)
-    torch==2.10.0                  (transitive, via sentence-transformers)
-    transformers==4.57.6           (transitive, via sentence-transformers)
-    tokenizers==0.22.2             (transitive, via transformers)
-    huggingface_hub==0.36.1        (transitive, via sentence-transformers)
-    numpy==1.26.4                  (transitive, via torch/scipy)
-
-COMPATIBILITY NOTES:
-    - CrossEncoder API (constructor + predict) stable across ST 2.x-5.x
-    - numpy 1.26.4 works with torch 2.10 (deprecation warnings only)
-    - RTX 5080 needs torch cu128 wheel (CUDA 12.8+)
-    - Run verify_compatibility.py after install to confirm
+NOTE (2026-02-24):
+    HuggingFace/sentence-transformers has been RETIRED from HybridRAG3.
+    Embeddings are now served by Ollama (nomic-embed-text).
+    The NLI verifier still requires sentence-transformers for CrossEncoder,
+    but it degrades gracefully when the package is not installed --
+    all claims return UNSUPPORTED verdict instead of crashing.
+    The NLI feature is dormant until a non-HF alternative is implemented.
 """
 
 import os
@@ -46,12 +40,10 @@ from enum import Enum
 # These match HybridRAG3's requirements.txt from rag8.zip (Feb 2026).
 # If you change any version, run verify_compatibility.py to recheck.
 # =============================================================================
+# NLI verifier is DORMANT -- HuggingFace retired from HybridRAG3.
+# These versions are kept for reference only (not installed).
 REQUIRED_VERSIONS = {
-    "sentence-transformers": "2.7.0",   # CrossEncoder for NLI verification
-    "torch":                "2.10.0",   # ML backend (CPU or CUDA)
-    "transformers":         "4.57.6",   # Hugging Face model loading
-    "tokenizers":           "0.22.2",   # Fast tokenization
-    "numpy":                "1.26.4",   # Numeric ops (DO NOT upgrade to 2.x)
+    "numpy":                "1.26.4",   # Numeric ops (still installed)
 }
 
 # =============================================================================
@@ -76,7 +68,7 @@ NLI_LABEL_NEUTRAL = 2
 
 # Default threshold: 80% of claims must be backed by source docs.
 # Research says 0.80-0.90 is optimal for high-stakes domains.
-# In defense context: a false positive (flagging a good claim) is cheap,
+# In high-stakes context: a false positive (flagging a good claim) is cheap,
 # a false negative (passing a bad claim) can be catastrophic.
 DEFAULT_FAITHFULNESS_THRESHOLD = 0.80
 
@@ -185,7 +177,7 @@ class GuardResult:
         unverified_claims:    Text of unsupported claims (quick access)
         confidence_warnings:  Overconfidence alerts
         verification_time_ms: How long verification took (performance metric)
-        active_layers:        Which defense layers ran
+        active_layers:        Which guard layers ran
         timestamp:            ISO format when verification happened
         verification_id:      Unique ID linking to audit log
     """
@@ -219,7 +211,7 @@ class GuardConfig:
         3. HybridRAG3 config.yaml (see from_hybridrag_config())
 
     Tuning guidance:
-        Conservative (defense-critical): threshold=0.90, action="block"
+        Conservative (mission-critical): threshold=0.90, action="block"
         Balanced (DEFAULT):              threshold=0.80, action="flag"
         Permissive (research/exploration): threshold=0.60, action="warn"
     """

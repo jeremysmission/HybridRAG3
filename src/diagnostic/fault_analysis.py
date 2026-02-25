@@ -24,7 +24,7 @@ from __future__ import annotations
 import os
 import json
 from datetime import datetime
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
@@ -121,12 +121,323 @@ class FaultAnalysisResult:
 
 
 # ============================================================================
+# Hypothesis Definitions -- pure configuration data
+# ============================================================================
+# Each dict maps directly to FaultHypothesis(**d).
+# Adding a new hypothesis:
+#   1. Append a dict here
+#   2. Add scoring logic in FaultAnalyzer._score_hypothesis()
+# ============================================================================
+
+HYPOTHESIS_DEFS: List[Dict[str, Any]] = [
+    # ---- Environment / Setup ----
+    {
+        "fault_id": "FAULT-ENV-001",
+        "title": "Missing or broken Python dependencies",
+        "description": (
+            "One or more required Python packages are not installed, "
+            "are the wrong version, or failed to import. This breaks "
+            "whichever pipeline stage needs that package."
+        ),
+        "subsystem": "Environment",
+        "severity": "HIGH",
+        "next_step": (
+            "Run the dependency smoke test to find which packages "
+            "are missing or broken. Compare installed versions "
+            "against requirements-lock.txt."
+        ),
+        "next_step_cmd": (
+            'python -c "import httpx; import pdfplumber; '
+            'import docx; import pptx; import openpyxl; '
+            'import structlog; import yaml; print(\'All imports OK\')"'
+        ),
+    },
+    {
+        "fault_id": "FAULT-ENV-002",
+        "title": "Configuration not loaded or paths wrong",
+        "description": (
+            "The config file can't be loaded, or environment variables "
+            "point to wrong/missing directories. Everything downstream "
+            "of config loading will fail."
+        ),
+        "subsystem": "Environment",
+        "severity": "CRITICAL",
+        "next_step": (
+            "Verify env vars are set correctly and paths exist on disk. "
+            "Run rag-paths to see current configuration."
+        ),
+        "next_step_cmd": "rag-paths",
+    },
+    {
+        "fault_id": "FAULT-ENV-003",
+        "title": "Model cache incomplete or corrupted",
+        "description": (
+            "The embedding model or reranker model files are missing "
+            "from the project cache folders. HuggingFace offline mode "
+            "prevents re-downloading them, so loading fails silently."
+        ),
+        "subsystem": "Environment",
+        "severity": "HIGH",
+        "next_step": (
+            "Check model cache folders for expected files. If missing, "
+            "temporarily disable offline mode and re-cache models."
+        ),
+        "next_step_cmd": (
+            'python -c "'
+            "import os; "
+            "mc = os.environ.get('SENTENCE_TRANSFORMERS_HOME', '?'); "
+            "hf = os.environ.get('HF_HOME', '?'); "
+            "print(f'Model cache: {mc}'); "
+            "print(f'HF cache: {hf}'); "
+            "[print(f'  {d}: {len(list(os.scandir(d)))} items') "
+            "for d in [mc, hf] if os.path.isdir(d)]"
+            '"'
+        ),
+    },
+    # ---- Database ----
+    {
+        "fault_id": "FAULT-DB-001",
+        "title": "Database missing, corrupt, or schema mismatch",
+        "description": (
+            "The SQLite database doesn't exist, failed integrity check, "
+            "or is missing required tables/columns. All query and "
+            "indexing operations depend on a healthy database."
+        ),
+        "subsystem": "Database",
+        "severity": "CRITICAL",
+        "next_step": (
+            "Check if the database file exists and passes integrity. "
+            "If corrupt, delete and re-index from source documents."
+        ),
+        "next_step_cmd": "rag-status",
+        "related_bugs": ["BUG-001"],
+    },
+    {
+        "fault_id": "FAULT-DB-002",
+        "title": "FTS5 index missing or out of sync",
+        "description": (
+            "The full-text search index is empty or has different row "
+            "count than the chunks table. Keyword search will return "
+            "wrong or no results, breaking hybrid search."
+        ),
+        "subsystem": "Database",
+        "severity": "HIGH",
+        "next_step": (
+            "Rebuild the FTS5 index from existing chunks. This is "
+            "non-destructive -- it rebuilds the keyword index without "
+            "touching your source data or embeddings."
+        ),
+        "next_step_cmd": (
+            "python -c \""
+            "import sqlite3, os; "
+            "db = os.path.join(os.environ['HYBRIDRAG_DATA_DIR'], 'hybridrag.sqlite3'); "
+            "c = sqlite3.connect(db); "
+            "c.execute(\\\"INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')\\\"); "
+            "c.commit(); c.close(); "
+            "print('FTS5 rebuilt')"
+            "\""
+        ),
+    },
+    # ---- Embedding / Search ----
+    {
+        "fault_id": "FAULT-EMB-001",
+        "title": "Embedding model fails to load",
+        "description": (
+            "The sentence-transformers embedding model can't be loaded. "
+            "This is usually caused by: missing cache files, HuggingFace "
+            "offline mode blocking a required download, or a version "
+            "mismatch between sentence-transformers and the cached model."
+        ),
+        "subsystem": "Embedding",
+        "severity": "CRITICAL",
+        "next_step": (
+            "Test loading the embedding model directly. If it fails, "
+            "check that offline mode isn't blocking a required file "
+            "and that the model cache has all expected files."
+        ),
+        "next_step_cmd": "rag-diag --test-embed",
+    },
+    {
+        "fault_id": "FAULT-EMB-002",
+        "title": "Memmap embeddings file damaged or mismatched",
+        "description": (
+            "The memory-mapped embeddings file is the wrong size, "
+            "contains NaN/Inf values, or doesn't match the metadata. "
+            "Vector search will return garbage results or crash."
+        ),
+        "subsystem": "Embedding",
+        "severity": "HIGH",
+        "next_step": (
+            "Validate memmap file size against metadata count. If "
+            "mismatched, rebuild memmap from SQLite (non-destructive)."
+        ),
+        "next_step_cmd": "python src/tools/rebuild_memmap_from_sqlite.py",
+        "related_bugs": [],
+    },
+    # ---- Parsers / Indexing ----
+    {
+        "fault_id": "FAULT-PARSE-001",
+        "title": "Document parsers failing (missing libraries)",
+        "description": (
+            "One or more document parsers can't import their required "
+            "library (python-docx, pdfplumber, openpyxl, etc.). Files "
+            "of that type will be silently skipped during indexing, "
+            "leaving gaps in your knowledge base."
+        ),
+        "subsystem": "Parsers",
+        "severity": "HIGH",
+        "next_step": (
+            "Run the parser smoke test against a sample file of each "
+            "type. Check which parsers fail to import."
+        ),
+        "next_step_cmd": 'rag-diag --test-parse "path/to/sample.pdf"',
+    },
+    {
+        "fault_id": "FAULT-PARSE-002",
+        "title": "Binary garbage in parsed output (BUG-004)",
+        "description": (
+            "Some parsed files return binary data instead of text. "
+            "This pollutes the embedding space with meaningless vectors "
+            "and degrades search quality for all queries."
+        ),
+        "subsystem": "Parsers",
+        "severity": "MEDIUM",
+        "next_step": (
+            "Run the parse test on suspicious files to check the "
+            "garbage ratio. Files with >10%% non-printable characters "
+            "should be excluded or sent through OCR."
+        ),
+        "next_step_cmd": 'rag-diag --test-parse "path/to/suspect.pdf" --verbose',
+        "related_bugs": ["BUG-004"],
+    },
+    # ---- Indexer Logic ----
+    {
+        "fault_id": "FAULT-IDX-001",
+        "title": "Re-indexing doesn't detect file changes (BUG-002)",
+        "description": (
+            "When source documents are updated, re-indexing skips them "
+            "because it only checks if the file exists in the DB, not "
+            "whether it has changed. Stale chunks persist forever."
+        ),
+        "subsystem": "Indexer",
+        "severity": "HIGH",
+        "next_step": (
+            "For now, delete the database and re-index from scratch "
+            "when source files change. Long-term fix: wire "
+            "_file_changed() into the skip logic."
+        ),
+        "next_step_cmd": (
+            '# Delete DB to force clean re-index:\n'
+            '# Remove-Item "$env:HYBRIDRAG_DATA_DIR\\hybridrag.sqlite3"\n'
+            '# Remove-Item "$env:HYBRIDRAG_DATA_DIR\\embeddings.f16.dat"\n'
+            '# rag-index'
+        ),
+        "related_bugs": ["BUG-002"],
+    },
+    {
+        "fault_id": "FAULT-IDX-002",
+        "title": "Resource leak during long indexing runs (BUG-003)",
+        "description": (
+            "VectorStore and Embedder don't have close() methods. On "
+            "long 24/7 indexing runs, open database connections and "
+            "loaded models accumulate, eventually causing memory "
+            "exhaustion or file handle limits."
+        ),
+        "subsystem": "Indexer",
+        "severity": "MEDIUM",
+        "next_step": (
+            "Monitor RAM usage during indexing with rag-diag. If it "
+            "climbs steadily, restart the indexing process periodically. "
+            "Permanent fix: add close() methods to VectorStore and Embedder."
+        ),
+        "next_step_cmd": "rag-diag --verbose",
+        "related_bugs": ["BUG-003"],
+    },
+    # ---- LLM / Query ----
+    {
+        "fault_id": "FAULT-LLM-001",
+        "title": "Ollama not running or model not loaded",
+        "description": (
+            "The Ollama service isn't running on localhost:11434, or "
+            "the configured model isn't pulled. Offline "
+            "queries will fail with a connection error."
+        ),
+        "subsystem": "LLM",
+        "severity": "HIGH",
+        "next_step": (
+            "Check if Ollama is running and the model is available. "
+            "Start Ollama if needed and pull the model."
+        ),
+        "next_step_cmd": (
+            'curl http://localhost:11434/api/tags 2>$null || '
+            'echo "Ollama not running -- start it with: ollama serve"'
+        ),
+    },
+    {
+        "fault_id": "FAULT-LLM-002",
+        "title": "API mode misconfigured or kill switch active",
+        "description": (
+            "Online/API mode is selected but either: the API endpoint "
+            "is empty (SEC-001 safety), the kill switch is blocking "
+            "all outbound, or no API key is configured."
+        ),
+        "subsystem": "LLM",
+        "severity": "MEDIUM",
+        "next_step": (
+            "Check current mode, endpoint, and kill switch status. "
+            "For online mode: set endpoint, provide API key, and "
+            "disable kill switch."
+        ),
+        "next_step_cmd": "rag-paths",
+        "related_bugs": ["SEC-001"],
+    },
+    # ---- Security ----
+    {
+        "fault_id": "FAULT-SEC-001",
+        "title": "Network lockdown preventing model loading",
+        "description": (
+            "HF_HUB_OFFLINE=1 is blocking HuggingFace connections, "
+            "but the model cache is incomplete. The system needs "
+            "network access once to cache models, then can go offline. "
+            "This is the most common first-run failure on new machines."
+        ),
+        "subsystem": "Security",
+        "severity": "HIGH",
+        "next_step": (
+            "Temporarily disable offline mode, cache all models, "
+            "then re-enable. This only needs to happen once per machine."
+        ),
+        "next_step_cmd": (
+            'ollama pull nomic-embed-text; '
+            'python -c "from src.core.embedder import Embedder; '
+            "Embedder(); print('Embedder OK')\";"
+        ),
+    },
+    # ---- Performance ----
+    {
+        "fault_id": "FAULT-PERF-001",
+        "title": "Query latency excessively high",
+        "description": (
+            "Queries take much longer than expected. The bottleneck "
+            "is almost always the LLM generation step (Ollama on CPU). "
+            "Retrieval itself should be <2 seconds."
+        ),
+        "subsystem": "Performance",
+        "severity": "LOW",
+        "next_step": (
+            "Run the performance benchmarks to isolate which stage "
+            "is slow. If LLM generation is >90%% of total time, "
+            "consider GPU acceleration or switching to API mode."
+        ),
+        "next_step_cmd": "rag-diag --test-embed --perf-only --benchmark-iters 5",
+    },
+]
+
+
+# ============================================================================
 # The Fault Analyzer -- the "smart mechanic"
 # ============================================================================
 
-# ARCHITECTURE NOTE: FaultAnalyzer exceeds 500 lines (656 lines).
-# Split into FaultAnalyzer (hypothesis engine) and
-# FaultReporter (formatting/output) when next modified.
 class FaultAnalyzer:
     """
     Examines all diagnostic results and produces a ranked fault analysis.
@@ -217,334 +528,9 @@ class FaultAnalyzer:
 
         return result
 
-    # ====================================================================
-    # Hypothesis Definitions
-    # ====================================================================
-    # Each hypothesis represents a distinct failure mode.
-    # The _score_hypothesis method examines test results to decide
-    # how much evidence supports each one.
-    #
-    # ADDING NEW HYPOTHESES:
-    #   1. Add a new FaultHypothesis in _build_hypotheses()
-    #   2. Add scoring logic in _score_hypothesis()
-    #   3. That's it -- the ranking and reporting handles the rest
-    # ====================================================================
-
     def _build_hypotheses(self) -> List[FaultHypothesis]:
-        """Create all possible fault hypotheses."""
-        return [
-            # ---- Environment / Setup ----
-            FaultHypothesis(
-                fault_id="FAULT-ENV-001",
-                title="Missing or broken Python dependencies",
-                description=(
-                    "One or more required Python packages are not installed, "
-                    "are the wrong version, or failed to import. This breaks "
-                    "whichever pipeline stage needs that package."
-                ),
-                subsystem="Environment",
-                severity="HIGH",
-                next_step=(
-                    "Run the dependency smoke test to find which packages "
-                    "are missing or broken. Compare installed versions "
-                    "against requirements-lock.txt."
-                ),
-                next_step_cmd=(
-                    'python -c "import sentence_transformers; import pdfplumber; '
-                    'import docx; import pptx; import openpyxl; import httpx; '
-                    'import structlog; import yaml; print(\'All imports OK\')"'
-                ),
-            ),
-            FaultHypothesis(
-                fault_id="FAULT-ENV-002",
-                title="Configuration not loaded or paths wrong",
-                description=(
-                    "The config file can't be loaded, or environment variables "
-                    "point to wrong/missing directories. Everything downstream "
-                    "of config loading will fail."
-                ),
-                subsystem="Environment",
-                severity="CRITICAL",
-                next_step=(
-                    "Verify env vars are set correctly and paths exist on disk. "
-                    "Run rag-paths to see current configuration."
-                ),
-                next_step_cmd="rag-paths",
-            ),
-            FaultHypothesis(
-                fault_id="FAULT-ENV-003",
-                title="Model cache incomplete or corrupted",
-                description=(
-                    "The embedding model or reranker model files are missing "
-                    "from the project cache folders. HuggingFace offline mode "
-                    "prevents re-downloading them, so loading fails silently."
-                ),
-                subsystem="Environment",
-                severity="HIGH",
-                next_step=(
-                    "Check model cache folders for expected files. If missing, "
-                    "temporarily disable offline mode and re-cache models."
-                ),
-                next_step_cmd=(
-                    'python -c "'
-                    "import os; "
-                    "mc = os.environ.get('SENTENCE_TRANSFORMERS_HOME', '?'); "
-                    "hf = os.environ.get('HF_HOME', '?'); "
-                    "print(f'Model cache: {mc}'); "
-                    "print(f'HF cache: {hf}'); "
-                    "[print(f'  {d}: {len(list(os.scandir(d)))} items') "
-                    "for d in [mc, hf] if os.path.isdir(d)]"
-                    '"'
-                ),
-            ),
-
-            # ---- Database ----
-            FaultHypothesis(
-                fault_id="FAULT-DB-001",
-                title="Database missing, corrupt, or schema mismatch",
-                description=(
-                    "The SQLite database doesn't exist, failed integrity check, "
-                    "or is missing required tables/columns. All query and "
-                    "indexing operations depend on a healthy database."
-                ),
-                subsystem="Database",
-                severity="CRITICAL",
-                next_step=(
-                    "Check if the database file exists and passes integrity. "
-                    "If corrupt, delete and re-index from source documents."
-                ),
-                next_step_cmd='rag-status',
-                related_bugs=["BUG-001"],
-            ),
-            FaultHypothesis(
-                fault_id="FAULT-DB-002",
-                title="FTS5 index missing or out of sync",
-                description=(
-                    "The full-text search index is empty or has different row "
-                    "count than the chunks table. Keyword search will return "
-                    "wrong or no results, breaking hybrid search."
-                ),
-                subsystem="Database",
-                severity="HIGH",
-                next_step=(
-                    "Rebuild the FTS5 index from existing chunks. This is "
-                    "non-destructive -- it rebuilds the keyword index without "
-                    "touching your source data or embeddings."
-                ),
-                next_step_cmd=(
-                    "python -c \""
-                    "import sqlite3, os; "
-                    "db = os.path.join(os.environ['HYBRIDRAG_DATA_DIR'], 'hybridrag.sqlite3'); "
-                    "c = sqlite3.connect(db); "
-                    "c.execute(\\\"INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')\\\"); "
-                    "c.commit(); c.close(); "
-                    "print('FTS5 rebuilt')"
-                    "\""
-                ),
-            ),
-
-            # ---- Embedding / Search ----
-            FaultHypothesis(
-                fault_id="FAULT-EMB-001",
-                title="Embedding model fails to load",
-                description=(
-                    "The sentence-transformers embedding model can't be loaded. "
-                    "This is usually caused by: missing cache files, HuggingFace "
-                    "offline mode blocking a required download, or a version "
-                    "mismatch between sentence-transformers and the cached model."
-                ),
-                subsystem="Embedding",
-                severity="CRITICAL",
-                next_step=(
-                    "Test loading the embedding model directly. If it fails, "
-                    "check that offline mode isn't blocking a required file "
-                    "and that the model cache has all expected files."
-                ),
-                next_step_cmd='rag-diag --test-embed',
-            ),
-            FaultHypothesis(
-                fault_id="FAULT-EMB-002",
-                title="Memmap embeddings file damaged or mismatched",
-                description=(
-                    "The memory-mapped embeddings file is the wrong size, "
-                    "contains NaN/Inf values, or doesn't match the metadata. "
-                    "Vector search will return garbage results or crash."
-                ),
-                subsystem="Embedding",
-                severity="HIGH",
-                next_step=(
-                    "Validate memmap file size against metadata count. If "
-                    "mismatched, rebuild memmap from SQLite (non-destructive)."
-                ),
-                next_step_cmd='python src/tools/rebuild_memmap_from_sqlite.py',
-                related_bugs=[],
-            ),
-
-            # ---- Parsers / Indexing ----
-            FaultHypothesis(
-                fault_id="FAULT-PARSE-001",
-                title="Document parsers failing (missing libraries)",
-                description=(
-                    "One or more document parsers can't import their required "
-                    "library (python-docx, pdfplumber, openpyxl, etc.). Files "
-                    "of that type will be silently skipped during indexing, "
-                    "leaving gaps in your knowledge base."
-                ),
-                subsystem="Parsers",
-                severity="HIGH",
-                next_step=(
-                    "Run the parser smoke test against a sample file of each "
-                    "type. Check which parsers fail to import."
-                ),
-                next_step_cmd='rag-diag --test-parse "path/to/sample.pdf"',
-            ),
-            FaultHypothesis(
-                fault_id="FAULT-PARSE-002",
-                title="Binary garbage in parsed output (BUG-004)",
-                description=(
-                    "Some parsed files return binary data instead of text. "
-                    "This pollutes the embedding space with meaningless vectors "
-                    "and degrades search quality for all queries."
-                ),
-                subsystem="Parsers",
-                severity="MEDIUM",
-                next_step=(
-                    "Run the parse test on suspicious files to check the "
-                    "garbage ratio. Files with >10%% non-printable characters "
-                    "should be excluded or sent through OCR."
-                ),
-                next_step_cmd='rag-diag --test-parse "path/to/suspect.pdf" --verbose',
-                related_bugs=["BUG-004"],
-            ),
-
-            # ---- Indexer Logic ----
-            FaultHypothesis(
-                fault_id="FAULT-IDX-001",
-                title="Re-indexing doesn't detect file changes (BUG-002)",
-                description=(
-                    "When source documents are updated, re-indexing skips them "
-                    "because it only checks if the file exists in the DB, not "
-                    "whether it has changed. Stale chunks persist forever."
-                ),
-                subsystem="Indexer",
-                severity="HIGH",
-                next_step=(
-                    "For now, delete the database and re-index from scratch "
-                    "when source files change. Long-term fix: wire "
-                    "_file_changed() into the skip logic."
-                ),
-                next_step_cmd=(
-                    '# Delete DB to force clean re-index:\n'
-                    '# Remove-Item "$env:HYBRIDRAG_DATA_DIR\\hybridrag.sqlite3"\n'
-                    '# Remove-Item "$env:HYBRIDRAG_DATA_DIR\\embeddings.f16.dat"\n'
-                    '# rag-index'
-                ),
-                related_bugs=["BUG-002"],
-            ),
-            FaultHypothesis(
-                fault_id="FAULT-IDX-002",
-                title="Resource leak during long indexing runs (BUG-003)",
-                description=(
-                    "VectorStore and Embedder don't have close() methods. On "
-                    "long 24/7 indexing runs, open database connections and "
-                    "loaded models accumulate, eventually causing memory "
-                    "exhaustion or file handle limits."
-                ),
-                subsystem="Indexer",
-                severity="MEDIUM",
-                next_step=(
-                    "Monitor RAM usage during indexing with rag-diag. If it "
-                    "climbs steadily, restart the indexing process periodically. "
-                    "Permanent fix: add close() methods to VectorStore and Embedder."
-                ),
-                next_step_cmd='rag-diag --verbose',
-                related_bugs=["BUG-003"],
-            ),
-
-            # ---- LLM / Query ----
-            FaultHypothesis(
-                fault_id="FAULT-LLM-001",
-                title="Ollama not running or model not loaded",
-                description=(
-                    "The Ollama service isn't running on localhost:11434, or "
-                    "the configured model isn't pulled. Offline "
-                    "queries will fail with a connection error."
-                ),
-                subsystem="LLM",
-                severity="HIGH",
-                next_step=(
-                    "Check if Ollama is running and the model is available. "
-                    "Start Ollama if needed and pull the model."
-                ),
-                next_step_cmd=(
-                    'curl http://localhost:11434/api/tags 2>$null || '
-                    'echo "Ollama not running -- start it with: ollama serve"'
-                ),
-            ),
-            FaultHypothesis(
-                fault_id="FAULT-LLM-002",
-                title="API mode misconfigured or kill switch active",
-                description=(
-                    "Online/API mode is selected but either: the API endpoint "
-                    "is empty (SEC-001 safety), the kill switch is blocking "
-                    "all outbound, or no API key is configured."
-                ),
-                subsystem="LLM",
-                severity="MEDIUM",
-                next_step=(
-                    "Check current mode, endpoint, and kill switch status. "
-                    "For online mode: set endpoint, provide API key, and "
-                    "disable kill switch."
-                ),
-                next_step_cmd='rag-paths',
-                related_bugs=["SEC-001"],
-            ),
-
-            # ---- Security ----
-            FaultHypothesis(
-                fault_id="FAULT-SEC-001",
-                title="Network lockdown preventing model loading",
-                description=(
-                    "HF_HUB_OFFLINE=1 is blocking HuggingFace connections, "
-                    "but the model cache is incomplete. The system needs "
-                    "network access once to cache models, then can go offline. "
-                    "This is the most common first-run failure on new machines."
-                ),
-                subsystem="Security",
-                severity="HIGH",
-                next_step=(
-                    "Temporarily disable offline mode, cache all models, "
-                    "then re-enable. This only needs to happen once per machine."
-                ),
-                next_step_cmd=(
-                    '$env:HF_HUB_OFFLINE = "0"; $env:TRANSFORMERS_OFFLINE = "0"; '
-                    'python -c "from sentence_transformers import SentenceTransformer, CrossEncoder; '
-                    "SentenceTransformer('all-MiniLM-L6-v2'); "
-                    "CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2'); "
-                    "print('Models cached')\";"
-                    ' . .\\start_hybridrag.ps1'
-                ),
-            ),
-
-            # ---- Performance ----
-            FaultHypothesis(
-                fault_id="FAULT-PERF-001",
-                title="Query latency excessively high",
-                description=(
-                    "Queries take much longer than expected. The bottleneck "
-                    "is almost always the LLM generation step (Ollama on CPU). "
-                    "Retrieval itself should be <2 seconds."
-                ),
-                subsystem="Performance",
-                severity="LOW",
-                next_step=(
-                    "Run the performance benchmarks to isolate which stage "
-                    "is slow. If LLM generation is >90%% of total time, "
-                    "consider GPU acceleration or switching to API mode."
-                ),
-                next_step_cmd='rag-diag --test-embed --perf-only --benchmark-iters 5',
-            ),
-        ]
+        """Create all possible fault hypotheses from HYPOTHESIS_DEFS."""
+        return [FaultHypothesis(**d) for d in HYPOTHESIS_DEFS]
 
     def _score_hypothesis(self, h: FaultHypothesis):
         """

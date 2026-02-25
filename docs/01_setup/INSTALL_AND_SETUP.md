@@ -1,6 +1,6 @@
 # HybridRAG3 -- Installation and Setup Guide
 
-Last Updated: 2026-02-21
+Last Updated: 2026-02-24
 
 ---
 
@@ -10,7 +10,7 @@ Last Updated: 2026-02-21
 |-------------|---------|
 | **OS** | Windows 10 or 11 |
 | **Python** | 3.11 or 3.12 (work laptop: 3.12rc3 approved) |
-| **Disk** | ~3 GB minimum (venv + model cache + embeddings) |
+| **Disk** | ~1 GB minimum (venv + Ollama models separate) |
 | **RAM** | 8 GB minimum, 16 GB recommended |
 | **GPU** | Optional (CPU works fine, GPU speeds up offline LLM) |
 
@@ -18,7 +18,7 @@ Last Updated: 2026-02-21
 
 | Software | Purpose | License |
 |----------|---------|---------|
-| Ollama | Offline LLM inference | MIT |
+| Ollama | Offline LLM inference + embeddings | MIT |
 | Tesseract OCR | Image text extraction | Apache 2.0 |
 
 ---
@@ -65,8 +65,9 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-This downloads ~800 MB of packages (PyTorch alone is ~280 MB). Takes
-5-15 minutes depending on internet speed.
+This downloads ~200 MB of packages. Takes 2-5 minutes depending on
+internet speed. (PyTorch/HuggingFace were removed -- embeddings are
+now served by Ollama.)
 
 **Enterprise proxy / SSL certificate errors:**
 
@@ -103,7 +104,7 @@ $env:REQUESTS_CA_BUNDLE = 'C:\path\to\enterprise-ca-bundle.crt'
 | `py -3.12` not found | Install Python 3.11 or 3.12 from your software portal. Check "Add to PATH" during install. Verify with `py --list`. |
 | Activate.ps1 blocked | Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
 | pip access denied | Run `python -m ensurepip --upgrade` first |
-| torch install fails | Verify requirements.txt has `torch==2.10.0` (not an older version) |
+| numpy install fails | Verify requirements.txt has `numpy==1.26.4` |
 | SSL certificate error | Use `--trusted-host` flags (see above) or set `SSL_CERT_FILE` env var |
 
 ### Step 4 -- Configure Machine-Specific Paths
@@ -156,9 +157,9 @@ On a fresh install, most tests should pass. You may see:
 rag-index
 ```
 
-The first run downloads the embedding model (~87 MB) automatically,
-then processes every document in your source folder. Progress is shown
-in the terminal.
+Ollama must be running with `nomic-embed-text` pulled before indexing.
+The indexer sends text to Ollama for embedding, then stores vectors
+locally.
 
 **First-run timing**: ~1,345 files / ~40,000 chunks takes a few hours
 on a laptop. After that, only new or changed files are re-indexed
@@ -177,17 +178,23 @@ Download from https://ollama.com and run the installer.
 
 ### Pull Approved Models
 
-Open a **separate terminal** and pull the models you need:
+Open a **separate terminal** and pull the embedding model (required) plus
+the LLM models you need:
 
 ```powershell
-ollama pull phi4-mini          # 2.3 GB -- primary model (recommended)
+ollama pull nomic-embed-text   # 274 MB -- REQUIRED for all indexing/search
+ollama pull phi4-mini          # 2.3 GB -- primary LLM (recommended)
 ollama pull mistral:7b         # 4.1 GB -- engineering alternate
 ```
 
-**Full workstation stack** (all five approved models, ~26 GB total):
+**IMPORTANT**: `nomic-embed-text` is required. Without it, indexing and
+search will not work. The LLM models are for answer generation.
+
+**Full workstation stack** (all five approved LLM models + embedder, ~26 GB total):
 
 | Model | Size | Publisher | License | Best For |
 |-------|------|-----------|---------|----------|
+| nomic-embed-text | 274 MB | Nomic AI | Apache 2.0 | **Embeddings (required)** |
 | phi4-mini | 2.3 GB | Microsoft | MIT | Default for 7 of 9 profiles |
 | mistral:7b | 4.1 GB | Mistral AI | Apache 2.0 | Engineering, cyber, systems |
 | phi4:14b-q4_K_M | 9.1 GB | Microsoft | MIT | Logistics, CAD |
@@ -313,13 +320,8 @@ recommendation to `config/system_profile.json`.
 | `HYBRIDRAG_PROJECT_ROOT` | Project folder path |
 | `HYBRIDRAG_INDEX_FOLDER` | Source documents folder |
 | `HYBRIDRAG_DATA_DIR` | SQLite + embeddings storage |
-| `HF_HUB_OFFLINE=1` | Block HuggingFace downloads |
-| `TRANSFORMERS_OFFLINE=1` | Block transformer library calls |
-| `HF_HUB_DISABLE_TELEMETRY=1` | Disable usage tracking |
+| `OLLAMA_HOST` | Ollama server URL (default: http://localhost:11434) |
 | `NO_PROXY=localhost,127.0.0.1` | Prevent proxy from intercepting localhost |
-| `SENTENCE_TRANSFORMERS_HOME` | Model cache directory (.model_cache/) |
-| `HF_HOME` | HuggingFace cache (.hf_cache/) |
-| `TORCH_HOME` | PyTorch cache (.torch_cache/) |
 | `HYBRIDRAG_NETWORK_KILL_SWITCH=true` | Master network kill switch |
 
 ---
@@ -332,9 +334,9 @@ All settings live in `config/default_config.yaml`. Key sections:
 mode: offline                        # offline or online
 
 embedding:
-  model_name: all-MiniLM-L6-v2      # Do not change
-  batch_size: 16                     # Set by profile
-  device: cpu                        # cpu or cuda
+  model_name: nomic-embed-text       # Served by Ollama (768 dimensions)
+  batch_size: 64                     # Texts per Ollama API call
+  device: cpu                        # Unused (Ollama manages device)
 
 chunking:
   chunk_size: 1200                   # Characters per chunk
@@ -396,13 +398,14 @@ pip install --no-index --find-links=wheels\ -r requirements_approved.txt
 
 ### Air-Gapped Model Caching
 
-The embedding model and Ollama models must be downloaded once. For
-air-gapped machines, copy these folders from a connected machine:
+Ollama models must be downloaded once. For air-gapped machines, copy
+the Ollama model directory from a connected machine:
 
 | Folder | Contents | Size |
 |--------|----------|------|
-| `.model_cache/` | Embedding model (all-MiniLM-L6-v2) | ~87 MB |
-| Ollama model directory | LLM model files | 2-26 GB |
+| Ollama model directory | LLM + embedding model files | 2-26 GB |
+
+Ollama stores models in `%USERPROFILE%\.ollama\models` on Windows.
 
 ### Machine-Specific Files (Never Sync Between Machines)
 
@@ -410,7 +413,6 @@ air-gapped machines, copy these folders from a connected machine:
 |------|-----|
 | `start_hybridrag.ps1` | Contains machine-specific paths |
 | `.venv/` | Different Python builds |
-| `.model_cache/`, `.hf_cache/`, `.torch_cache/` | Downloaded locally |
 | `config/system_profile.json` | Auto-detected hardware fingerprint |
 | API credentials | In Windows Credential Manager, per-user |
 
@@ -466,10 +468,11 @@ After completing installation, run through this checklist:
 [ ] rag-cred-status                       Shows credential state
 ```
 
-If using Ollama:
+Ollama (required for embeddings and offline LLM):
 
 ```
 [ ] ollama serve                          Starts without error
+[ ] ollama pull nomic-embed-text          Embedding model pulled
 [ ] curl http://localhost:11434/api/tags  Shows pulled models
 [ ] rag-mode-offline                      Sets offline mode
 [ ] rag-query "test"                      Gets answer from Ollama
@@ -494,7 +497,7 @@ If using online API:
 | Python not found | Python not installed | Install 3.11 or 3.12 from software portal, check "Add to PATH" |
 | `rag-diag` not found | Script not sourced | Run `. .\start_hybridrag.ps1` (dot-space) |
 | Execution policy error | PowerShell blocks scripts | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
-| Model download fails | No internet or HuggingFace blocked | First run needs internet. Copy `.model_cache/` from connected machine for air-gapped setup. |
+| Embedder fails at startup | Ollama not running or model not pulled | Run `ollama serve` and `ollama pull nomic-embed-text` |
 | Ollama timeout | Model takes time to load on first query | Default timeout is 600s. Wait or increase `ollama.timeout_seconds`. |
 | Corporate proxy blocks Ollama | Proxy intercepting localhost | `start_hybridrag.ps1` sets `NO_PROXY=localhost,127.0.0.1` |
 | "Database locked" | Another rag-index process running | Wait for it to finish or kill the process |

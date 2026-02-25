@@ -1,11 +1,13 @@
 api:
   api_version: ''
+  auth_scheme: ''
   deployment: ''
   endpoint: ''
   max_tokens: 2048
   model: ''
+  provider: ''
   temperature: 0.05
-  timeout_seconds: 30
+  timeout_seconds: 60
 chunking:
   chunk_size: 1200
   max_heading_len: 160
@@ -16,10 +18,10 @@ cost:
   output_cost_per_1k: 0.002
   track_enabled: true
 embedding:
-  batch_size: 16
+  batch_size: 64
   device: cpu
-  dimension: 384
-  model_name: all-MiniLM-L6-v2
+  dimension: 768
+  model_name: nomic-embed-text
 hallucination_guard:
   chunk_prune_k: 3
   enable_dual_path: false
@@ -37,7 +39,7 @@ mode: offline
 ollama:
   base_url: http://localhost:11434
   context_window: 16384
-  model: phi4:14b-q4_K_M
+  model: phi4-mini
   timeout_seconds: 600
 vllm:
   base_url: http://localhost:8000

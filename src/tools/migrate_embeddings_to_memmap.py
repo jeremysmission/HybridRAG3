@@ -107,7 +107,7 @@ def main():
     vs = VectorStore(db_path=db_path)
     vs.connect()
 
-    # Embedder (SentenceTransformer)
+    # Embedder (Ollama nomic-embed-text)
     emb = Embedder()
 
     # Batch sizes:

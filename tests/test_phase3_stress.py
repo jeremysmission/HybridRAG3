@@ -294,7 +294,7 @@ class TestConfigIntegration:
         from src.core.config import Config
         cfg = Config()
         assert cfg.mode == "offline"
-        assert cfg.embedding.dimension == 384
+        assert cfg.embedding.dimension == 768
         assert cfg.chunking.chunk_size == 1200
 
     def test_hallucination_guard_defaults(self):

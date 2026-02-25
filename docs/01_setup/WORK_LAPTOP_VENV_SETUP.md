@@ -272,8 +272,8 @@ pip install -r requirements_approved.txt
 
 No `--trusted-host` needed (pip-system-certs handles it).
 
-This downloads ~800 MB of packages. PyTorch alone is ~280 MB. Expect
-5-15 minutes depending on network speed.
+This downloads ~200 MB of packages. (PyTorch/HuggingFace were removed --
+embeddings are now served by Ollama.) Expect 2-5 minutes.
 
 **If it still throws SSL errors** (rare -- means your corporate CA is
 not in the Windows store), fall back to:
@@ -287,7 +287,7 @@ pip install -r requirements_approved.txt --trusted-host pypi.org --trusted-host 
 ## Step 10: Verify the Install
 
 ```
-python -c "import torch; import sentence_transformers; print('OK')"
+python -c "import httpx; import numpy; import fastapi; print('OK')"
 ```
 
 Should print `OK`.
@@ -295,8 +295,8 @@ Should print `OK`.
 If it errors, check which package failed:
 
 ```
-python -c "import torch; print('torch OK')"
-python -c "import sentence_transformers; print('ST OK')"
+python -c "import httpx; print('httpx OK')"
+python -c "import numpy; print('numpy OK')"
 python -c "import fastapi; print('fastapi OK')"
 python -c "import pdfplumber; print('pdfplumber OK')"
 ```
@@ -324,7 +324,7 @@ you are not in the right folder or the .venv was not created properly.
 | `python` not recognized | Python not installed or not on PATH. Check Step 1-2. |
 | `py -3.11` not found but `py -3.12` works | Use 3.12 -- it is compatible. Adjust the venv command. |
 | pip SSL certificate error | Use `--trusted-host` flags (Step 7-8) |
-| pip hangs during torch download | PyTorch is ~280 MB. Wait. Or add `--timeout 300` |
+| pip hangs during install | Some packages are large. Wait or add `--timeout 300` |
 | "Access denied" deleting .venv | Close all Python processes: `taskkill /f /im python.exe` |
 | Activate.ps1 blocked by Group Policy | Switch to cmd and use `activate.bat` instead |
 | start_gui.bat says venv not found | Run from the project root folder, not a subfolder |
@@ -340,7 +340,6 @@ These are machine-specific and should never be copied from another PC:
 | Item | Why |
 |------|-----|
 | `.venv/` | Different Python version, different OS patches |
-| `.model_cache/` | Downloaded locally, ~87 MB |
 | `start_hybridrag.ps1` | Contains machine-specific folder paths |
 | `config/system_profile.json` | Auto-detected hardware fingerprint |
 | API credentials | In Windows Credential Manager, per-user |

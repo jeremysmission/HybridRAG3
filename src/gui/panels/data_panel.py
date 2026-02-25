@@ -103,6 +103,47 @@ def _theme_widget(widget, t):
         _theme_widget(child, t)
 
 
+def _scan_folder_summary(path):
+    """Walk *path* and return a human-readable file/extension summary.
+
+    Pure function -- no GUI or tkinter references.  Safe to call from
+    a background thread.  Raises on OS errors so the caller can catch
+    and format the message for the user.
+    """
+    ext_counts = {}
+    total_size = 0
+    file_count = 0
+    for root, dirs, files in os.walk(path):
+        dirs[:] = [
+            d for d in dirs
+            if d.lower() not in (
+                ".git", "__pycache__", ".venv", "node_modules",
+                "$recycle.bin", "system volume information",
+            )
+        ]
+        for fname in files:
+            file_count += 1
+            ext = os.path.splitext(fname)[1].lower()
+            ext_counts[ext] = ext_counts.get(ext, 0) + 1
+            try:
+                full = os.path.join(root, fname)
+                total_size += os.path.getsize(full)
+            except OSError:
+                pass
+    lines = [
+        "{:,} files | {}".format(file_count, _fmt_size(total_size)),
+        "",
+        "Top extensions:",
+    ]
+    sorted_exts = sorted(
+        ext_counts.items(), key=lambda x: x[1], reverse=True,
+    )[:10]
+    for ext, cnt in sorted_exts:
+        display_ext = ext if ext else "(none)"
+        lines.append("  {:8s} {:>8,}".format(display_ext, cnt))
+    return "\n".join(lines)
+
+
 class DataPanel(tk.Frame):
     """
     Data Transfer panel: drive detection, folder browser, transfer
@@ -187,19 +228,7 @@ class DataPanel(tk.Frame):
 
             # Persist to YAML
             try:
-                import yaml
-                root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
-                cfg_path = os.path.join(root, "config", "default_config.yaml")
-                if os.path.isfile(cfg_path):
-                    with open(cfg_path, "r", encoding="utf-8") as f:
-                        data = yaml.safe_load(f) or {}
-                else:
-                    data = {}
-                if "paths" not in data:
-                    data["paths"] = {}
-                data["paths"]["source_folder"] = norm
-                with open(cfg_path, "w", encoding="utf-8") as f:
-                    yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+                save_config_field("paths.source_folder", norm)
             except Exception as e:
                 logger.warning("Could not persist source path: %s", e)
 
@@ -316,42 +345,10 @@ class DataPanel(tk.Frame):
         ).start()
 
     def _scan_preview(self, path):
-        """Background thread: count files and extensions."""
+        """Background thread: delegate to pure function, schedule UI update."""
         try:
-            ext_counts = {}
-            total_size = 0
-            file_count = 0
-            for root, dirs, files in os.walk(path):
-                # Skip common junk dirs
-                dirs[:] = [
-                    d for d in dirs
-                    if d.lower() not in (
-                        ".git", "__pycache__", ".venv", "node_modules",
-                        "$recycle.bin", "system volume information",
-                    )
-                ]
-                for fname in files:
-                    file_count += 1
-                    ext = os.path.splitext(fname)[1].lower()
-                    ext_counts[ext] = ext_counts.get(ext, 0) + 1
-                    try:
-                        full = os.path.join(root, fname)
-                        total_size += os.path.getsize(full)
-                    except OSError:
-                        pass
-            # Build summary
-            lines = [
-                "{:,} files | {}".format(file_count, _fmt_size(total_size)),
-                "",
-                "Top extensions:",
-            ]
-            sorted_exts = sorted(
-                ext_counts.items(), key=lambda x: x[1], reverse=True,
-            )[:10]
-            for ext, cnt in sorted_exts:
-                display_ext = ext if ext else "(none)"
-                lines.append("  {:8s} {:>8,}".format(display_ext, cnt))
-            self.after(0, self._set_preview_text, "\n".join(lines))
+            summary = _scan_folder_summary(path)
+            self.after(0, self._set_preview_text, summary)
         except Exception as e:
             self.after(0, self._set_preview_text,
                        "[FAIL] Scan error: {}".format(str(e)[:80]))

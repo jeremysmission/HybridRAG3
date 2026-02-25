@@ -24,13 +24,21 @@
 # HOW TO USE:
 #   python tools/py/ssl_check.py
 # ============================================================================
-import ssl, socket, keyring
+import ssl
+import socket
 from urllib.parse import urlparse
+
+try:
+    import keyring
+except ImportError:
+    print("  [FAIL] keyring package not installed.")
+    print("  Fix: pip install keyring==23.13.1")
+    exit(1)
 
 endpoint = keyring.get_password("hybridrag", "azure_endpoint")
 if not endpoint:
     print("  No endpoint stored. Run rag-store-endpoint first.")
-    exit()
+    exit(1)
 
 parsed = urlparse(endpoint)
 host = parsed.hostname

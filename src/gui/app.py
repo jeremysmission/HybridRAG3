@@ -54,6 +54,7 @@ from src.gui.theme import (
     get_zoom, set_zoom,
 )
 from src.gui.scrollable import ScrollableFrame
+from src.gui.helpers import mode_switch
 
 logger = logging.getLogger(__name__)
 
@@ -238,18 +239,7 @@ class HybridRAGApp(tk.Tk):
 
     def _update_mode_buttons(self):
         """Update mode button colors to reflect current state."""
-        t = self._theme
-        mode = getattr(self.config, "mode", "offline") if self.config else "offline"
-        if mode == "online":
-            self.online_btn.config(bg=t["active_btn_bg"], fg=t["active_btn_fg"],
-                                   relief=tk.FLAT)
-            self.offline_btn.config(bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"],
-                                    relief=tk.FLAT)
-        else:
-            self.offline_btn.config(bg=t["active_btn_bg"], fg=t["active_btn_fg"],
-                                    relief=tk.FLAT)
-            self.online_btn.config(bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"],
-                                   relief=tk.FLAT)
+        mode_switch.update_mode_buttons(self)
 
     # ----------------------------------------------------------------
     # NAV BAR
@@ -412,113 +402,24 @@ class HybridRAGApp(tk.Tk):
         self._apply_theme_to_all()
 
     # ----------------------------------------------------------------
-    # MODE TOGGLING
+    # MODE TOGGLING (delegated to src.gui.helpers.mode_switch)
     # ----------------------------------------------------------------
 
     def toggle_mode(self, new_mode):
-        """
-        Switch between online and offline mode.
-
-        Online: checks credentials first, shows error if missing.
-        Offline: always succeeds (safe operation).
-        """
-        if new_mode == "online":
-            self._switch_to_online()
-        else:
-            self._switch_to_offline()
+        """Switch between online and offline mode (delegates to mode_switch)."""
+        mode_switch.toggle_mode(self, new_mode)
 
     def _switch_to_online(self):
-        """Attempt to switch to online mode."""
-        try:
-            from src.security.credentials import credential_status
-            status = credential_status()
-
-            if not status.get("api_key_set") or not status.get("api_endpoint_set"):
-                missing = []
-                if not status.get("api_key_set"):
-                    missing.append("API key")
-                if not status.get("api_endpoint_set"):
-                    missing.append("API endpoint")
-                messagebox.showwarning(
-                    "Credentials Missing",
-                    "Cannot switch to online mode.\n\n"
-                    "Missing: {}\n\n"
-                    "Run rag-store-key and rag-store-endpoint from "
-                    "PowerShell first, then try again.".format(", ".join(missing)),
-                )
-                return
-        except Exception as e:
-            messagebox.showwarning(
-                "Credential Check Failed",
-                "Could not verify credentials: {}\n\n"
-                "Run rag-store-key and rag-store-endpoint from "
-                "PowerShell first, then try again.".format(e),
-            )
-            return
-
-        if self.config:
-            self.config.mode = "online"
-            self._persist_mode("online")
-
-        try:
-            from src.core.network_gate import configure_gate
-            from src.security.credentials import resolve_credentials
-            creds = resolve_credentials()
-            configure_gate(
-                mode="online",
-                api_endpoint=creds.endpoint or "",
-                allowed_prefixes=getattr(
-                    getattr(self.config, "api", None),
-                    "allowed_endpoint_prefixes", [],
-                ) if self.config else [],
-            )
-        except Exception as e:
-            logger.warning("Gate reconfiguration failed: %s", e)
-
-        self._update_mode_buttons()
-        self.status_bar.force_refresh()
-        if hasattr(self, "query_panel"):
-            self.query_panel._on_use_case_change()
-
-        # Refresh credential display in settings if it exists
-        settings = getattr(self, "_settings_view", None)
-        if settings is not None and hasattr(settings, "refresh_credential_status"):
-            settings.refresh_credential_status()
-        # Update API field state (enable for online)
-        if settings is not None and hasattr(settings, "_api_admin_tab"):
-            settings._api_admin_tab._apply_mode_state()
-
-        logger.info("Switched to ONLINE mode")
-
-    def _persist_mode(self, new_mode):
-        """Write mode change to YAML so it survives restart."""
-        try:
-            from src.core.config import save_config_field
-            save_config_field("mode", new_mode)
-        except Exception as e:
-            logger.warning("Could not persist mode to YAML: %s", e)
+        """Delegate to module-level function."""
+        mode_switch.switch_to_online(self)
 
     def _switch_to_offline(self):
-        """Switch to offline mode (always safe)."""
-        if self.config:
-            self.config.mode = "offline"
-            self._persist_mode("offline")
+        """Delegate to module-level function."""
+        mode_switch.switch_to_offline(self)
 
-        try:
-            from src.core.network_gate import configure_gate
-            configure_gate(mode="offline")
-        except Exception as e:
-            logger.warning("Gate reconfiguration failed: %s", e)
-
-        self._update_mode_buttons()
-        self.status_bar.force_refresh()
-        if hasattr(self, "query_panel"):
-            self.query_panel._on_use_case_change()
-        # Update API field state (gray out for offline)
-        settings = getattr(self, "_settings_view", None)
-        if settings is not None and hasattr(settings, "_api_admin_tab"):
-            settings._api_admin_tab._apply_mode_state()
-        logger.info("Switched to OFFLINE mode")
+    def _persist_mode(self, new_mode):
+        """Delegate to module-level function."""
+        mode_switch.persist_mode(self, new_mode)
 
     # ----------------------------------------------------------------
     # BACKEND RESET + READY STATE

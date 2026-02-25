@@ -125,7 +125,7 @@ def main():
 
     print(f"Total chunks in SQLite: {total}")
 
-    # Embedder (SentenceTransformer)
+    # Embedder (Ollama nomic-embed-text)
     emb = Embedder()
 
     # Laptop-safe knobs (override via env vars)

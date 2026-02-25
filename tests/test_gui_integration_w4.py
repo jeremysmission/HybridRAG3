@@ -435,14 +435,15 @@ def test_10_online_button_cred_error():
         "api_endpoint_source": "none",
     }
 
-    # Track warning calls
+    # Track warning calls -- patch messagebox in mode_switch where the call lives
+    import src.gui.helpers.mode_switch as ms_module
     warning_calls = []
-    original_showwarning = app_module.messagebox.showwarning
+    original_showwarning = ms_module.messagebox.showwarning
 
     def fake_showwarning(title, message):
         warning_calls.append((title, message))
 
-    app_module.messagebox.showwarning = fake_showwarning
+    ms_module.messagebox.showwarning = fake_showwarning
 
     # Pre-import the credentials module and patch it
     from src.security import credentials as cred_mod
@@ -459,7 +460,7 @@ def test_10_online_button_cred_error():
         # Mode should NOT have changed
         assert config.mode == "offline"
     finally:
-        app_module.messagebox.showwarning = original_showwarning
+        ms_module.messagebox.showwarning = original_showwarning
         cred_mod.credential_status = original_fn
 
     app.status_bar.stop()

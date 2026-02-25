@@ -1,0 +1,61 @@
+ 
+
+Below is a sequential list of the steps you need to follow, including where to go (or what tool to use) and an example of what kind of content you might include when filling out forms or communicating with stakeholders.
+
+ 
+
+Register Your Use Case
+ • Go to the AI at Corp webpage and click on the “AI Governance Intake Form.”
+ • What to write (example):
+  "Project Title: Hybrid RAG Prototype for [Program Name]
+  Description: This project integrates a retrieval-augmented generation (RAG) system using the approved API to combine document retrieval with generative output. Currently in the exploratory/prototype phase, the solution aims to enhance data analysis and user query responses for internal operations."
+ 
+
+Complete the Risk Assessment Questionnaire
+ • Access the AI Governance Tool (link provided on the AI at NG webpage or in your internal intranet under ‘AI Governance’) and fill out the AI Risk Assessment Questionnaire.
+ • What to write (example):
+  "Risk Assessment:
+  - Valid & Reliable: The project is in the exploratory stage, and initial testing indicates acceptable model reliability with clear error handling.
+  - Safe: No high-risk operations; testing will occur only in a controlled sandbox environment.
+  - Secure & Resilient: Data inputs and API communications adhere to company data protection policies.
+  (Continue for remaining risk categories as appropriate)"
+ 
+
+Gather and Submit Supporting Evidence
+ • Collect documents such as preliminary design diagrams, data handling procedures, and any security incident logs or test plans. Upload these via the designated submission area in the AI Governance Tool.
+ • What to write (example):
+  "Supporting Evidence attached:
+  - Prototype Architecture Diagram
+  - Data Security and Privacy Plan
+  - Test Plan for Sandbox Deployment"
+ 
+
+Engage Relevant Stakeholders
+ • Use your company’s email system or intranet messaging (e.g., Outlook or Teams) to schedule a call or send a communication to the assigned AI Governance Engineer and relevant SMEs.
+ • What to write (example):
+
+  "Subject: Consultation Request – Hybrid RAG Prototype Review
+  Dear [Name],
+  I’m currently developing the Hybrid RAG Prototype for [Program Name] and have completed my initial registration and risk assessment. Attached are the supporting documents. Could we schedule a brief meeting to review the submission and discuss any potential concerns?
+  Thank you,
+  [Your Name]"
+
+ 
+
+ 
+
+Deploy in a Controlled Sandbox Environment
+ • Coordinate with your IT/DevOps team (via the internal IT portal or designated development environment link on your intranet) to deploy the prototype in a sandbox setting.
+ • What to write in your deployment documentation (example):
+  "Deployment Note:
+  The Hybrid RAG Prototype has been deployed in the designated sandbox environment (URL: [intranet/testing-link]) with access limited to the development team. This is solely for exploratory testing and performance evaluation."
+ 
+
+Prepare and Document for Future Maturity Stages
+ • Plan your next steps by documenting your testing outcomes and any new requirements. This documentation will be used when re-registering or updating your use case registration as you transition from Exploratory to Pilot.
+ • What to write (example):
+  "Next Steps:
+  After initial exploratory testing, any scalability, security, or performance enhancements will be documented. A revised submission will be prepared upon transition to the pilot phase. Key metrics and user feedback will be tracked for the upcoming review cycle."
+Following these steps with the corresponding links and examples will ensure that you adhere to the governance process (referencing Doc1, Doc2, and Doc3) and help you successfully move your Hybrid RAG AI project from the exploratory stage toward pilot and eventual production.
+
+ 

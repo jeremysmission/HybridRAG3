@@ -127,21 +127,16 @@ class EmbeddingConfig:
     """
     Embedding model settings.
 
-    all-MiniLM-L6-v2 was chosen because:
-      - Small (~80MB download), fast on CPU
-      - 384 dimensions = good balance of quality vs storage
-      - Pre-normalized vectors = cosine similarity is just a dot product
-      - Widely used, well-tested, stable across platforms
-
-    Alternatives considered:
-      - all-mpnet-base-v2: better quality but 768-dim (2x storage, slower)
-      - e5-large: even better quality but needs GPU to be practical
-      - OpenAI ada-002: excellent but requires API calls ($) and network
+    nomic-embed-text served via Ollama:
+      - 768 dimensions, 8192 token context window
+      - Served by same Ollama instance that runs the LLM
+      - Apache 2.0 license, no AI use-case approval required
+      - No HuggingFace/torch dependency -- pure HTTP calls to Ollama
     """
-    model_name: str = "all-MiniLM-L6-v2"
-    dimension: int = 384           # Must match model output (384 for MiniLM)
-    batch_size: int = 16           # Chunks embedded at once. Higher = faster, more RAM
-    device: str = "cpu"            # "cpu" or "cuda" (GPU)
+    model_name: str = "nomic-embed-text"
+    dimension: int = 768           # Must match model output (768 for nomic)
+    batch_size: int = 64           # Texts per Ollama API call
+    device: str = "cpu"            # Unused (Ollama manages device)
 
     def __post_init__(self) -> None:
         # Allow env var override for batch size (useful for tuning per-machine)
@@ -267,6 +262,23 @@ class APIConfig:
     # AZURE_OPENAI_API_VERSION) then fall back to sensible defaults.
     deployment: str = ""           # Azure deployment name (e.g., "gpt-35-turbo")
     api_version: str = ""          # Azure API version (e.g., "2024-02-02")
+
+    # Provider selection -- determines which SDK client to create.
+    # Empty string = auto-detect from endpoint URL (default behavior).
+    # Explicit values: "azure", "azure_gov", "openai"
+    #   "azure"     -- Commercial Azure OpenAI (*.openai.azure.com)
+    #   "azure_gov" -- Azure Government OpenAI (*.openai.azure.us)
+    #   "openai"    -- Standard OpenAI or compatible (OpenRouter, etc.)
+    # Auto-detect works for most endpoints but government endpoints
+    # need an explicit "azure_gov" because the URL patterns differ.
+    provider: str = ""
+
+    # Auth scheme -- how the API key is sent.
+    # Empty string = auto-detect from provider (default behavior).
+    #   "api_key"  -- Azure-style: Header "api-key: {key}"
+    #   "bearer"   -- OpenAI-style: Header "Authorization: Bearer {key}"
+    # You should not need to set this unless using an unusual proxy.
+    auth_scheme: str = ""
 
     # URL allowlist: if non-empty, endpoint MUST start with one of these
     # prefixes or online mode will refuse to start. This prevents
@@ -590,7 +602,7 @@ def load_config(
         )
     except Exception:
         # If gate setup fails, we continue -- it defaults to OFFLINE
-        # (fail-closed). This is defense-in-depth, not a hard dependency.
+        # (fail-closed). This is layered protection, not a hard dependency.
         pass
 
     return config
@@ -665,16 +677,22 @@ def validate_config(config: Config) -> List[str]:
 
 def save_config_field(key: str, value, config_filename: str = "default_config.yaml") -> None:
     """
-    Persist a single top-level config key to the YAML file on disk.
+    Persist a config key to the YAML file on disk.
 
     Reads the existing YAML, updates one key, writes back.  This is
     used by the GUI to persist mode changes, path changes, etc.
     without overwriting the entire file or losing comments.
 
+    Supports dotted key paths for nested updates.  For example,
+    ``save_config_field("paths.source_folder", "/data")`` will set
+    ``data["paths"]["source_folder"]`` without disturbing sibling keys
+    under ``paths``.
+
     Parameters
     ----------
     key : str
-        Top-level YAML key to update (e.g. "mode", "paths").
+        YAML key to update.  Use dots for nesting
+        (e.g. "mode", "paths.source_folder").
     value
         New value for the key (str, int, dict, etc.).
     config_filename : str
@@ -689,7 +707,13 @@ def save_config_field(key: str, value, config_filename: str = "default_config.ya
     else:
         data = {}
 
-    data[key] = value
+    parts = key.split(".")
+    target = data
+    for part in parts[:-1]:
+        if part not in target or not isinstance(target[part], dict):
+            target[part] = {}
+        target = target[part]
+    target[parts[-1]] = value
 
     with open(cfg_path, "w", encoding="utf-8") as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)

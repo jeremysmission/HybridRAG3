@@ -268,7 +268,7 @@ VECTOR STORE: VectorStore(db_path, embedding_dim)
   search(query_vec, top_k), fts_search(query_text, top_k), get_stats()
 
 EMBEDDER: Embedder(model_name)
-  embed_batch(texts) -> ndarray[N,384], embed_query(text) -> ndarray[384]
+  embed_batch(texts) -> ndarray[N,768], embed_query(text) -> ndarray[768]
 
 QUERY ENGINE: QueryEngine(config, vector_store, embedder, llm_router)
   query(question) -> QueryResult(answer, sources, tokens, cost, latency)

@@ -91,19 +91,23 @@ class ApiCredentials:
         endpoint: The API endpoint URL, or None if not found.
         deployment: Azure deployment name, or None.
         api_version: Azure API version, or None.
+        provider: Provider type ("azure", "azure_gov", "openai", or None).
         source_key: Where the key came from ("keyring", "env:VAR_NAME", "config").
         source_endpoint: Where the endpoint came from.
         source_deployment: Where deployment came from.
         source_api_version: Where api_version came from.
+        source_provider: Where provider came from.
     """
     api_key: Optional[str] = None
     endpoint: Optional[str] = None
     deployment: Optional[str] = None
     api_version: Optional[str] = None
+    provider: Optional[str] = None
     source_key: Optional[str] = None
     source_endpoint: Optional[str] = None
     source_deployment: Optional[str] = None
     source_api_version: Optional[str] = None
+    source_provider: Optional[str] = None
 
     @property
     def has_key(self) -> bool:
@@ -143,10 +147,12 @@ class ApiCredentials:
             "api_key": self.key_preview,
             "deployment": self.deployment or "(not set)",
             "api_version": self.api_version or "(not set)",
+            "provider": self.provider or "(auto-detect)",
             "source_key": self.source_key or "(not found)",
             "source_endpoint": self.source_endpoint or "(not found)",
             "source_deployment": self.source_deployment or "(not found)",
             "source_api_version": self.source_api_version or "(not found)",
+            "source_provider": self.source_provider or "(not found)",
             "online_ready": self.is_online_ready,
         }
 
@@ -203,23 +209,31 @@ API_VERSION_ENV_ALIASES = [
     "API_VERSION",
 ]
 
+PROVIDER_ENV_ALIASES = [
+    "HYBRIDRAG_API_PROVIDER",
+    "AZURE_OPENAI_PROVIDER",
+]
+
 # Keyring service and key names (PUBLIC -- import these, don't hardcode)
 KEYRING_SERVICE = "hybridrag"
 KEYRING_KEY_NAME = "azure_api_key"
 KEYRING_ENDPOINT_NAME = "azure_endpoint"
 KEYRING_DEPLOYMENT_NAME = "azure_deployment"
 KEYRING_API_VERSION_NAME = "azure_api_version"
+KEYRING_PROVIDER_NAME = "api_provider"
 
 # Backward-compatible aliases (underscore versions still work)
 _KEY_ENV_ALIASES = KEY_ENV_ALIASES
 _ENDPOINT_ENV_ALIASES = ENDPOINT_ENV_ALIASES
 _DEPLOYMENT_ENV_ALIASES = DEPLOYMENT_ENV_ALIASES
 _API_VERSION_ENV_ALIASES = API_VERSION_ENV_ALIASES
+_PROVIDER_ENV_ALIASES = PROVIDER_ENV_ALIASES
 _KEYRING_SERVICE = KEYRING_SERVICE
 _KEYRING_KEY_NAME = KEYRING_KEY_NAME
 _KEYRING_ENDPOINT_NAME = KEYRING_ENDPOINT_NAME
 _KEYRING_DEPLOYMENT_NAME = KEYRING_DEPLOYMENT_NAME
 _KEYRING_API_VERSION_NAME = KEYRING_API_VERSION_NAME
+_KEYRING_PROVIDER_NAME = KEYRING_PROVIDER_NAME
 
 
 # ---------------------------------------------------------------------------
@@ -471,6 +485,28 @@ def resolve_credentials(config_dict=None):
                     creds.api_version = cfg_ver
                     creds.source_api_version = "config"
 
+    # --- Resolve Provider ---
+    # Priority 1: Keyring
+    prov_from_keyring = _read_keyring(_KEYRING_PROVIDER_NAME)
+    if prov_from_keyring:
+        creds.provider = prov_from_keyring
+        creds.source_provider = "keyring"
+        logger.debug("Provider loaded from keyring")
+    else:
+        # Priority 2: Environment variables
+        prov_val, prov_var = _resolve_env_var(_PROVIDER_ENV_ALIASES)
+        if prov_val:
+            creds.provider = prov_val
+            creds.source_provider = "env:" + prov_var
+            logger.debug("Provider loaded from env: %s", prov_var)
+        elif config_dict:
+            # Priority 3: Config file
+            cfg_prov = _nested_get(config_dict, "api", "provider")
+            if cfg_prov:
+                creds.provider = cfg_prov
+                creds.source_provider = "config"
+                logger.debug("Provider loaded from config file")
+
     # --- Validate endpoint if present ---
     if creds.endpoint:
         try:
@@ -597,10 +633,13 @@ def credential_status():
         'api_endpoint_set': creds.has_endpoint,
         'deployment_set': bool(creds.deployment),
         'api_version_set': bool(creds.api_version),
+        'provider_set': bool(creds.provider),
         'api_key_source': creds.source_key or 'none',
         'api_endpoint_source': creds.source_endpoint or 'none',
         'deployment_source': creds.source_deployment or 'none',
         'api_version_source': creds.source_api_version or 'none',
+        'provider_source': creds.source_provider or 'none',
+        'provider': creds.provider or 'auto',
     }
 
 

@@ -1,10 +1,11 @@
 # ============================================================================
 # HybridRAG3 -- Approved Requirements
-# Generated: 2026-02-21
+# Updated: 2026-02-24
 # Pin policy: Exact versions from waiver cheat sheet v4b
 # openai PINNED to 1.45.1 -- never upgrade to 2.x (breaking API changes)
 # xxhash ELIMINATED -- replaced by built-in hashlib
 # LangChain BANNED -- dependency hell
+# HuggingFace RETIRED -- embeddings now served by Ollama (nomic-embed-text)
 # China-origin models EXCLUDED (Qwen, DeepSeek, BGE-M3)
 # Meta Llama models BANNED (Meta AUP prohibits weapons/military use)
 # ============================================================================
@@ -13,20 +14,17 @@
 openai==1.45.1                 # MIT -- PINNED v1.x forever; never 2.x syntax
 tiktoken==0.8.0                # MIT -- OpenAI token counting (offline, no network)
 
-# -- Embeddings / NLP ------------------------------------------------------
-sentence-transformers==2.7.0   # Apache 2.0 -- Text embeddings (pinned, 3.x breaks API)
-torch==2.10.0                  # BSD-3 -- PyTorch (Meta/USA, CPU-only +cpu wheel)
-transformers==4.57.6           # Apache 2.0 -- HuggingFace model loading (pinned, 5.x breaks API)
-tokenizers==0.22.2             # Apache 2.0 -- Fast tokenization (locked to transformers pin)
-huggingface_hub==0.36.1        # Apache 2.0 -- Model downloads (one-time, then offline)
-safetensors==0.7.0             # Apache 2.0 -- Safe model loading (anti-pickle security)
+# -- Embeddings ------------------------------------------------------------
+# Embeddings are now served by Ollama (nomic-embed-text, 768-dim).
+# No Python embedding packages needed -- Ollama handles inference via HTTP.
+# Removed: sentence-transformers, torch, transformers, tokenizers,
+#          huggingface_hub, safetensors, scipy, scikit-learn, sympy,
+#          threadpoolctl, einops, joblib, filelock, fsspec, networkx, mpmath
+# This eliminates ~2.5GB of dependencies and the AI Use Case approval
+# requirement that HuggingFace models trigger.
 
-# -- Numerical / Scientific ------------------------------------------------
+# -- Numerical -------------------------------------------------------------
 numpy==1.26.4                  # BSD-3 -- Last 1.x release (2.x has breaking changes)
-scipy==1.17.0                  # BSD-3 -- Scientific computing (NumFOCUS/USA)
-scikit-learn==1.8.0            # BSD-3 -- ML scoring pipeline (INRIA/France)
-threadpoolctl==3.6.0           # BSD-3 -- CPU thread control (scikit-learn dep)
-sympy==1.13.3                  # BSD-3 -- Symbolic math (torch dep, NumFOCUS)
 
 # -- Vector Store -----------------------------------------------------------
 faiss-cpu==1.9.0               # MIT -- Vector similarity search (Meta/USA, CPU-only)
@@ -51,7 +49,7 @@ et_xmlfile==2.0.0              # MIT -- XML utility (openpyxl dep)
 pillow==12.1.0                 # HPND -- Image processing
 
 # -- HTTP / Networking ------------------------------------------------------
-httpx==0.28.1                  # BSD-3 -- Async HTTP client (openai SDK dep)
+httpx==0.28.1                  # BSD-3 -- Async HTTP client (openai SDK dep + embedder)
 requests==2.32.5               # Apache 2.0 -- HTTP client (pip dep, likely pre-installed)
 urllib3==2.6.3                  # MIT -- HTTP internals (requests dep, likely pre-installed)
 sniffio==1.3.1                 # MIT -- Async detection (httpx dep)
@@ -67,9 +65,12 @@ click==8.3.1                   # BSD-3 -- CLI toolkit (uvicorn dep, Pallets/USA)
 # -- GPU LLM Inference (Workstation Only) ------------------------------------
 # vllm==0.10.1                 # Apache 2.0 -- GPU LLM inference server (UC Berkeley/USA)
 #   ^^^ COMMENTED OUT: conflicts with openai==1.45.1 (vllm needs openai>=1.99.1)
-#   TODO: When submitting vllm for software approval, ALSO request openai>=1.99.1
-#   Both packages must be approved together or vllm cannot install.
 #   Not needed for demo -- Ollama handles local GPU inference for now.
+
+# -- Credential Storage -------------------------------------------------------
+keyring==23.13.1               # MIT -- Windows Credential Manager access (Python 3.12 compatible)
+jaraco.classes==3.4.0          # MIT -- keyring dependency
+more-itertools==10.8.0         # MIT -- keyring dependency
 
 # -- Configuration / Logging ------------------------------------------------
 pyyaml==6.0.2                  # MIT -- YAML parsing (ALREADY APPROVED in store)

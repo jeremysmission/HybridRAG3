@@ -1,0 +1,245 @@
+Content is user-generated and unverified.
+SESSION HANDOVER
+Date: 2026-02-24
+Topic: Work Laptop Fresh Install + API Timeout Investigation
+Machine: Dell MB18250 Pro Max -- C:\Users\randaje\Desktop\HybridRAG3
+============================================================= SESSION SUMMARY
+Completed a fresh HybridRAG3 installation on the work laptop
+and ran through the full credential setup. Hit several bugs
+and one unresolved blocker (API timeout). All bugs documented
+below with fixes needed on home PC.
+
+============================================================= INSTALLATION STEPS COMPLETED
+Located toolkit -- no start_hybridrag.ps1 on work laptop Launcher is: tools\master_toolkit.ps1
+Load commands workaround (Group Policy blocks .ps1): 
+c
+o
+d
+e
+=
+[
+I
+O
+.
+F
+i
+l
+e
+]
+:
+:
+R
+e
+a
+d
+A
+l
+l
+T
+e
+x
+t
+(
+"
+code=[IO.File]::ReadAllText("pwd\tools\master_toolkit.ps1"); Invoke-Expression $code NOTE: Must run this every time a new PowerShell window is opened. The rag-* commands only exist in the session where this was run.
+Confirmed keyring NOT INSTALLED -- root cause of all credential errors Fix: pip install keyring==23.13.1 NOTE: Corporate store approves keyring 21.x but 21.x is INCOMPATIBLE with Python 3.12. Version 23.13.1 required. Approval waiver needed.
+Stored all four credentials via rag-store-endpoint (combined prompt): Endpoint: https://aiml-aoai-api.gc1.myng.com Deployment: gpt-4o (placeholder -- real deployment auto-detect coming) API Version: 2024-08-01
+rag-net-check -- ALL GREEN: Azure API: [REDACTED-ENDPOINT]:443 171ms Ollama: 127.0.0.1:11434 1ms HuggingFace: huggingface.co:443 97ms PyPI: pypi.org:443 152ms GitHub: github.com:443 107ms
+rag-ssl-check -- BUG (not a blocker): [FAIL] 'NoneType' object has no attribute 'get_unverified_chain' Cause: ssl_check.py uses get_unverified_chain() which was removed in OpenSSL 3.0. SSL itself is working fine -- just the diagnostic script is broken.
+rag-test-api-verbose -- TIMEOUT (unresolved blocker): URL constructs correctly: https://aiml-aoai-api.gc1.myng.com/openai/deployments/gpt-4o/chat/completions?api-version=2024-08-01 Status: [FAIL] Unexpected: The read operation timed out rag-debug-url confirms: No problems detected (config is correct)
+============================================================= BUGS FOUND -- FIX ON HOME PC
+BUG 1 -- keyring 21.x incompatible with Python 3.12
+File:    requirements.txt / requirements_approved.txt
+Fix:     Change keyring==21.8.0 to keyring==23.13.1
+Also add these new dependencies that come with 23.13.1:
+jaraco.classes==3.4.0
+more-itertools==10.8.0
+Approval: Submit waiver Monday -- 21.x broken on Python 3.12,
+23.13.1 is same package same vendor same security profile
+
+BUG 2 -- ssl_check.py uses removed OpenSSL API
+File:    tools\py\ssl_check.py line 27
+Error:   'NoneType' object has no attribute 'get_unverified_chain'
+Fix:     Remove or rewrite the certificate chain inspection section
+Use ssl.get_server_certificate() instead
+Priority: Low -- not a blocker, just a broken diagnostic
+
+BUG 3 -- rag-store-deployment shows outdated message
+File:    tools\py\store_endpoint.py (or equivalent)
+Message: "(This lasts for this session. Add to start_hybridrag.ps1
+to make permanent)"
+Fix:     Remove this message -- start_hybridrag.ps1 does not exist
+on work laptop. Keyring stores permanently automatically.
+Message is confusing and wrong.
+
+BUG 4 -- rag-store-endpoint prompt is misleading File: tools\py\store_endpoint.py Issue: Prompt does not warn user to enter base URL only Users naturally paste the full deployments URL causing duplicate path in constructed URL Fix: Update prompt to say: "Enter BASE URL only. Do NOT include /openai/deployments Example: https://yourname.openai.azure.com The toolkit builds the full path automatically."
+
+BUG 5 -- rag-env-vars command not found
+The command rag-env-vars appears in the help list but is not
+recognized when typed. Either not loaded by master_toolkit.ps1
+or missing from the toolkit entirely.
+Fix:     Audit master_toolkit.ps1 -- verify rag-env-vars is defined
+
+BUG 6 -- API timeout on work laptop (UNRESOLVED -- SEE BELOW)
+See dedicated section below.
+
+============================================================= CRITICAL DESIGN DECISION -- TWO SEPARATE CONFIGURATIONS
+Jeremy identified that home and work require different API configs:
+
+HOME PC (commercial Azure): Endpoint format: Standard commercial Azure OpenAI Example: https://yourname.openai.azure.com Auth: Standard api-key header Use: Development, testing, HybridRAG3 main repo
+
+WORK LAPTOP (firewalled corporate proxy Azure): Endpoint: https://aiml-aoai-api.gc1.myng.com Auth: api-key header (same mechanism) Proxy: Corporate SSL inspection layer present Use: Work demos, educational repo deployment
+
+ACTION REQUIRED -- TWO REPO STRATEGY:
+HybridRAG3 (main/home repo):
+Configure for commercial Azure API
+Standard openai SDK usage
+No proxy handling needed
+
+HybridRAG3_Educational (work repo):
+Configure for firewalled corporate proxy Azure
+Must handle SSL inspection / proxy timeouts
+May need requests library with proxy settings
+instead of openai SDK for corporate network compatibility
+
+This split needs to be designed and documented before the demo.
+The educational repo should be the one that works reliably at work.
+
+============================================================= API TIMEOUT -- ROOT CAUSE INVESTIGATION
+Symptom: rag-test-api-verbose times out on work laptop
+Same endpoint worked previously on older version of code
+
+Evidence gathered:
+
+rag-debug-url: No problems detected
+rag-net-check: Azure reachable at 171ms on port 443
+URL constructs correctly
+Credentials stored correctly
+Config is correct
+Most likely causes (in order of probability):
+
+CAUSE 1 -- openai SDK vs requests library:
+Old llm_router_fix.py used requests library directly
+New llm_router.py uses openai SDK
+openai SDK may send different headers or request format
+that corporate SSL inspection proxy doesn't like
+FIX: Test with raw requests call bypassing openai SDK
+
+CAUSE 2 -- Corporate SSL inspection timeout:
+Proxy intercepts HTTPS, inspects, forwards
+openai SDK default timeout may be too short for inspected traffic
+FIX: Increase timeout in llm_router.py to 60-120 seconds
+
+CAUSE 3 -- openai SDK version mismatch:
+Work laptop may have different openai SDK version than expected
+FIX: pip show openai -- confirm version is 1.45.1
+
+NEXT DIAGNOSTIC STEPS (run on work laptop next session):
+
+pip show openai
+python -c "import requests; r = requests.post('[URL]', headers={'api-key':'[KEY]'}, json={'messages':[...]}, timeout=60); print(r.status_code)" (raw requests test bypassing all toolkit code)
+If raw requests works -- problem is in openai SDK usage
+If raw requests also times out -- problem is corporate proxy
+============================================================= WORK LAPTOP VERIFIED PACKAGE VERSIONS
+Python:               3.12.0rc3
+sentence-transformers: 2.7.0
+torch:                2.10.0+cpu
+numpy:                1.26.4
+structlog:            24.4.0
+PyYAML:               6.0.2
+requests:             2.32.5
+urllib3:              2.6.3
+certifi:              2026.01.04
+SQLite:               3.42.0
+keyring:              23.13.1 (upgraded from 21.8.0)
+jaraco.classes:       3.4.0 (new dependency)
+more-itertools:       10.8.0 (new dependency)
+
+============================================================= AZURE CONFIGURATION -- WORK LAPTOP
+Endpoint: https://aiml-aoai-api.gc1.myng.com Deployment: gpt-4o (placeholder) API Version: 2024-08-01 API Key: Stored in Windows Credential Manager (masked)
+
+Available API versions offered by store:
+2024-02-01
+2024-06-01
+2024-08-01-preview
+(we entered 2024-08-01 -- confirmed stored)
+
+Available deployments (4 total, auto-detect pending):
+Base URL sits one level above deployment subdirectories
+Window 2 get_available_deployments() will auto-detect all 4
+gpt-4o is placeholder until auto-detect is working
+
+============================================================= SETUP AND INSTALL GUIDE -- CORRECTIONS NEEDED
+The setup guide needs these updates before next install:
+
+STEP X (after running bat file): ADD: "If rag-* commands are not recognized, the toolkit functions were not loaded into your session. Run: 
+c
+o
+d
+e
+=
+[
+I
+O
+.
+F
+i
+l
+e
+]
+:
+:
+R
+e
+a
+d
+A
+l
+l
+T
+e
+x
+t
+(
+′
+code=[IO.File]::ReadAllText( 
+′
+ pwd\tools\master_toolkit.ps1'); Invoke-Expression $code You must run this once each time you open a new PowerShell window."
+
+CREDENTIAL STEP: ADD: "Use rag-store-endpoint -- this prompts for endpoint, deployment name, and API version all at once. IMPORTANT: Enter the BASE URL only for endpoint. Do NOT paste the full /openai/deployments path. Correct: https://aiml-aoai-api.gc1.myng.com Wrong: https://aiml-aoai-api.gc1.myng.com/openai/deployments"
+
+KEYRING STEP:
+ADD: "If keyring install fails with EntryPoints error on Python 3.12,
+run: pip install keyring==23.13.1
+The corporate-approved version 21.x is incompatible with Python 3.12."
+
+DIAGNOSTIC STEP:
+CHANGE: rag-diag no longer exists
+REPLACE WITH: rag-status, rag-net-check, rag-ssl-check, rag-versions
+
+============================================================= FIRST ACTIONS NEXT SESSION
+Fix BUG 6 (API timeout) -- this is the demo blocker: a. Run pip show openai on work laptop b. Run raw requests test to isolate SDK vs proxy issue c. If SDK issue: add proxy/timeout handling to llm_router.py d. If proxy issue: design proxy-aware http client for work repo
+Update requirements_approved.txt on home PC: keyring==23.13.1 jaraco.classes==3.4.0 more-itertools==10.8.0
+Fix ssl_check.py (BUG 2)
+Fix store_endpoint.py prompt wording (BUG 4)
+Remove outdated message in store messages (BUG 3)
+Design two-repo API configuration strategy: Home: commercial Azure, standard openai SDK Work: corporate proxy Azure, proxy-aware http client
+Submit keyring 23.13.1 approval waiver Monday
+============================================================= RESUME PROMPT FOR NEXT SESSION
+Paste this to start the next AI assistant chat:
+
+I am Jeremy. I just completed a fresh HybridRAG3 install on my
+work laptop (C:\Users\randaje\Desktop\HybridRAG3). Here is the
+session handover: [paste this document]
+
+Main blocker: API timeout on rag-test-api-verbose. Config is
+correct, network reaches Azure, but requests time out. Suspected
+cause: openai SDK incompatibility with corporate SSL inspection proxy.
+
+Need to:
+
+Diagnose and fix API timeout
+Design two-repo configuration (home commercial vs work proxy)
+Fix several bugs documented in handover
+Update requirements_approved.txt
+

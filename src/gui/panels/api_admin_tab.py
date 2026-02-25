@@ -544,6 +544,53 @@ class ModelSelectionPanel(tk.LabelFrame):
 
 
 # ====================================================================
+# Module-level helper -- config snapshot (no widget state needed)
+# ====================================================================
+
+def _capture_config_snapshot(config):
+    """Build a JSON-serializable dict of all current admin settings.
+
+    This snapshot captures paths, retrieval params, API params, Ollama
+    model, and mode -- everything needed to fully restore the system
+    to its current state later.  Saved to config/admin_defaults.json.
+
+    Args:
+        config: Live config object shared across the application.
+
+    Returns:
+        dict: Flat snapshot suitable for JSON serialization.
+    """
+    retrieval = getattr(config, "retrieval", None)
+    api = getattr(config, "api", None)
+    ollama = getattr(config, "ollama", None)
+    paths = getattr(config, "paths", None)
+    return {
+        "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "paths": {
+            "source_folder": getattr(paths, "source_folder", "") if paths else "",
+            "database": getattr(paths, "database", "") if paths else "",
+            "embeddings_cache": getattr(paths, "embeddings_cache", "") if paths else "",
+        },
+        "retrieval": {
+            "top_k": getattr(retrieval, "top_k", 8) if retrieval else 8,
+            "min_score": getattr(retrieval, "min_score", 0.20) if retrieval else 0.20,
+            "hybrid_search": getattr(retrieval, "hybrid_search", True) if retrieval else True,
+            "reranker_enabled": getattr(retrieval, "reranker_enabled", False) if retrieval else False,
+        },
+        "api": {
+            "model": getattr(api, "model", "") if api else "",
+            "max_tokens": getattr(api, "max_tokens", 2048) if api else 2048,
+            "temperature": getattr(api, "temperature", 0.1) if api else 0.1,
+            "timeout_seconds": getattr(api, "timeout_seconds", 30) if api else 30,
+        },
+        "ollama": {
+            "model": getattr(ollama, "model", "") if ollama else "",
+        },
+        "mode": getattr(config, "mode", "offline"),
+    }
+
+
+# ====================================================================
 # ApiAdminTab -- coordinator with four sections
 # ====================================================================
 
@@ -894,42 +941,6 @@ class ApiAdminTab(tk.Frame):
         self.defaults_status_label.pack(fill=tk.X, pady=(2, 0))
         self._refresh_defaults_status()
 
-    def _capture_defaults_snapshot(self):
-        """Build a JSON-serializable dict of all current admin settings.
-
-        This snapshot captures paths, retrieval params, API params, Ollama
-        model, and mode -- everything needed to fully restore the system
-        to its current state later.  Saved to config/admin_defaults.json.
-        """
-        retrieval = getattr(self.config, "retrieval", None)
-        api = getattr(self.config, "api", None)
-        ollama = getattr(self.config, "ollama", None)
-        paths = getattr(self.config, "paths", None)
-        return {
-            "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "paths": {
-                "source_folder": getattr(paths, "source_folder", "") if paths else "",
-                "database": getattr(paths, "database", "") if paths else "",
-                "embeddings_cache": getattr(paths, "embeddings_cache", "") if paths else "",
-            },
-            "retrieval": {
-                "top_k": getattr(retrieval, "top_k", 8) if retrieval else 8,
-                "min_score": getattr(retrieval, "min_score", 0.20) if retrieval else 0.20,
-                "hybrid_search": getattr(retrieval, "hybrid_search", True) if retrieval else True,
-                "reranker_enabled": getattr(retrieval, "reranker_enabled", False) if retrieval else False,
-            },
-            "api": {
-                "model": getattr(api, "model", "") if api else "",
-                "max_tokens": getattr(api, "max_tokens", 2048) if api else 2048,
-                "temperature": getattr(api, "temperature", 0.1) if api else 0.1,
-                "timeout_seconds": getattr(api, "timeout_seconds", 30) if api else 30,
-            },
-            "ollama": {
-                "model": getattr(ollama, "model", "") if ollama else "",
-            },
-            "mode": getattr(self.config, "mode", "offline"),
-        }
-
     def _on_save_defaults(self):
         """Save the current system state as the admin baseline.
 
@@ -939,7 +950,7 @@ class ApiAdminTab(tk.Frame):
         """
         t = current_theme()
         try:
-            snapshot = self._capture_defaults_snapshot()
+            snapshot = _capture_config_snapshot(self.config)
             os.makedirs(os.path.dirname(_DEFAULTS_PATH), exist_ok=True)
             with open(_DEFAULTS_PATH, "w", encoding="utf-8") as f:
                 json.dump(snapshot, f, indent=2)

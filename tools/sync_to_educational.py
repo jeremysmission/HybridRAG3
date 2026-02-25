@@ -52,19 +52,19 @@ COPY_DIRS = [
     "tests",
     "config",
     "tools/py",
-    "tools/work_validation",  # model validation scripts (defense-cleared stack)
+    "tools/work_validation",  # model validation scripts (approved stack)
     "diagnostics",
     "scripts",              # model wizard (_set_model.py, _model_meta.py)
 ]
 
 # Individual files to copy
 COPY_FILES = [
-    "requirements.txt",
+    "requirements_approved.txt",
     ".gitignore",
     "tools/master_toolkit.ps1",
     "tools/_rebuild_toolkit.py",
     "tools/test_all_diagnostics.ps1",
-    "tools/api_mode_commands.ps1",   # cleaned of NGC paths; has rag-set-model
+    "tools/api_mode_commands.ps1",   # cleaned of corporate paths; has rag-set-model
     "start.cmd",                     # cross-env launcher (works on restricted machines)
     "run.cmd",                       # fallback launcher via python tools/run.py
     "start_rag.bat",                 # execution policy bypass launcher (double-click)
@@ -251,7 +251,7 @@ config/           # YAML configuration templates
 ```bash
 python -m venv .venv
 .venv\\Scripts\\activate    # Windows
-pip install -r requirements.txt
+pip install -r requirements_approved.txt
 ```
 
 See `config/default_config.yaml` for configuration options.

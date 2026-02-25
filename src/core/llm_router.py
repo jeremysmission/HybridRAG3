@@ -51,12 +51,92 @@ from typing import Optional, Dict, Any, Generator
 
 logger = logging.getLogger(__name__)
 
-import httpx
-
-# -- OpenAI SDK is imported lazily inside APIRouter.__init__() ----------------
-# This avoids loading the SDK (~50ms) at module import time, which matters
-# in offline mode where the SDK is never used.
+# -- httpx and OpenAI SDK are imported lazily at first use -------------------
+# httpx pulls in rich.console (~60ms). Deferring it saves startup time
+# when the user hasn't queried yet. OpenAI SDK (~50ms) is also lazy.
 # ---------------------------------------------------------------------------
+
+
+# ============================================================================
+# _build_httpx_client -- Factory for all HTTP clients in this module
+# ============================================================================
+#
+# WHY A FACTORY:
+#   Different environments need different HTTP settings:
+#     - Home PC:     direct internet, default CA bundle, no proxy
+#     - Work laptop: corporate proxy, custom CA bundle, HTTPS_PROXY env var
+#     - Localhost:   Ollama/vLLM -- must NEVER use a proxy
+#
+#   Instead of sprinkling proxy/CA logic into each router class, this
+#   factory centralizes it. Every httpx.Client() in this file goes
+#   through here.
+#
+# AUTO-DETECTION:
+#   - HTTPS_PROXY / https_proxy env var -> sets proxy for outbound calls
+#   - REQUESTS_CA_BUNDLE / SSL_CERT_FILE / CURL_CA_BUNDLE -> sets verify path
+#   - If neither is set, uses httpx defaults (system CA, no proxy)
+#
+# LOCALHOST SAFETY:
+#   Ollama and vLLM talk to localhost. Corporate proxies break localhost
+#   connections. Pass localhost_only=True to force proxy=None.
+# ============================================================================
+
+def _build_httpx_client(
+    timeout: float = 30.0,
+    localhost_only: bool = False,
+    verify: bool = True,
+):
+    """
+    Build an httpx.Client with environment-aware proxy and CA settings.
+
+    Args:
+        timeout:        Request timeout in seconds.
+        localhost_only:  If True, proxy is forced to None (for Ollama/vLLM).
+        verify:         SSL verification. True = use CA bundle, False = skip.
+
+    Returns:
+        Configured httpx.Client ready for use.
+    """
+    import httpx
+
+    kwargs = {
+        "timeout": httpx.Timeout(timeout),
+    }
+
+    # -- CA bundle detection --
+    # Corporate environments often set one of these to point at a custom
+    # CA bundle that includes the corporate root CA. Without it, SSL
+    # handshakes to Azure Government endpoints fail with CERTIFICATE_VERIFY_FAILED.
+    if verify:
+        ca_bundle = (
+            os.environ.get("REQUESTS_CA_BUNDLE")
+            or os.environ.get("SSL_CERT_FILE")
+            or os.environ.get("CURL_CA_BUNDLE")
+        )
+        if ca_bundle and os.path.isfile(ca_bundle):
+            kwargs["verify"] = ca_bundle
+        else:
+            kwargs["verify"] = True
+    else:
+        kwargs["verify"] = False
+
+    # -- Proxy detection --
+    # Localhost traffic must NEVER go through a proxy. Corporate proxies
+    # intercept localhost connections and return garbage (502, HTML error pages).
+    if localhost_only:
+        kwargs["proxy"] = None
+    else:
+        proxy_url = (
+            os.environ.get("HTTPS_PROXY")
+            or os.environ.get("https_proxy")
+            or os.environ.get("HTTP_PROXY")
+            or os.environ.get("http_proxy")
+        )
+        if proxy_url:
+            kwargs["proxy"] = proxy_url
+
+    return httpx.Client(**kwargs)
+
 
 def _openai_sdk_available():
     """Check if the openai SDK is installed (lazy, no import at module load)."""
@@ -124,8 +204,11 @@ class OllamaRouter:
         # Base URL for the local Ollama server
         self.base_url = config.ollama.base_url.rstrip("/")
 
-        # Persistent HTTP client -- reuses TCP connections across calls
-        self._client = httpx.Client()
+        # Persistent HTTP client -- localhost only, never proxied
+        self._client = _build_httpx_client(
+            timeout=config.ollama.timeout_seconds,
+            localhost_only=True,
+        )
 
         # Health check cache: (available: bool, timestamp: float) with TTL
         self._health_cache = None
@@ -168,6 +251,7 @@ class OllamaRouter:
         Returns:
             LLMResponse with the answer, or None if the call failed
         """
+        import httpx
         start_time = time.time()
 
         # -- Network gate check --
@@ -235,6 +319,7 @@ class OllamaRouter:
 
         Returns nothing (via generator) if the call fails.
         """
+        import httpx
         start_time = time.time()
 
         try:
@@ -339,8 +424,11 @@ class VLLMRouter:
         self.model = config.vllm.model
         self.timeout = config.vllm.timeout_seconds
 
-        # Persistent HTTP client -- reuses TCP connections across calls
-        self._client = httpx.Client()
+        # Persistent HTTP client -- localhost only, never proxied
+        self._client = _build_httpx_client(
+            timeout=config.vllm.timeout_seconds,
+            localhost_only=True,
+        )
 
         # Health check cache: (available: bool, timestamp: float) with TTL
         self._health_cache = None
@@ -379,6 +467,7 @@ class VLLMRouter:
         Returns:
             LLMResponse with the answer, or None if the call failed
         """
+        import httpx
         start_time = time.time()
 
         try:
@@ -443,6 +532,7 @@ class VLLMRouter:
           {"token": str}        -- a partial text token
           {"done": True, ...}   -- final metadata
         """
+        import httpx
         start_time = time.time()
 
         try:
@@ -713,16 +803,67 @@ class TransformersRouter:
 #
 # INTERNET ACCESS: YES -- connects to API endpoint
 # ============================================================================
+def _resolve_deployment(config, endpoint_url):
+    """
+    Resolve Azure deployment name from config, env vars, URL, or fallback.
+
+    Resolution order: YAML > env vars > URL extraction > "gpt-35-turbo".
+    """
+    import re
+
+    if config.api.deployment:
+        return config.api.deployment
+
+    for var in [
+        "AZURE_OPENAI_DEPLOYMENT", "AZURE_DEPLOYMENT",
+        "OPENAI_DEPLOYMENT", "AZURE_OPENAI_DEPLOYMENT_NAME",
+        "DEPLOYMENT_NAME", "AZURE_CHAT_DEPLOYMENT",
+    ]:
+        val = os.environ.get(var, "").strip()
+        if val:
+            return val
+
+    if endpoint_url and "/deployments/" in endpoint_url:
+        match = re.search(r"/deployments/([^/?]+)", endpoint_url)
+        if match:
+            return match.group(1)
+
+    return "gpt-35-turbo"
+
+
+def _resolve_api_version(config, endpoint_url):
+    """
+    Resolve Azure API version from config, env vars, URL, or fallback.
+
+    Resolution order: YAML > env vars > URL extraction > "2024-02-02".
+    """
+    import re
+
+    if config.api.api_version:
+        return config.api.api_version
+
+    for var in [
+        "AZURE_OPENAI_API_VERSION", "AZURE_API_VERSION",
+        "OPENAI_API_VERSION", "API_VERSION",
+    ]:
+        val = os.environ.get(var, "").strip()
+        if val:
+            return val
+
+    if endpoint_url and "api-version=" in endpoint_url:
+        match = re.search(r"api-version=([^&]+)", endpoint_url)
+        if match:
+            return match.group(1)
+
+    return "2024-02-02"
+
+
 class APIRouter:
     """Route queries to Azure OpenAI or standard OpenAI API (online mode)."""
 
-    # -- Fallback defaults (used only if YAML, env vars, and credentials
-    #    all fail to provide a value) --
-    _DEFAULT_API_VERSION = "2024-02-02"
-    _DEFAULT_DEPLOYMENT = "gpt-35-turbo"
-
     def __init__(self, config: Config, api_key: str, endpoint: str = "",
-                 deployment_override: str = "", api_version_override: str = ""):
+                 deployment_override: str = "", api_version_override: str = "",
+                 provider_override: str = ""):
         """
         Set up the API router using the official openai SDK.
 
@@ -734,6 +875,10 @@ class APIRouter:
                 If provided, skips the internal _resolve_deployment() chain.
             api_version_override: Pre-resolved API version (from credentials.py).
                 If provided, skips the internal _resolve_api_version() chain.
+            provider_override: Explicit provider type from credentials/config.
+                "azure" or "azure_gov" = use AzureOpenAI client.
+                "openai" = use OpenAI client.
+                Empty = auto-detect from endpoint URL (original behavior).
 
         What happens here:
             1. We figure out if this is Azure or standard OpenAI
@@ -751,17 +896,27 @@ class APIRouter:
         self.config = config
         self.api_key = api_key
         self.logger = get_app_logger("api_router")
+        self.provider = provider_override or ""
 
         # Store the raw endpoint for diagnostics/status reporting
         self.base_endpoint = endpoint.rstrip("/") if endpoint else config.api.endpoint.rstrip("/")
 
-        # -- Auto-detect Azure vs standard OpenAI --
-        # Azure and standard OpenAI use different URL formats and auth headers.
-        # "aoai" is a common enterprise abbreviation for Azure OpenAI.
-        self.is_azure = (
-            "azure" in self.base_endpoint.lower()
-            or "aoai" in self.base_endpoint.lower()
-        )
+        # -- Detect Azure vs standard OpenAI --
+        # If provider is explicitly set, trust it. Otherwise auto-detect
+        # from the endpoint URL. This matters because government endpoints
+        # (.azure.us) were not caught by the old "azure" substring check
+        # when stored as a bare base URL without "azure" in the hostname.
+        if self.provider in ("azure", "azure_gov"):
+            self.is_azure = True
+        elif self.provider == "openai":
+            self.is_azure = False
+        else:
+            # Auto-detect: "azure" catches both .azure.com and .azure.us
+            # "aoai" is a common enterprise abbreviation for Azure OpenAI.
+            self.is_azure = (
+                "azure" in self.base_endpoint.lower()
+                or "aoai" in self.base_endpoint.lower()
+            )
 
         # -- Resolve deployment name --
         # If the canonical resolver already extracted deployment from URL
@@ -770,13 +925,13 @@ class APIRouter:
             self.deployment = deployment_override
         else:
             # Fallback: run the local resolution chain
-            self.deployment = self._resolve_deployment(config, self.base_endpoint)
+            self.deployment = _resolve_deployment(config, self.base_endpoint)
 
         # -- Resolve API version --
         if api_version_override:
             self.api_version = api_version_override
         else:
-            self.api_version = self._resolve_api_version(config, self.base_endpoint)
+            self.api_version = _resolve_api_version(config, self.base_endpoint)
 
         # -- Network gate check --
         # Verify the endpoint is allowed before we even create the SDK client.
@@ -827,26 +982,17 @@ class APIRouter:
         try:
             if self.is_azure:
                 # -- AZURE CLIENT --
-                # This is what your company's example code uses.
-                # The SDK extracts the base domain from azure_endpoint and
-                # builds the full URL with deployment name and api-version.
-                #
-                # IMPORTANT: azure_endpoint should be JUST the base URL:
-                #   https://your-company.openai.azure.com
-                # The SDK appends /openai/deployments/... automatically.
-                #
-                # If the stored endpoint contains the full path (like
-                # .../chat/completions?api-version=...), we strip it down
-                # to just the base domain so the SDK doesn't double it.
+                # azure_endpoint must be the base URL only (no /openai/... path).
+                # _extract_azure_base() strips any extra path the user stored.
                 clean_endpoint = self._extract_azure_base(self.base_endpoint)
 
                 self.client = AzureOpenAI(
                     azure_endpoint=clean_endpoint,
                     api_key=self.api_key,
                     api_version=self.api_version,
-                    # http_client with verify=True ensures SSL works
-                    # through enterprise proxy (with pip-system-certs installed)
-                    http_client=httpx.Client(verify=True),
+                    http_client=_build_httpx_client(
+                        timeout=getattr(self.config.api, "timeout_seconds", 60),
+                    ),
                 )
 
                 self.logger.info(
@@ -883,98 +1029,6 @@ class APIRouter:
         except Exception as e:
             self.client = None
             self.logger.error("api_router_init_failed", error=str(e))
-
-    @staticmethod
-    def _resolve_deployment(config, endpoint_url):
-        """
-        Resolve Azure deployment name from multiple sources.
-
-        WHY THIS EXISTS:
-            Different machines may have different Azure deployment names.
-            Instead of hardcoding "gpt-35-turbo", we check multiple sources
-            so each machine can configure its own deployment name.
-
-        Resolution order (first non-empty wins):
-            1. YAML config: api.deployment in default_config.yaml
-            2. Environment variables: AZURE_OPENAI_DEPLOYMENT, etc.
-            3. URL extraction: if endpoint contains /deployments/xxx
-            4. Fallback: "gpt-35-turbo" (safe default)
-
-        Returns:
-            str: The resolved deployment name.
-        """
-        import re
-
-        # 1. YAML config
-        if config.api.deployment:
-            return config.api.deployment
-
-        # 2. Environment variables (same aliases as credentials.py)
-        for var in [
-            "AZURE_OPENAI_DEPLOYMENT",
-            "AZURE_DEPLOYMENT",
-            "OPENAI_DEPLOYMENT",
-            "AZURE_OPENAI_DEPLOYMENT_NAME",
-            "DEPLOYMENT_NAME",
-            "AZURE_CHAT_DEPLOYMENT",
-        ]:
-            val = os.environ.get(var, "").strip()
-            if val:
-                return val
-
-        # 3. Extract from URL (e.g., .../deployments/gpt-4o/...)
-        if endpoint_url and "/deployments/" in endpoint_url:
-            match = re.search(r"/deployments/([^/?]+)", endpoint_url)
-            if match:
-                return match.group(1)
-
-        # 4. Fallback default
-        return APIRouter._DEFAULT_DEPLOYMENT
-
-    @staticmethod
-    def _resolve_api_version(config, endpoint_url):
-        """
-        Resolve Azure API version from multiple sources.
-
-        WHY THIS EXISTS:
-            Azure API versions change over time and different tenants
-            may require different versions. Instead of hardcoding one
-            version, we check multiple sources.
-
-        Resolution order (first non-empty wins):
-            1. YAML config: api.api_version in default_config.yaml
-            2. Environment variables: AZURE_OPENAI_API_VERSION, etc.
-            3. URL extraction: if endpoint contains ?api-version=xxx
-            4. Fallback: "2024-02-02" (safe default)
-
-        Returns:
-            str: The resolved API version string.
-        """
-        import re
-
-        # 1. YAML config
-        if config.api.api_version:
-            return config.api.api_version
-
-        # 2. Environment variables
-        for var in [
-            "AZURE_OPENAI_API_VERSION",
-            "AZURE_API_VERSION",
-            "OPENAI_API_VERSION",
-            "API_VERSION",
-        ]:
-            val = os.environ.get(var, "").strip()
-            if val:
-                return val
-
-        # 3. Extract from URL (e.g., ...?api-version=2024-02-02)
-        if endpoint_url and "api-version=" in endpoint_url:
-            match = re.search(r"api-version=([^&]+)", endpoint_url)
-            if match:
-                return match.group(1)
-
-        # 4. Fallback default
-        return APIRouter._DEFAULT_API_VERSION
 
     def _extract_azure_base(self, url: str) -> str:
         """
@@ -1200,8 +1254,11 @@ class APIRouter:
 
         Used by: rag-cred-status, rag-test-api, rag-status
         """
+        detected_provider = self.provider if self.provider else (
+            "azure_openai" if self.is_azure else "openai"
+        )
         status = {
-            "provider": "azure_openai" if self.is_azure else "openai",
+            "provider": detected_provider,
             "endpoint": self.base_endpoint,
             "api_configured": self.client is not None,
             "sdk_available": _openai_sdk_available(),
@@ -1255,8 +1312,12 @@ _deployment_lock = __import__("threading").Lock()
 
 def _is_azure_endpoint(endpoint):
     """
-    Check if an endpoint URL is Azure-style.
+    Check if an endpoint URL is Azure-style (commercial or government).
     Uses the same detection logic as APIRouter.is_azure.
+    Covers:
+      - *.openai.azure.com (commercial)
+      - *.openai.azure.us  (government)
+      - URLs containing "aoai" (enterprise abbreviation)
     """
     if not endpoint:
         return False
@@ -1339,7 +1400,7 @@ def _get_deployments_locked():
 
             url = f"{base}/openai/deployments?api-version={api_version}"
 
-            with httpx.Client(timeout=3, verify=True) as client:
+            with _build_httpx_client(timeout=3) as client:
                 resp = client.get(
                     url,
                     headers={
@@ -1376,7 +1437,7 @@ def _get_deployments_locked():
             # OpenAI/OpenRouter path: GET {endpoint}/models
             url = f"{endpoint}/models"
 
-            with httpx.Client(timeout=3, verify=True) as client:
+            with _build_httpx_client(timeout=3) as client:
                 resp = client.get(
                     url,
                     headers={
@@ -1527,6 +1588,8 @@ class LLMRouter:
             except ImportError:
                 self.logger.warning("llm_router_credentials_import_failed")
 
+        resolved_provider = ""
+
         if creds is not None:
             if not resolved_key and creds.api_key:
                 resolved_key = creds.api_key
@@ -1536,12 +1599,19 @@ class LLMRouter:
                 resolved_deployment = creds.deployment
             if creds.api_version:
                 resolved_api_version = creds.api_version
+            if getattr(creds, "provider", None):
+                resolved_provider = creds.provider
 
             self.logger.info(
                 "llm_router_creds_resolved",
                 key_source=getattr(creds, "source_key", "") or "caller",
                 endpoint_source=getattr(creds, "source_endpoint", "") or "config",
+                provider=resolved_provider or "auto",
             )
+
+        # Fall back to config.api.provider if credentials didn't supply one
+        if not resolved_provider:
+            resolved_provider = getattr(config.api, "provider", "") or ""
 
         # NOTE: We do NOT mutate config.api.endpoint here.
         # The gate was already configured with the correct endpoint by
@@ -1555,6 +1625,7 @@ class LLMRouter:
                 config, resolved_key, resolved_endpoint,
                 deployment_override=resolved_deployment,
                 api_version_override=resolved_api_version,
+                provider_override=resolved_provider,
             )
             self.logger.info("llm_router_init", api_mode="enabled")
         else:

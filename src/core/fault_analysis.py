@@ -44,7 +44,7 @@
 #
 # ALTERNATIVES CONSIDERED:
 #   - Sentry/Datadog: requires internet, cloud account, costs money.
-#     Our approach: zero dependencies, fully offline, defense-safe.
+#     Our approach: zero dependencies, fully offline, air-gap safe.
 #   - Python logging module alone: no structured data, no severity
 #     classification, no flight recorder. Our approach: structured
 #     JSON events with full context.
@@ -78,11 +78,11 @@ from typing import Optional, Dict, Any, List, Callable, Tuple
 #     - Prioritize fixes (SEV-1 blocks everything, SEV-4 can wait)
 #     - Track trends (are SEV-2s increasing? Something systemic is wrong)
 #
-# MAPPING TO DEFENSE INDUSTRY STANDARDS:
-#   SEV-1 maps to NIST IR "Critical" and DoD CJCSM 6510.01B "CAT I"
-#   SEV-2 maps to NIST IR "High" and DoD "CAT II"
-#   SEV-3 maps to NIST IR "Medium" and DoD "CAT III"
-#   SEV-4 maps to NIST IR "Low" and DoD "CAT IV"
+# MAPPING TO INDUSTRY INCIDENT RESPONSE STANDARDS:
+#   SEV-1 maps to IR "Critical" (CAT I)
+#   SEV-2 maps to IR "High" (CAT II)
+#   SEV-3 maps to IR "Medium" (CAT III)
+#   SEV-4 maps to IR "Low" (CAT IV)
 # ============================================================================
 
 class Severity(IntEnum):
@@ -102,7 +102,7 @@ class Severity(IntEnum):
     #   - Security credential exposure detected
     #   - PII sanitization bypass detected
     # Response: Immediate halt. Block all queries until resolved.
-    # Defense equivalent: Mission-critical system down.
+    # Industry equivalent: Mission-critical system down.
     # Auto-action: Stop accepting queries, log full diagnostics,
     #   alert via GUI popup if running.
 
@@ -114,7 +114,7 @@ class Severity(IntEnum):
     #   - Index is stale (>7 days since last successful index)
     #   - Retriever returns zero results for known-good queries
     # Response: Degrade gracefully. Switch to backup mode if available.
-    # Defense equivalent: Primary sensor down, backup operational.
+    # Industry equivalent: Primary system down, backup operational.
     # Auto-action: Log, attempt automatic recovery, switch modes.
 
     SEV_3 = 3
@@ -125,7 +125,7 @@ class Severity(IntEnum):
     #   - File parsing failures on specific file types (partial index)
     #   - Memory usage above 80% threshold
     # Response: Continue operating, schedule fix.
-    # Defense equivalent: System operational with reduced capability.
+    # Industry equivalent: System operational with reduced capability.
     # Auto-action: Log, add to daily report, suggest optimization.
 
     SEV_4 = 4
@@ -136,7 +136,7 @@ class Severity(IntEnum):
     #   - Log directory doesn't exist (auto-created)
     #   - Minor version mismatch in dependency
     # Response: Track in weekly review.
-    # Defense equivalent: Maintenance item, no mission impact.
+    # Industry equivalent: Maintenance item, no operational impact.
     # Auto-action: Log only, include in weekly summary.
 
 

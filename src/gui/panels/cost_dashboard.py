@@ -32,6 +32,7 @@ from src.gui.theme import (
     bind_hover,
 )
 from src.gui.scrollable import ScrollableFrame
+from src.gui.panels.roi_calculator import ROICalculatorFrame
 
 logger = logging.getLogger(__name__)
 
@@ -64,11 +65,6 @@ class CostDashboard(tk.Frame):
 
         self._tracker = cost_tracker
         self._refresh_id = None
-        # ROI calculator defaults (BLS May 2024 median PM: $48.44/hr)
-        # These are editable by the user via the ROI Calculator section
-        self._roi_hourly = 48.44
-        self._roi_team = 10
-        self._roi_min_saved = 10
 
         # Scrollable container
         self._scroll = ScrollableFrame(self, bg=t["bg"])
@@ -82,7 +78,8 @@ class CostDashboard(tk.Frame):
         self._build_token_breakdown(t)
         self._build_data_volume(t)
         self._build_cumulative(t)
-        self._build_roi_calculator(t)
+        self._roi = ROICalculatorFrame(self._inner, cost_tracker)
+        self._roi.pack(fill=tk.X, padx=16, pady=4)
         self._build_rate_editor(t)
         self._build_citations(t)
         self._build_footer(t)
@@ -219,65 +216,6 @@ class CostDashboard(tk.Frame):
                                 justify=tk.LEFT, anchor=tk.W)
         self._cum_text.pack(fill=tk.X)
 
-    def _build_roi_calculator(self, t):
-        """Build the ROI calculator with editable hourly rate, team size, and time savings.
-
-        The ROI logic: each query saves X minutes of manual searching.
-        Multiply by the hourly wage rate to get dollar value saved.
-        Subtract API cost to get net ROI.  All backed by cited research.
-        """
-        frame = tk.LabelFrame(self._inner, text="ROI Calculator -- Productivity Savings *",
-                              padx=16, pady=8, bg=t["panel_bg"], fg=t["accent"],
-                              font=FONT_BOLD)
-        frame.pack(fill=tk.X, padx=16, pady=4)
-
-        nums = tk.Frame(frame, bg=t["panel_bg"])
-        nums.pack(fill=tk.X, pady=(0, 4))
-
-        c1 = tk.Frame(nums, bg=t["panel_bg"])
-        c1.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        _label(c1, t, text="TIME SAVED *1", font=FONT_SMALL, fg=t["label_fg"]).pack()
-        self._roi_time_label = _label(c1, t, text="0h 0m", font=FONT_MED, fg=t["green"])
-        self._roi_time_label.pack()
-
-        c2 = tk.Frame(nums, bg=t["panel_bg"])
-        c2.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        _label(c2, t, text="VALUE SAVED *3", font=FONT_SMALL, fg=t["label_fg"]).pack()
-        self._roi_value_label = _label(c2, t, text="$0.00", font=FONT_MED, fg=t["green"])
-        self._roi_value_label.pack()
-
-        c3 = tk.Frame(nums, bg=t["panel_bg"])
-        c3.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        _label(c3, t, text="NET ROI", font=FONT_SMALL, fg=t["label_fg"]).pack()
-        self._roi_net_label = _label(c3, t, text="$0.00", font=FONT_MED, fg=t["accent"])
-        self._roi_net_label.pack()
-
-        prow = tk.Frame(frame, bg=t["panel_bg"])
-        prow.pack(fill=tk.X, pady=(4, 2))
-        _label(prow, t, text="Hourly rate *3: $", font=FONT_SMALL).pack(side=tk.LEFT)
-        self._roi_hourly_var = tk.StringVar(value="{:.2f}".format(self._roi_hourly))
-        tk.Entry(prow, textvariable=self._roi_hourly_var, width=7, font=FONT_MONO,
-                 bg=t["input_bg"], fg=t["input_fg"], insertbackground=t["fg"],
-                 relief=tk.FLAT, bd=2).pack(side=tk.LEFT, padx=(0, 10))
-        _label(prow, t, text="Team:", font=FONT_SMALL).pack(side=tk.LEFT)
-        self._roi_team_var = tk.StringVar(value=str(self._roi_team))
-        tk.Entry(prow, textvariable=self._roi_team_var, width=4, font=FONT_MONO,
-                 bg=t["input_bg"], fg=t["input_fg"], insertbackground=t["fg"],
-                 relief=tk.FLAT, bd=2).pack(side=tk.LEFT, padx=(0, 10))
-        _label(prow, t, text="Min saved/query *2:", font=FONT_SMALL).pack(side=tk.LEFT)
-        self._roi_minsaved_var = tk.StringVar(value=str(self._roi_min_saved))
-        tk.Entry(prow, textvariable=self._roi_minsaved_var, width=4, font=FONT_MONO,
-                 bg=t["input_bg"], fg=t["input_fg"], insertbackground=t["fg"],
-                 relief=tk.FLAT, bd=2).pack(side=tk.LEFT, padx=(0, 10))
-        upd_btn = tk.Button(prow, text="Update", font=FONT_SMALL, width=7,
-                            command=self._on_update_roi, bg=t["accent"],
-                            fg=t["accent_fg"], relief=tk.FLAT, bd=0)
-        upd_btn.pack(side=tk.LEFT)
-        bind_hover(upd_btn)
-
-        self._roi_projection = _label(frame, t, text="", font=FONT_MONO, fg=t["fg"])
-        self._roi_projection.pack(fill=tk.X, pady=(4, 0))
-
     def _build_rate_editor(self, t):
         """Build the token rate editor for custom pricing.
 
@@ -356,7 +294,7 @@ class CostDashboard(tk.Frame):
             self._refresh_session()
             self._refresh_gauge()
             self._refresh_cumulative()
-            self._refresh_roi()
+            self._roi.refresh()
         except tk.TclError:
             pass
 
@@ -465,41 +403,63 @@ class CostDashboard(tk.Frame):
             lines.append("Range: {} to {}".format(c.first_event[:19], c.last_event[:19]))
         self._cum_text.config(text="\n".join(lines))
 
-    def _refresh_roi(self):
-        """Update ROI calculator numbers from session data."""
-        s = self._tracker.get_session_summary()
-        t = current_theme()
-        h = self._roi_hourly
-        m = self._roi_min_saved
-        team = self._roi_team
+    # -- ROI proxy properties (backward compat for tests) --------------------
 
-        value_per_query = (m / 60.0) * h
-        time_saved_min = s.query_count * m
-        value_saved = s.query_count * value_per_query
-        net_roi = value_saved - s.total_cost_usd
+    @property
+    def _roi_hourly(self):
+        return self._roi.roi_hourly
 
-        hrs = time_saved_min // 60
-        mins = time_saved_min % 60
-        self._roi_time_label.config(text="{}h {}m".format(hrs, mins))
-        self._roi_value_label.config(text="${:,.2f}".format(value_saved))
-        self._roi_net_label.config(text="${:,.2f}".format(net_roi))
-        self._roi_net_label.config(fg=t["green"] if net_roi >= 0 else t["red"])
+    @_roi_hourly.setter
+    def _roi_hourly(self, v):
+        self._roi.roi_hourly = v
 
-        qpd = max(s.query_count, 1)
-        monthly_queries = qpd * team * 22
-        monthly_value = monthly_queries * value_per_query
-        monthly_cost = monthly_queries * s.avg_cost_per_query
-        if monthly_cost > 0:
-            roi_pct = ((monthly_value / monthly_cost) - 1) * 100
-            self._roi_projection.config(
-                text="Team of {} @ {} queries/day: ~${:,.0f}/mo saved "
-                     "vs ~${:,.2f}/mo API cost ({:,.0f}% ROI)".format(
-                    team, qpd, monthly_value, monthly_cost, roi_pct))
-        else:
-            self._roi_projection.config(
-                text="Team of {} @ {} queries/day: ~${:,.0f}/mo "
-                     "productivity value (offline = $0 API cost)".format(
-                    team, qpd, monthly_value))
+    @property
+    def _roi_team(self):
+        return self._roi.roi_team
+
+    @_roi_team.setter
+    def _roi_team(self, v):
+        self._roi.roi_team = v
+
+    @property
+    def _roi_min_saved(self):
+        return self._roi.roi_min_saved
+
+    @_roi_min_saved.setter
+    def _roi_min_saved(self, v):
+        self._roi.roi_min_saved = v
+
+    @property
+    def _roi_hourly_var(self):
+        return self._roi.roi_hourly_var
+
+    @property
+    def _roi_team_var(self):
+        return self._roi.roi_team_var
+
+    @property
+    def _roi_minsaved_var(self):
+        return self._roi.roi_minsaved_var
+
+    @property
+    def _roi_time_label(self):
+        return self._roi.roi_time_label
+
+    @property
+    def _roi_value_label(self):
+        return self._roi.roi_value_label
+
+    @property
+    def _roi_net_label(self):
+        return self._roi.roi_net_label
+
+    @property
+    def _roi_projection(self):
+        return self._roi.roi_projection
+
+    def _on_update_roi(self):
+        """Delegate to ROICalculatorFrame."""
+        self._roi.on_update()
 
     # -- Actions -----------------------------------------------------------
 
@@ -519,18 +479,6 @@ class CostDashboard(tk.Frame):
         except ValueError as e:
             self._rate_status.config(text="[FAIL] Invalid rate: {}".format(e),
                                      fg=current_theme()["red"])
-
-    def _on_update_roi(self):
-        """Update ROI calculator parameters from entry fields."""
-        try:
-            self._roi_hourly = float(self._roi_hourly_var.get())
-            self._roi_team = int(self._roi_team_var.get())
-            self._roi_min_saved = int(self._roi_minsaved_var.get())
-            if self._roi_hourly < 0 or self._roi_team < 1 or self._roi_min_saved < 1:
-                raise ValueError("Values must be positive")
-            self._refresh_roi()
-        except ValueError:
-            pass
 
     def _on_export_csv(self):
         """Export all cost events to CSV file."""

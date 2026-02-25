@@ -13,8 +13,8 @@
 #   . .\tools\master_toolkit.ps1
 #
 # TO MAKE PERMANENT:
-#   Add this line to the end of start_hybridrag.ps1:
-#       . .\tools\master_toolkit.ps1
+#   Add this line to your PowerShell profile ($PROFILE):
+#       . "<PROJECT_ROOT>\tools\master_toolkit.ps1"
 #
 # COMMAND LIST (type rag-help to see this at any time):
 #
@@ -126,9 +126,10 @@ function rag-store-endpoint {
     Write-Host ""
     Write-Host "Store Azure Endpoint URL" -ForegroundColor Cyan
     Write-Host "------------------------" -ForegroundColor Gray
-    Write-Host "Enter your base endpoint URL." -ForegroundColor Gray
-    Write-Host "Example: https://your-resource.openai.azure.com/" -ForegroundColor Gray
-    Write-Host "You can include the full path or just the base -- the toolkit handles both." -ForegroundColor Gray
+    Write-Host "Enter BASE URL only. Do NOT include /openai/deployments path." -ForegroundColor Gray
+    Write-Host "  Correct: https://your-resource.openai.azure.com" -ForegroundColor Green
+    Write-Host "  Wrong:   https://your-resource.openai.azure.com/openai/deployments/..." -ForegroundColor Red
+    Write-Host "The toolkit builds the full path automatically." -ForegroundColor Gray
     Write-Host ""
     
     $endpoint = Read-Host "Paste your endpoint URL"
@@ -194,7 +195,7 @@ function rag-store-deployment {
     
     $env:AZURE_OPENAI_DEPLOYMENT = $Name
     Write-Host "  [OK] Deployment set: $Name" -ForegroundColor Green
-    Write-Host "  (This lasts for this session. Add to start_hybridrag.ps1 to make permanent)" -ForegroundColor Gray
+    Write-Host "  (Session env var only. For permanent storage, use rag-store-endpoint.)" -ForegroundColor Gray
 }
 
 
