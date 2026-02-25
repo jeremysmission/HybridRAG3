@@ -70,6 +70,11 @@ COPY_FILES = [
     "tools/_rebuild_toolkit.py",
     "tools/test_all_diagnostics.ps1",
     "tools/api_mode_commands.ps1",   # cleaned of corporate paths; has rag-set-model
+    "tools/setup_home.ps1",          # home machine setup wizard
+    "tools/setup_home.bat",          # home setup launcher (double-click)
+    "tools/setup_work.ps1",          # work machine setup wizard
+    "tools/setup_work.bat",          # work setup launcher (double-click)
+    "INSTALL.bat",                   # universal installer entry point
     "start.cmd",                     # cross-env launcher (works on restricted machines)
     "run.cmd",                       # fallback launcher via python tools/run.py
     "start_rag.bat",                 # execution policy bypass launcher (double-click)
