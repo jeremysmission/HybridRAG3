@@ -1,4 +1,4 @@
-# ============================================================================
+﻿# ============================================================================
 # HybridRAG3 -- Automated Work/Educational Setup
 # Date: 2026-02-25
 # Uses: requirements_approved.txt (enterprise-approved packages only)
@@ -200,7 +200,8 @@ while ($wizStep -le 3) {
         Write-Step 2 "Detecting Python"
         $PY_EXE = $null
         $PY_VER_FLAG = $null
-        foreach ($ver in @("3.12", "3.11", "3.10", "3.9")) {
+        # BUG 10 fix: removed 3.9 -- faiss-cpu requires Python >= 3.10
+        foreach ($ver in @("3.12", "3.11", "3.10")) {
             try {
                 $result = & py "-$ver" --version 2>&1
                 if ($LASTEXITCODE -eq 0) {
@@ -483,9 +484,12 @@ if ($pipConfigCheck -match "could not load") {
 $stepDone = $false
 while (-not $stepDone) {
     Write-Host "  Upgrading pip with proxy-safe timeouts (120s per request)..."
-    $pipOutput = & $PYTHON -m pip install --upgrade pip --progress-bar on @TRUSTED 2>&1 | Out-String
+    # BUG 6 fix: capture exit code before Out-String (pipeline may clobber LASTEXITCODE on old PS builds)
+    $pipRaw = & $PYTHON -m pip install --upgrade pip --progress-bar on @TRUSTED 2>&1
+    $pipExitCode = $LASTEXITCODE
+    $pipOutput = $pipRaw | Out-String
     # Check BOTH exit code AND pip warnings -- pip exits 0 even when config is broken
-    if ($LASTEXITCODE -eq 0 -and $pipOutput -notmatch "could not load") {
+    if ($pipExitCode -eq 0 -and $pipOutput -notmatch "could not load") {
         $stepDone = $true
     } else {
         if ($pipOutput -match "could not load") {
@@ -548,7 +552,8 @@ $logsDir = "$PROJECT_ROOT\logs"
 if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
 $LOG_FILE = "$logsDir\setup_install_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 
-@(
+# BUG 2 fix: Out-File writes BOM -- log file is consumed by Python, use WriteAllText instead
+$headerLines = @(
     "=" * 70,
     "HybridRAG3 Setup Install Log",
     "=" * 70,
@@ -564,7 +569,9 @@ $LOG_FILE = "$logsDir\setup_install_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
     "Req file   : requirements_approved.txt",
     "=" * 70,
     ""
-) | Out-File $LOG_FILE -Encoding UTF8
+)
+$headerText = ($headerLines -join "`n") + "`n"
+[System.IO.File]::WriteAllText($LOG_FILE, $headerText)
 
 Write-Host ""
 Write-Host "  Packages are split into small groups (7A through 7R)."
@@ -760,9 +767,13 @@ if (Test-Path "$configPath") {
     $content = Get-Content "$configPath" -Raw -Encoding UTF8
     $dbPath = "$DATA_DIR\hybridrag.sqlite3"
     $embPath = "$DATA_DIR\_embeddings"
-    $content = $content -replace '(?m)^(\s*database:\s*).*$', "`$1$dbPath"
-    $content = $content -replace '(?m)^(\s*embeddings_cache:\s*).*$', "`$1$embPath"
-    $content = $content -replace '(?m)^(\s*source_folder:\s*).*$', "`$1$SOURCE_DIR"
+    # BUG 3 fix: escape $ in paths so -replace does not treat them as regex backreferences
+    $safeDbPath = $dbPath.Replace('$', '$$')
+    $safeEmbPath = $embPath.Replace('$', '$$')
+    $safeSrcDir = $SOURCE_DIR.Replace('$', '$$')
+    $content = $content -replace '(?m)^(\s*database:\s*).*$', "`$1$safeDbPath"
+    $content = $content -replace '(?m)^(\s*embeddings_cache:\s*).*$', "`$1$safeEmbPath"
+    $content = $content -replace '(?m)^(\s*source_folder:\s*).*$', "`$1$safeSrcDir"
     # YAML is consumed by Python -- must NOT have BOM (Set-Content adds BOM in PS 5.1)
     [System.IO.File]::WriteAllText($configPath, $content)
     Write-Ok "Config updated with your paths"
@@ -782,9 +793,13 @@ if (Test-Path "$startScript") {
     Write-Ok "start_hybridrag.ps1 already exists -- skipping"
 } elseif (Test-Path "$templatePath") {
     $content = Get-Content "$templatePath" -Raw -Encoding UTF8
-    $content = $content -replace 'C:\\path\\to\\HybridRAG3', $PROJECT_ROOT
-    $content = $content -replace 'C:\\path\\to\\data', $DATA_DIR
-    $content = $content -replace 'C:\\path\\to\\source_docs', $SOURCE_DIR
+    # BUG 3 fix: escape $ in replacement paths to prevent regex backreference corruption
+    $safeProjectRoot = $PROJECT_ROOT.Replace('$', '$$')
+    $safeDataDir = $DATA_DIR.Replace('$', '$$')
+    $safeSrcDir2 = $SOURCE_DIR.Replace('$', '$$')
+    $content = $content -replace 'C:\\path\\to\\HybridRAG3', $safeProjectRoot
+    $content = $content -replace 'C:\\path\\to\\data', $safeDataDir
+    $content = $content -replace 'C:\\path\\to\\source_docs', $safeSrcDir2
     Set-Content -Path "$startScript" -Value $content -Encoding UTF8
     Write-Ok "start_hybridrag.ps1 created from template"
 } else {
@@ -822,12 +837,20 @@ if ($configureApi -eq "y" -or $configureApi -eq "Y") {
         Write-Host "  Enter your API key (text is hidden as you type)."
         Write-Host ""
         $apiKey = Read-Host "  API Key" -AsSecureString
-        $plainKey = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($apiKey))
-        if (-not [string]::IsNullOrWhiteSpace($plainKey)) {
-            & $PYTHON "tools/py/store_key.py" $plainKey 2>&1
-            Write-Ok "API key stored in Windows Credential Manager"
+        # BUG 7 fix: pass key via env var (not argv) to hide from process list, and free BSTR
+        $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($apiKey)
+        try {
+            $plainKey = [Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+            if (-not [string]::IsNullOrWhiteSpace($plainKey)) {
+                $env:HYBRIDRAG_API_KEY = $plainKey
+                & $PYTHON "tools/py/store_key.py" 2>&1
+                Write-Ok "API key stored in Windows Credential Manager"
+            }
+        } finally {
+            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+            $plainKey = $null
+            $env:HYBRIDRAG_API_KEY = $null
         }
-        $plainKey = $null
     }
 }
 
