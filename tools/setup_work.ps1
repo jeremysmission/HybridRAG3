@@ -193,41 +193,73 @@ while ($wizStep -le 3) {
     # ==============================================================
     # Wizard Step 3: Configure paths
     # ==============================================================
+    # HybridRAG3 needs two folders:
+    #   Index folder = where the search database and AI embeddings are stored
+    #   Source folder = where your documents (PDFs, Word, Excel) live
+    #
+    # Option C creates both inside a "data" folder next to the project,
+    # so everything stays organized in one place.
+    # ==============================================================
     if ($wizStep -eq 3) {
         Write-Step 3 "Configure paths"
         Write-Host ""
-        Write-Host "  Where should HybridRAG3 store its search database?"
-        Write-Host "  (Uses about 1-5 GB depending on how many documents you have)"
-        Write-Host "  Example: D:\RAG Indexed Data" -ForegroundColor White
+        Write-Host "  HybridRAG3 needs two folders: one for its search database"
+        Write-Host "  and one where your documents live."
         Write-Host ""
-        Write-Host "  Type B to go back to previous step."
+        Write-Host "  OPTIONS:" -ForegroundColor White
+        Write-Host "    C = Create them for me (recommended)" -ForegroundColor Green
+        Write-Host "        Creates: $PROJECT_ROOT\data\index"
+        Write-Host "        Creates: $PROJECT_ROOT\data\source"
+        Write-Host "    M = I will enter my own folder paths"
+        Write-Host "    B = Go back to previous step"
         Write-Host ""
-        $input = Read-Host "  Database folder"
-        if ($input -eq "B" -or $input -eq "b") { $wizStep = 2; continue }
-        while ([string]::IsNullOrWhiteSpace($input)) {
-            Write-Warn "Cannot be empty. Type a folder path, or B to go back."
-            $input = Read-Host "  Database folder"
-            if ($input -eq "B" -or $input -eq "b") { break }
-        }
-        if ($input -eq "B" -or $input -eq "b") { $wizStep = 2; continue }
-        $DATA_DIR = $input
+        $pathChoice = Read-Host "  Choose [C/M/B]"
 
-        Write-Host ""
-        Write-Host "  Where are the documents you want to search?"
-        Write-Host "  (HybridRAG3 reads these files but never modifies them)"
-        Write-Host "  Example: D:\RAG Source Data" -ForegroundColor White
-        Write-Host ""
-        Write-Host "  Type B to go back to the database folder prompt."
-        Write-Host ""
-        $input = Read-Host "  Documents folder"
-        if ($input -eq "B" -or $input -eq "b") { continue }
-        while ([string]::IsNullOrWhiteSpace($input)) {
-            Write-Warn "Cannot be empty. Type a folder path, or B to go back."
+        if ($pathChoice -eq "B" -or $pathChoice -eq "b") { $wizStep = 2; continue }
+
+        if ($pathChoice -eq "M" -or $pathChoice -eq "m") {
+            # Manual path entry
+            Write-Host ""
+            Write-Host "  Where should HybridRAG3 store its search database?"
+            Write-Host "  (Uses about 1-5 GB depending on how many documents you have)"
+            Write-Host "  Example: D:\RAG Indexed Data" -ForegroundColor White
+            Write-Host ""
+            $input = Read-Host "  Database folder"
+            if ($input -eq "B" -or $input -eq "b") { continue }
+            while ([string]::IsNullOrWhiteSpace($input)) {
+                Write-Warn "Cannot be empty. Type a folder path, or B to go back."
+                $input = Read-Host "  Database folder"
+                if ($input -eq "B" -or $input -eq "b") { break }
+            }
+            if ($input -eq "B" -or $input -eq "b") { continue }
+            $DATA_DIR = $input
+
+            Write-Host ""
+            Write-Host "  Where are the documents you want to search?"
+            Write-Host "  (HybridRAG3 reads these files but never modifies them)"
+            Write-Host "  Example: D:\RAG Source Data" -ForegroundColor White
+            Write-Host ""
             $input = Read-Host "  Documents folder"
-            if ($input -eq "B" -or $input -eq "b") { break }
+            if ($input -eq "B" -or $input -eq "b") { continue }
+            while ([string]::IsNullOrWhiteSpace($input)) {
+                Write-Warn "Cannot be empty. Type a folder path, or B to go back."
+                $input = Read-Host "  Documents folder"
+                if ($input -eq "B" -or $input -eq "b") { break }
+            }
+            if ($input -eq "B" -or $input -eq "b") { continue }
+            $SOURCE_DIR = $input
+        } else {
+            # Auto-create data/index and data/source inside project root
+            $DATA_DIR = "$PROJECT_ROOT\data\index"
+            $SOURCE_DIR = "$PROJECT_ROOT\data\source"
+            New-Item -ItemType Directory -Path "$DATA_DIR" -Force | Out-Null
+            New-Item -ItemType Directory -Path "$SOURCE_DIR" -Force | Out-Null
+            Write-Ok "Created: $DATA_DIR"
+            Write-Ok "Created: $SOURCE_DIR"
+            Write-Host ""
+            Write-Host "  Put your documents (PDFs, Word, Excel, etc.) into:"
+            Write-Host "    $SOURCE_DIR" -ForegroundColor White
         }
-        if ($input -eq "B" -or $input -eq "b") { continue }
-        $SOURCE_DIR = $input
 
         $wizStep = 4
     }
