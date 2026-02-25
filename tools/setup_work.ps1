@@ -391,7 +391,7 @@ $PIP = "$PROJECT_ROOT\.venv\Scripts\pip.exe"
 # Corporate proxies add latency. Default pip timeout is 15 seconds which
 # is too short -- packages time out before the proxy finishes relaying.
 # We increase to 120 seconds and allow 5 retries for TCP RST recovery.
-$TRUSTED = "--trusted-host", "pypi.org", "--trusted-host", "files.pythonhosted.org", "--timeout", "120", "--retries", "5"
+$TRUSTED = "--trusted-host", "pypi.org", "--trusted-host", "files.pythonhosted.org", "--timeout", "120", "--retries", "3"
 
 # --- Detect corporate proxy from Windows registry ---
 # Corporate networks configure proxy via Group Policy / Internet Settings.
@@ -448,7 +448,7 @@ trusted-host =
     pypi.org
     files.pythonhosted.org
 timeout = 120
-retries = 5
+retries = 3
 "@
 if ($proxyDetected -and $env:HTTPS_PROXY) {
     $pipIniContent += "`nproxy = $($env:HTTPS_PROXY)"
@@ -597,37 +597,6 @@ foreach ($group in $groups) {
         } else {
             Write-Fail "7$letter $($group.name)"
             "[$(Get-Date -Format 'HH:mm:ss')] Step 7$letter : FAIL (exit code $pipExitCode)" | Add-Content $LOG_FILE -Encoding UTF8
-
-            # For AI core group: try download-then-install before prompting
-            if ($group.nodeps) {
-                Write-Host ""
-                Write-Host "  Direct install failed. Trying download-then-install..." -ForegroundColor Yellow
-                "[$(Get-Date -Format 'HH:mm:ss')] Step 7$letter : Trying download-then-install fallback" | Add-Content $LOG_FILE -Encoding UTF8
-                $wheelDir = "$PROJECT_ROOT\.venv\_wheels"
-                if (-not (Test-Path $wheelDir)) { New-Item -ItemType Directory -Path $wheelDir -Force | Out-Null }
-                $allDownloaded = $true
-                foreach ($pkg in $group.pkgs) {
-                    Write-Host "  Downloading $pkg wheel..." -ForegroundColor White
-                    $dlOutput = & $PIP download $pkg --no-deps --dest "$wheelDir" @TRUSTED 2>&1
-                    $dlOutput
-                    $dlOutput | Out-String | Add-Content $LOG_FILE -Encoding UTF8
-                    if ($LASTEXITCODE -ne 0) { $allDownloaded = $false }
-                }
-                if ($allDownloaded) {
-                    Write-Host "  Installing from downloaded wheels..." -ForegroundColor White
-                    $whlFiles = Get-ChildItem "$wheelDir\*.whl" | ForEach-Object { $_.FullName }
-                    $installOutput = & $PIP install @whlFiles --no-deps @TRUSTED 2>&1
-                    $installOutput
-                    $installOutput | Out-String | Add-Content $LOG_FILE -Encoding UTF8
-                    if ($LASTEXITCODE -eq 0) {
-                        Write-Ok "7$letter $($group.name) (from downloaded wheels)"
-                        "[$(Get-Date -Format 'HH:mm:ss')] Step 7$letter : OK (wheel fallback)" | Add-Content $LOG_FILE -Encoding UTF8
-                        $stepDone = $true
-                        continue
-                    }
-                }
-                "[$(Get-Date -Format 'HH:mm:ss')] Step 7$letter : Wheel fallback also failed" | Add-Content $LOG_FILE -Encoding UTF8
-            }
 
             $choice = Request-Recovery "7$letter $($group.name)" 7 -DrillDown
             "[$(Get-Date -Format 'HH:mm:ss')] Step 7$letter : User chose $choice" | Add-Content $LOG_FILE -Encoding UTF8
