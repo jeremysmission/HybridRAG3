@@ -383,15 +383,6 @@ Write-Host "  You will see each package being downloaded and installed."
 Write-Host "  If interrupted, re-run this script -- pip resumes from cache."
 Write-Host ""
 
-# --- Filter out openai from requirements (needs separate approval) ---
-$reqFile = "$PROJECT_ROOT\requirements_approved.txt"
-$filteredReq = "$PROJECT_ROOT\.venv\_filtered_requirements.txt"
-Get-Content "$reqFile" -Encoding UTF8 |
-    Where-Object { $_ -notmatch '^\s*openai\s*==' } |
-    Set-Content "$filteredReq" -Encoding UTF8
-Write-Host "  (openai will be attempted separately -- it needs store approval)"
-Write-Host ""
-
 Write-Host "  ---- pip output starts ----" -ForegroundColor DarkGray
 
 $maxAttempts = 2
@@ -404,7 +395,7 @@ do {
         Write-Warn "Retrying... (attempt $attempt of $maxAttempts)"
     }
     # pip runs unfiltered -- 2>&1 merges stderr so progress bars show
-    & $PIP install -r "$filteredReq" --progress-bar on @TRUSTED 2>&1
+    & $PIP install -r "$PROJECT_ROOT\requirements_approved.txt" --progress-bar on @TRUSTED 2>&1
     if ($LASTEXITCODE -eq 0) { $pipSuccess = $true; break }
     Write-Warn "Package install had issues (exit code $LASTEXITCODE)"
 } while ($attempt -lt $maxAttempts)
@@ -417,29 +408,13 @@ if (-not $pipSuccess) {
     Write-Host "  Try: .venv\Scripts\pip.exe install -r requirements_approved.txt --trusted-host pypi.org --trusted-host files.pythonhosted.org"
     exit 1
 }
-Write-Ok "Core packages installed ($(Format-Elapsed $stepTimer))"
-
-# --- Attempt openai separately (may fail if not yet approved) ---
-Write-Host ""
-Write-Host "  --- Attempting openai SDK (needs store approval) ---" -ForegroundColor Cyan
-Write-Host "  If this fails, that is OK -- apply for openai in the software store."
-Write-Host ""
-& $PIP install "openai>=1.40.0,<2.0.0" --progress-bar on @TRUSTED 2>&1
-if ($LASTEXITCODE -eq 0) {
-    Write-Ok "openai 1.51.2 installed"
-} else {
-    Write-Warn "openai not available on corporate mirror (expected)"
-    Write-Host "  Apply for openai in the enterprise software store."
-    Write-Host "  The system works in OFFLINE mode without it."
-    Write-Host "  After approval, run: .venv\Scripts\pip install openai==1.51.2"
-}
+Write-Ok "Packages installed ($(Format-Elapsed $stepTimer))"
 
 # ==================================================================
 # Step 8: Install test tools (optional)
 # ==================================================================
 Write-Step 8 "Test tools (optional)"
 Write-Host "  pytest and psutil verify the installation works correctly."
-Write-Host "  (Approval status: YELLOW -- being submitted for formal approval)"
 Write-Host ""
 $installTests = Read-Host "  Install test tools? [Y/n]"
 if ($installTests -ne "n" -and $installTests -ne "N") {
