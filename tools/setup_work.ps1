@@ -349,7 +349,7 @@ $PIP = "$PROJECT_ROOT\.venv\Scripts\pip.exe"
 $TRUSTED = "--trusted-host", "pypi.org", "--trusted-host", "files.pythonhosted.org", "--timeout", "120", "--retries", "2"
 
 Write-Host "  Upgrading pip with proxy-safe timeouts (120s per request)..."
-& $PYTHON -m pip install --upgrade pip @TRUSTED
+& $PYTHON -m pip install --upgrade pip --progress-bar on @TRUSTED 2>&1
 $pipVer = & $PIP --version 2>&1
 $stepTimer.Stop()
 Write-Ok "pip ready: $pipVer ($(Format-Elapsed $stepTimer))"
@@ -362,7 +362,7 @@ $stepTimer = [System.Diagnostics.Stopwatch]::StartNew()
 
 Write-Host "  Installing pip-system-certs (makes Python trust Windows certs)..."
 Write-Host "  (This teaches Python to use your Windows certificate store)"
-& $PIP install pip-system-certs @TRUSTED
+& $PIP install pip-system-certs --progress-bar on @TRUSTED 2>&1
 $env:NO_PROXY = "localhost,127.0.0.1"
 
 $stepTimer.Stop()
@@ -382,9 +382,19 @@ Write-Host "  This is the longest step (2-5 minutes on first install)."
 Write-Host "  You will see each package being downloaded and installed."
 Write-Host "  If interrupted, re-run this script -- pip resumes from cache."
 Write-Host ""
+
+# --- Filter out openai from requirements (needs separate approval) ---
+$reqFile = "$PROJECT_ROOT\requirements_approved.txt"
+$filteredReq = "$PROJECT_ROOT\.venv\_filtered_requirements.txt"
+Get-Content "$reqFile" -Encoding UTF8 |
+    Where-Object { $_ -notmatch '^\s*openai\s*==' } |
+    Set-Content "$filteredReq" -Encoding UTF8
+Write-Host "  (openai will be attempted separately -- it needs store approval)"
+Write-Host ""
+
 Write-Host "  ---- pip output starts ----" -ForegroundColor DarkGray
 
-$maxAttempts = 3
+$maxAttempts = 2
 $attempt = 0
 $pipSuccess = $false
 do {
@@ -393,8 +403,8 @@ do {
         Write-Host ""
         Write-Warn "Retrying... (attempt $attempt of $maxAttempts)"
     }
-    # pip runs unfiltered -- you see every download bar and install message
-    & $PIP install -r requirements_approved.txt @TRUSTED
+    # pip runs unfiltered -- 2>&1 merges stderr so progress bars show
+    & $PIP install -r "$filteredReq" --progress-bar on @TRUSTED 2>&1
     if ($LASTEXITCODE -eq 0) { $pipSuccess = $true; break }
     Write-Warn "Package install had issues (exit code $LASTEXITCODE)"
 } while ($attempt -lt $maxAttempts)
@@ -407,7 +417,22 @@ if (-not $pipSuccess) {
     Write-Host "  Try: .venv\Scripts\pip.exe install -r requirements_approved.txt --trusted-host pypi.org --trusted-host files.pythonhosted.org"
     exit 1
 }
-Write-Ok "All packages installed ($(Format-Elapsed $stepTimer))"
+Write-Ok "Core packages installed ($(Format-Elapsed $stepTimer))"
+
+# --- Attempt openai separately (may fail if not yet approved) ---
+Write-Host ""
+Write-Host "  --- Attempting openai SDK (needs store approval) ---" -ForegroundColor Cyan
+Write-Host "  If this fails, that is OK -- apply for openai in the software store."
+Write-Host ""
+& $PIP install openai==1.51.2 --progress-bar on @TRUSTED 2>&1
+if ($LASTEXITCODE -eq 0) {
+    Write-Ok "openai 1.51.2 installed"
+} else {
+    Write-Warn "openai not available on corporate mirror (expected)"
+    Write-Host "  Apply for openai in the enterprise software store."
+    Write-Host "  The system works in OFFLINE mode without it."
+    Write-Host "  After approval, run: .venv\Scripts\pip install openai==1.51.2"
+}
 
 # ==================================================================
 # Step 8: Install test tools (optional)
@@ -420,7 +445,7 @@ $installTests = Read-Host "  Install test tools? [Y/n]"
 if ($installTests -ne "n" -and $installTests -ne "N") {
     $stepTimer = [System.Diagnostics.Stopwatch]::StartNew()
     Write-Host "  Installing pytest and psutil..."
-    & $PIP install pytest==9.0.2 psutil==7.2.2 @TRUSTED
+    & $PIP install pytest==9.0.2 psutil==7.2.2 --progress-bar on @TRUSTED 2>&1
     $stepTimer.Stop()
     Write-Ok "Test packages installed ($(Format-Elapsed $stepTimer))"
 } else {
