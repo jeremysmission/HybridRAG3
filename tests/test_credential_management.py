@@ -86,11 +86,8 @@ class TestCredentialManagement:
         mock_keyring.get_password = fake_keyring_get
 
         with patch.dict("sys.modules", {"keyring": mock_keyring}):
-            from src.security import credentials as creds_mod
-            # Force reimport to pick up mock
-            import importlib
-            importlib.reload(creds_mod)
-            result = creds_mod.resolve_credentials()
+            from src.security.credentials import resolve_credentials
+            result = resolve_credentials()
 
         assert result.deployment == "keyring-deployment", (
             f"Expected keyring value, got: {result.deployment}"
@@ -113,10 +110,8 @@ class TestCredentialManagement:
         mock_keyring.get_password = fake_keyring_get
 
         with patch.dict("sys.modules", {"keyring": mock_keyring}):
-            from src.security import credentials as creds_mod
-            import importlib
-            importlib.reload(creds_mod)
-            result = creds_mod.resolve_credentials()
+            from src.security.credentials import resolve_credentials
+            result = resolve_credentials()
 
         assert result.deployment == "env-deploy"
         assert "env:" in result.source_deployment
@@ -138,10 +133,8 @@ class TestCredentialManagement:
         mock_keyring.get_password = fake_keyring_get
 
         with patch.dict("sys.modules", {"keyring": mock_keyring}):
-            from src.security import credentials as creds_mod
-            import importlib
-            importlib.reload(creds_mod)
-            result = creds_mod.resolve_credentials()
+            from src.security.credentials import resolve_credentials
+            result = resolve_credentials()
 
         assert result.deployment == "gpt-4o"
         assert result.source_deployment == "extracted_from_url"
@@ -167,10 +160,8 @@ class TestCredentialManagement:
         mock_keyring.get_password = fake_keyring_get
 
         with patch.dict("sys.modules", {"keyring": mock_keyring}):
-            from src.security import credentials as creds_mod
-            import importlib
-            importlib.reload(creds_mod)
-            status = creds_mod.credential_status()
+            from src.security.credentials import credential_status
+            status = credential_status()
 
         assert status["api_key_set"] is True
         assert status["api_endpoint_set"] is True
@@ -198,10 +189,8 @@ class TestCredentialManagement:
         mock_keyring.get_password = fake_keyring_get
 
         with patch.dict("sys.modules", {"keyring": mock_keyring}):
-            from src.security import credentials as creds_mod
-            import importlib
-            importlib.reload(creds_mod)
-            status = creds_mod.credential_status()
+            from src.security.credentials import credential_status
+            status = credential_status()
 
         assert status["deployment_set"] is False
         self._clear_env()
@@ -216,10 +205,8 @@ class TestCredentialManagement:
         mock_keyring.delete_password = MagicMock()
 
         with patch.dict("sys.modules", {"keyring": mock_keyring}):
-            from src.security import credentials as creds_mod
-            import importlib
-            importlib.reload(creds_mod)
-            creds_mod.clear_credentials()
+            from src.security.credentials import clear_credentials
+            clear_credentials()
 
         deleted_keys = [
             call.args[1]
@@ -242,10 +229,8 @@ class TestCredentialManagement:
         mock_keyring.get_password = MagicMock(return_value=None)
 
         with patch.dict("sys.modules", {"keyring": mock_keyring}):
-            from src.security import credentials as creds_mod
-            import importlib
-            importlib.reload(creds_mod)
-            status = creds_mod.credential_status()
+            from src.security.credentials import credential_status
+            status = credential_status()
 
         assert "deployment_set" in status
         assert "api_version_set" in status
@@ -273,10 +258,8 @@ class TestCredentialManagement:
         mock_keyring.get_password = fake_keyring_get
 
         with patch.dict("sys.modules", {"keyring": mock_keyring}):
-            from src.security import credentials as creds_mod
-            import importlib
-            importlib.reload(creds_mod)
-            result = creds_mod.resolve_credentials()
+            from src.security.credentials import resolve_credentials
+            result = resolve_credentials()
 
         assert not result.has_key, "Empty string should not count as having a key"
         assert not result.has_endpoint, "Whitespace should not count as having an endpoint"

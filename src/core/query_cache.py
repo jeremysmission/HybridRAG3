@@ -97,6 +97,7 @@ class CacheEntry:
     result: dict
     timestamp: float
     last_accessed: float
+    access_order: int = 0
     hit_count: int = 0
 
 
@@ -166,6 +167,12 @@ class QueryCache:
 
         # Monotonic counter for generating unique cache keys.
         self._counter: int = 0
+
+        # Monotonic access counter for LRU ordering.
+        # time.time() on Windows has ~15ms resolution, so entries created
+        # in rapid succession get identical timestamps. This counter
+        # provides a reliable tie-breaker for LRU eviction.
+        self._access_counter: int = 0
 
         # Stats counters
         self._hits: int = 0
@@ -283,6 +290,8 @@ class QueryCache:
                 entry = self._entries[best_key]
                 entry.hit_count += 1
                 entry.last_accessed = now
+                self._access_counter += 1
+                entry.access_order = self._access_counter
                 self._hits += 1
                 self._logger.info(
                     "cache_hit",
@@ -343,12 +352,14 @@ class QueryCache:
             self._counter += 1
             cache_key = f"q_{self._counter}"
 
+            self._access_counter += 1
             self._entries[cache_key] = CacheEntry(
                 query_text=query_text,
                 query_embedding=np.array(query_embedding, dtype=np.float32),
                 result=result,
                 timestamp=now,
                 last_accessed=now,
+                access_order=self._access_counter,
                 hit_count=0,
             )
 
@@ -446,7 +457,7 @@ class QueryCache:
 
         lru_key = min(
             self._entries,
-            key=lambda k: self._entries[k].last_accessed,
+            key=lambda k: self._entries[k].access_order,
         )
         evicted = self._entries.pop(lru_key)
         self._logger.debug(

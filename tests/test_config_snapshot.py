@@ -44,7 +44,7 @@ def _make_config(**overrides) -> Config:
     """Create a Config with sensible test defaults, allowing overrides."""
     defaults = dict(
         mode="offline",
-        paths=PathsConfig(database="/tmp/test.db", embeddings_cache="/tmp/cache"),
+        paths=PathsConfig(database="test.db", embeddings_cache="test_cache"),
         embedding=EmbeddingConfig(model_name="test-embed", dimension=768),
         chunking=ChunkingConfig(chunk_size=1200, overlap=200),
         ollama=OllamaConfig(base_url="http://localhost:11434", model="phi4-mini"),
@@ -71,7 +71,7 @@ def test_snapshot_is_deep_copy():
 
     # Snapshot should still have original values
     assert snap.mode == "offline"
-    assert snap.paths.database == "/tmp/test.db"
+    assert snap.paths.database == "test.db"
     assert snap.retrieval.top_k == 8
 
 
