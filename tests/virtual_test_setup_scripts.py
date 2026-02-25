@@ -33,7 +33,8 @@ def read_script(name):
     path = PROJECT_ROOT / "tools" / name
     if not path.exists():
         return None
-    return path.read_text(encoding="utf-8", errors="replace")
+    # utf-8-sig strips BOM (expected on .ps1 files per standing rule)
+    return path.read_text(encoding="utf-8-sig", errors="replace")
 
 
 # ===================================================================
@@ -177,8 +178,8 @@ else:
     check("Detects Python 3.12", '"3.12"' in work)
     check("Detects Python 3.11", '"3.11"' in work)
     check("Detects Python 3.10", '"3.10"' in work)
-    check("Detects Python 3.9", '"3.9"' in work,
-          "work laptops may only have 3.9")
+    check("Does NOT accept Python 3.9", '"3.9"' not in work,
+          "faiss-cpu requires >= 3.10, 3.9 must not be offered")
 
     # Requirements
     check("Uses requirements_approved.txt",
@@ -288,6 +289,77 @@ if req_approved_path.exists():
           "YELLOW" in req_a or "applying" in req_a.lower())
 else:
     check("requirements_approved.txt exists", False)
+
+
+# ===================================================================
+# TEST GROUP 7: Cross-Runtime BOM Safety
+# ===================================================================
+# PowerShell 5.1's Set-Content/Out-File -Encoding UTF8 writes BOM.
+# BOM is correct for .ps1 files but BREAKS Python consumers (.yaml,
+# .ini, .cfg, .toml, .json).  Scripts must use WriteAllText() for
+# files consumed by Python.
+print("\n=== Cross-Runtime BOM Safety ===")
+
+# Pattern: files Python reads must NOT be written with -Encoding UTF8
+# (which adds BOM in PS 5.1).  Must use WriteAllText instead.
+PYTHON_CONSUMED_EXTENSIONS = (".yaml", ".ini", ".cfg", ".toml", ".json", ".txt")
+
+for script_name, content in [("setup_home.ps1", home), ("setup_work.ps1", work)]:
+    if not content:
+        continue
+
+    # Find all Set-Content/Out-File lines that write -Encoding UTF8
+    bom_write_lines = []
+    for i, line in enumerate(content.split("\n"), 1):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if ("-Encoding UTF8" in line or "-Encoding utf8" in line):
+            if "Set-Content" in line or "Out-File" in line:
+                bom_write_lines.append((i, stripped))
+
+    # Each BOM write must target a .ps1 file or a log file (not Python-consumed)
+    for lineno, line in bom_write_lines:
+        targets_ps1 = "$startScript" in line or ".ps1" in line
+        targets_log = "$LOG_FILE" in line or "log" in line.lower()
+        is_python_target = False
+        for ext in PYTHON_CONSUMED_EXTENSIONS:
+            if ext in line:
+                is_python_target = True
+                break
+        # Also check for generic config paths
+        if "$configPath" in line or "pip.ini" in line or "pip.conf" in line:
+            is_python_target = True
+
+        if is_python_target:
+            check(f"{script_name}:{lineno} no BOM on Python file",
+                  False,
+                  f"Set-Content/Out-File -Encoding UTF8 writes BOM -- use WriteAllText: {line[:80]}")
+        elif not targets_ps1 and not targets_log:
+            check(f"{script_name}:{lineno} BOM target identified",
+                  True)  # unrecognized but not flagged
+
+    # Positive check: Python-consumed files MUST use WriteAllText
+    if "WriteAllText" in content:
+        check(f"{script_name} uses WriteAllText for Python files", True)
+    else:
+        check(f"{script_name} uses WriteAllText for Python files", False,
+              "no WriteAllText found -- Python-consumed files may get BOM")
+
+    # YAML config must NOT use Set-Content
+    yaml_set_content = re.search(
+        r'Set-Content.*\$configPath.*-Encoding UTF8', content)
+    check(f"{script_name} YAML config avoids Set-Content BOM",
+          yaml_set_content is None,
+          "default_config.yaml written with Set-Content -Encoding UTF8 (adds BOM)")
+
+    # pip.ini must NOT use Out-File
+    pipini_outfile = re.search(
+        r'Out-File.*pip\.ini.*-Encoding UTF8|Out-File.*\$pipIni.*-Encoding UTF8',
+        content)
+    check(f"{script_name} pip.ini avoids Out-File BOM",
+          pipini_outfile is None,
+          "pip.ini written with Out-File -Encoding UTF8 (adds BOM)")
 
 
 # ===================================================================

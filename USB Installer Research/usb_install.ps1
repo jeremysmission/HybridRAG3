@@ -1,4 +1,4 @@
-# ============================================================================
+﻿# ============================================================================
 # HybridRAG3 -- USB Offline Installer
 # Date: 2026-02-25
 # Status: RESEARCH / PROTOTYPE
@@ -149,6 +149,13 @@ if (-not (Test-Path "$INSTALL_DIR")) {
     New-Item -ItemType Directory -Path "$INSTALL_DIR" -Force | Out-Null
 }
 robocopy "$USB_ROOT\HybridRAG3" "$INSTALL_DIR" /E /XD __pycache__ /XF *.pyc /NJH /NJS /NDL /NFL | Out-Null
+# BUG 11 FIX: robocopy exit codes 0-3 = success, 4+ = error
+if ($LASTEXITCODE -ge 4) {
+    Write-Fail "File copy failed (robocopy exit code $LASTEXITCODE)"
+    exit 1
+}
+# Reset LASTEXITCODE -- robocopy returns 1 for "new files copied" which is success
+$global:LASTEXITCODE = 0
 Write-Ok "Source code copied to $INSTALL_DIR"
 Set-Location "$INSTALL_DIR"
 
@@ -159,7 +166,8 @@ Write-Step 3 "Checking Python"
 
 $PY_EXE = $null
 $PY_VER_FLAG = $null
-foreach ($ver in @("3.12", "3.11", "3.10", "3.9")) {
+# BUG 10 FIX: faiss-cpu requires Python >= 3.10, drop 3.9
+foreach ($ver in @("3.12", "3.11", "3.10")) {
     try {
         $result = & py "-$ver" --version 2>&1
         if ($LASTEXITCODE -eq 0) {
@@ -257,8 +265,13 @@ $PYTHON = "$INSTALL_DIR\.venv\Scripts\python.exe"
 $PIP = "$INSTALL_DIR\.venv\Scripts\pip.exe"
 
 # Upgrade pip (from USB cache, no internet needed)
+# BUG 8 FIX: check exit code after pip upgrade
 & $PYTHON -m pip install --upgrade pip --no-index --find-links="$USB_ROOT\wheels" 2>&1 | Out-Null
-Write-Ok "pip upgraded (from USB cache)"
+if ($LASTEXITCODE -ne 0) {
+    Write-Warn "pip upgrade failed (using existing version)"
+} else {
+    Write-Ok "pip upgraded (from USB cache)"
+}
 
 # ==================================================================
 # Step 6: Install packages OFFLINE from USB wheels
@@ -318,9 +331,13 @@ if (Test-Path "$configPath") {
     $content = Get-Content "$configPath" -Raw -Encoding UTF8
     $dbPath = "$DATA_DIR\hybridrag.sqlite3"
     $embPath = "$DATA_DIR\_embeddings"
-    $content = $content -replace '(?m)^(\s*database:\s*).*$', "`$1$dbPath"
-    $content = $content -replace '(?m)^(\s*embeddings_cache:\s*).*$', "`$1$embPath"
-    $content = $content -replace '(?m)^(\s*source_folder:\s*).*$', "`$1$SOURCE_DIR"
+    # BUG 3 FIX: escape $ in paths so -replace does not treat them as backreferences
+    $safeDbPath = $dbPath.Replace('$', '$$')
+    $safeEmbPath = $embPath.Replace('$', '$$')
+    $safeSrcDir = $SOURCE_DIR.Replace('$', '$$')
+    $content = $content -replace '(?m)^(\s*database:\s*).*$', "`$1$safeDbPath"
+    $content = $content -replace '(?m)^(\s*embeddings_cache:\s*).*$', "`$1$safeEmbPath"
+    $content = $content -replace '(?m)^(\s*source_folder:\s*).*$', "`$1$safeSrcDir"
     # YAML is consumed by Python -- must NOT have BOM (Set-Content adds BOM in PS 5.1)
     [System.IO.File]::WriteAllText($configPath, $content)
     Write-Ok "Config updated"
@@ -371,6 +388,13 @@ if (Test-Path "$usbModels\manifests") {
     }
 
     robocopy "$usbModels" "$localOllama" /E /NJH /NJS /NDL /NFL | Out-Null
+    # BUG 11 FIX: robocopy exit codes 0-3 = success, 4+ = error
+    if ($LASTEXITCODE -ge 4) {
+        Write-Fail "File copy failed (robocopy exit code $LASTEXITCODE)"
+        exit 1
+    }
+    # Reset LASTEXITCODE -- robocopy returns 1 for "new files copied" which is success
+    $global:LASTEXITCODE = 0
     Write-Ok "Ollama models installed from USB"
 } else {
     Write-Warn "No pre-downloaded models found on USB"
@@ -398,15 +422,15 @@ try {
 # ==================================================================
 Write-Step 9 "Running verification"
 
+# BUG 19 FIX: use exit code instead of fragile output parsing
 $hasPytest = & $PYTHON -c "import pytest" 2>&1
 if ($LASTEXITCODE -eq 0) {
-    $pytestResult = & $PYTHON -m pytest tests/ --ignore=tests/test_fastapi_server.py -q --tb=no 2>&1
-    $lastLine = ($pytestResult | Select-Object -Last 1)
-    Write-Host "  $lastLine"
-    if ($lastLine -match "passed") {
-        Write-Ok "Verification passed"
+    & $PYTHON -m pytest tests/ --ignore=tests/test_fastapi_server.py -q --tb=no 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Ok "Verification: all tests passed"
     } else {
-        Write-Warn "Some tests may have failed -- this is usually OK"
+        Write-Warn "Some tests failed (exit code $LASTEXITCODE)"
+        Write-Host "  Run manually: python -m pytest tests/ -q"
     }
 } else {
     Write-Warn "pytest not available -- skipping verification"

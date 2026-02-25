@@ -1,4 +1,4 @@
-# ============================================================================
+﻿# ============================================================================
 # HybridRAG3 -- Automated Home/Personal Setup
 # Date: 2026-02-25
 # Uses: requirements.txt (personal, more software liberty)
@@ -431,9 +431,13 @@ if (Test-Path "$configPath") {
     $content = Get-Content "$configPath" -Raw -Encoding UTF8
     $dbPath = "$DATA_DIR\hybridrag.sqlite3"
     $embPath = "$DATA_DIR\_embeddings"
-    $content = $content -replace '(?m)^(\s*database:\s*).*$', "`$1$dbPath"
-    $content = $content -replace '(?m)^(\s*embeddings_cache:\s*).*$', "`$1$embPath"
-    $content = $content -replace '(?m)^(\s*source_folder:\s*).*$', "`$1$SOURCE_DIR"
+    # BUG 3 fix: escape $ in paths so -replace does not treat them as backreferences
+    $safeDbPath = $dbPath.Replace('$', '$$')
+    $safeEmbPath = $embPath.Replace('$', '$$')
+    $safeSrcDir = $SOURCE_DIR.Replace('$', '$$')
+    $content = $content -replace '(?m)^(\s*database:\s*).*$', "`$1$safeDbPath"
+    $content = $content -replace '(?m)^(\s*embeddings_cache:\s*).*$', "`$1$safeEmbPath"
+    $content = $content -replace '(?m)^(\s*source_folder:\s*).*$', "`$1$safeSrcDir"
     # YAML is consumed by Python -- must NOT have BOM (Set-Content adds BOM in PS 5.1)
     [System.IO.File]::WriteAllText($configPath, $content)
     Write-Ok "Config updated with your paths"

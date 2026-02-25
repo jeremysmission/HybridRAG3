@@ -10,6 +10,9 @@ Web/forum research permitted without asking.
 - No non-ASCII characters in scripts
 - No inline Python in PowerShell functions
 - PowerShell: UTF-8 BOM, CRLF, one command per code block, only @'...'@ here-strings
+- BOM rule applies to .ps1 files ONLY. Files written by PowerShell for Python consumers
+  (.yaml, .ini, .cfg, .toml, .json) MUST use [System.IO.File]::WriteAllText() (no BOM).
+  Set-Content/Out-File -Encoding UTF8 adds BOM in PS 5.1 which breaks Python parsers.
 - Log output tags: [OK] [FAIL] [WARN] -- never em-dashes
 - Zero-trust offline-default architecture
 - Never commit API keys, secrets, model cache files, or zips (except releases/)
