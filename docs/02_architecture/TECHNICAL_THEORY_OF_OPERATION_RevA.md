@@ -1,16 +1,17 @@
 # HybridRAG3 -- Technical Theory of Operation
 
-Revision: A | Date: 2026-02-22
+Revision: B | Date: 2026-02-25
 
 ---
 
 ## 1. System Architecture Overview
 
 HybridRAG3 is a local-first Retrieval-Augmented Generation (RAG) system
-with dual-mode LLM routing (offline via Ollama, online via OpenAI-compatible
-API), hybrid search (vector + BM25 via Reciprocal Rank Fusion), a 5-layer
-hallucination guard, and a centralized network gate enforcing zero-trust
-outbound access control.
+with quad-mode LLM routing (Transformers direct, vLLM, Ollama, or
+OpenAI-compatible API), hybrid search (vector + BM25 via Reciprocal Rank
+Fusion), a semantic query cache, a 5-layer hallucination guard, PII
+scrubbing, and a centralized network gate enforcing zero-trust outbound
+access control.
 
 ```
      INDEXING PIPELINE                    QUERY PIPELINE
@@ -19,35 +20,38 @@ outbound access control.
      (.pdf, .docx, ...)                        |
             |                                  v
             v                           +----------------+
-     +----------------+                 |   Embedder     |
-     | Parser         |                 |  (same model)  |
+     +----------------+                 | Query Cache    |
+     | Parser         |                 | (semantic LRU) |
      | Registry       |                 +----------------+
-     | (24+ ext)      |                        |
-     +----------------+                        v
-            |                           +----------------+
-            v                           |   Retriever    |
-     +----------------+                 |  Hybrid search |
-     | Chunker        |                 |  RRF k=60      |
-     | (1200c, 200    |                 +----------------+
-     |  overlap)      |                        |
-     +----------------+                        v
-            |                           +----------------+
-            v                           |  Query Engine  |
-     +----------------+                 |  9-rule prompt |
-     | Embedder       |                 |  + LLM call    |
-     | MiniLM-L6-v2   |                 +----------------+
-     | (384-dim)      |                        |
-     +----------------+                        v
-            |                           +----------------+
-            v                           | Hallucination  |
-     +----------------+                 | Guard          |
-     | VectorStore    |                 | (5-layer,      |
-     | SQLite + FTS5  |                 |  online only)  |
-     | Memmap f16     |                 +----------------+
-     +----------------+
-            ^                                  |
-            |                                  |
-            +--- Retriever reads from here ----+
+     | (28 parsers)   |                   |  miss    | hit
+     +----------------+                   v          v
+            |                       +-----------+  instant
+            v                       | Embedder  |  return
+     +----------------+             | (Ollama)  |
+     | Chunker        |             +-----------+
+     | (1200c, 200    |                   |
+     |  overlap)      |                   v
+     +----------------+             +----------------+
+            |                       |   Retriever    |
+            v                       |  Hybrid search |
+     +----------------+             |  RRF k=60      |
+     | Embedder       |             +----------------+
+     | nomic-embed    |                   |
+     | (768-dim)      |                   v
+     +----------------+             +----------------+
+            |                       |  Query Engine  |
+            v                       |  9-rule prompt |
+     +----------------+             |  + LLM call    |
+     | VectorStore    |             |  (streaming)   |
+     | SQLite + FTS5  |             +----------------+
+     | Memmap f16     |                   |
+     +----------------+                   v
+            ^                       +----------------+
+            |                       | Hallucination  |
+            |                       | Guard          |
+            +-- Retriever reads --> | (5-layer,      |
+                from here           |  online only)  |
+                                    +----------------+
 ```
 
 **Design priorities**: Offline operation, crash safety, low RAM usage,
@@ -63,17 +67,26 @@ boot.py  (entry point -- constructs all services)
   |-- credentials.py    (Windows Credential Manager / env var resolution)
   |-- network_gate.py   (URL allowlist, 3-mode access control)
   |-- api_client_factory.py  (builds httpx client with gate integration)
-  |-- embedder.py       (sentence-transformers model wrapper)
+  |-- embedder.py       (Ollama HTTP wrapper for nomic-embed-text)
   |-- vector_store.py   (SQLite + memmap dual store)
   |-- chunker.py        (text splitter with boundary detection)
   |-- indexer.py        (orchestrates parse -> chunk -> embed -> store)
   |-- retriever.py      (hybrid search: vector + BM25 + RRF)
-  |-- query_engine.py   (orchestrates search -> context -> LLM -> answer)
-  |-- llm_router.py     (Ollama or API routing, raw httpx)
+  |-- query_cache.py    (semantic LRU cache, cosine similarity keyed)
+  |-- query_engine.py   (orchestrates cache -> search -> context -> LLM -> answer)
+  |-- query_classifier.py (categorizes queries into 9 use-case profiles)
+  |-- query_expander.py (synonym expansion, rephrasing for better recall)
+  |-- llm_router.py     (TransformersRouter + vLLM + Ollama + API routing)
   |-- cost_tracker.py   (singleton cost accumulator + SQLite persistence)
-  +-- hallucination_guard/  (5-layer verification, online mode only)
+  |-- fault_analysis.py (severity classification, fix suggestions, flight recorder)
+  |-- golden_probe_checks.py  (automated health probes: Ollama, disk, index)
+  +-- hallucination_guard/    (5-layer verification, online mode only)
 
-parsers/registry.py  (extension -> parser class mapping)
+security/
+  |-- credentials.py         (keyring + env + config credential resolution)
+  +-- pii_scrubber.py        (regex PII detection, online mode only)
+
+parsers/registry.py  (extension -> parser class mapping, 28 parser files)
   |-- pdf_parser.py          (pdfplumber extraction)
   |-- pdf_ocr_fallback.py    (Tesseract fallback for scanned PDFs)
   |-- office_docx_parser.py  (python-docx paragraph extraction)
@@ -84,21 +97,35 @@ parsers/registry.py  (extension -> parser class mapping)
   |-- plain_text_parser.py   (direct UTF-8 read)
   +-- text_parser.py         (routing parser, delegates by extension)
 
+tools/
+  +-- bulk_transfer_v2.py    (enterprise file transfer with atomic writes)
+      |-- transfer_manifest.py  (SQLite manifest tracking every file)
+      +-- transfer_staging.py   (three-stage directory manager)
+
 gui/                         (tkinter desktop application, dark/light theme)
-  |-- app.py                 (main window, panel composition)
-  |-- theme.py               (dark/light theme definitions, toggle logic)
+  |-- app.py                 (main window, NavBar view switching)
+  |-- theme.py               (dark/light themes, zoom scaling 50%-200%)
+  |-- scrollable.py          (canvas+scrollbar wrapper for long views)
   |-- launch_gui.py          (entry point, boot + background loading)
   +-- panels/
-      |-- query_panel.py     (question input, answer display, metrics)
-      |-- index_panel.py     (folder picker, progress bar, start/stop)
+      |-- nav_bar.py         (horizontal tab bar: Query/Data/Settings/Cost/Ref)
+      |-- query_panel.py     (question input, streaming answer, metrics)
+      |-- index_panel.py     (indexer progress bar, start/stop)
+      |-- data_panel.py      (drive browser, bulk transfer, live progress)
       |-- status_bar.py      (live system health indicators)
-      |-- engineering_menu.py (tuning sliders, profile switch, test query)
-      +-- cost_dashboard.py   (PM cost dashboard, Toplevel child window)
+      |-- tuning_tab.py      (retrieval sliders, LLM tuning, profile switch)
+      |-- api_admin_tab.py   (credentials, data paths, model selection)
+      |-- cost_dashboard.py  (PM cost dashboard, ROI calculator)
+      |-- reference_panel.py (source document browser)
+      |-- setup_wizard.py    (first-run 4-step configuration)
+      +-- loading_overlay.py (splash screen during background boot)
 
 api/                         (FastAPI REST server)
   |-- server.py              (lifespan management, app factory)
   |-- routes.py              (endpoint handlers)
   +-- models.py              (Pydantic request/response schemas)
+
+mcp_server.py                (MCP server: JSON-RPC over stdio for AI agents)
 ```
 
 ---
@@ -107,7 +134,7 @@ api/                         (FastAPI REST server)
 
 ### 3.1 Parser Registry
 
-`src/parsers/registry.py` maps 24+ file extensions to parser classes.
+`src/parsers/registry.py` maps 24+ file extensions to 28 parser classes.
 Each parser implements:
 
 ```python
@@ -148,17 +175,26 @@ for the nearest section heading (ALL CAPS line, numbered section like
 
 ### 3.3 Embedder
 
-`src/core/embedder.py` calls Ollama's `/api/embed` endpoint with `nomic-embed-text`.
+`src/core/embedder.py` calls Ollama's `/api/embed` endpoint with
+`nomic-embed-text`. This replaced the previous sentence-transformers
+approach (MiniLM-L6-v2, 384-dim), removing ~2.5 GB of HuggingFace
+dependencies (torch, transformers, sentence-transformers).
 
-- Output: 768-dimensional normalized float32 vectors (each chunk becomes
-  a list of 384 numbers that act like GPS coordinates in "meaning space"
-  -- similar meanings land at nearby coordinates)
-- Dimension read from model at load time (never hardcoded)
+- Output: 768-dimensional L2-normalized float32 vectors
+- Dimension read from model response at probe time (never hardcoded)
 - Batch embedding for indexing (`embed_batch`), single for queries
   (`embed_query`)
-- Model loaded once, held in memory (~100 MB), released with `close()`
-- HuggingFace Hub downloads blocked at runtime via `HF_HUB_OFFLINE=1`
-  and `TRANSFORMERS_OFFLINE=1`; model must be pre-cached
+- HTTP client: `httpx` to `localhost:11434` (Ollama default)
+- Base URL configurable via `OLLAMA_HOST` environment variable
+- Model must be pre-pulled: `ollama pull nomic-embed-text`
+- No HuggingFace imports, no torch, no GPU required for embedding
+
+**Why nomic-embed-text**:
+- 768 dimensions: higher quality than 384-dim MiniLM
+- 8192 token context: handles long chunks without truncation
+- Served by Ollama: same server that runs the LLM, no extra dependencies
+- Apache 2.0 license: no use-case restrictions
+- ~274 MB model weight (managed by Ollama, not pip)
 
 ### 3.4 VectorStore (Dual Storage)
 
@@ -173,7 +209,7 @@ for the nearest section heading (ALL CAPS line, numbered section like
   restarts (same file + position = same ID)
 
 **Memmap** (`embeddings.f16.dat` + `embeddings_meta.json`):
-- Raw float16 matrix of shape `[N, 384]` memory-mapped via numpy
+- Raw float16 matrix of shape `[N, 768]` memory-mapped via numpy
 - Disk-backed: the OS loads only the pages being read, like reading
   specific pages from a book without loading the entire book into memory
 - 8 GB RAM laptop can search 10M+ embeddings
@@ -183,10 +219,10 @@ for the nearest section heading (ALL CAPS line, numbered section like
 **Why two systems**: SQLite handles structured queries. Memmap handles
 millions of vectors without loading them all into RAM.
 
-**Why float16**: Halves storage (0.75 GB vs 1.5 GB per million chunks)
-with negligible quality loss. Like rounding GPS coordinates to 3 decimal
-places instead of 6 -- you lose sub-meter precision but still find the
-right neighborhood.
+**Why float16**: Halves storage (1.5 GB vs 3.0 GB per million 768-dim
+chunks) with negligible quality loss. Like rounding GPS coordinates to
+3 decimal places instead of 6 -- you lose sub-meter precision but still
+find the right neighborhood.
 
 **Why memmap over FAISS**: Simpler, no C++ dependencies, sufficient for
 < 500K chunks. Migration to FAISS IVF planned for scale-out (see
@@ -202,7 +238,7 @@ right neighborhood.
 4. Parse to raw text via ParserRegistry
 5. Process in 200K character blocks to cap peak RAM
 6. Chunk text into overlapping segments
-7. Embed chunks in batches
+7. Embed chunks in batches via Ollama
 8. Store chunks in SQLite and embeddings in memmap
 9. Garbage collect between files to bound RAM usage
 10. Delete orphaned chunks (source file deleted since last run)
@@ -215,7 +251,27 @@ from sleeping during long indexing runs (6+ hours overnight).
 
 ## 4. Query Pipeline
 
-### 4.1 Retriever (Hybrid Search)
+### 4.1 Semantic Query Cache
+
+`src/core/query_cache.py` -- LRU cache keyed by embedding cosine
+similarity. Checked before the full retrieval + LLM pipeline runs.
+
+**Key properties:**
+- Semantic matching: compares 768-dim query embeddings via cosine
+  similarity, threshold 0.95 (conservative). "What is the max temp?"
+  matches "What is the maximum temperature?" without exact string match.
+- LRU eviction: monotonic access counter breaks ties on Windows (where
+  `time.time()` has ~15ms resolution). Max 500 entries default.
+- Thread-safe: `threading.Lock` on all get/put operations.
+- Disabled during eval: `cache.enabled = False` prevents masking
+  regressions in the evaluation harness.
+- Pure in-memory: ephemeral, dies with process. Stale cached answers
+  are worse than no cache at all.
+
+**Performance**: Similarity search is O(N) where N = cache size. With
+768-dim normalized vectors, numpy dot product over 500 entries < 0.1ms.
+
+### 4.2 Retriever (Hybrid Search)
 
 `src/core/retriever.py` implements three search strategies:
 
@@ -250,25 +306,29 @@ injection (100->46%), and ambiguous (100->82%) scores.
 | Setting | Default | Purpose |
 |---------|---------|---------|
 | `hybrid_search` | true | Enable vector + BM25 fusion |
-| `top_k` | 12 | Chunks sent to LLM |
+| `top_k` | 5 | Chunks sent to LLM |
 | `min_score` | 0.10 | Minimum similarity to include |
 | `rrf_k` | 60 | RRF smoothing constant |
 | `reranker_enabled` | false | Cross-encoder reranking |
 | `reranker_top_n` | 20 | Candidates for reranker |
 
-### 4.2 Query Engine
+### 4.3 Query Engine
 
 `src/core/query_engine.py` orchestrates the full query:
 
-1. Embed user query via `embedder.embed_query()`
-2. Retrieve top-K chunks via `retriever.search()`
-3. Build context string from retrieved chunks
-4. Construct LLM prompt using 9-rule source-bounded generation
-5. Route to LLM via `llm_router` (offline or online)
-6. Calculate token cost estimate (online mode)
-7. Return `QueryResult(answer, sources, tokens, cost, latency, mode)`
+1. Check semantic cache for near-identical previous query
+2. If cache miss: embed user query via `embedder.embed_query()`
+3. Classify query into use-case profile via `query_classifier`
+4. Optionally expand query with synonyms via `query_expander`
+5. Retrieve top-K chunks via `retriever.search()`
+6. Build context string from retrieved chunks
+7. Construct LLM prompt using 9-rule source-bounded generation
+8. Route to LLM via `llm_router` (offline or online, streaming or batch)
+9. Calculate token cost estimate (online mode)
+10. Store result in semantic cache
+11. Return `QueryResult(answer, sources, tokens, cost, latency, mode)`
 
-**9-rule prompt system** (`_build_prompt()`, ~line 239):
+**9-rule prompt system** (`_build_prompt()`):
 - Priority: injection/refusal > ambiguity > accuracy > formatting
 - Rule 5 (injection): refer to false claims generically, never name them
 - Rule 8 (source quality): filters indexed test metadata
@@ -279,23 +339,54 @@ without calling LLM. LLM timeout still returns search results with
 error flag. Every path returns a valid `QueryResult` -- no exceptions
 propagate.
 
-### 4.3 LLM Router
+### 4.4 LLM Router
 
-`src/core/llm_router.py` routes to the appropriate backend:
+`src/core/llm_router.py` routes to the appropriate backend. Four router
+classes, one orchestrator:
 
+- **Offline (TransformersRouter)**: Loads a HuggingFace model directly
+  into GPU memory using 4-bit quantization (bitsandbytes). Fits 14B
+  parameter models into 12 GB VRAM. Highest priority in offline mode
+  when `transformers_llm.enabled=true`. Dependencies lazy-imported
+  (transformers, torch, accelerate, bitsandbytes -- only when enabled).
+  Config: `transformers_llm.model`, `load_in_4bit`, `device_map`.
 - **Offline (VLLMRouter)**: HTTP POST to `localhost:8000/v1/chat/completions`.
-  OpenAI-compatible API served by vLLM. Preferred when `vllm.enabled=true`
-  and the server is reachable. Provides continuous batching, prefix caching,
-  and tensor parallelism across GPUs. Falls back to Ollama silently if
-  vLLM is not running.
+  OpenAI-compatible API served by vLLM. Provides continuous batching,
+  prefix caching, and tensor parallelism across GPUs. Falls back to
+  Ollama silently if vLLM is not running.
 - **Offline (OllamaRouter)**: HTTP POST to `localhost:11434/api/generate`.
-  Default timeout 600s (CPU inference is slow). Serves as fallback when
-  vLLM is unavailable or disabled.
+  Default timeout 600s (CPU inference is slow). Serves as universal
+  fallback when vLLM and Transformers are unavailable.
 - **Online (APIRouter)**: HTTP POST to OpenAI-compatible
-  `/v1/chat/completions`. Uses `openai` SDK (v1.45.1). Supports Azure
-  OpenAI and standard OpenAI endpoints with deployment discovery.
+  `/v1/chat/completions`. Uses `openai` SDK. Supports Azure OpenAI,
+  Azure Government, and standard OpenAI endpoints with deployment
+  discovery. PII scrubbing runs before any data is sent (see section 6.1).
+
+**Priority order**: TransformersRouter > VLLMRouter > OllamaRouter
+(offline mode). APIRouter used only in online mode.
 
 Network Gate is checked before every outbound connection.
+
+**Streaming support:**
+
+| Backend | Streaming | Mechanism |
+|---------|-----------|-----------|
+| OllamaRouter | Yes | `httpx.stream()` + `iter_lines()`, `"stream": true` in payload |
+| VLLMRouter | Yes | SSE via `/v1/chat/completions` with `"stream": true` |
+| TransformersRouter | No | Falls back to single-chunk yield |
+| APIRouter | No | Single-chunk yield |
+
+All backends expose `query_stream(prompt)` returning a `Generator` that
+yields `{"token": text}` dicts for incremental display and a final
+`{"done": True, "tokens_in": N, "tokens_out": N, "latency_ms": N}`.
+
+**Dual-environment proxy support** (online mode):
+- `_build_httpx_client()` reads `HTTPS_PROXY`, `REQUESTS_CA_BUNDLE`,
+  and `SSL_CERT_FILE` environment variables
+- Auto-detects provider (Azure, Azure Government, standard OpenAI)
+  from endpoint URL
+- Separate config for home network (direct) vs work network (proxy +
+  custom CA bundle)
 
 **Deployment discovery** (online mode):
 - `_deployment_cache`: caches available deployments
@@ -331,7 +422,27 @@ network). Validates all guard components are importable and intact.
 
 ## 6. Security Architecture
 
-### 6.1 Network Gate
+### 6.1 PII Scrubber
+
+`src/security/pii_scrubber.py` -- Regex-based PII detection and
+replacement. Active only on the online code path when
+`security.pii_sanitization` is enabled (default: true).
+
+**Patterns** (order matters -- most specific first):
+
+| Pattern | Placeholder | Example |
+|---------|-------------|---------|
+| SSN | `[SSN]` | 123-45-6789 |
+| Credit card | `[CARD]` | 4111-1111-1111-1111 |
+| Email | `[EMAIL]` | user@example.com |
+| Phone (US) | `[PHONE]` | (555) 123-4567, +1-555-123-4567 |
+| IPv4 | `[IP]` | 192.168.1.1 (skips 127.x.x.x) |
+
+`scrub_pii(text) -> (scrubbed_text, replacement_count)`. Compiled regex
+patterns at module load time. No external dependencies (stdlib re only).
+Called by `APIRouter.query()` before sending to the cloud API.
+
+### 6.2 Network Gate
 
 `src/core/network_gate.py` -- Centralized outbound access control.
 
@@ -346,26 +457,33 @@ if URL is not in allowlist. Works like a building security desk: every
 visitor (URL) is checked against the guest list, and every visit
 (allowed or denied) is written in the log book.
 
-### 6.2 Three-Layer Network Lockdown
+### 6.3 Network Lockdown
 
 | Layer | Mechanism | Blocks |
 |-------|-----------|--------|
-| 1. PowerShell | `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1` | HuggingFace model downloads |
-| 2. Python | `os.environ` enforcement before import | HuggingFace in any Python process |
-| 3. Application | NetworkGate URL allowlist | All other outbound URLs |
+| 1. Application | NetworkGate URL allowlist | All outbound URLs |
+| 2. Configuration | SEC-001: API endpoint defaults to empty | Accidental cloud calls |
 
-All three must fail before unauthorized data leaves the machine.
+With the migration from sentence-transformers to Ollama-served embeddings,
+the HuggingFace lockdown layers (HF_HUB_OFFLINE, TRANSFORMERS_OFFLINE)
+are no longer required for the core pipeline. These environment variables
+are still set when the optional TransformersRouter is enabled (4-bit GPU
+inference) to prevent model downloads at runtime.
 
-### 6.3 Credential Management
+### 6.4 Credential Management
 
 `src/security/credentials.py` resolves API keys (priority order):
 1. Windows Credential Manager (DPAPI encrypted, tied to Windows login)
 2. Environment variable (`HYBRIDRAG_API_KEY`)
 3. Config file (not recommended, logged as warning)
 
-Extended credential fields: api_key, endpoint, deployment, api_version.
-`source_*` fields track provenance. Keys never logged in full --
-`key_preview()` returns masked form (`sk-...xxxx`).
+Extended credential fields: api_key, endpoint, deployment, api_version,
+provider, auth_scheme. `source_*` fields track provenance. Keys never
+logged in full -- `key_preview()` returns masked form (`sk-...xxxx`).
+
+Provider resolution supports dual-environment deployment:
+- `HYBRIDRAG_API_PROVIDER` env var or keyring entry
+- Auto-detection from endpoint URL (Azure vs Azure Government vs OpenAI)
 
 ---
 
@@ -375,14 +493,15 @@ Extended credential fields: api_key, endpoint, deployment, api_version.
 
 1. Record `boot_timestamp` (ISO format)
 2. Load YAML configuration
-3. Resolve credentials via `credentials.py`
+3. Resolve credentials via `credentials.py` (including provider)
 4. Validate config + credentials together
 5. Validate endpoint URL format (`http://` or `https://` prefix)
 6. Configure NetworkGate to appropriate mode
 7. Build API client (if online + credentials available)
 8. Probe Ollama (if offline configured)
-9. Return `BootResult` with `success`, `online_available`,
-   `offline_available`, `warnings[]`, `errors[]`, and `summary()`
+9. Probe vLLM (if enabled, non-blocking)
+10. Return `BootResult` with `success`, `online_available`,
+    `offline_available`, `warnings[]`, `errors[]`, and `summary()`
 
 Never crashes on missing credentials -- marks mode as unavailable and
 continues. Like a car that starts even if the GPS is not connected.
@@ -392,33 +511,77 @@ Offline mode always works even without API configuration.
 
 ## 8. GUI Architecture
 
-`src/gui/` -- Tkinter desktop application (Python stdlib, zero deps).
+`src/gui/` -- Tkinter desktop application (Python stdlib, zero extra GUI deps).
 
-**Startup sequence:**
-1. Boot pipeline runs (2-4 seconds)
-2. Window opens immediately
-3. Heavy backends (embedder, vector store, query engine) load in a
+### 8.1 Startup Sequence
+
+1. Check if first-run setup is needed (`needs_setup()`)
+2. If needed, show Setup Wizard (4-step modal: welcome, data paths,
+   mode selection, review/confirm)
+3. Boot pipeline runs (2-4 seconds)
+4. Main window opens with loading overlay
+5. Heavy backends (embedder, vector store, query engine) load in a
    background thread via `queue.Queue` + `root.after(100, poll)` pattern
-4. Panels become functional when backends finish
+6. Loading overlay dismisses when backends finish
+7. Views become functional
 
-**Panels:**
-- **Query Panel**: Use-case dropdown, model auto-selection, question
-  input, answer display with sources, latency/token/cost metrics
-- **Index Panel**: Folder picker, Start/Stop, progress bar, status
-- **Status Bar**: Live 5-second refresh -- Ollama status, LLM model,
-  Network Gate mode (color-coded green/red)
-- **Admin Menu**: Retrieval sliders (top_k, min_score, rrf_k),
-  LLM tuning (temperature, timeout), profile switching, model ranking
-- **PM Cost Dashboard**: Toplevel child window opened from the Admin
-  menu. Displays live session spend, budget gauge, token breakdown,
-  data volume, cumulative team stats, and editable pricing rates.
-  Backed by the CostTracker singleton (see section 8.1).
+### 8.2 NavBar View Switching
+
+`src/gui/panels/nav_bar.py` -- Horizontal segmented control at the top
+of the main window. Replaces old multi-window navigation.
+
+Tabs: **Query** | **Data** | **Settings** | **Cost** | **Ref**
+
+Visual feedback: colored background + bold font + 3px accent underline
+for the active tab. Tab switching via `pack_forget()`/`pack()` -- instant,
+no rebuilding. Lazy-built views: Settings, Cost, Ref built on first access;
+Query built eagerly on startup.
+
+### 8.3 Views
+
+- **Query View** (`query_panel.py`): Use-case dropdown, model auto-selection,
+  question input, streaming answer display with sources, latency/token/cost
+  metrics. Answers stream token-by-token in offline mode (Ollama/vLLM).
+- **Data View** (`data_panel.py` + `index_panel.py`): Drive browser, folder
+  picker, bulk transfer from network drives with live progress/ETA/per-extension
+  breakdown. Indexer panel with Start/Stop and progress bar.
+- **Settings View** (`tuning_tab.py` + `api_admin_tab.py`):
+  - Tuning tab: Retrieval sliders (top_k, min_score, rrf_k), LLM tuning
+    (temperature, timeout), hardware profile switching, model ranking table
+  - API Admin tab: API credentials with Test Connection, data paths with
+    folder pickers, PII scrubber toggle, online model selection with
+    benchmark scores, save/restore admin defaults
+- **Cost View** (`cost_dashboard.py`): Live session spend, budget gauge bar
+  (green/yellow/red at 60%/85%), token breakdown (input/output with rate
+  math), data volume, cumulative team stats, ROI calculator (time saved,
+  value saved, net ROI with team monthly projection), export CSV, editable
+  rate spinboxes.
+- **Reference View** (`reference_panel.py`): Source document browser.
+- **Status Bar** (`status_bar.py`): Live 5-second refresh -- Ollama status,
+  LLM model, Network Gate mode (color-coded green/red).
+
+### 8.4 GUI Infrastructure
+
+- **Theme** (`theme.py`): Dark/light toggle. Zoom scaling 50%-200% via
+  View menu. Recalculates all font tuples (FONT, FONT_BOLD, FONT_TITLE,
+  FONT_SECTION) on zoom change. `_theme_widget()` recursively applies
+  colors to frame hierarchies.
+- **Scrollable** (`scrollable.py`): `ScrollableFrame` wraps
+  Canvas + Scrollbar. Mousewheel binds on enter/leave. Inner frame width
+  syncs with canvas. Used by Settings, Cost, API Admin, and Data views.
+- **Loading Overlay** (`loading_overlay.py`): Splash screen during
+  background boot. Dismisses when backends finish loading.
+- **Setup Wizard** (`setup_wizard.py`): 4-page modal dialog for first-run
+  configuration. Bypassed when `setup_complete: true` in config or
+  `HYBRIDRAG_DATA_DIR` env var is set.
 
 **Threading safety**: All background work uses `queue.Queue` for
 thread-to-GUI communication. `threading.Event` for cancellation.
-Never `after_idle()` (known Tcl memory-exhaustion hazard).
+Never `after_idle()` (known Tcl memory-exhaustion hazard). All long
+operations (indexing, bulk transfer, API calls) run in daemon threads
+with GUI updates via `self.after(0, callback)`.
 
-### 8.1 Cost Tracking Subsystem
+### 8.5 Cost Tracking Subsystem
 
 `src/core/cost_tracker.py` -- In-memory cost accumulator with SQLite
 persistence for program management oversight.
@@ -457,22 +620,6 @@ registered listeners are invoked synchronously. The CostDashboard uses
 `self.after(0, self._refresh_all)` inside its listener to marshal the
 update onto the Tk main thread safely.
 
-**CostDashboard** (`src/gui/panels/cost_dashboard.py`):
-- `tk.Toplevel` child window, opened from Admin menu, one instance at
-  a time (re-raises existing window if already open)
-- 7-section vertical layout: header, big numbers row (session spend /
-  queries / avg cost), budget gauge bar (green/yellow/red color
-  transitions at 60% and 85%), token breakdown table (input/output
-  with rate math), data volume (KB sent/received), cumulative team
-  stats (all sessions from SQLite), editable rate spinboxes
-- Budget gauge reads `daily_budget_usd` from CostConfig (default $5.00)
-- ROI Calculator section with three live metrics (TIME SAVED, VALUE SAVED,
-  NET ROI), editable parameters (hourly rate, team size, minutes saved per
-  query), and a team monthly projection line with ROI%
-- Export CSV button writes all historical events to a user-chosen file
-- Unregisters its listener on window close to avoid orphan callbacks
-- Theme-aware: respects dark/light toggle from parent window
-
 **Data flow:**
 ```
 query_panel.py  --record()--> CostTracker (in-memory)
@@ -507,7 +654,94 @@ use context manager: `with TestClient(app) as client:` for lifespan.
 
 ---
 
-## 10. Exception Hierarchy
+## 10. MCP Server
+
+`mcp_server.py` -- Model Context Protocol server for AI agent integration.
+
+**Three tools exposed:**
+
+| Tool | Purpose |
+|------|---------|
+| `hybridrag_search(query)` | Search knowledge base, return answer + source citations |
+| `hybridrag_status()` | Return mode, model, availability status |
+| `hybridrag_index_status()` | Return document count and index statistics |
+
+**Key design:**
+- Lazy initialization: boots HybridRAG on first tool call, not at import
+  time. MCP clients checking tool availability do not trigger model loading.
+- Thread-safe: boot lock prevents race conditions on first concurrent call.
+- Logging to stderr (stdout reserved for MCP JSON-RPC protocol).
+- Protocol: JSON-RPC over stdio via FastMCP library.
+- No modifications to core modules needed -- imports and calls existing APIs.
+- Spawned by MCP clients (IDE extensions, AI tools), not run directly.
+
+---
+
+## 11. Bulk Transfer Engine
+
+`src/tools/bulk_transfer_v2.py` -- Enterprise file transfer for importing
+large document collections from network drives.
+
+**Key classes** (all under 500 lines):
+
+| Class | Purpose |
+|-------|---------|
+| `TransferConfig` | Settings: 8 workers, extension filter, size limits, bandwidth throttle |
+| `TransferStats` | Thread-safe counters with 30-second rolling speed window |
+| `SourceDiscovery` | Phase 1: walks sources, builds manifest, filters non-RAG files |
+| `AtomicTransferWorker` | Phase 2: per-file copy with retry, jitter, hash verification |
+| `BulkTransferV2` | Orchestrator coordinating discovery + workers |
+
+**Key capabilities:**
+- Atomic copy: write to `.tmp`, SHA-256 verify, atomic rename
+- Three-stage staging: incoming, verified, quarantine
+- Content-hash deduplication (O(1) manifest lookup)
+- Delta sync: mtime first-pass, hash second-pass
+- Symlink/junction loop detection
+- Long path support (>260 chars on Windows)
+- Live progress every 500ms with ETA from rolling speed
+- Per-source breakdown stats (copied, bytes, failures, skips)
+
+**Integration:**
+- SQLite manifest tracks every file (`transfer_manifest.py`)
+- Three-stage directory manager (`transfer_staging.py`)
+- GUI Data Panel polls stats live via `TransferStats` object
+
+---
+
+## 12. Health Monitoring (Golden Probes)
+
+`src/core/fault_analysis.py` + `src/core/golden_probe_checks.py` --
+Automated health monitoring system.
+
+**Severity levels:**
+
+| Level | Meaning | Action |
+|-------|---------|--------|
+| SEV-1 | Critical (DB corrupted) | Halt system |
+| SEV-2 | High (major feature broken) | Degrade gracefully |
+| SEV-3 | Medium (feature degraded) | Continue with warning |
+| SEV-4 | Low (cosmetic) | Weekly review |
+
+**Golden probes:**
+- `check_config_valid()` -- mode, nested objects, numeric ranges
+- `check_disk_space()` -- warns < 1 GB, fails < 100 MB
+- `probe_ollama_connectivity()` -- GET localhost:11434
+- `probe_api_connectivity()` -- GET /models endpoint
+- `probe_embedder_load()` -- Ollama /api/embed test
+- `probe_index_readability()` -- SQLite query speed test
+
+**Flight recorder**: Circular buffer of recent events (append-only,
+fixed size). Rewindable on failure to show events leading up to crash.
+Results logged to `logs/fault_analysis.jsonl`.
+
+**Error taxonomy** (11 classes): NETWORK_ERROR, AUTH_ERROR, API_ERROR,
+INDEX_ERROR, and 7 more, each mapped to troubleshooting playbooks with
+specific fix suggestions.
+
+---
+
+## 13. Exception Hierarchy
 
 `src/core/exceptions.py` -- Typed tree rooted at `HybridRAGError`.
 
@@ -524,7 +758,7 @@ Every exception includes `fix_suggestion: str` and `error_code: str`.
 
 ---
 
-## 11. Configuration System
+## 14. Configuration System
 
 `src/core/config.py` loads from `config/default_config.yaml`.
 
@@ -532,16 +766,20 @@ Every exception includes `fix_suggestion: str` and `error_code: str`.
 - `PathsConfig` -- database, embeddings_cache, source_folder
 - `EmbeddingConfig` -- model_name, dimension, batch_size, device
 - `ChunkingConfig` -- chunk_size, overlap, max_heading_len
-- `OllamaConfig` -- base_url, model, timeout_seconds, context_window
+- `OllamaConfig` -- base_url, model, timeout_seconds, context_window,
+  keep_alive, num_predict, num_thread
 - `VLLMConfig` -- base_url, model, timeout_seconds, context_window, enabled
-- `APIConfig` -- endpoint, model, max_tokens, temperature
-- `RetrievalConfig` -- top_k, min_score, hybrid_search, rrf_k
+- `TransformersLLMConfig` -- model, max_new_tokens, temperature,
+  load_in_4bit, device_map, trust_remote_code, enabled
+- `APIConfig` -- endpoint, model, max_tokens, temperature, provider,
+  auth_scheme, api_version, timeout_seconds
+- `RetrievalConfig` -- top_k, min_score, hybrid_search, rrf_k,
+  reranker_enabled, reranker_model, reranker_top_n, min_chunks
 - `CostConfig` -- track_enabled, input_cost_per_1k, output_cost_per_1k,
-  daily_budget_usd. Controls whether per-query cost events are recorded
-  and the daily spend warning threshold. Persistence file:
-  `logs/cost_tracking.db` (SQLite, managed by CostTracker singleton)
+  daily_budget_usd. Persistence file: `logs/cost_tracking.db`
 - `SecurityConfig` -- audit_logging, pii_sanitization
-- `HallucinationGuardConfig` -- thresholds, failure_action
+- `HallucinationGuardConfig` -- threshold, failure_action, nli_model,
+  chunk_prune_k, shortcircuit_pass/fail, enable_dual_path, enabled
 
 **Environment variable overrides**: `HYBRIDRAG_<SECTION>_<KEY>`.
 
@@ -553,9 +791,15 @@ Every exception includes `fix_suggestion: str` and `error_code: str`.
 | `desktop_power` | 32-64 GB | 64 | 10 |
 | `server_max` | 64+ GB | 128 | 15 |
 
+**Model download manifest** (`config/model_manifest.yaml`): Complete
+inventory of all AI model weights (embedding, LLM, optional NLI/reranker)
+with vendor, country, license, size, download source, air-gap transfer
+instructions, and security controls. Makes multi-GB model downloads
+auditable for compliance.
+
 ---
 
-## 12. Diagnostic Framework
+## 15. Diagnostic Framework
 
 `src/diagnostic/` -- 3-tier test and monitoring system.
 
@@ -566,11 +810,12 @@ Every exception includes `fix_suggestion: str` and `error_code: str`.
 | Performance | `perf_benchmarks.py` | Embedding speed, search latency, RAM |
 
 `fault_analysis.py`: Automated fault hypothesis engine. Classifies by
-severity, generates fix suggestions, tracks fault history.
+severity (SEV-1 through SEV-4), generates fix suggestions, tracks fault
+history via flight recorder. See section 12 for details.
 
 ---
 
-## 13. Storage Layout
+## 16. Storage Layout
 
 ```
 hybridrag.sqlite3
@@ -579,8 +824,8 @@ hybridrag.sqlite3
 |-- index_runs       (run_id, start_time, end_time, file counts)
 +-- query_log        (planned: query audit trail)
 
-embeddings.f16.dat   (raw float16 matrix, shape [N, 384])
-embeddings_meta.json ({"dim": 384, "count": N, "dtype": "float16"})
+embeddings.f16.dat   (raw float16 matrix, shape [N, 768])
+embeddings_meta.json ({"dim": 768, "count": N, "dtype": "float16"})
 
 logs/cost_tracking.db
 |-- cost_events     (per-query cost log: session, tokens, cost, latency)
@@ -589,24 +834,25 @@ logs/cost_tracking.db
 
 ---
 
-## 14. Model Compliance
+## 17. Model Compliance
 
 All offline models must pass regulatory review before deployment.
 Full audit: `docs/05_security/DEFENSE_MODEL_AUDIT.md`.
 
 **Approved publishers**: Microsoft (MIT), Mistral AI (Apache 2.0),
-Google (Apache 2.0), NVIDIA (Apache 2.0).
+Google (Apache 2.0), NVIDIA (Apache 2.0), Nomic AI (Apache 2.0).
 
 **Banned**: All China-origin (Alibaba, DeepSeek, BAAI). Meta/Llama
-(license restrictions). See `docs/waiver_cheat_sheet_v4b.xlsx`.
+(license restrictions).
 
 Model definitions: `scripts/_model_meta.py`, `scripts/_set_model.py`.
+Model manifest: `config/model_manifest.yaml`.
 Default offline model: `phi4-mini` (`config/default_config.yaml`).
 9 use-case profiles: sw, eng, pm, sys, log, draft, fe, cyber, gen.
 
 ---
 
-## 15. Evaluation System
+## 18. Evaluation System
 
 **Protected files** (NEVER modify):
 - `scripts/run_eval.py`, `tools/eval_runner.py`
@@ -624,24 +870,25 @@ Injection trap: AES_RE regex catches "AES-512" anywhere in answer text.
 
 ---
 
-## 16. Performance Characteristics
+## 19. Performance Characteristics
 
 | Metric | Value | Conditions |
 |--------|-------|-----------|
 | Embedding speed | ~100 chunks/sec | CPU, nomic-embed-text via Ollama |
 | Vector search | < 100 ms | 40K chunks, block scan |
 | FTS5 keyword search | < 10 ms | 40K chunks |
+| Cache hit | < 0.1 ms | Semantic LRU, 768-dim cosine |
 | Index skip (unchanged) | < 1 sec | Hash-based detection |
-| RAM (indexing) | ~500 MB | Model + active block buffers |
-| RAM (search) | ~300 MB | Model + memmap overhead |
-| Disk per 1M chunks | ~0.75 GB | float16 embeddings only |
+| RAM (indexing) | ~500 MB | Ollama + active block buffers |
+| RAM (search) | ~300 MB | Ollama + memmap overhead |
+| Disk per 1M chunks | ~1.5 GB | float16, 768-dim embeddings |
 | Online query latency | 2-5 sec | API via configured endpoint |
 | Offline query latency (vLLM) | 2-5 sec | Workstation GPU, vLLM serving |
 | Offline query latency (Ollama) | 5-180 sec | Ollama, hardware dependent |
 
 ---
 
-## 17. Scale-Out Path
+## 20. Scale-Out Path
 
 Current memmap brute-force search is O(N) and will not scale beyond
 ~500K vectors without unacceptable latency. Planned migration:
@@ -655,27 +902,33 @@ Full analysis: `docs/research/FAISS_MIGRATION_PLAN.md`.
 
 ---
 
-## 18. Key Dependencies
+## 21. Key Dependencies
 
 | Package | Version | License | Purpose |
 |---------|---------|---------|---------|
-| torch | 2.10.0 | BSD-3 | Tensor computation |
-| sentence-transformers | 2.7.0 | Apache 2.0 | Embedding model |
-| transformers | 4.57.6 | Apache 2.0 | Tokenization |
 | numpy | 1.26.4 | BSD-3 | Numerical arrays, memmap |
-| scikit-learn | 1.8.0 | BSD-3 | Distance metrics |
 | pdfplumber | 0.11.9 | MIT | PDF extraction |
 | python-docx | 1.2.0 | MIT | Word documents |
 | python-pptx | 1.0.2 | MIT | PowerPoint |
 | openpyxl | 3.1.5 | MIT | Excel |
-| httpx | 0.28.1 | BSD-3 | HTTP client |
+| httpx | 0.28.1 | BSD-3 | HTTP client (Ollama, vLLM) |
 | openai | 1.45.1 | MIT | OpenAI/Azure SDK |
 | fastapi | 0.115.0 | MIT | REST API framework |
 | uvicorn | 0.41.0 | BSD-3 | ASGI server |
-| keyring | 24.3.0 | MIT | Windows Credential Manager |
+| keyring | 23.13.1 | MIT | Windows Credential Manager |
 | cryptography | 44.0.2 | Apache/BSD | Encryption |
 | pydantic | 2.11.1 | MIT | Data validation |
 | structlog | 24.4.0 | Apache 2.0 | Structured logging |
 | PyYAML | 6.0.2 | MIT | YAML parsing |
 | tiktoken | 0.8.0 | MIT | Token counting |
-| vllm | 0.10.1 | Apache 2.0 | GPU LLM inference (workstation) |
+| lxml | 6.0.2 | BSD-3 | XML/HTML parsing |
+| pytesseract | 0.3.13 | Apache 2.0 | OCR via Tesseract |
+| pillow | 12.1.0 | PIL | Image processing |
+
+**Runtime servers** (not pip packages):
+- Ollama (serves nomic-embed-text embeddings + LLM inference)
+- vLLM (optional, workstation GPU inference)
+
+**Removed in RevB** (HuggingFace retirement):
+- torch, sentence-transformers, transformers, scikit-learn, accelerate
+- Install size reduced from ~800 MB to ~200 MB

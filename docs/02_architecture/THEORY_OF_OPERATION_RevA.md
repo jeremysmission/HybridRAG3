@@ -1,6 +1,6 @@
 # HybridRAG3 -- Theory of Operation (Management / Non-Technical)
 
-Revision: A | Date: 2026-02-22
+Revision: B | Date: 2026-02-25
 
 ---
 
@@ -95,15 +95,21 @@ When you ask a question:
    writes a direct answer, citing which documents the information came
    from.
 
+3. **Smart caching** -- If you ask the same (or a very similar) question
+   again, the system recognizes it and returns the previous answer
+   instantly -- no need to re-run the search or contact the AI model.
+   This makes live demos and repeated workflows near-instant.
+
 **Key fact for management**: A typical query takes 2-5 seconds in
 online mode (using a cloud AI) or 5-30 seconds in offline mode (using
-a local AI on your computer).
+a local AI on your computer). Repeated questions return in under
+1 millisecond from cache.
 
 ---
 
 ## How Users Interact With It
 
-HybridRAG provides three ways to interact:
+HybridRAG provides five ways to interact:
 
 ### Command Line (PowerShell)
 
@@ -114,12 +120,25 @@ The original interface. Users type commands like:
 
 ### Graphical Interface (GUI)
 
-A desktop application with:
-- A **query panel** for typing questions and viewing answers
-- An **index panel** for selecting document folders and tracking progress
-- A **status bar** showing system health at a glance
-- An **engineering menu** for tuning search parameters
-- **Dark mode / light mode** toggle
+A desktop application with a navigation bar for switching between views:
+
+- **Query view** -- Type questions and view answers with source citations,
+  latency metrics, and token counts. Answers stream in token-by-token
+  so you see progress immediately.
+- **Data view** -- Browse drives, select document folders, transfer files
+  from network drives to the source folder with live progress and ETA,
+  and run the indexer.
+- **Settings view** -- Configure API credentials, data paths, model
+  selection, retrieval tuning, and hardware profiles -- all without
+  editing config files.
+- **Cost view** -- Live session spend, budget gauge, token breakdown,
+  ROI calculator, and cumulative team statistics across all sessions.
+- **Reference view** -- Browse indexed source documents.
+- **Status bar** -- Live system health indicators (Ollama status, LLM
+  model, Network Gate mode) with color-coded green/red signals.
+- **Dark mode / light mode** toggle and zoom scaling (50%-200%).
+- **Setup wizard** -- First-time users are walked through data paths
+  and mode selection in a 4-step guided dialog.
 
 ### REST API
 
@@ -127,6 +146,26 @@ A web-based interface for programmatic access. Other software tools can
 send queries to HybridRAG over HTTP on localhost. This enables
 integration with dashboards, automation scripts, and other internal
 tools without any internet exposure.
+
+### MCP Server (AI Agent Integration)
+
+HybridRAG exposes itself as a Model Context Protocol (MCP) server. This
+is a standard way for AI tools to search your indexed documents
+programmatically. Think of it like giving a research assistant access to
+the filing cabinet: AI tools can ask HybridRAG questions, check the
+index status, and get answers with citations -- all through a standard
+protocol. No coding required on the AI tool side.
+
+### Bulk Transfer Tool
+
+An enterprise file transfer utility for importing large document
+collections from network drives, shared folders, or portable media.
+It handles:
+- Filtering by file type (only RAG-relevant formats)
+- Deduplication (skips files already transferred)
+- Verification (SHA-256 hash check after every copy)
+- Atomic writes (a crash mid-transfer cannot corrupt a file)
+- Live progress display with ETA and per-file-type breakdown
 
 ---
 
@@ -153,6 +192,21 @@ All three layers must fail simultaneously before any data could leave
 the machine. Think of it like a building with three locked doors between
 you and the exit -- all three locks would have to break at the same time.
 
+### PII Scrubbing (Online Mode)
+
+When online mode is used, a PII (Personally Identifiable Information)
+scrubber automatically removes sensitive data before anything is sent to
+the cloud API:
+- Social Security numbers
+- Credit card numbers
+- Email addresses
+- Phone numbers
+- IP addresses
+
+These are replaced with safe placeholders like `[SSN]`, `[EMAIL]`, etc.
+This runs automatically when `pii_sanitization` is enabled (on by
+default) and only affects the online code path.
+
 ### Optional Online Mode
 
 When faster answers are needed, an "online" mode sends questions (and
@@ -162,6 +216,9 @@ the relevant document passages) to a configured API endpoint. This mode:
 - Requires an API key stored in Windows Credential Manager (encrypted,
   tied to the user's Windows login)
 - Logs every connection attempt for audit review
+- Supports dual-environment deployment (e.g., home network with
+  commercial API and work network with government API through
+  corporate proxy)
 
 ### Credential Security
 
@@ -210,23 +267,36 @@ HybridRAG uses two types of AI model:
 
 ### 1. Embedding Model (Always Local)
 
-A small model (~87 MB) that converts text into meaning fingerprints.
-It runs on the CPU of any modern laptop and never requires internet.
+A small model (~274 MB) that converts text into 768-dimensional meaning
+fingerprints. It runs on the CPU of any modern laptop via the Ollama
+server and never requires internet.
 
 - **Model**: nomic-embed-text (768 dimensions, served by Ollama)
 - **Publisher**: Nomic AI (open-source, Apache 2.0 license)
 - **Runs**: Always locally, never sends data anywhere
+- **Advantage**: Higher quality embeddings than the previous 384-dim
+  model, with a smaller install footprint (removed ~2.5 GB of
+  HuggingFace dependencies)
 
 ### 2. Language Model (Generates Answers)
 
 A larger model that reads the retrieved passages and writes answers.
-Two options:
+Four backend options:
 
 | Mode | Where It Runs | Speed | Internet Required? |
 |------|--------------|-------|--------------------|
+| **Offline (Transformers)** | Direct GPU on your computer | 2-5 sec | No |
+| **Offline (vLLM)** | On workstation via vLLM server | 2-5 sec | No |
 | **Offline (Ollama)** | On your computer via Ollama | 5-30 sec | No |
-| **Offline (vLLM)** | On workstation via vLLM | 2-5 sec | No |
 | **Online** | Cloud API (company endpoint) | 2-5 sec | Yes (configured endpoint only) |
+
+The system automatically selects the best available backend. If vLLM is
+running, it uses vLLM. Otherwise it falls back to Ollama. Online mode
+requires explicit activation.
+
+**Streaming responses**: In offline mode (Ollama and vLLM), answers
+stream token-by-token to the screen. You see the answer building in
+real time instead of waiting for the full response.
 
 **Approved offline models** (all open-source, US/EU publishers):
 
@@ -237,6 +307,11 @@ Two options:
 | phi4:14b | 9.1 GB | Microsoft (USA) | MIT |
 | gemma3:4b | 3.3 GB | Google (USA) | Apache 2.0 |
 | mistral-nemo:12b | 7.1 GB | Mistral/NVIDIA | Apache 2.0 |
+
+A **model download manifest** (`config/model_manifest.yaml`) documents
+every model weight file required by the system, including vendor, license,
+size, download source, and air-gap transfer instructions. This makes
+multi-gigabyte model downloads auditable for security compliance.
 
 **Banned models** (regulatory/licensing restrictions):
 - No China-origin software (Qwen/Alibaba, DeepSeek, BGE/BAAI)
@@ -276,6 +351,26 @@ active and provides the first line of protection.
 
 ---
 
+## System Health Monitoring
+
+HybridRAG continuously monitors its own health through an automated
+probe system (similar to how a car dashboard warns you about low oil
+before the engine fails):
+
+- **Ollama connectivity** -- Can the system reach the local AI server?
+- **Embedding model** -- Is the embedding model loaded and responding?
+- **Index readability** -- Can the search database be read?
+- **Disk space** -- Is there enough room for new documents?
+- **API connectivity** -- (Online mode) Can the cloud endpoint be reached?
+
+Problems are sorted by severity (critical, high, medium, low) and
+the system provides specific fix suggestions for each issue. A flight
+recorder keeps a rolling history of recent events so that when something
+goes wrong, the events leading up to the failure are available for
+diagnosis.
+
+---
+
 ## Performance at a Glance
 
 | What | How Long | Notes |
@@ -285,6 +380,7 @@ active and provides the first line of protection.
 | Query (online mode) | 2-5 seconds | Cloud AI, requires network |
 | Query (offline / vLLM) | 2-5 seconds | Workstation GPU, no network |
 | Query (offline / Ollama) | 5-30 seconds | Local AI, no network needed |
+| Repeated query (cached) | < 1 millisecond | Semantic cache, no AI call needed |
 
 **Hardware requirements**:
 - Minimum: Any Windows 10/11 laptop with 8 GB RAM
@@ -302,6 +398,9 @@ active and provides the first line of protection.
 | **Graceful degradation** | If one document is corrupted, it skips that file and continues with the rest. |
 | **Boot validation** | On startup, checks that everything is configured correctly. Tells you exactly what to fix if something is wrong. |
 | **Low memory usage** | Processes large documents in small blocks. An 8 GB laptop can index thousands of documents. |
+| **Health monitoring** | Automated probes detect problems (lost Ollama connection, low disk space, corrupted index) before users notice. |
+| **Streaming responses** | Answers appear token-by-token in offline mode, so you see progress immediately instead of waiting for the full response. |
+| **Semantic caching** | Repeated or near-identical questions return instantly from cache without re-running the AI pipeline. |
 
 ---
 
@@ -319,6 +418,23 @@ Switching profiles is one command: `rag-profile desktop_power`
 
 ---
 
+## Dual-Environment Support
+
+HybridRAG supports deployment across different network environments
+without code changes. For example:
+
+- **Home network**: Connects to a commercial cloud API endpoint directly
+- **Work network**: Connects to a government cloud API through a
+  corporate proxy with custom SSL certificates
+
+The system auto-detects the provider (Azure, Azure Government, standard
+OpenAI) from the endpoint URL and handles proxy configuration, SSL
+certificate bundles, and authentication schemes automatically. This
+means the same software installation works in both environments --
+just change the configuration.
+
+---
+
 ## What Makes HybridRAG Different
 
 | Capability | HybridRAG | Traditional Search |
@@ -330,6 +446,10 @@ Switching profiles is one command: `rag-profile desktop_power`
 | Handles 49+ file formats | Yes (PDF, DOCX, PPTX, XLSX, EML, images...) | Limited |
 | Audit trail | Yes (every operation logged) | Rarely |
 | Crash recovery | Yes (automatic) | Rarely |
+| PII protection | Yes (automatic scrubbing in online mode) | No |
+| AI agent integration | Yes (MCP server) | No |
+| Health monitoring | Yes (automated probes) | Rarely |
+| Smart caching | Yes (semantic similarity) | Basic (exact match) |
 
 ---
 
@@ -339,7 +459,7 @@ Switching profiles is one command: `rag-profile desktop_power`
 - **Text chunks stored**: ~39,602
 - **File formats supported**: 49+
 - **Evaluation accuracy**: 98% on a 400-question test set
-- **Test coverage**: 135+ automated tests passing
+- **Test coverage**: 550+ automated tests passing (47 test files)
 
 ---
 
