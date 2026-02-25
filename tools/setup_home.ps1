@@ -434,7 +434,8 @@ if (Test-Path "$configPath") {
     $content = $content -replace '(?m)^(\s*database:\s*).*$', "`$1$dbPath"
     $content = $content -replace '(?m)^(\s*embeddings_cache:\s*).*$', "`$1$embPath"
     $content = $content -replace '(?m)^(\s*source_folder:\s*).*$', "`$1$SOURCE_DIR"
-    Set-Content -Path "$configPath" -Value $content -Encoding UTF8
+    # YAML is consumed by Python -- must NOT have BOM (Set-Content adds BOM in PS 5.1)
+    [System.IO.File]::WriteAllText($configPath, $content)
     Write-Ok "Config updated with your paths"
 } else {
     Write-Warn "Config file not found -- configure paths manually"

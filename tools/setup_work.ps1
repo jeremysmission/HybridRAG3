@@ -453,16 +453,44 @@ retries = 3
 if ($proxyDetected -and $env:HTTPS_PROXY) {
     $pipIniContent += "`nproxy = $($env:HTTPS_PROXY)"
 }
-$pipIniContent | Out-File $pipIni -Encoding UTF8
-Write-Ok "Created .venv\pip.ini (proxy-safe defaults baked in)"
+# MUST use WriteAllText -- Out-File -Encoding UTF8 writes BOM in PS 5.1,
+# and pip cannot parse a config file that starts with BOM bytes.
+[System.IO.File]::WriteAllText($pipIni, $pipIniContent)
+# Validate pip can read its config -- catches BOM, encoding, or syntax errors.
+# pip config list exits 0 even with warnings, so we check stderr for "could not load".
+$pipConfigCheck = & $PYTHON -m pip config list 2>&1 | Out-String
+if ($pipConfigCheck -match "could not load") {
+    Write-Fail "pip.ini validation failed -- pip cannot read the config file"
+    Write-Host "  Recreating pip.ini without BOM..."
+    # Force clean rewrite
+    [System.IO.File]::WriteAllText($pipIni, $pipIniContent)
+    $pipConfigCheck2 = & $PYTHON -m pip config list 2>&1 | Out-String
+    if ($pipConfigCheck2 -match "could not load") {
+        Write-Fail "pip.ini still broken after rewrite"
+        $choice = Request-Recovery "pip.ini validation" 5
+        switch ($choice) {
+            "R" { }
+            "S" { Write-Warn "Skipped -- pip will use defaults (no proxy/timeout config)" }
+            "X" { Write-ManualResume 5 $TOTAL_STEPS; exit 0 }
+        }
+    } else {
+        Write-Ok "pip.ini repaired"
+    }
+} else {
+    Write-Ok "Created .venv\pip.ini (proxy-safe defaults baked in)"
+}
 
 $stepDone = $false
 while (-not $stepDone) {
     Write-Host "  Upgrading pip with proxy-safe timeouts (120s per request)..."
-    & $PYTHON -m pip install --upgrade pip --progress-bar on @TRUSTED 2>&1
-    if ($LASTEXITCODE -eq 0) {
+    $pipOutput = & $PYTHON -m pip install --upgrade pip --progress-bar on @TRUSTED 2>&1 | Out-String
+    # Check BOTH exit code AND pip warnings -- pip exits 0 even when config is broken
+    if ($LASTEXITCODE -eq 0 -and $pipOutput -notmatch "could not load") {
         $stepDone = $true
     } else {
+        if ($pipOutput -match "could not load") {
+            Write-Fail "pip config error detected (pip exited 0 but config is broken)"
+        }
         $choice = Request-Recovery "Upgrading pip" 5
         switch ($choice) {
             "R" { continue }
@@ -735,7 +763,8 @@ if (Test-Path "$configPath") {
     $content = $content -replace '(?m)^(\s*database:\s*).*$', "`$1$dbPath"
     $content = $content -replace '(?m)^(\s*embeddings_cache:\s*).*$', "`$1$embPath"
     $content = $content -replace '(?m)^(\s*source_folder:\s*).*$', "`$1$SOURCE_DIR"
-    Set-Content -Path "$configPath" -Value $content -Encoding UTF8
+    # YAML is consumed by Python -- must NOT have BOM (Set-Content adds BOM in PS 5.1)
+    [System.IO.File]::WriteAllText($configPath, $content)
     Write-Ok "Config updated with your paths"
 } else {
     Write-Warn "Config file not found -- configure paths manually later"
