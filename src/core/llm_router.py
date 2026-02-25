@@ -51,6 +51,13 @@ from typing import Optional, Dict, Any, Generator
 
 logger = logging.getLogger(__name__)
 
+# Default Azure API version -- used as the last-resort fallback when no
+# version is configured via YAML, environment variable, or URL parameter.
+# IMPORTANT: Must match api_client_factory.py DEFAULT_AZURE_API_VERSION
+# so that both modules agree on the default. The exhaustive virtual test
+# (SIM-04) cross-checks these values to prevent version drift.
+_DEFAULT_API_VERSION = "2024-02-02"
+
 # -- httpx and OpenAI SDK are imported lazily at first use -------------------
 # httpx pulls in rich.console (~60ms). Deferring it saves startup time
 # when the user hasn't queried yet. OpenAI SDK (~50ms) is also lazy.
@@ -874,7 +881,7 @@ def _resolve_api_version(config, endpoint_url):
         if match:
             return match.group(1)
 
-    return "2024-02-02"
+    return _DEFAULT_API_VERSION
 
 
 class APIRouter:
@@ -1412,7 +1419,7 @@ def _get_deployments_locked():
     try:
         if _is_azure_endpoint(endpoint):
             # Azure path: GET {base}/openai/deployments?api-version={version}
-            api_version = creds.api_version or "2024-02-02"
+            api_version = creds.api_version or _DEFAULT_API_VERSION
 
             # Strip any existing path to get just the base domain
             # (endpoint might contain /openai/deployments/... already)

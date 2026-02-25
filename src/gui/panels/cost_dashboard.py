@@ -66,9 +66,12 @@ class CostDashboard(tk.Frame):
         self._tracker = cost_tracker
         self._refresh_id = None
 
-        # Scrollable container
+        # Scrollable container -- Canvas + Scrollbar wrapper whose
+        # scrollregion auto-updates when inner content resizes.
         self._scroll = ScrollableFrame(self, bg=t["bg"])
         self._scroll.pack(fill=tk.BOTH, expand=True)
+        self._canvas = self._scroll._canvas
+        self._scrollbar = self._scroll._scrollbar
         self._inner = self._scroll.inner
 
         # Build all sections into self._inner

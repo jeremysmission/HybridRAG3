@@ -3,6 +3,11 @@
 # are served by Ollama (pull via "ollama pull <model>").
 # Security audit reference: docs/05_security/ (model audit document)
 #
+# Changelog:
+# 2026-02-24 -- Added pytest, psutil (discovered missing during fresh setup test)
+# 2026-02-24 -- Cross-referenced against waiver_cheat_sheet_v4b.xlsx
+#               All packages GREEN (approved) except pytest, psutil (YELLOW: applying)
+#               See docs/01_setup/SOFTWARE_WAIVER_SUMMARY.md for full status
 annotated-types==0.7.0
 anyio==4.12.1
 certifi==2026.1.4
@@ -37,7 +42,9 @@ pillow==12.1.0
 pycparser==3.0
 pydantic==2.11.1
 pydantic_core==2.33.0
+psutil==7.2.2
 Pygments==2.19.2
+pytest==9.0.2
 python-multipart==0.0.22
 pypdf==6.6.2
 pypdfium2==5.3.0

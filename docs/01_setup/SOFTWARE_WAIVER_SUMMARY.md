@@ -1,6 +1,7 @@
 # Software Waiver Request Summary
 
 **Date:** 2026-02-24
+**Revision:** v5 (post-HuggingFace retirement, fresh deploy validated)
 **Project:** HybridRAG v3 -- Offline-First RAG System
 **Requested By:** Jeremy Randa
 
@@ -13,29 +14,34 @@ waiver/approval for the HybridRAG v3 knowledge retrieval system. The
 system is designed for offline-first operation with zero telemetry and
 no external data transmission.
 
+Cross-referenced against waiver cheat sheet v4b on 2026-02-24.
+Fresh deployment test: 373/374 tests passed (1 skipped -- Tk display).
+
 ---
 
-## Currently Approved & Installed (No Waiver Needed)
+## Changelog
 
-These are already installed and working. Listed for reference so the
-enterprise team can see the full stack.
+| Date | Change |
+|------|--------|
+| 2026-02-24 | v5: Removed 8 retired HuggingFace packages, added pytest/psutil, added all transitive deps, categorized by approval status |
+| 2026-02-24 | Cross-referenced pip install against waiver_cheat_sheet_v4b.xlsx |
+| 2026-02-21 | v4b: Initial waiver summary with 35 approved packages |
+
+---
+
+## GREEN -- Approved and Installed (No Waiver Needed)
+
+These are installed, working, and appear on the approved software list.
+
+### Direct Dependencies (explicitly in requirements.txt)
 
 | Package | Version | License | Origin | Purpose |
 |---------|---------|---------|--------|---------|
-| Python | 3.12rc3 | PSF-2.0 | Python.org/USA | Runtime |
+| Python | 3.11.9 | PSF-2.0 | Python.org/USA | Runtime |
 | pip | 26.0.1 | MIT | PyPA/USA | Package installer |
-| pip-system-certs | latest | MIT | PyPA/USA | Enterprise SSL cert integration |
-| torch | 2.10.0 | BSD-3 | Meta/USA | Tensor computation (CPU-only) |
 | numpy | 1.26.4 | BSD-3 | NumFOCUS/USA | Vector math |
-| scipy | 1.17.0 | BSD-3 | NumFOCUS/USA | Scientific computing |
-| scikit-learn | 1.8.0 | BSD-3 | INRIA/France | ML scoring |
-| sentence-transformers | 2.7.0 | Apache 2.0 | UKP Lab/Germany | Embedding model |
-| transformers | 4.57.6 | Apache 2.0 | HuggingFace/USA | Model loading |
-| tokenizers | 0.22.2 | Apache 2.0 | HuggingFace/USA | Tokenization |
-| huggingface_hub | 0.36.1 | Apache 2.0 | HuggingFace/USA | One-time model download |
-| safetensors | 0.7.0 | Apache 2.0 | HuggingFace/USA | Safe model loading |
-| tiktoken | 0.8.0 | MIT | OpenAI/USA | Token counting |
-| openai | 1.45.1 | MIT | OpenAI/USA | API client |
+| openai | 1.45.1 | MIT | OpenAI/USA | API client (PINNED v1.x) |
+| tiktoken | 0.8.0 | MIT | OpenAI/USA | Token counting (offline) |
 | httpx | 0.28.1 | BSD-3 | Encode/UK | HTTP client |
 | requests | 2.32.5 | Apache 2.0 | PSF/USA | HTTP client |
 | urllib3 | 2.6.3 | MIT | PSF/USA | HTTP internals |
@@ -43,11 +49,15 @@ enterprise team can see the full stack.
 | pyyaml | 6.0.2 | MIT | YAML/USA | Config parsing |
 | cryptography | 44.0.2 | Apache 2.0 | PyCA/USA | Credential encryption |
 | fastapi | 0.115.0 | MIT | Tiangolo/USA | REST API |
-| uvicorn | 0.41.0 | BSD-3 | Encode/UK | API server |
+| uvicorn | 0.41.0 | BSD-3 | Encode/UK | ASGI server |
 | starlette | 0.38.6 | BSD-3 | Encode/UK | HTTP toolkit |
-| structlog | 24.4.0 | MIT | Hynek/Germany | Logging |
-| pdfplumber | 0.11.9 | MIT | USA | PDF extraction |
-| pypdf | 6.6.2 | BSD-3 | USA | PDF parsing |
+| structlog | 24.4.0 | MIT | Hynek/Germany | Structured logging |
+| pdfplumber | 0.11.9 | MIT | USA | PDF text extraction |
+| pdfminer.six | 20251230 | MIT | USA | PDF parsing engine |
+| pypdf | 6.6.2 | BSD-3 | USA | PDF metadata |
+| pypdfium2 | 5.3.0 | Apache 2.0 | Google/USA | PDF rendering |
+| pdf2image | 1.17.0 | MIT | USA | PDF to image conversion |
+| pytesseract | 0.3.13 | Apache 2.0 | USA | OCR bridge |
 | python-docx | 1.2.0 | MIT | USA | Word documents |
 | python-pptx | 1.0.2 | MIT | USA | PowerPoint |
 | openpyxl | 3.1.5 | MIT | USA | Excel reading |
@@ -58,8 +68,66 @@ enterprise team can see the full stack.
 | tqdm | 4.67.3 | MIT | USA | Progress bars |
 | regex | 2026.1.15 | Apache 2.0 | USA | Text processing |
 | colorama | 0.4.6 | BSD-3 | USA | Console colors |
+| keyring | 23.13.1 | MIT | USA | Windows Credential Manager |
+| python-multipart | 0.0.22 | Apache 2.0 | USA | Form data (fastapi dep) |
+| click | 8.3.1 | BSD-3 | Pallets/USA | CLI toolkit (uvicorn dep) |
 
-**Total: 35 packages, all open-source, all USA/EU/Allied origin**
+**Total direct: 34 packages, all open-source, all USA/EU/Allied origin**
+
+### Transitive Dependencies (auto-installed by pip, no separate approval needed)
+
+| Package | Version | License | Pulled In By |
+|---------|---------|---------|-------------|
+| annotated-types | 0.7.0 | MIT | pydantic |
+| anyio | 4.12.1 | MIT | httpx |
+| certifi | 2026.1.4 | MPL-2.0 | requests |
+| cffi | 2.0.0 | MIT | cryptography |
+| chardet | 5.2.0 | LGPL-2.1 | pdfminer.six |
+| charset-normalizer | 3.4.4 | MIT | requests |
+| distro | 1.9.0 | Apache 2.0 | openai |
+| et_xmlfile | 2.0.0 | MIT | openpyxl |
+| h11 | 0.16.0 | MIT | uvicorn |
+| httpcore | 1.0.9 | BSD-3 | httpx |
+| idna | 3.11 | BSD-3 | requests |
+| jaraco.classes | 3.4.0 | MIT | keyring |
+| jiter | 0.13.0 | MIT | pydantic |
+| markdown-it-py | 4.0.0 | MIT | rich |
+| mdurl | 0.1.2 | MIT | markdown-it-py |
+| more-itertools | 10.8.0 | MIT | keyring |
+| packaging | 26.0 | Apache 2.0 | pytest |
+| pycparser | 3.0 | BSD-3 | cffi |
+| pydantic_core | 2.33.0 | MIT | pydantic |
+| Pygments | 2.19.2 | BSD-2 | rich |
+| pywin32-ctypes | 0.2.3 | BSD-3 | keyring (Windows) |
+| setuptools | 65.5.0 | MIT | Ships with Python |
+| sniffio | 1.3.1 | MIT | httpx |
+| typing_extensions | 4.15.0 | PSF-2.0 | pydantic |
+| typing-inspection | 0.4.2 | MIT | pydantic |
+
+**Total transitive: 25 packages**
+
+---
+
+## YELLOW -- Applying for Approval
+
+These packages are installed and working but not yet on the approved
+software list. Waiver applications in progress.
+
+### Testing and Development Tools
+
+| Package | Version | License | Origin | Purpose | Status |
+|---------|---------|---------|--------|---------|--------|
+| pytest | 9.0.2 | MIT | USA | Test framework (regression suite) | Applying |
+| psutil | 7.2.2 | BSD-3 | USA | Process monitoring (live indexing test) | Applying |
+| iniconfig | 2.3.0 | MIT | USA | pytest dependency | Applying (transitive) |
+| pluggy | 1.6.0 | MIT | USA | pytest dependency | Applying (transitive) |
+| importlib_metadata | 8.7.1 | Apache 2.0 | USA | pytest dependency | Applying (transitive) |
+| zipp | 3.23.0 | MIT | USA | importlib_metadata dependency | Applying (transitive) |
+
+**Justification:** pytest is the standard Python test framework. All
+373 regression tests depend on it. psutil is used by the live indexing
+test to monitor system resources during index builds. Both are MIT/BSD
+licensed, USA origin, zero network activity.
 
 ---
 
@@ -80,6 +148,7 @@ enterprise team can see the full stack.
 
 | Model | Size | License | Publisher | Purpose |
 |-------|------|---------|-----------|---------|
+| nomic-embed-text | 274 MB | Apache 2.0 | Nomic AI/USA | **Embeddings (required)** |
 | phi4-mini | 2.3 GB | MIT | Microsoft/USA | Primary Q&A model |
 | mistral:7b | 4.1 GB | Apache 2.0 | Mistral AI/France | Engineering alternate |
 | phi4:14b-q4_K_M | 9.1 GB | MIT | Microsoft/USA | High-accuracy model |
@@ -142,6 +211,29 @@ depends on openai>=1.99.1 and cannot install without it.
 
 ---
 
+## RETIRED -- Removed from Stack (Session 15, 2026-02-24)
+
+These packages were previously approved but have been removed. They
+are no longer installed or required. Embeddings are now served by
+Ollama (nomic-embed-text) instead of HuggingFace/PyTorch.
+
+| Package | Previous Version | Reason for Removal |
+|---------|-----------------|-------------------|
+| torch | 2.10.0 | HuggingFace retired; Ollama replaces local inference |
+| sentence-transformers | 2.7.0 | Replaced by Ollama nomic-embed-text |
+| transformers | 4.57.6 | HuggingFace retired |
+| tokenizers | 0.22.2 | HuggingFace retired |
+| huggingface_hub | 0.36.1 | HuggingFace retired |
+| safetensors | 0.7.0 | HuggingFace retired |
+| scipy | 1.17.0 | Was sentence-transformers dependency |
+| scikit-learn | 1.8.0 | Was sentence-transformers dependency |
+
+**Impact:** ~2.5 GB removed from virtual environment. No functionality
+lost -- Ollama provides equivalent embedding quality with 768-dimension
+vectors (up from 384).
+
+---
+
 ## Excluded Software (Compliance Reference)
 
 The following were evaluated and explicitly rejected:
@@ -155,6 +247,18 @@ The following were evaluated and explicitly rejected:
 | LangChain | LangChain Inc | 200+ dependencies, version instability |
 | ChromaDB | Chroma | Windows compatibility issues |
 | PyMuPDF | Artifex | AGPL copyleft license |
+
+---
+
+## Installation Totals
+
+| Category | Count | Size |
+|----------|-------|------|
+| Direct dependencies (GREEN) | 34 | ~200 MB |
+| Transitive dependencies (GREEN) | 25 | included above |
+| Applying for approval (YELLOW) | 6 | ~2 MB |
+| **Total installed** | **65** | **~200 MB** |
+| Retired (removed) | 8 | -2.5 GB saved |
 
 ---
 

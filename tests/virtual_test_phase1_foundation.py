@@ -298,7 +298,8 @@ def _():
 @test("requirements.txt contains expected packages")
 def _():
     text = REQUIREMENTS.read_text(encoding="utf-8")
-    expected = ["openai", "pyyaml", "numpy", "sentence-transformers"]
+    # NOTE: sentence-transformers RETIRED 2026-02-24 (embeddings now via Ollama)
+    expected = ["openai", "pyyaml", "numpy", "httpx"]
     missing = [p for p in expected if p.lower() not in text.lower()]
     assert len(missing) == 0, f"Missing packages: {missing}"
 
