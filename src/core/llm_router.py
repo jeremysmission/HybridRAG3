@@ -1326,9 +1326,9 @@ class APIRouter:
 #   Header: Authorization: Bearer {key}
 #   Response: {"data": [{"id": "gpt-4o", ...}, ...]}
 #
-# COMPATIBILITY NOTE (openai 1.45.1):
+# COMPATIBILITY NOTE (openai 1.51.2):
 #   We use httpx directly for discovery instead of the openai SDK because:
-#   1. The openai 1.45.1 SDK does not have a deployments.list() method
+#   1. The openai 1.51.2 SDK does not have a deployments.list() method
 #   2. httpx is already a dependency (used by Ollama path)
 #   3. Direct HTTP gives us full control over the request format
 #

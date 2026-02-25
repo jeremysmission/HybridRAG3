@@ -32,7 +32,7 @@ markdown-it-py==4.0.0
 mdurl==0.1.2
 more-itertools==10.8.0
 numpy==1.26.4
-openai==1.45.1
+openai==1.51.2
 openpyxl==3.1.5
 packaging==26.0
 pdf2image==1.17.0
@@ -64,5 +64,5 @@ typing-inspection==0.4.2
 typing_extensions==4.15.0
 urllib3==2.6.3
 uvicorn==0.41.0
-# vllm==0.10.1  # COMMENTED OUT: conflicts with openai==1.45.1 pin
+# vllm==0.10.1  # COMMENTED OUT: conflicts with openai==1.51.2 pin
 xlsxwriter==3.2.9

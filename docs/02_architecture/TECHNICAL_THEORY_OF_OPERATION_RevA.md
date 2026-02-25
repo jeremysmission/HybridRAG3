@@ -292,7 +292,7 @@ propagate.
   Default timeout 600s (CPU inference is slow). Serves as fallback when
   vLLM is unavailable or disabled.
 - **Online (APIRouter)**: HTTP POST to OpenAI-compatible
-  `/v1/chat/completions`. Uses `openai` SDK (v1.45.1). Supports Azure
+  `/v1/chat/completions`. Uses `openai` SDK (v1.51.2). Supports Azure
   OpenAI and standard OpenAI endpoints with deployment discovery.
 
 Network Gate is checked before every outbound connection.
@@ -669,7 +669,7 @@ Full analysis: `docs/research/FAISS_MIGRATION_PLAN.md`.
 | python-pptx | 1.0.2 | MIT | PowerPoint |
 | openpyxl | 3.1.5 | MIT | Excel |
 | httpx | 0.28.1 | BSD-3 | HTTP client |
-| openai | 1.45.1 | MIT | OpenAI/Azure SDK |
+| openai | 1.51.2 | MIT | OpenAI/Azure SDK |
 | fastapi | 0.115.0 | MIT | REST API framework |
 | uvicorn | 0.41.0 | BSD-3 | ASGI server |
 | keyring | 24.3.0 | MIT | Windows Credential Manager |

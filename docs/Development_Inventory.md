@@ -30,16 +30,8 @@ three tiers:
 
 | Package | Version | License | Purpose |
 |---------|---------|---------|---------|
-| sentence-transformers | 2.7.0 | Apache 2.0 | Embedding model loader |
-| torch | 2.10.0 | BSD-3 | Tensor computation (CPU-only wheel) |
-| transformers | 4.57.6 | Apache 2.0 | Model architecture definitions |
-| tokenizers | 0.22.2 | Apache 2.0 | Fast tokenization |
-| huggingface_hub | 0.36.1 | Apache 2.0 | One-time model download |
-| safetensors | 0.7.0 | Apache 2.0 | Safe model weight loading |
 | tiktoken | 0.8.0 | MIT | Token counting (offline) |
 | numpy | 1.26.4 | BSD-3 | Vector operations + memmap storage |
-| scipy | 1.17.0 | BSD-3 | Scientific computation |
-| scikit-learn | 1.8.0 | BSD-3 | BM25 + sparse retrieval |
 
 ### Embedding Models (Local, No API)
 
@@ -67,7 +59,7 @@ three tiers:
 
 | Package | Version | License | Purpose |
 |---------|---------|---------|---------|
-| openai | 1.45.1 | MIT | OpenAI-compatible API client (pinned v1.x) |
+| openai | 1.51.2 | MIT | OpenAI-compatible API client (pinned v1.x) |
 | httpx | 0.28.1 | BSD-3 | Async HTTP (openai dependency) |
 | requests | 2.32.5 | Apache 2.0 | HTTP client (fallback) |
 | urllib3 | 2.6.3 | MIT | Low-level HTTP |
@@ -145,7 +137,7 @@ hardware delivery, license paperwork, or store approval before activation.
 | Config | src/core/config.py VLLMConfig (enabled: false) |
 | Purpose | OpenAI-compatible local API with continuous batching, prefix caching, tensor parallelism |
 | Blocker 1 | Requires dual RTX 3090 workstation (arriving soon) |
-| Blocker 2 | Requires openai>=1.99.1 (conflicts with current openai==1.45.1 pin) |
+| Blocker 2 | Requires openai>=1.99.1 (conflicts with current openai==1.51.2 pin) |
 | Waiver Note | **Must request vllm AND openai>=1.99.1 together** -- both packages needed on same waiver |
 | Activation | Set `vllm.enabled: true` in YAML once hardware verified |
 | Current Status | Commented out of requirements_approved.txt -- not needed for demo |
@@ -271,6 +263,29 @@ watching for incremental updates is planned but not designed.
 
 ---
 
+## Retired Packages (Session 15, 2026-02-24)
+
+HuggingFace ecosystem removed. Embeddings now served by Ollama nomic-embed-text.
+NLI verifier (hallucination guard) degrades gracefully without sentence-transformers.
+Dependency reduction: ~2.5 GB removed from venv.
+
+| Package | Last Version | License | Original Purpose | Reason for Retirement |
+|---------|-------------|---------|------------------|-----------------------|
+| sentence-transformers | 2.7.0 | Apache 2.0 | Embedding model loader | Replaced by Ollama nomic-embed-text |
+| torch | 2.10.0 | BSD-3 | Tensor computation (CPU-only wheel) | No longer needed without HF models |
+| transformers | 4.57.6 | Apache 2.0 | Model architecture definitions | No longer needed without HF models |
+| tokenizers | 0.22.2 | Apache 2.0 | Fast tokenization | No longer needed without HF models |
+| huggingface_hub | 0.36.1 | Apache 2.0 | One-time model download | HF models retired entirely |
+| safetensors | 0.7.0 | Apache 2.0 | Safe model weight loading | No longer needed without HF models |
+| scipy | 1.17.0 | BSD-3 | Scientific computation | Unused after embedding rewrite |
+| scikit-learn | 1.8.0 | BSD-3 | BM25 + sparse retrieval | BM25 now handled by SQLite FTS5 |
+
+**Note:** Tier 2 "Direct HuggingFace Transformers Inference" still references
+transformers as a pending workstation feature. If that path is activated,
+only transformers + torch would be re-added (not the full HF stack).
+
+---
+
 ## Disqualified Software (Reference Only)
 
 The following were evaluated and rejected. Retained here so procurement
@@ -297,7 +312,7 @@ does not re-evaluate them.
 
 | Package | Pinned At | Reason |
 |---------|----------|--------|
-| openai | 1.45.1 | v2.x has breaking changes; pinned to 1.x until vllm waiver requires upgrade to >=1.99.1 |
+| openai | 1.51.2 | v2.x has breaking changes; pinned to 1.x until vllm waiver requires upgrade to >=1.99.1 |
 | numpy | 1.26.4 | Last 1.x release; 2.x has breaking API changes |
 | pydantic | 2.11.1 | Store-approved version |
 | cryptography | 44.0.2 | Store-approved version |
@@ -341,7 +356,7 @@ does not re-evaluate them.
 
 | Package | Before | After | Impact |
 |---------|--------|-------|--------|
-| openai | 2.20.0 | 1.45.1 | Zero code changes; v1.x API pinned permanently |
+| openai | 2.20.0 | 1.51.2 | Zero code changes; v1.x API pinned permanently |
 | pydantic | 2.12.5 | 2.11.1 | Zero code changes; store-approved version |
 | cryptography | 46.0.4 | 44.0.2 | Zero code changes; store-approved version |
 

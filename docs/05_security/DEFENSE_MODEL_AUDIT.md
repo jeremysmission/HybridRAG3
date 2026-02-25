@@ -40,7 +40,7 @@ Before evaluating candidates, the following publishers/entities are **categorica
 
 *Note: Mixedbread mxbai-rerank-v2 and mxbai-embed-v2 are built on Qwen-2.5 architecture (Alibaba). Only v1 models (based on BERT architecture) are clear of Chinese supply chain concerns.
 
-**SDK Constraint:** openai Python SDK PINNED to v1.45.1. Never upgrade to 2.x (breaking API syntax changes).
+**SDK Constraint:** openai Python SDK PINNED to v1.51.2. Never upgrade to 2.x (breaking API syntax changes).
 
 ---
 

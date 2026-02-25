@@ -230,7 +230,7 @@ runtime_dependencies:
     manifest: "requirements.txt"
     key_packages:
       - "httpx                         # HTTP client for Ollama embedding API"
-      - "openai==1.45.1                # API client for online mode (pinned, never upgrade to 2.x)"
+      - "openai==1.51.2                # API client for online mode (pinned, never upgrade to 2.x)"
     install_command: "pip install -r requirements.txt"
     notes: "All Python packages pinned to exact versions in requirements.txt."
 

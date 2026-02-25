@@ -345,8 +345,8 @@ $PYTHON = "$PROJECT_ROOT\.venv\Scripts\python.exe"
 $PIP = "$PROJECT_ROOT\.venv\Scripts\pip.exe"
 # Corporate proxies add latency. Default pip timeout is 15 seconds which
 # is too short -- packages time out before the proxy finishes relaying.
-# We increase to 120 seconds and add 5 retries for reliability.
-$TRUSTED = "--trusted-host", "pypi.org", "--trusted-host", "files.pythonhosted.org", "--timeout", "120", "--retries", "5"
+# We increase to 120 seconds and add 2 retries (low to avoid tripping security sensors).
+$TRUSTED = "--trusted-host", "pypi.org", "--trusted-host", "files.pythonhosted.org", "--timeout", "120", "--retries", "2"
 
 Write-Host "  Upgrading pip with proxy-safe timeouts (120s per request)..."
 & $PYTHON -m pip install --upgrade pip @TRUSTED
