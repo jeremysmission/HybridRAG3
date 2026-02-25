@@ -31,6 +31,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from src.tools.bulk_transfer_v2 import (
+    AtomicTransferWorker,
     BulkTransferV2,
     TransferConfig,
     TransferStats,
@@ -511,9 +512,9 @@ class TestTimeoutCalculation:
         # Check that _transfer_one computes copy_timeout the same way
         # by reading the source code pattern
         import inspect
-        from src.tools.bulk_transfer_v2 import BulkTransferV2
+        from src.tools.bulk_transfer_v2 import AtomicTransferWorker
 
-        source = inspect.getsource(BulkTransferV2._transfer_one)
+        source = inspect.getsource(AtomicTransferWorker._transfer_one)
         assert "max(60.0, file_size / (512 * 1024))" in source, (
             "Engine timeout formula doesn't match expected pattern"
         )
@@ -740,7 +741,7 @@ class TestRetryJitter:
     def test_retry_jitter_in_source(self):
         """The _transfer_one method should use random.uniform for jitter."""
         import inspect
-        source = inspect.getsource(BulkTransferV2._transfer_one)
+        source = inspect.getsource(AtomicTransferWorker._transfer_one)
         assert "random.uniform(0.5, 1.5)" in source, (
             "Retry jitter should use random.uniform(0.5, 1.5)"
         )
@@ -754,20 +755,26 @@ class TestDedupRaceGuard:
     """Verify the in-memory _dedup_seen set with lock exists."""
 
     def test_dedup_set_and_lock_exist(self, tmp_path):
-        """BulkTransferV2 should have _dedup_seen set and _dedup_lock."""
+        """AtomicTransferWorker should have _dedup_seen set and _dedup_lock."""
+        import threading as _th
         cfg = TransferConfig(
             source_paths=[str(tmp_path)],
             dest_path=str(tmp_path / "out"),
             workers=1,
         )
-        engine = BulkTransferV2(cfg)
-        assert hasattr(engine, "_dedup_seen"), "Missing _dedup_seen set"
-        assert hasattr(engine, "_dedup_lock"), "Missing _dedup_lock"
-        assert isinstance(engine._dedup_seen, set)
+        staging = StagingManager(str(tmp_path / "out"))
+        stats = TransferStats()
+        worker = AtomicTransferWorker(
+            cfg, None, staging, stats,
+            "test_run", _th.Event(), _th.Lock(),
+        )
+        assert hasattr(worker, "_dedup_seen"), "Missing _dedup_seen set"
+        assert hasattr(worker, "_dedup_lock"), "Missing _dedup_lock"
+        assert isinstance(worker._dedup_seen, set)
         # threading.Lock is a factory function, not a type.
         # Verify by checking it has acquire/release methods (duck typing).
-        assert hasattr(engine._dedup_lock, "acquire"), "Lock missing acquire()"
-        assert hasattr(engine._dedup_lock, "release"), "Lock missing release()"
+        assert hasattr(worker._dedup_lock, "acquire"), "Lock missing acquire()"
+        assert hasattr(worker._dedup_lock, "release"), "Lock missing release()"
 
 
 # ============================================================================
@@ -780,7 +787,7 @@ class TestMtimeStabilityCheck:
     def test_mtime_check_in_source_code(self):
         """_transfer_one should compare pre_stat and post_stat mtime."""
         import inspect
-        source = inspect.getsource(BulkTransferV2._transfer_one)
+        source = inspect.getsource(AtomicTransferWorker._transfer_one)
         assert "pre_stat" in source, "Missing pre_stat mtime check"
         assert "post_stat" in source, "Missing post_stat mtime check"
         assert "st_mtime" in source, "Missing mtime comparison"

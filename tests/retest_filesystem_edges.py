@@ -29,6 +29,7 @@ if _root not in sys.path:
 
 from src.tools.bulk_transfer_v2 import (
     BulkTransferV2,
+    SourceDiscovery,
     TransferConfig,
     TransferStats,
     _ALWAYS_SKIP,
@@ -644,7 +645,7 @@ class TestWalkSourceUnicodeError:
         # Patch _process_discovery to throw UnicodeEncodeError for the
         # second file it encounters
         call_count = [0]
-        original_process = BulkTransferV2._process_discovery
+        original_process = SourceDiscovery._process_discovery
 
         def bombing_process(self_eng, full, source_root, queue):
             call_count[0] += 1
@@ -661,7 +662,7 @@ class TestWalkSourceUnicodeError:
         _make_file(src / "also_good.txt", 300)
 
         with mock.patch.object(
-            BulkTransferV2, "_process_discovery",
+            SourceDiscovery, "_process_discovery",
             side_effect=bombing_process, autospec=True,
         ):
             engine, stats = _run_transfer(src, dst)

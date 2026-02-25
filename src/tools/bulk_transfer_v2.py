@@ -443,212 +443,61 @@ class TransferStats:
 
 
 # ============================================================================
-# Bulk Transfer Engine V2
+# Source Discovery (Phase 1)
 # ============================================================================
-# NOTE: This class is ~830 lines, which exceeds the project's 500-line class
-# limit (see CLAUDE.md). It has NOT been refactored because the transfer
-# pipeline is inherently sequential and splitting it would scatter the
-# phase logic across multiple files without improving readability.
-# If refactoring, consider: extract _discover_and_manifest, _parallel_transfer,
-# and _transfer_one into a TransferPhase base class with Phase1/Phase2 subclasses.
+# Walks source directories, records every file in the manifest, filters
+# out non-RAG files, and builds the transfer queue.
 # ============================================================================
 
-class BulkTransferV2:
+class SourceDiscovery:
     """
-    Production-grade file transfer engine with atomic copy pattern,
-    three-stage staging, delta sync, and zero-gap manifest tracking.
+    File discovery and filtering engine for Phase 1 of bulk transfer.
 
-    NON-PROGRAMMER NOTE:
-      This is the "brain" of the transfer. You give it a config
-      (source paths, destination, options) and call run(). It:
-        1. Walks every source directory and catalogs every file
-        2. Filters out files HybridRAG can't use
-        3. Copies the good files in parallel (8 workers by default)
-        4. Verifies each copy with SHA-256
-        5. Produces a detailed report at the end
-
-      If the transfer is interrupted (Ctrl+C, power failure), you can
-      restart it and it will skip files already transferred (resume).
+    Walks every source directory tree, records each file in the
+    manifest database, applies extension/size/encoding/symlink filters,
+    and returns a queue of files that passed all checks.
     """
 
-    def __init__(self, config: TransferConfig) -> None:
-        # Cap workers to prevent thread explosion (1000 OS threads = bad)
-        config.workers = min(max(config.workers, 1), 32)
+    def __init__(
+        self,
+        config: TransferConfig,
+        manifest: TransferManifest,
+        stats: TransferStats,
+        run_id: str,
+        log_lock: threading.Lock,
+        stop_event: threading.Event,
+    ) -> None:
         self.config = config
+        self.manifest = manifest
+        self.stats = stats
+        self.run_id = run_id
+        self._log_lock = log_lock
+        self._stop = stop_event
 
-        # Run ID: timestamp-based so runs sort chronologically.
-        # Example: "20260220_143000"
-        self.run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-
-        self.stats = TransferStats()
-        self.manifest: Optional[TransferManifest] = None
-        self.staging: Optional[StagingManager] = None
-
-        # Stop signal: set when user hits Ctrl+C or transfer completes.
-        # All worker threads check this flag and stop gracefully.
-        self._stop = threading.Event()
-        self._log_lock = threading.Lock()
-
-        # Dedup guard: in-memory set of content hashes that have been
-        # claimed by a worker thread. Prevents the race where 8 threads
-        # all check find_by_hash() simultaneously, all see "not found",
-        # and all copy the same file.
-        self._dedup_seen: Set[str] = set()
-        self._dedup_lock = threading.Lock()
-
-        # Symlink loop guard: tracks which real directory paths we've
-        # already visited. If a symlink points back to a parent directory,
-        # we would walk in circles forever. This set prevents that.
+        # Symlink loop guard: tracks real directory paths already
+        # visited so circular junctions don't cause infinite walks.
         self._visited_dirs: Set[str] = set()
 
-    def run(self) -> TransferStats:
-        """
-        Execute the full transfer pipeline.
-
-        NON-PROGRAMMER NOTE:
-          This is the main entry point. Call this and wait. It will:
-            1. Print progress to the console
-            2. Create a manifest database in the destination folder
-            3. Return a TransferStats object with all the numbers
-
-          The manifest database (_transfer_manifest.db) persists between
-          runs. On the next run, the engine reads it to determine what
-          has already been transferred (resume) and what has changed
-          on the source (delta sync).
-        """
-        cfg = self.config
-        dest = Path(cfg.dest_path)
-        dest.mkdir(parents=True, exist_ok=True)
-
-        # Initialize subsystems
-        db_path = str(dest / "_transfer_manifest.db")
-        self.manifest = TransferManifest(db_path)
-        self.staging = StagingManager(str(dest))
-        self.manifest.start_run(
-            self.run_id, cfg.source_paths, cfg.dest_path,
-            config_json=json.dumps({
-                "workers": cfg.workers, "deduplicate": cfg.deduplicate,
-                "verify": cfg.verify_copies, "extensions": len(cfg.extensions),
-            }),
-        )
-
-        # Clean leftover .tmp files from crashed runs
-        cleaned = self.staging.cleanup_incoming()
-        if cleaned:
-            print(f"  [OK] Cleaned {cleaned} leftover .tmp files")
-
-        # Banner
-        print("=" * 70)
-        print("  BULK TRANSFER V2 -- Starting")
-        print("=" * 70)
-        print(f"  Run ID:      {self.run_id}")
-        print(f"  Sources:     {len(cfg.source_paths)}")
-        for sp in cfg.source_paths:
-            print(f"               {sp}")
-        print(f"  Staging:     {dest}")
-        print(f"  Workers:     {cfg.workers}")
-        print(f"  Atomic copy: YES (.tmp -> verify -> rename)")
-        print(f"  Dedup:       {'ON' if cfg.deduplicate else 'OFF'}")
-        print(f"  Verify:      {'ON' if cfg.verify_copies else 'OFF'}")
-        print("=" * 70)
-        print()
-
-        try:
-            # ======================================================
-            # PHASE 1: Full source discovery with manifest
-            # ======================================================
-            # Walk every source directory. For each file found:
-            #   - Record it in the manifest (ground truth)
-            #   - Check attributes (hidden, symlink, locked, etc.)
-            #   - Filter by extension, size, accessibility
-            #   - Add surviving files to the transfer queue
-            print("[PHASE 1] Building source manifest...")
-            queue = self._discover_and_manifest()
-            self.stats.files_manifest = self.stats.files_discovered
-            print(
-                f"  Manifest: {self.stats.files_discovered:,} files, "
-                f"{_fmt_size(self.stats.bytes_source_total)}"
-            )
-            print(f"  Transfer queue: {len(queue):,} files")
-
-            # ======================================================
-            # PHASE 1b: Delta sync analysis
-            # ======================================================
-            # Compare current manifest against previous run to detect
-            # new, deleted, and modified files.
-            prev = self.manifest.get_previous_manifest(self.run_id)
-            if prev:
-                self._delta_analysis(queue, prev)
-            print()
-
-            # ======================================================
-            # PHASE 2: Parallel transfer with atomic copy
-            # ======================================================
-            # For each file in the queue:
-            #   1. Hash source file (SHA-256)
-            #   2. Check dedup (skip if hash already seen)
-            #   3. Check if file is locked
-            #   4. Copy to incoming/.tmp
-            #   5. Hash destination file (SHA-256)
-            #   6. Compare hashes (quarantine if mismatch)
-            #   7. Atomic rename from incoming/ to verified/
-            if queue:
-                print(f"[PHASE 2] Transferring ({cfg.workers} workers)...")
-                self._parallel_transfer(queue)
-
-            # ======================================================
-            # PHASE 3: Finalize
-            # ======================================================
-            print()
-            print("[PHASE 3] Finalizing...")
-            self.manifest.finish_run(self.run_id)
-
-            # Rotate old runs (keep last 10) to prevent unbounded DB growth
-            rotated = self.manifest.rotate_old_runs(keep=10)
-            if rotated:
-                print(f"  [OK] Rotated {rotated} old run(s) from manifest DB")
-
-            report = self.manifest.get_verification_report(self.run_id)
-            print(report)
-
-        except KeyboardInterrupt:
-            print("\n  [INTERRUPTED] Progress saved. Re-run to resume.")
-            self._stop.set()
-        finally:
-            if self.manifest:
-                self.manifest.flush()
-                self.manifest.close()
-
-        print(self.stats.full_report())
-        return self.stats
+    def _log(self, msg: str) -> None:
+        """Thread-safe print."""
+        with self._log_lock:
+            print(f"\n{msg}", flush=True)
 
     # ------------------------------------------------------------------
-    # Phase 1: Discovery + Manifest Build
+    # Public entry point
     # ------------------------------------------------------------------
 
-    def _discover_and_manifest(
-        self,
-    ) -> List[Tuple[str, str, str, int]]:
-        """
-        Walk sources, build ground-truth manifest, return transfer queue.
-
-        Returns a list of tuples:
-          [(source_path, source_root, relative_path, file_size), ...]
-
-        NON-PROGRAMMER NOTE:
-          "Discovery" means walking through every folder on the network
-          drive and looking at every file. For a drive with 100,000
-          files, this might take 30-60 seconds. Each file is recorded
-          in the manifest regardless of whether we'll copy it.
-        """
+    def discover(self) -> List[Tuple[str, str, str, int]]:
+        """Walk sources, build manifest, return transfer queue."""
         cfg = self.config
         queue: List[Tuple[str, str, str, int]] = []
 
-        # Start live discovery counter
-        # Use a dedicated Event for the discovery thread so stopping it
-        # cannot race with the Phase 2 progress thread.
+        # Dedicated stop event for the progress thread so it does not
+        # collide with the Phase 2 progress thread.
         self._discovery_stop = threading.Event()
-        t = threading.Thread(target=self._discovery_progress_loop, daemon=True)
+        t = threading.Thread(
+            target=self._discovery_progress_loop, daemon=True,
+        )
         t.start()
 
         for source_root in cfg.source_paths:
@@ -659,31 +508,19 @@ class BulkTransferV2:
             self.stats.current_source_root = str(root)
             self._walk_source(root, str(root), queue)
 
-        # Stop discovery progress thread and wait for it to exit
         self._discovery_stop.set()
         t.join(timeout=10.0)
-
         return queue
+
+    # ------------------------------------------------------------------
+    # Directory walker
+    # ------------------------------------------------------------------
 
     def _walk_source(
         self, root: Path, source_root: str,
         queue: List[Tuple[str, str, str, int]],
     ) -> None:
-        """
-        Recursively walk a source directory tree.
-
-        NON-PROGRAMMER NOTE:
-          os.walk() is Python's built-in way to visit every folder
-          and file in a directory tree. It yields one tuple per
-          directory: (path_to_dir, list_of_subdirs, list_of_files).
-
-          The symlink loop guard prevents infinite loops. Imagine:
-            FolderA/link_to_parent -> FolderA
-          Without the guard, os.walk would enter FolderA, see
-          link_to_parent, enter FolderA again, see link_to_parent
-          again... forever. The guard says "I've already been to the
-          real path behind this link, skip it."
-        """
+        """Recursively walk a source directory tree."""
         cfg = self.config
         excl = {d.lower() for d in cfg.excluded_dirs}
         walk_warnings = 0
@@ -693,14 +530,11 @@ class BulkTransferV2:
             walk_warnings += 1
 
         for dirpath, dirnames, filenames in os.walk(
-            str(root), onerror=_on_walk_error
+            str(root), onerror=_on_walk_error,
         ):
             self.stats.dirs_walked += 1
 
-            # --- Symlink loop guard ---
-            # os.path.realpath() resolves all symlinks/junctions to
-            # get the "true" filesystem path. If we've seen this
-            # true path before, we're in a loop.
+            # Symlink loop guard
             try:
                 real = os.path.realpath(dirpath)
             except OSError:
@@ -711,13 +545,11 @@ class BulkTransferV2:
                     self.run_id, dirpath, reason="symlink_loop",
                     detail="Circular junction/symlink detected",
                 )
-                dirnames.clear()  # Don't descend further
+                dirnames.clear()
                 continue
             self._visited_dirs.add(real)
 
-            # --- Exclude known-useless directories ---
-            # Modifying dirnames[:] in-place tells os.walk to skip
-            # those subdirectories entirely.
+            # Exclude known-useless directories
             dirnames[:] = [
                 d for d in dirnames if d.lower() not in excl
             ]
@@ -731,7 +563,14 @@ class BulkTransferV2:
                     self.stats.files_skipped_inaccessible += 1
 
         if walk_warnings:
-            self._log(f"  [WARN] {walk_warnings} directory read errors during walk")
+            self._log(
+                f"  [WARN] {walk_warnings} directory read errors "
+                f"during walk"
+            )
+
+    # ------------------------------------------------------------------
+    # Per-file filter pipeline
+    # ------------------------------------------------------------------
 
     def _process_discovery(
         self, full: str, source_root: str,
@@ -740,30 +579,12 @@ class BulkTransferV2:
         """
         Process a single discovered file: record in manifest, apply
         filters, and optionally add to transfer queue.
-
-        NON-PROGRAMMER NOTE:
-          This is the "decision point" for each file. The function
-          runs through a series of checks:
-            1. Can we even read this file? (permissions)
-            2. Is it a symlink? (skip unless configured otherwise)
-            3. Is it hidden or a system file? (skip by default)
-            4. Does the filename have encoding problems?
-            5. Is the path too long for Windows? (> 260 chars)
-            6. Is the file extension one HybridRAG can parse?
-            7. Is the file the right size? (not too small, not huge)
-            8. Was it already transferred in a previous run?
-
-          If a file fails any check, it is logged in the manifest
-          with the reason, and skipped. Nothing is invisible.
         """
         cfg = self.config
         ext = os.path.splitext(full)[1].lower()
         path_len = len(full)
 
-        # --- Step 1: Read file attributes ---
-        # os.stat() retrieves file metadata without reading the file
-        # contents. If it fails or hangs (VPN drop), the file is
-        # inaccessible.
+        # Step 1: Read file attributes
         try:
             st = _stat_with_timeout(full)
         except (OSError, PermissionError, TimeoutError) as e:
@@ -782,11 +603,7 @@ class BulkTransferV2:
         file_mtime = st.st_mtime
         file_ctime = getattr(st, "st_ctime", 0.0)
 
-        # --- Windows-specific file attributes ---
-        # Windows files have special flags: Hidden, System, ReadOnly.
-        # These flags are stored in st_file_attributes (Windows only).
-        # On Linux/Mac, these attributes don't exist, so we default
-        # to False.
+        # Windows-specific file attributes
         attrs = getattr(st, "st_file_attributes", 0)
         is_hidden = (
             bool(attrs & stat.FILE_ATTRIBUTE_HIDDEN)
@@ -802,28 +619,21 @@ class BulkTransferV2:
         )
         is_symlink = os.path.islink(full)
 
-        # --- Encoding check ---
-        # Some filenames contain characters that can't be represented
-        # in UTF-8 (e.g., certain Japanese, Chinese, or legacy Windows
-        # encoding characters). These cause problems in SQLite, JSON,
-        # and most web APIs. We flag them for manual handling.
-        #
-        # IMPORTANT: This check MUST happen BEFORE record_source_file()
-        # because SQLite cannot store strings with surrogate characters.
-        # If we detect surrogates, we sanitize the path for logging and
-        # skip immediately.
+        # Encoding check (must happen before record_source_file
+        # because SQLite cannot store surrogate characters)
         encoding_issue = False
         try:
             full.encode("utf-8")
         except UnicodeEncodeError:
             encoding_issue = True
 
-        # Sanitize the path for SQLite (replace surrogates with U+FFFD)
         safe_path = full
         if encoding_issue:
-            safe_path = full.encode("utf-8", errors="replace").decode("utf-8")
+            safe_path = full.encode(
+                "utf-8", errors="replace",
+            ).decode("utf-8")
 
-        # --- Record in manifest (EVERY file, even ones we skip) ---
+        # Record in manifest (every file, even skipped ones)
         self.manifest.record_source_file(
             self.run_id, safe_path, file_size=file_size,
             file_mtime=file_mtime, file_ctime=file_ctime,
@@ -833,13 +643,14 @@ class BulkTransferV2:
             encoding_issue=encoding_issue,
         )
 
-        # --- Step 2: Apply filters (each logs its reason if skipped) ---
+        # Step 2: Apply filters
 
         if is_symlink and not cfg.follow_symlinks:
             self.stats.files_skipped_symlink += 1
             self.manifest.record_skip(
                 self.run_id, full, file_size, ext,
-                "symlink", "Symlink/junction skipped (follow_symlinks=False)",
+                "symlink",
+                "Symlink/junction skipped (follow_symlinks=False)",
             )
             return
 
@@ -847,7 +658,8 @@ class BulkTransferV2:
             self.stats.files_skipped_hidden += 1
             self.manifest.record_skip(
                 self.run_id, full, file_size, ext,
-                "hidden_or_system", f"hidden={is_hidden} system={is_system}",
+                "hidden_or_system",
+                f"hidden={is_hidden} system={is_system}",
             )
             return
 
@@ -855,19 +667,18 @@ class BulkTransferV2:
             self.stats.files_skipped_encoding += 1
             self.manifest.record_skip(
                 self.run_id, safe_path, file_size, ext,
-                "encoding_issue", "Filename contains non-UTF-8 characters",
+                "encoding_issue",
+                "Filename contains non-UTF-8 characters",
             )
             return
 
-        # Windows MAX_PATH is 260 characters. Paths longer than this
-        # cause problems with many Windows tools (Explorer, cmd.exe,
-        # some Python functions). We warn at 250 and skip at 260.
         if path_len > cfg.long_path_warn:
             if path_len > 260:
                 self.stats.files_skipped_long_path += 1
                 self.manifest.record_skip(
                     self.run_id, full, file_size, ext,
-                    "path_too_long", f"{path_len} chars (MAX_PATH=260)",
+                    "path_too_long",
+                    f"{path_len} chars (MAX_PATH=260)",
                 )
                 return
 
@@ -893,31 +704,28 @@ class BulkTransferV2:
             self.stats.files_skipped_size += 1
             self.manifest.record_skip(
                 self.run_id, full, file_size, ext,
-                "too_small", f"{file_size}B < {cfg.min_file_size}B min",
+                "too_small",
+                f"{file_size}B < {cfg.min_file_size}B min",
             )
             return
         if file_size > cfg.max_file_size:
             self.stats.files_skipped_size += 1
             self.manifest.record_skip(
                 self.run_id, full, file_size, ext,
-                "too_large", f"{file_size}B > {cfg.max_file_size}B max",
+                "too_large",
+                f"{file_size}B > {cfg.max_file_size}B max",
             )
             return
 
         self.stats.bytes_source_total += file_size
 
-        # --- Structure preservation ---
-        # Convert absolute path to relative path from source root.
-        # Example: \\Server\Share\Reports\Q1.pdf -> Reports\Q1.pdf
+        # Structure preservation
         try:
             rel = os.path.relpath(full, source_root)
         except ValueError:
             rel = os.path.basename(full)
 
-        # --- Resume check ---
-        # If this file was already successfully transferred in a
-        # previous run, skip it. Log to skipped_files so the
-        # zero-gap verification report stays accurate.
+        # Resume check
         if cfg.resume and self.manifest.is_already_transferred(
             full, current_mtime=file_mtime,
         ):
@@ -932,88 +740,80 @@ class BulkTransferV2:
         queue.append((full, source_root, rel, file_size))
 
     # ------------------------------------------------------------------
-    # Phase 1b: Delta Analysis
+    # Progress display
     # ------------------------------------------------------------------
 
-    def _delta_analysis(
+    def _discovery_progress_loop(self) -> None:
+        """Print live discovery count every 2 seconds."""
+        while not self._discovery_stop.is_set():
+            print(
+                f"\r  {self.stats.discovery_line()}",
+                end="", flush=True,
+            )
+            self._discovery_stop.wait(timeout=2.0)
+        print()
+
+
+# ============================================================================
+# Atomic Transfer Worker (Phase 2)
+# ============================================================================
+# Parallel file transfer with atomic copy pattern, deduplication,
+# hash verification, and retry logic.
+# ============================================================================
+
+class AtomicTransferWorker:
+    """
+    Parallel file transfer engine for Phase 2 of bulk transfer.
+
+    Copies files using the atomic pattern (write .tmp, verify hash,
+    rename), handles dedup, locked-file detection, and retries.
+    """
+
+    def __init__(
         self,
-        queue: List[Tuple[str, str, str, int]],
-        prev_manifest: Dict[str, str],
+        config: TransferConfig,
+        manifest: TransferManifest,
+        staging: StagingManager,
+        stats: TransferStats,
+        run_id: str,
+        stop_event: threading.Event,
+        log_lock: threading.Lock,
     ) -> None:
-        """
-        Compare current FULL manifest against previous run.
+        self.config = config
+        self.manifest = manifest
+        self.staging = staging
+        self.stats = stats
+        self.run_id = run_id
+        self._stop = stop_event
+        self._log_lock = log_lock
 
-        NON-PROGRAMMER NOTE:
-          This answers "what changed since last time?"
+        # Dedup guard: in-memory set of content hashes claimed by a
+        # worker thread to prevent race conditions in find_by_hash.
+        self._dedup_seen: Set[str] = set()
+        self._dedup_lock = threading.Lock()
 
-          New files:     Present now, absent before.
-          Deleted files: Absent now, present before. These might have
-                         orphaned chunks in the RAG index that should
-                         be cleaned up.
+    # ------------------------------------------------------------------
+    # Public entry point
+    # ------------------------------------------------------------------
 
-          Uses the full source_manifest (all discovered files) rather
-          than just the filtered transfer queue, so deletion detection
-          works for ALL file types, not just RAG-parseable ones.
-        """
-        # Get ALL discovered paths from the current run's manifest
-        with self.manifest._lock:
-            rows = self.manifest.conn.execute(
-                "SELECT source_path FROM source_manifest WHERE run_id=?",
-                (self.run_id,),
-            ).fetchall()
-        current_paths = {r[0] for r in rows}
-
-        # Deletion detection: files that existed before but are gone now
-        for prev_path in prev_manifest:
-            if prev_path not in current_paths:
-                self.stats.files_delta_deleted += 1
-
-        # New file detection: files that exist now but didn't before
-        for path in current_paths:
-            if path not in prev_manifest:
-                self.stats.files_delta_new += 1
-
-        print(
-            f"  Delta: {self.stats.files_delta_new:,} new, "
-            f"{self.stats.files_delta_deleted:,} deleted"
+    def transfer(
+        self, queue: List[Tuple[str, str, str, int]],
+    ) -> None:
+        """Transfer all files using a thread pool with backpressure."""
+        # Start live progress display
+        t = threading.Thread(
+            target=self._progress_loop, daemon=True,
         )
-
-    # ------------------------------------------------------------------
-    # Phase 2: Parallel Transfer
-    # ------------------------------------------------------------------
-
-    def _parallel_transfer(
-        self, queue: List[Tuple[str, str, str, int]]
-    ) -> None:
-        """
-        Transfer all files in the queue using a thread pool with
-        backpressure to limit memory usage.
-
-        NON-PROGRAMMER NOTE:
-          A ThreadPoolExecutor is like a team of workers at a loading
-          dock. Instead of one worker moving boxes one at a time, you
-          have 8 workers moving boxes simultaneously. The "pool" manages
-          the workers, assigns them tasks, and collects results.
-
-          Backpressure: instead of submitting all 100K files at once
-          (creating 100K Future objects in memory), we feed the pool in
-          batches of workers*4. This keeps memory bounded while still
-          keeping all workers busy.
-
-          The progress thread prints a live status line every 2 seconds
-          showing how many files have been copied, the current speed,
-          and error counts.
-        """
-        # Start live progress display (runs in background)
-        t = threading.Thread(target=self._progress_loop, daemon=True)
         t.start()
 
         max_inflight = self.config.workers * 4
-        with ThreadPoolExecutor(max_workers=self.config.workers) as pool:
+        with ThreadPoolExecutor(
+            max_workers=self.config.workers,
+        ) as pool:
             pending: set = set()
             q_idx = 0
 
-            # Seed the pool with initial batch
+            # Seed the pool
             while q_idx < len(queue) and len(pending) < max_inflight:
                 if self._stop.is_set():
                     break
@@ -1021,74 +821,43 @@ class BulkTransferV2:
                 q_idx += 1
                 pending.add(pool.submit(self._transfer_one, *item))
 
-            # Drain: wait for completions, feed new items to keep workers busy
+            # Drain: wait for completions, feed new items
             while pending:
                 if self._stop.is_set():
                     break
-                done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                done, pending = wait(
+                    pending, return_when=FIRST_COMPLETED,
+                )
                 for fut in done:
                     try:
                         fut.result()
                     except Exception:
-                        pass  # Errors are handled inside _transfer_one
-
-                    # Feed next item to keep the pool saturated
+                        pass  # Errors handled inside _transfer_one
                     if q_idx < len(queue) and not self._stop.is_set():
                         item = queue[q_idx]
                         q_idx += 1
-                        pending.add(pool.submit(self._transfer_one, *item))
+                        pending.add(
+                            pool.submit(self._transfer_one, *item),
+                        )
 
-        self._stop.set()  # Signal progress thread to stop
+        self._stop.set()
+
+    # ------------------------------------------------------------------
+    # Single-file atomic copy
+    # ------------------------------------------------------------------
 
     def _transfer_one(
-        self, source: str, source_root: str, rel: str, file_size: int,
+        self, source: str, source_root: str,
+        rel: str, file_size: int,
     ) -> None:
-        """
-        Transfer one file using the atomic copy pattern.
-
-        THE ATOMIC COPY PATTERN (step by step):
-
-          1. HASH SOURCE: Compute SHA-256 of the file on the network
-             drive BEFORE copying it. This is our "expected" hash.
-
-          2. DEDUP CHECK: If we've already seen this hash, the file is
-             a duplicate. Skip it and log "skipped_duplicate."
-
-          3. LOCK CHECK: Try to open the file exclusively. If it fails,
-             another process (like Outlook) has it locked. Quarantine it.
-
-          4. COPY TO .tmp: Read the file and write it to incoming/
-             with a .tmp extension. If the copy fails, retry up to 3
-             times with exponential backoff (wait 2s, 4s, 8s).
-
-          5. HASH DESTINATION: Compute SHA-256 of the .tmp file we
-             just wrote. This is our "actual" hash.
-
-          6. COMPARE HASHES: If expected != actual, the file was
-             corrupted during transfer. Quarantine it.
-
-          7. ATOMIC RENAME: Move the .tmp file from incoming/ to
-             verified/ using os.rename(). This is instantaneous and
-             atomic -- the file appears in verified/ fully formed.
-
-          8. PRESERVE TIMESTAMPS: Copy the original file's modification
-             time to the destination. This helps delta sync on future
-             runs.
-
-        NON-PROGRAMMER NOTE:
-          The key insight is that the indexer's source folder (verified/)
-          never contains a partially-written file. A file is either
-          100% verified and present, or it doesn't exist there at all.
-        """
+        """Transfer one file using the atomic copy pattern."""
         cfg = self.config
         ext = os.path.splitext(source)[1].lower()
         t_start = datetime.now(timezone.utc).isoformat()
         start_time = time.monotonic()
 
         try:
-            # Step 1: Hash source BEFORE transfer
-            # Also check mtime stability: if the file is being written to
-            # by another process, the hash will be of partial content.
+            # Step 1: Hash source before transfer
             pre_stat = _stat_with_timeout(source)
             hash_src = _hash_file(source)
             if not hash_src:
@@ -1099,8 +868,8 @@ class BulkTransferV2:
                     transfer_start=t_start,
                 )
                 return
-            # Re-check mtime after hashing: if it changed, the file was
-            # modified during our read and the hash is unreliable.
+
+            # Mtime stability check
             try:
                 post_stat = _stat_with_timeout(source)
                 if post_stat.st_mtime != pre_stat.st_mtime or \
@@ -1109,24 +878,25 @@ class BulkTransferV2:
                     self.manifest.record_transfer(
                         self.run_id, source, result="failed",
                         hash_source=hash_src,
-                        error_message="Source file modified during hashing "
-                                      "(mtime or size changed)",
+                        error_message=(
+                            "Source file modified during hashing "
+                            "(mtime or size changed)"
+                        ),
                         transfer_start=t_start,
                     )
                     return
             except (OSError, TimeoutError):
-                pass  # If re-stat fails, proceed with existing hash
+                pass
 
             # Step 2: Deduplication check (thread-safe)
-            # Use in-memory set + DB check to prevent race where
-            # concurrent threads all bypass find_by_hash simultaneously.
             if cfg.deduplicate:
                 with self._dedup_lock:
                     if hash_src in self._dedup_seen:
                         self.stats.files_deduplicated += 1
                         self.manifest.record_transfer(
                             self.run_id, source,
-                            hash_source=hash_src, result="skipped_duplicate",
+                            hash_source=hash_src,
+                            result="skipped_duplicate",
                             transfer_start=t_start,
                         )
                         return
@@ -1136,16 +906,14 @@ class BulkTransferV2:
                         self.stats.files_deduplicated += 1
                         self.manifest.record_transfer(
                             self.run_id, source, dest_path=existing,
-                            hash_source=hash_src, result="skipped_duplicate",
+                            hash_source=hash_src,
+                            result="skipped_duplicate",
                             transfer_start=t_start,
                         )
                         return
-                    # Claim this hash so other threads skip it
                     self._dedup_seen.add(hash_src)
 
             # Step 3: Locked file detection
-            # Try to open the file for reading. If another process has
-            # an exclusive lock (e.g., Outlook on a .pst), this fails.
             if not _can_read_file(source):
                 self.stats.files_skipped_locked += 1
                 self.manifest.record_transfer(
@@ -1156,17 +924,17 @@ class BulkTransferV2:
                 )
                 self.manifest.record_skip(
                     self.run_id, source, file_size, ext,
-                    "locked", "File locked/in-use at transfer time",
+                    "locked",
+                    "File locked/in-use at transfer time",
                 )
                 return
 
             # Step 4: Atomic copy (source -> incoming/.tmp)
-            # When multiple sources share the same leaf name (e.g., two
-            # "Documents" dirs on different shares), disambiguate by
-            # appending a hash of the full source root path.
             root_name = Path(source_root).name
             if len(cfg.source_paths) > 1:
-                root_key = hashlib.md5(source_root.encode()).hexdigest()[:6]
+                root_key = hashlib.md5(
+                    source_root.encode(),
+                ).hexdigest()[:6]
                 root_name = f"{root_name}_{root_key}"
             dest_rel = os.path.join(root_name, rel)
             tmp_path = self.staging.incoming_path(dest_rel)
@@ -1174,8 +942,6 @@ class BulkTransferV2:
             copied = False
             last_err = ""
             retries = 0
-            # Timeout: at least 60s, scaled by file size assuming
-            # minimum 512 KB/s throughput on a bad connection.
             copy_timeout = max(60.0, file_size / (512 * 1024))
             for attempt in range(1, cfg.max_retries + 1):
                 try:
@@ -1189,31 +955,31 @@ class BulkTransferV2:
                 except Exception as e:
                     last_err = f"{type(e).__name__}: {e}"
                     retries = attempt - 1
-                    # Disk full or timeout: retrying is futile
                     if isinstance(e, (TimeoutError,)):
                         break
-                    if isinstance(e, OSError) and getattr(e, "errno", 0) == errno.ENOSPC:
+                    if isinstance(e, OSError) and \
+                       getattr(e, "errno", 0) == errno.ENOSPC:
                         break
                     if attempt < cfg.max_retries:
-                        # Jitter prevents thundering herd when all workers
-                        # fail on the same network hiccup and retry together.
                         base = cfg.retry_backoff ** attempt
                         time.sleep(base * random.uniform(0.5, 1.5))
 
             if not copied:
                 self.stats.files_failed += 1
                 self.staging.quarantine_file(
-                    tmp_path, dest_rel, f"Copy failed: {last_err}"
+                    tmp_path, dest_rel,
+                    f"Copy failed: {last_err}",
                 )
                 self.stats.files_quarantined += 1
                 self.manifest.record_transfer(
                     self.run_id, source, result="failed",
                     hash_source=hash_src, retry_count=retries,
-                    error_message=last_err, transfer_start=t_start,
+                    error_message=last_err,
+                    transfer_start=t_start,
                 )
                 return
 
-            # Step 5: Hash destination AFTER transfer
+            # Step 5: Hash destination after transfer
             hash_dst = _hash_file(str(tmp_path))
             dur = time.monotonic() - start_time
             speed = (file_size / max(dur, 0.001)) / (1024 * 1024)
@@ -1221,14 +987,12 @@ class BulkTransferV2:
 
             # Step 6: Compare hashes
             if hash_src != hash_dst:
-                # HASH MISMATCH -- file was corrupted during transfer.
-                # This can happen due to network errors, disk errors,
-                # or the source file being modified mid-copy.
                 self.stats.files_verify_failed += 1
                 self.stats.files_quarantined += 1
                 q_path = self.staging.quarantine_file(
                     tmp_path, dest_rel,
-                    f"Hash mismatch: src={hash_src[:16]} dst={hash_dst[:16]}",
+                    f"Hash mismatch: src={hash_src[:16]} "
+                    f"dst={hash_dst[:16]}",
                 )
                 self.manifest.record_transfer(
                     self.run_id, source, dest_path=str(q_path),
@@ -1243,17 +1007,22 @@ class BulkTransferV2:
 
             self.stats.files_verified += 1
 
-            # Step 7: Promote -- atomic rename from incoming/ to verified/
-            final = self.staging.promote_to_verified(tmp_path, dest_rel)
+            # Step 7: Promote to verified/
+            final = self.staging.promote_to_verified(
+                tmp_path, dest_rel,
+            )
 
             # Step 8: Preserve original timestamps
             try:
                 orig_st = _stat_with_timeout(source)
-                os.utime(str(final), (orig_st.st_atime, orig_st.st_mtime))
+                os.utime(
+                    str(final),
+                    (orig_st.st_atime, orig_st.st_mtime),
+                )
             except Exception:
-                pass  # Non-critical: timestamps are nice-to-have
+                pass
 
-            # Record success in manifest
+            # Record success
             self.stats.record_copy(file_size, ext, source_root)
             self.manifest.record_transfer(
                 self.run_id, source, dest_path=str(final),
@@ -1264,15 +1033,12 @@ class BulkTransferV2:
                 duration_sec=dur, speed_mbps=speed,
                 result="success", retry_count=retries,
             )
-            # Update manifest with content hash for future delta sync
             self.manifest.record_source_file(
                 self.run_id, source, file_size=file_size,
                 content_hash=hash_src, extension=ext,
             )
 
         except Exception as e:
-            # Catch-all for unexpected errors. The file is NOT copied,
-            # but the manifest records what happened.
             self.stats.files_failed += 1
             self.stats.record_source_event(source_root, "failed")
             self.manifest.record_transfer(
@@ -1282,35 +1048,192 @@ class BulkTransferV2:
             )
 
     # ------------------------------------------------------------------
-    # Progress Display
+    # Progress display
     # ------------------------------------------------------------------
 
-    def _log(self, msg: str) -> None:
-        """Thread-safe print that avoids garbling carriage-return lines."""
-        with self._log_lock:
-            print(f"\n{msg}", flush=True)
-
-    def _discovery_progress_loop(self) -> None:
-        """Print live discovery count every 2 seconds during Phase 1."""
-        while not self._discovery_stop.is_set():
-            print(f"\r  {self.stats.discovery_line()}", end="", flush=True)
-            self._discovery_stop.wait(timeout=2.0)
-        print()  # Final newline after progress line
-
     def _progress_loop(self) -> None:
-        """Print live progress every 2 seconds until transfer completes."""
+        """Print live progress every 2 seconds."""
         sample_interval = 30.0
         last_sample = 0.0
         while not self._stop.is_set():
-            print(f"\r  {self.stats.summary_line()}", end="", flush=True)
-            # Sample speed history for final report graph
+            print(
+                f"\r  {self.stats.summary_line()}",
+                end="", flush=True,
+            )
             elapsed = self.stats.elapsed
             if elapsed - last_sample >= sample_interval:
                 speed = self.stats.speed_bps
                 self.stats._speed_history.append((elapsed, speed))
                 last_sample = elapsed
             self._stop.wait(timeout=2.0)
-        print()  # Final newline after progress line
+        print()
+
+
+# ============================================================================
+# Bulk Transfer Engine V2 (Orchestrator)
+# ============================================================================
+# Coordinates SourceDiscovery (Phase 1) and AtomicTransferWorker (Phase 2)
+# into a three-phase transfer pipeline with delta analysis and reporting.
+# ============================================================================
+
+class BulkTransferV2:
+    """
+    Production-grade file transfer engine with atomic copy pattern,
+    three-stage staging, delta sync, and zero-gap manifest tracking.
+
+    Delegates discovery to SourceDiscovery and parallel transfer
+    to AtomicTransferWorker, keeping this class as a slim orchestrator.
+    """
+
+    def __init__(self, config: TransferConfig) -> None:
+        config.workers = min(max(config.workers, 1), 32)
+        self.config = config
+        self.run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        self.stats = TransferStats()
+        self.manifest: Optional[TransferManifest] = None
+        self.staging: Optional[StagingManager] = None
+        self._stop = threading.Event()
+        self._log_lock = threading.Lock()
+
+    def run(self) -> TransferStats:
+        """Execute the full three-phase transfer pipeline."""
+        cfg = self.config
+        dest = Path(cfg.dest_path)
+        dest.mkdir(parents=True, exist_ok=True)
+
+        # Initialize subsystems
+        db_path = str(dest / "_transfer_manifest.db")
+        self.manifest = TransferManifest(db_path)
+        self.staging = StagingManager(str(dest))
+        self.manifest.start_run(
+            self.run_id, cfg.source_paths, cfg.dest_path,
+            config_json=json.dumps({
+                "workers": cfg.workers,
+                "deduplicate": cfg.deduplicate,
+                "verify": cfg.verify_copies,
+                "extensions": len(cfg.extensions),
+            }),
+        )
+
+        # Clean leftover .tmp files from crashed runs
+        cleaned = self.staging.cleanup_incoming()
+        if cleaned:
+            print(f"  [OK] Cleaned {cleaned} leftover .tmp files")
+
+        # Banner
+        print("=" * 70)
+        print("  BULK TRANSFER V2 -- Starting")
+        print("=" * 70)
+        print(f"  Run ID:      {self.run_id}")
+        print(f"  Sources:     {len(cfg.source_paths)}")
+        for sp in cfg.source_paths:
+            print(f"               {sp}")
+        print(f"  Staging:     {dest}")
+        print(f"  Workers:     {cfg.workers}")
+        print(f"  Atomic copy: YES (.tmp -> verify -> rename)")
+        print(f"  Dedup:       {'ON' if cfg.deduplicate else 'OFF'}")
+        print(f"  Verify:      {'ON' if cfg.verify_copies else 'OFF'}")
+        print("=" * 70)
+        print()
+
+        try:
+            # Phase 1: Source discovery
+            print("[PHASE 1] Building source manifest...")
+            discoverer = SourceDiscovery(
+                cfg, self.manifest, self.stats,
+                self.run_id, self._log_lock, self._stop,
+            )
+            queue = discoverer.discover()
+            self.stats.files_manifest = self.stats.files_discovered
+            print(
+                f"  Manifest: {self.stats.files_discovered:,} files, "
+                f"{_fmt_size(self.stats.bytes_source_total)}"
+            )
+            print(f"  Transfer queue: {len(queue):,} files")
+
+            # Phase 1b: Delta sync analysis
+            prev = self.manifest.get_previous_manifest(self.run_id)
+            if prev:
+                self._delta_analysis(queue, prev)
+            print()
+
+            # Phase 2: Parallel transfer
+            if queue:
+                print(
+                    f"[PHASE 2] Transferring "
+                    f"({cfg.workers} workers)..."
+                )
+                worker = AtomicTransferWorker(
+                    cfg, self.manifest, self.staging, self.stats,
+                    self.run_id, self._stop, self._log_lock,
+                )
+                worker.transfer(queue)
+
+            # Phase 3: Finalize
+            print()
+            print("[PHASE 3] Finalizing...")
+            self.manifest.finish_run(self.run_id)
+            rotated = self.manifest.rotate_old_runs(keep=10)
+            if rotated:
+                print(
+                    f"  [OK] Rotated {rotated} old run(s) "
+                    f"from manifest DB"
+                )
+            report = self.manifest.get_verification_report(
+                self.run_id,
+            )
+            print(report)
+
+        except KeyboardInterrupt:
+            print("\n  [INTERRUPTED] Progress saved. Re-run to resume.")
+            self._stop.set()
+        finally:
+            if self.manifest:
+                self.manifest.flush()
+                self.manifest.close()
+
+        print(self.stats.full_report())
+        return self.stats
+
+    # ------------------------------------------------------------------
+    # Phase 1b: Delta Analysis
+    # ------------------------------------------------------------------
+
+    def _delta_analysis(
+        self,
+        queue: List[Tuple[str, str, str, int]],
+        prev_manifest: Dict[str, str],
+    ) -> None:
+        """Compare current manifest against previous run."""
+        with self.manifest._lock:
+            rows = self.manifest.conn.execute(
+                "SELECT source_path FROM source_manifest "
+                "WHERE run_id=?",
+                (self.run_id,),
+            ).fetchall()
+        current_paths = {r[0] for r in rows}
+
+        for prev_path in prev_manifest:
+            if prev_path not in current_paths:
+                self.stats.files_delta_deleted += 1
+
+        for path in current_paths:
+            if path not in prev_manifest:
+                self.stats.files_delta_new += 1
+
+        print(
+            f"  Delta: {self.stats.files_delta_new:,} new, "
+            f"{self.stats.files_delta_deleted:,} deleted"
+        )
+
+    # ------------------------------------------------------------------
+    # Logging
+    # ------------------------------------------------------------------
+
+    def _log(self, msg: str) -> None:
+        """Thread-safe print."""
+        with self._log_lock:
+            print(f"\n{msg}", flush=True)
 
 
 # ============================================================================

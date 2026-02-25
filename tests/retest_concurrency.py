@@ -28,6 +28,7 @@ import pytest
 from src.tools.transfer_staging import StagingManager
 from src.tools.transfer_manifest import TransferManifest
 from src.tools.bulk_transfer_v2 import (
+    AtomicTransferWorker,
     BulkTransferV2,
     TransferConfig,
     TransferStats,
@@ -147,12 +148,20 @@ class TestDedupRace:
             workers=1,
             deduplicate=True,
         )
-        engine = BulkTransferV2(cfg)
-        engine.manifest = TransferManifest(
+        manifest = TransferManifest(
             str(staging_dir / "_manifest.db")
         )
-        engine.manifest.start_run(engine.run_id, cfg.source_paths, cfg.dest_path)
-        engine.staging = StagingManager(str(staging_dir))
+        run_id = "test_dedup_race"
+        manifest.start_run(run_id, cfg.source_paths, cfg.dest_path)
+        staging = StagingManager(str(staging_dir))
+        stats = TransferStats()
+        stop_event = threading.Event()
+        log_lock = threading.Lock()
+
+        worker = AtomicTransferWorker(
+            cfg, manifest, staging, stats,
+            run_id, stop_event, log_lock,
+        )
 
         test_hash = "aabbccdd" * 8  # 64-char fake SHA-256
         n_threads = 10
@@ -163,21 +172,21 @@ class TestDedupRace:
 
         def _try_dedup(idx):
             barrier.wait(timeout=10)
-            with engine._dedup_lock:
-                if test_hash in engine._dedup_seen:
-                    engine.stats.files_deduplicated += 1
+            with worker._dedup_lock:
+                if test_hash in worker._dedup_seen:
+                    stats.files_deduplicated += 1
                     with lock:
                         deduped.append(idx)
                     return
                 # Also check DB (as the real code does)
-                existing = engine.manifest.find_by_hash(test_hash)
+                existing = manifest.find_by_hash(test_hash)
                 if existing:
-                    engine._dedup_seen.add(test_hash)
-                    engine.stats.files_deduplicated += 1
+                    worker._dedup_seen.add(test_hash)
+                    stats.files_deduplicated += 1
                     with lock:
                         deduped.append(idx)
                     return
-                engine._dedup_seen.add(test_hash)
+                worker._dedup_seen.add(test_hash)
                 with lock:
                     claimed.append(idx)
 
@@ -194,10 +203,10 @@ class TestDedupRace:
         assert len(deduped) == n_threads - 1, (
             f"Expected {n_threads - 1} deduped, got {len(deduped)}"
         )
-        assert engine.stats.files_deduplicated == n_threads - 1
-        assert test_hash in engine._dedup_seen
+        assert stats.files_deduplicated == n_threads - 1
+        assert test_hash in worker._dedup_seen
 
-        engine.manifest.close()
+        manifest.close()
 
 
 # ===================================================================

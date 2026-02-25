@@ -48,6 +48,7 @@ from src.tools.transfer_staging import StagingManager
 from src.tools.transfer_manifest import TransferManifest
 from src.tools.bulk_transfer_v2 import (
     BulkTransferV2,
+    SourceDiscovery,
     TransferConfig,
     TransferStats,
     _hash_file,
@@ -868,7 +869,7 @@ class TestAlwaysSkipDeadCode:
     def test_always_skip_never_referenced_in_process_discovery(self):
         """Prove _ALWAYS_SKIP is not used in _process_discovery logic."""
         import inspect
-        source_code = inspect.getsource(BulkTransferV2._process_discovery)
+        source_code = inspect.getsource(SourceDiscovery._process_discovery)
         assert "_ALWAYS_SKIP" not in source_code, (
             "_ALWAYS_SKIP should NOT appear in _process_discovery -- "
             "it is dead code (whitelist catches everything first)"
