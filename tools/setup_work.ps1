@@ -390,8 +390,8 @@ $PYTHON = "$PROJECT_ROOT\.venv\Scripts\python.exe"
 $PIP = "$PROJECT_ROOT\.venv\Scripts\pip.exe"
 # Corporate proxies add latency. Default pip timeout is 15 seconds which
 # is too short -- packages time out before the proxy finishes relaying.
-# We increase to 120 seconds and add 2 retries (low to avoid tripping security sensors).
-$TRUSTED = "--trusted-host", "pypi.org", "--trusted-host", "files.pythonhosted.org", "--timeout", "120", "--retries", "2"
+# We increase to 120 seconds and allow 5 retries for TCP RST recovery.
+$TRUSTED = "--trusted-host", "pypi.org", "--trusted-host", "files.pythonhosted.org", "--timeout", "120", "--retries", "5"
 
 $stepDone = $false
 while (-not $stepDone) {
@@ -503,7 +503,7 @@ $groups = @(
     @{ name = "Credential storage"; pkgs = @("keyring==23.13.1", "jaraco.classes==3.4.0", "more-itertools==10.8.0") },
     @{ name = "Vector search";      pkgs = @("faiss-cpu==1.9.0") },
     @{ name = "Utilities";          pkgs = @("structlog==24.4.0", "rich==13.9.4", "tqdm==4.67.3", "regex==2026.1.15") },
-    @{ name = "AI core (openai)";   pkgs = @("openai==1.51.2", "tiktoken==0.8.0") }
+    @{ name = "AI core (openai)";   pkgs = @("openai==1.51.2", "tiktoken==0.8.0"); nodeps = $true }
 )
 
 $groupNum = 0
@@ -516,9 +516,14 @@ foreach ($group in $groups) {
     "[$(Get-Date -Format 'HH:mm:ss')] Step 7$letter : $($group.name) -- START" | Add-Content $LOG_FILE -Encoding UTF8
     "  Packages: $($group.pkgs -join ', ')" | Add-Content $LOG_FILE -Encoding UTF8
 
+    # Groups with nodeps=true have all deps installed by earlier groups.
+    # --no-deps reduces network requests, which helps with proxy RST issues.
+    $extraFlags = @()
+    if ($group.nodeps) { $extraFlags += "--no-deps" }
+
     $stepDone = $false
     while (-not $stepDone) {
-        $pipOutput = & $PIP install $($group.pkgs) --progress-bar on @TRUSTED 2>&1
+        $pipOutput = & $PIP install $($group.pkgs) --progress-bar on @extraFlags @TRUSTED 2>&1
         $pipExitCode = $LASTEXITCODE
         $pipOutput
         $pipOutput | Out-String | Add-Content $LOG_FILE -Encoding UTF8
@@ -530,6 +535,38 @@ foreach ($group in $groups) {
         } else {
             Write-Fail "7$letter $($group.name)"
             "[$(Get-Date -Format 'HH:mm:ss')] Step 7$letter : FAIL (exit code $pipExitCode)" | Add-Content $LOG_FILE -Encoding UTF8
+
+            # For AI core group: try download-then-install before prompting
+            if ($group.nodeps) {
+                Write-Host ""
+                Write-Host "  Direct install failed. Trying download-then-install..." -ForegroundColor Yellow
+                "[$(Get-Date -Format 'HH:mm:ss')] Step 7$letter : Trying download-then-install fallback" | Add-Content $LOG_FILE -Encoding UTF8
+                $wheelDir = "$PROJECT_ROOT\.venv\_wheels"
+                if (-not (Test-Path $wheelDir)) { New-Item -ItemType Directory -Path $wheelDir -Force | Out-Null }
+                $allDownloaded = $true
+                foreach ($pkg in $group.pkgs) {
+                    Write-Host "  Downloading $pkg wheel..." -ForegroundColor White
+                    $dlOutput = & $PIP download $pkg --no-deps --dest "$wheelDir" @TRUSTED 2>&1
+                    $dlOutput
+                    $dlOutput | Out-String | Add-Content $LOG_FILE -Encoding UTF8
+                    if ($LASTEXITCODE -ne 0) { $allDownloaded = $false }
+                }
+                if ($allDownloaded) {
+                    Write-Host "  Installing from downloaded wheels..." -ForegroundColor White
+                    $whlFiles = Get-ChildItem "$wheelDir\*.whl" | ForEach-Object { $_.FullName }
+                    $installOutput = & $PIP install @whlFiles --no-deps @TRUSTED 2>&1
+                    $installOutput
+                    $installOutput | Out-String | Add-Content $LOG_FILE -Encoding UTF8
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Ok "7$letter $($group.name) (from downloaded wheels)"
+                        "[$(Get-Date -Format 'HH:mm:ss')] Step 7$letter : OK (wheel fallback)" | Add-Content $LOG_FILE -Encoding UTF8
+                        $stepDone = $true
+                        continue
+                    }
+                }
+                "[$(Get-Date -Format 'HH:mm:ss')] Step 7$letter : Wheel fallback also failed" | Add-Content $LOG_FILE -Encoding UTF8
+            }
+
             $choice = Request-Recovery "7$letter $($group.name)" 7 -DrillDown
             "[$(Get-Date -Format 'HH:mm:ss')] Step 7$letter : User chose $choice" | Add-Content $LOG_FILE -Encoding UTF8
             switch ($choice) {
@@ -544,7 +581,7 @@ foreach ($group in $groups) {
                         "[$(Get-Date -Format 'HH:mm:ss')]   7${letter}-${pkgIdx} : $pkg -- START" | Add-Content $LOG_FILE -Encoding UTF8
                         $pkgDone = $false
                         while (-not $pkgDone) {
-                            $pkgOutput = & $PIP install $pkg --progress-bar on @TRUSTED 2>&1
+                            $pkgOutput = & $PIP install $pkg --no-deps --progress-bar on @TRUSTED 2>&1
                             $pkgExitCode = $LASTEXITCODE
                             $pkgOutput
                             $pkgOutput | Out-String | Add-Content $LOG_FILE -Encoding UTF8
@@ -556,8 +593,12 @@ foreach ($group in $groups) {
                                 Write-Fail "$pkg"
                                 "[$(Get-Date -Format 'HH:mm:ss')]   7${letter}-${pkgIdx} : FAIL (exit code $pkgExitCode)" | Add-Content $LOG_FILE -Encoding UTF8
                                 Write-Host ""
-                                Write-Host "  To troubleshoot in another window:" -ForegroundColor Yellow
-                                Write-Host "    .venv\Scripts\pip.exe install $pkg --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120" -ForegroundColor White
+                                Write-Host "  Proxy is blocking this package. Try these:" -ForegroundColor Yellow
+                                Write-Host "    1. Retry (proxy may allow on next attempt):" -ForegroundColor White
+                                Write-Host "       .venv\Scripts\pip.exe install $pkg --no-deps --timeout 120 --retries 10 --trusted-host pypi.org --trusted-host files.pythonhosted.org" -ForegroundColor Gray
+                                Write-Host "    2. Download wheel on personal network, copy to:" -ForegroundColor White
+                                Write-Host "       $wheelDir" -ForegroundColor Gray
+                                Write-Host "       Then: .venv\Scripts\pip.exe install $wheelDir\$($pkg.Split('==')[0])*.whl --no-deps" -ForegroundColor Gray
                                 Write-Host ""
                                 Write-Host "  [R] Retry   [S] Skip   [X] Exit"
                                 $pkgChoice = Read-Host "  Choose [R/S/X]"
