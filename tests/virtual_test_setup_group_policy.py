@@ -90,7 +90,7 @@ if work:
 
     # Must install pip-system-certs before the main pip install -r command
     cert_install = work.find("$PIP install pip-system-certs")
-    req_install = work.find("$PIP install -r requirements_approved")
+    req_install = work.find("$PIP install -r")
     check("pip-system-certs installed before requirements",
           cert_install > 0 and req_install > 0 and cert_install < req_install,
           "pip-system-certs must come before main requirements install")

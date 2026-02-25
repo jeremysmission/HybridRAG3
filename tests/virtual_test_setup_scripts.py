@@ -189,9 +189,9 @@ else:
     check("pytest install is optional",
           "Read-Host" in work and "pytest" in work.lower(),
           "should ask before installing unapproved testing packages")
-    check("Notes YELLOW approval status",
-          "YELLOW" in work or "applying" in work.lower(),
-          "should flag pytest/psutil approval status")
+    check("No sensitive approval info in public script",
+          "YELLOW" not in work and "applying for" not in work.lower() and "store approval" not in work.lower(),
+          "approval status belongs in requirements_approved.txt, not setup scripts")
 
     # Template handling
     check("Handles start_hybridrag.ps1.template",
