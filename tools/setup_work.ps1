@@ -424,7 +424,7 @@ Write-Host ""
 Write-Host "  --- Attempting openai SDK (needs store approval) ---" -ForegroundColor Cyan
 Write-Host "  If this fails, that is OK -- apply for openai in the software store."
 Write-Host ""
-& $PIP install openai==1.51.2 --progress-bar on @TRUSTED 2>&1
+& $PIP install "openai>=1.40.0,<2.0.0" --progress-bar on @TRUSTED 2>&1
 if ($LASTEXITCODE -eq 0) {
     Write-Ok "openai 1.51.2 installed"
 } else {
