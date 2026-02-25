@@ -58,7 +58,7 @@ Last Updated: 2026-02-21
 | **Deterministic** | Producing the same output every time given the same input. HybridRAG uses deterministic chunk IDs so re-indexing the same file produces the same IDs |
 | **Dot product** | A mathematical operation that multiplies corresponding elements of two vectors and sums the results. Used for fast similarity comparison |
 | **Embedding** | A list of numbers (vector) that represents the meaning of a piece of text. Texts with similar meanings have similar embeddings |
-| **Embedding model** | An AI model that converts text into embeddings. HybridRAG uses all-MiniLM-L6-v2 (384 dimensions, ~87 MB) |
+| **Embedding model** | An AI model that converts text into embeddings. HybridRAG uses nomic-embed-text (768 dimensions, 274 MB, served by Ollama) |
 | **Endpoint** | A specific URL that a service listens on for requests (e.g., `http://localhost:8000/query`) |
 | **FAISS** | Facebook AI Similarity Search -- a library for fast approximate nearest-neighbor search on large vector collections |
 | **FastAPI** | A modern Python web framework for building REST APIs |

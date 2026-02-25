@@ -59,6 +59,10 @@ class FakeOllamaConfig:
     base_url: str = "http://localhost:11434"
     model: str = "phi4-mini"
     timeout_seconds: int = 120
+    context_window: int = 4096
+    num_predict: int = 512
+    keep_alive: int = -1
+    num_thread: int = 0
 
 
 @dataclass

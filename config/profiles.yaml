@@ -22,7 +22,7 @@
 #   server_max    -- RAM 64GB+, 24GB+ VRAM GPU
 #
 # WHAT EACH PROFILE CONTROLS:
-#   - Embedding model (MiniLM 384d / nomic 768d / snowflake 1024d)
+#   - Embedding model (nomic 768d / snowflake 1024d)
 #   - Embedding device (cpu / cuda)
 #   - LLM model (phi4-mini / mistral-nemo:12b / phi4:14b-q4_K_M)
 #   - Batch size, top_k, block_chars, concurrency
@@ -39,8 +39,8 @@
 # Batch size 16 keeps peak RAM under 2GB during indexing.
 laptop_safe:
   embedding:
-    model_name: "all-MiniLM-L6-v2"  # 80MB, 384 dims, runs on any hardware
-    dimension: 384
+    model_name: "nomic-embed-text"   # 274MB, 768 dims, served by Ollama
+    dimension: 768
     batch_size: 16               # Small batches = low RAM, slower indexing
     device: "cpu"                # No GPU assumed
   ollama:
@@ -61,7 +61,7 @@ laptop_safe:
     gc_between_blocks: true
   notes: >
     Conservative settings for laptops with 8-16GB RAM.
-    Embedding: MiniLM (384d, CPU). LLM: phi4-mini (3.8B).
+    Embedding: nomic-embed-text (768d, Ollama). LLM: phi4-mini (3.8B).
     Indexing is slower but rock-solid stable.
 
 # --- DESKTOP POWER ---

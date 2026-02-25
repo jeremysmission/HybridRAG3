@@ -10,7 +10,7 @@
 #
 # WHY CHUNKING MATTERS:
 #   A 500-page PDF might contain 2 million characters. The embedding model
-#   (all-MiniLM-L6-v2) works best on passages of ~200-500 words. If you
+#   (nomic-embed-text) works best on passages of ~200-500 words. If you
 #   feed it the entire document, the embedding is a vague average of
 #   everything and matches nothing well. Small, focused chunks produce
 #   sharp embeddings that match specific queries accurately.
@@ -79,7 +79,7 @@ class ChunkerConfig:
     Fields:
       chunk_size     -- target size of each chunk in characters (default 1200).
                        ~200-300 words, which is the sweet spot for
-                       all-MiniLM-L6-v2 embeddings.
+                       nomic-embed-text embeddings.
       overlap        -- how many characters to repeat at the start of the
                        next chunk (default 200). Ensures facts near chunk
                        boundaries aren't lost.

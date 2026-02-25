@@ -1,0 +1,211 @@
+SESSION 15 CHANGE LOG -- 2026-02-25
+=============================================================
+
+OVERVIEW:
+    Three bodies of work in this session:
+    A. Six bug fixes from work laptop fresh install (Handover_2_24_2026.txt)
+    B. HuggingFace retirement -- replaced with Ollama-served embeddings
+    C. QA remediation -- banned words, default model, handover redaction
+
+NOT DONE (deferred to future session):
+    - Two-repo API design (home = commercial Azure OpenAI, work = Azure
+      Government OpenAI through corporate proxy). Discussed architecture
+      but no code written. Separate codepaths needed -- no comingling.
+    - 5 classes over 500 lines (non-blocking, noted in QA)
+    - Virtual test updates for new embedder dimension (768 vs 384)
+    - Hardcoded path in _profile_switch.py
+
+=============================================================
+A. BUG FIXES (from Handover_2_24_2026.txt)
+=============================================================
+
+BUG 1: keyring missing from requirements
+    FILE: requirements.txt, requirements_approved.txt
+    WHAT: Added keyring==23.13.1, jaraco.classes==3.4.0, more-itertools==10.8.0
+    WHY:  Work laptop Python 3.12 needs keyring for credential storage.
+          Version 21.x (corporate store) is incompatible with 3.12.
+          Version 23.13.1 required. Approval waiver needed from IT.
+
+BUG 2: ssl_check.py uses removed OpenSSL API
+    FILE: tools/py/ssl_check.py
+    WHAT: Added try/except around keyring import with install message.
+          Changed exit() to exit(1) for proper error codes.
+    WHY:  The get_unverified_chain() error reported in the handover was
+          actually caused by missing keyring, not OpenSSL. Current code
+          already handles OpenSSL 3.0 correctly. The real fix was BUG 1.
+
+BUG 3: Outdated start_hybridrag.ps1 message
+    FILE: tools/master_toolkit.ps1 (line 16)
+    WHAT: Changed header comment from "Add to start_hybridrag.ps1" to
+          "Add to PowerShell profile ($PROFILE)"
+    WHY:  start_hybridrag.ps1 is machine-specific and not synced between
+          repos. The correct permanent install method is the PS profile.
+
+BUG 4: Misleading rag-store-endpoint prompt
+    FILE: tools/master_toolkit.ps1 (lines 129-131)
+    WHAT: Changed prompt text to "Enter BASE URL only. Do NOT include
+          /openai/deployments" with green/red color-coded examples.
+    WHY:  User pasted full deployment URL instead of base URL, causing
+          double-path construction in the SDK client.
+
+BUG 5: rag-env-vars command not found
+    NO CODE CHANGE.
+    WHY:  Function exists at line 271 of master_toolkit.ps1. Work laptop
+          had stale Educational repo copy. Fixed by re-syncing.
+
+BUG 6: API timeout on work laptop
+    FILE: src/core/llm_router.py (~line 843)
+    WHAT: Added httpx.Timeout to AzureOpenAI client creation, driven by
+          config.api.timeout_seconds (default 60s).
+    WHY:  httpx.Client with no timeout defaults to 5s. Corporate SSL
+          inspection proxy adds latency that exceeds 5s. The timeout is
+          now configurable via default_config.yaml.
+    FILE: config/default_config.yaml
+    WHAT: api.timeout_seconds changed from 30 to 60.
+
+=============================================================
+B. HUGGINGFACE RETIREMENT
+=============================================================
+
+MOTIVATION:
+    - HuggingFace sentence-transformers requires AI Use Case approval
+    - Ollama already serves our LLM, can also serve embeddings
+    - nomic-embed-text (768-dim) is higher quality than all-MiniLM-L6-v2 (384-dim)
+    - Removes ~2.5GB of dependencies (torch, transformers, etc.)
+    - Apache 2.0 license, no approval needed
+
+FILE: src/core/embedder.py (FULL REWRITE)
+    WHAT: Replaced SentenceTransformer class with Ollama HTTP client.
+          Same public API preserved: embed_batch(), embed_query(),
+          encode(), close(), dimension property.
+    HOW:  Sends text to Ollama /api/embed endpoint via httpx.Client.
+          Batches configurable via HYBRIDRAG_EMBED_BATCH env var (default 64).
+          L2-normalizes output so dot product = cosine similarity.
+          Startup probe detects dimension and verifies Ollama is running.
+
+FILE: requirements.txt, requirements_approved.txt
+    WHAT: Removed 16 HuggingFace packages:
+          sentence-transformers, torch, transformers, tokenizers,
+          huggingface_hub, safetensors, scipy, scikit-learn, sympy,
+          threadpoolctl, einops, joblib, filelock, fsspec, networkx,
+          mpmath, Jinja2, MarkupSafe
+    WHY:  No longer needed. Install size dropped from ~800MB to ~200MB.
+
+FILE: config/default_config.yaml
+    WHAT: embedding.model_name: nomic-embed-text (was all-MiniLM-L6-v2)
+          embedding.dimension: 768 (was 384)
+          embedding.batch_size: 64 (was 16)
+
+FILE: src/core/config.py (EmbeddingConfig dataclass)
+    WHAT: Updated defaults to match: model_name="nomic-embed-text",
+          dimension=768, batch_size=64.
+
+FILE: src/core/hallucination_guard/guard_types.py
+    WHAT: Updated REQUIRED_VERSIONS to just numpy. Added header note
+          explaining HF retirement and NLI verifier dormancy.
+    NOTE: NLI verifier (nli_verifier.py) already has graceful degradation
+          via try/except ImportError. No changes needed there.
+
+FILES: Various comment/doc updates
+    - src/gui/panels/reference_content.py:271 -- dimension comment 384->768
+    - src/tools/system_diagnostic.py:519 -- removed hardcoded model name,
+      uses Embedder() default; dimension check now flexible
+    - src/tools/migrate_embeddings_to_memmap.py:110 -- comment update
+    - src/tools/rebuild_memmap_from_sqlite.py:128 -- comment update
+    - src/diagnostic/fault_analysis.py -- removed sentence_transformers refs
+    - tests/test_phase3_stress.py:297 -- assertion 384->768
+
+FILES: Documentation updates
+    - docs/01_setup/INSTALL_AND_SETUP.md -- disk 3GB->1GB, install 800->200MB,
+      removed HF env vars, added nomic-embed-text to model pull table
+    - docs/01_setup/WORK_LAPTOP_VENV_SETUP.md -- install size, verification
+      commands updated, removed torch/sentence_transformers imports
+
+IMPORTANT: Existing indexes built with 384-dim embeddings are INCOMPATIBLE
+    with the new 768-dim model. A full re-index is required after updating.
+    The system will detect the mismatch at query time.
+
+=============================================================
+C. QA REMEDIATION (Blocking Issues 1-3)
+=============================================================
+
+ISSUE 1: Banned words in changed files (5 violations across 4 files)
+
+    FILE: src/core/config.py
+        "defense-in-depth" -> "layered protection"
+
+    FILE: src/core/hallucination_guard/guard_types.py
+        3x "defense" -> context-appropriate replacements
+        ("high-stakes context", "guard layers", "mission-critical")
+
+    FILE: src/core/fault_analysis.py (6 replacements)
+        Line 47:  "defense-safe" -> "air-gap safe"
+        Lines 81-85: Replaced NIST/DoD severity mapping block with
+                     generic "Industry Incident Response Standards" (CAT I-IV)
+        Lines 105, 117, 128, 139: "Defense equivalent:" -> "Industry equivalent:"
+        Also: "no mission impact" -> "no operational impact"
+              "Primary sensor down" -> "Primary system down"
+
+    FILE: docs/AI_EXPLORATORY_USE_CASE_APPLICATION.md (3 replacements)
+        Line 10:  "unclassified" -> "non-sensitive"
+        Line 368: "unclassified" -> "non-sensitive"
+        Line 387: "No classified material" -> "No sensitive or restricted material"
+
+ISSUE 2: Default model mismatch
+
+    FILE: config/default_config.yaml
+        ollama.model: phi4:14b-q4_K_M -> phi4-mini
+    WHY:  phi4-mini is the approved default offline model. phi4:14b-q4_K_M
+          is a workstation-only model (9.1GB, too large for current laptop).
+
+ISSUE 3: Handover doc redaction
+
+    FILE: docs/Handover_2_24_2026.txt
+        Line 47: "myngc.com" -> "[REDACTED-ENDPOINT]" (NGC substring)
+        Line 229: "Claude chat" -> "AI assistant chat"
+
+=============================================================
+ADDITIONAL: Sync script update (from user directive)
+=============================================================
+
+FILE: tools/sync_to_educational.py
+    WHAT: COPY_FILES changed from requirements.txt to requirements_approved.txt.
+          README template updated to match.
+    WHY:  Work repo (Educational) uses the store-approved package list only.
+          requirements.txt stays in private repo for home use.
+    ALSO: Cleaned 2 banned-word comments while editing:
+          "defense-cleared stack" -> "approved stack"
+          "cleaned of NGC paths" -> "cleaned of corporate paths"
+
+=============================================================
+REGRESSION STATUS
+=============================================================
+
+    198 passed, 1 skipped, 2 failed (pre-existing tkinter threading flakes)
+    Both failures pass individually -- tracemalloc circular import in
+    Python 3.10 pytest causes cascade when tkinter teardown races.
+    Zero new failures introduced by this session's changes.
+
+=============================================================
+OPEN ITEMS FOR NEXT SESSION
+=============================================================
+
+1. Two-repo API design: Home (commercial Azure) vs Work (Azure Government
+   OpenAI via corporate proxy). Separate codepaths, same concepts.
+   No code written yet -- architecture only discussed.
+
+2. Five classes over 500 lines (non-blocking QA finding):
+   - FaultAnalyzer: 533 lines
+   - QueryEngine: 520 lines
+   - CostTracker: 519 lines
+   - SettingsView: 510 lines
+   - TuningTab: 505 lines
+
+3. Full re-index needed after embedder change (384->768 dim mismatch)
+
+4. Virtual test suite updates for new embedder defaults
+
+5. Submit keyring 23.13.1 approval waiver to IT (Monday)
+
+6. Old laptop archival -- lightweight RAG design being retired,
+   moving to 14B AI + larger embedder on replacement machine

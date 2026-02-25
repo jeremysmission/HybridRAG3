@@ -151,6 +151,10 @@ class HybridRAGApp(tk.Tk):
             label="PM Cost Dashboard...",
             command=lambda: self.show_view("cost"),
         )
+        admin_menu.add_command(
+            label="Eval / Tuning...",
+            command=lambda: self.show_view("eval"),
+        )
         admin_menu.add_separator()
         admin_menu.add_command(
             label="Ref",
@@ -322,6 +326,15 @@ class HybridRAGApp(tk.Tk):
             elif name == "cost":
                 view = CostDashboard(self._content, self.cost_tracker)
                 self._views["cost"] = view
+            elif name == "eval":
+                from src.gui.panels.eval_tuning_panel import EvalTuningPanel
+                wrapper = ScrollableFrame(self._content, bg=self._theme["bg"])
+                view = EvalTuningPanel(
+                    wrapper.inner, config=self.config, app_ref=self,
+                )
+                view.pack(fill=tk.BOTH, expand=True)
+                self._eval_panel = view
+                self._views["eval"] = wrapper
             elif name == "reference":
                 view = ReferencePanel(self._content)
                 self._views["reference"] = view
@@ -385,6 +398,8 @@ class HybridRAGApp(tk.Tk):
             self.status_bar.apply_theme(t)
         if hasattr(self, "_data_panel"):
             self._data_panel.apply_theme(t)
+        if hasattr(self, "_eval_panel"):
+            self._eval_panel.apply_theme(t)
 
         # Propagate to all cached views
         for view in self._views.values():

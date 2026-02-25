@@ -1,6 +1,6 @@
 # HybridRAG v3 -- GUI User Guide (Dark-Mode Prototype)
 
-Last Updated: 2026-02-22
+Last Updated: 2026-02-24
 
 This guide covers every panel, button, slider, and toggle in the HybridRAG
 GUI. It is written for someone who has never seen the application before.
@@ -84,8 +84,8 @@ What happens when you launch:
    functional. The status bar updates to reflect the live system state.
 
 On an 8 GB RAM laptop, the background loading can take 30-60 seconds because
-the embedding model (all-MiniLM-L6-v2, about 87 MB) and PyTorch must load
-into memory. On a 64 GB workstation this is nearly instant.
+the vector store and query engine must initialize. On a 64 GB workstation
+this is nearly instant.
 
 ---
 
@@ -336,8 +336,8 @@ If all checks pass:
    `.pdf`, `.docx`, `.pptx`, `.xlsx`, `.txt`, `.md`, `.csv`, `.json`,
    `.xml`, `.log`, `.eml`
 4. Each file is read, split into ~1,200 character chunks with 200 character
-   overlap, embedded into 384-dimension vectors, and stored in the local
-   SQLite database.
+   overlap, embedded into 768-dimension vectors via Ollama (nomic-embed-text),
+   and stored in the local SQLite database.
 5. The progress bar advances as each file completes.
 6. When done, the "Last run" line updates with timestamp and chunk count.
 
@@ -427,10 +427,34 @@ warning dialog.
 
 Open it from the menu bar: **Engineering > Admin Settings...**
 
-This opens a separate child window with four sections and two buttons at
+This opens a separate child window with five sections and two buttons at
 the bottom. Changes take effect immediately -- there is no "Apply" or
 "Save" button. The config object in memory updates the moment you move a
 slider.
+
+### Security & Privacy
+
+**PII Scrubber** (toggle, default: ON)
+
+When ON, the system automatically strips personally identifiable information
+from prompts before they are sent to online APIs. Detected patterns:
+
+| Pattern | Replacement |
+|---------|-------------|
+| Email addresses | `[EMAIL]` |
+| Phone numbers (US formats) | `[PHONE]` |
+| Social Security Numbers | `[SSN]` |
+| Credit card numbers | `[CARD]` |
+| IPv4 addresses (except localhost) | `[IP]` |
+
+This toggle is **grayed out in offline mode** because offline queries never
+leave the machine -- there is nothing to scrub. The setting persists to
+`config/default_config.yaml` and takes effect immediately on the next online
+query.
+
+**When to turn it off:** Only if you need the API to see raw PII for a
+specific task (e.g., you are querying about a phone number format). For
+normal use, leave it ON.
 
 ### Retrieval Settings
 

@@ -276,7 +276,7 @@ def _():
             yaml.dump({
                 "mode": "offline",
                 "paths": {"database": "", "source_folder": "", "embeddings_cache": ""},
-                "embedding": {"model_name": "all-MiniLM-L6-v2"},
+                "embedding": {"model_name": "nomic-embed-text"},
             }, f)
 
         # Simulate what _on_finish() does (without tkinter)
@@ -328,7 +328,7 @@ def _():
         original = {
             "mode": "offline",
             "paths": {"database": "", "source_folder": "", "embeddings_cache": ""},
-            "embedding": {"model_name": "all-MiniLM-L6-v2", "dimension": 384},
+            "embedding": {"model_name": "nomic-embed-text", "dimension": 768},
             "chunking": {"chunk_size": 1200, "overlap": 200},
             "ollama": {"model": "phi4-mini", "timeout_seconds": 600},
             "retrieval": {"top_k": 5, "min_score": 0.1},

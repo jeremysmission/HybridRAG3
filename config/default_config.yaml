@@ -38,8 +38,11 @@ indexing:
 mode: offline
 ollama:
   base_url: http://localhost:11434
-  context_window: 16384
+  context_window: 4096
+  keep_alive: -1
   model: phi4-mini
+  num_predict: 512
+  num_thread: 0
   timeout_seconds: 600
 vllm:
   base_url: http://localhost:8000

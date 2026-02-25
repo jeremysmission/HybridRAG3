@@ -1,6 +1,6 @@
 # HybridRAG3 Demo Preparation
 
-Last Updated: 2026-02-22
+Last Updated: 2026-02-24
 
 ---
 
@@ -274,8 +274,11 @@ anyone tracking operational costs:
 nothing leaves the machine -- no network connections of any kind. The system
 has three independent network-blocking layers (OS-level, application-level,
 and code-level) that all must fail simultaneously before any data could leave.
-Data classification handling is governed by your existing policies for the
-machine it runs on, not by the software itself.
+In online mode, a PII scrubber automatically strips emails, phone numbers,
+SSNs, credit card numbers, and IP addresses from prompts before they reach
+the API -- configurable via a toggle in the admin panel. Data classification
+handling is governed by your existing policies for the machine it runs on,
+not by the software itself.
 
 ### Q2: "What happens if it gives a wrong answer?"
 
@@ -297,13 +300,14 @@ it only answers from your actual documents and cites its sources.
 
 ### Q4: "What AI models does it use? Are they approved?"
 
-**A:** Two types. The embedding model (all-MiniLM-L6-v2, Microsoft, MIT
-license, 87MB) runs locally and converts text to meaning vectors. The
-language model for generating answers is either phi4-mini (Microsoft, MIT,
-2.3GB, runs locally) or a configured cloud API. All offline models are from
-US or NATO-ally publishers (Microsoft, Mistral AI France) with permissive
-open-source licenses. No China-origin models, no Meta/Llama models.
-Full audit documented in our model procurement brief.
+**A:** Two types. The embedding model (nomic-embed-text, Nomic AI, Apache
+2.0, 274MB, 768 dimensions) runs locally via Ollama and converts text to
+meaning vectors. The language model for generating answers is either
+phi4-mini (Microsoft, MIT, 2.3GB, runs locally) or a configured cloud API.
+All offline models are from US or NATO-ally publishers (Microsoft, Mistral
+AI France, Nomic AI USA) with permissive open-source licenses. No
+China-origin models, no Meta/Llama models. Full audit documented in our
+model procurement brief.
 
 ### Q5: "How long does it take to set up?"
 
@@ -411,6 +415,7 @@ for quick reference without exporting.
 | Works offline | Yes (default mode) | No (requires internet) |
 | Source citations | Yes (exact file + chunk) | No (may cite hallucinated sources) |
 | Data stays on your machine | Yes (zero network in offline) | No (data sent to OpenAI servers) |
+| PII scrubbing | Built-in (emails, phones, SSNs auto-stripped in online mode) | No (user must self-redact) |
 | Hallucination control | 9-rule source-bounded prompt + guard | Prompt-level only |
 | Injection resistance | Tested, 100% on eval set | Not designed for adversarial docs |
 | Audit trail | Every query logged with run_id | Limited API logs only |
@@ -482,11 +487,11 @@ in the workstation deployment phase.
 
 ### 2. Embedding Model Is Dated
 
-The current embedding model (all-MiniLM-L6-v2, 2021) achieves 56% Top-5
-retrieval accuracy on modern benchmarks. Newer models like
-snowflake-arctic-embed-m-v2.0 or nomic-embed-text-v1.5 offer +30% retrieval
-improvement. **Planned**: embedding model upgrade with full re-indexing
-(requires validation against the 400-question eval set).
+The embedding model was upgraded from all-MiniLM-L6-v2 (384-dim, 2021) to
+nomic-embed-text (768-dim, Apache 2.0) served by Ollama. This eliminates
+the HuggingFace/PyTorch dependency (~2.5 GB removed) and doubles the
+embedding dimensionality. **Status**: Implemented. Existing indexes built
+with the old 384-dim model are incompatible and require re-indexing.
 
 ### 3. Offline Response Time Is Slow on Laptop
 
@@ -534,9 +539,9 @@ documents. Non-English documents may return lower-quality results.
 
 ### Near-Term (Next 1-2 Months)
 
-- **Embedding model upgrade**: Replace all-MiniLM-L6-v2 with
-  snowflake-arctic-embed-m-v2.0 or nomic-embed-text-v1.5 for +30% retrieval
-  accuracy. Requires full re-indexing and eval validation.
+- **Embedding model upgrade**: DONE -- replaced all-MiniLM-L6-v2 with
+  nomic-embed-text (768-dim, Apache 2.0) via Ollama. Eliminated HuggingFace
+  dependency. Full re-indexing required for existing deployments.
 
 - **Workstation deployment**: Dual-RTX-3090 workstation (48GB GPU, 64GB RAM)
   enables GPU-accelerated inference with larger models (Mistral Small 24B)
@@ -647,7 +652,7 @@ rag-config
 
 | Model | Use | Size | Publisher | License |
 |-------|-----|------|-----------|---------|
-| all-MiniLM-L6-v2 | Embeddings (always local) | 87 MB | Microsoft | MIT |
+| nomic-embed-text | Embeddings (always local, via Ollama) | 274 MB | Nomic AI | Apache 2.0 |
 | phi4-mini | Offline answers (primary) | 2.3 GB | Microsoft | MIT |
 | mistral:7b | Offline answers (alt) | 4.1 GB | Mistral AI | Apache 2.0 |
 | phi4:14b-q4_K_M | Workstation primary | 9.1 GB | Microsoft | MIT |

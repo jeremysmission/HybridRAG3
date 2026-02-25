@@ -181,7 +181,7 @@ def _load_backends(app, logger):
 
         model_name = getattr(
             getattr(config, "embedding", None), "model_name",
-            "all-MiniLM-L6-v2"
+            "nomic-embed-text"
         )
 
         # -- Parallel phase: VectorStore, Embedder, LLMRouter --
@@ -242,8 +242,10 @@ def _load_backends(app, logger):
                         "model": config.ollama.model,
                         "prompt": "hi",
                         "stream": False,
+                        "keep_alive": getattr(config.ollama, "keep_alive", -1),
+                        "options": router.ollama._build_options(),
                     },
-                    timeout=10,
+                    timeout=30,
                 )
                 logger.info("[OK] Ollama model warmed up")
             except Exception as e:

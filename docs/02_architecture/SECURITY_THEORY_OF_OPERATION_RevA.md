@@ -473,8 +473,7 @@ All models in the system are vetted for:
 | phi4:14b-q4_K_M (14B) | Microsoft (USA) | MIT | Workstation LLM |
 | gemma3:4b (4B) | Google (USA) | Apache 2.0 | Fast summarization |
 | mistral-nemo:12b (12B) | Mistral (France) | Apache 2.0 | 128K context LLM |
-| all-MiniLM-L6-v2 | Microsoft (USA) | Apache 2.0 | Laptop embedder |
-| nomic-embed-text-v1.5 | Nomic (USA) | Apache 2.0 | Desktop embedder |
+| nomic-embed-text | Nomic (USA) | Apache 2.0 | Embedder (all deployments) |
 | snowflake-arctic-embed-l-v2.0 | Snowflake (USA) | Apache 2.0 | Server embedder |
 | nli-deberta-v3-base | Cross-encoder | MIT | Hallucination guard NLI |
 

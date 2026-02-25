@@ -130,7 +130,7 @@ the pipeline.
 `src/core/chunker.py` splits raw text into overlapping chunks.
 
 **Parameters:**
-- `chunk_size`: 1200 characters (default). Tuned for all-MiniLM-L6-v2
+- `chunk_size`: 1200 characters (default). Tuned for nomic-embed-text
   which performs best on 200-500 word passages.
 - `overlap`: 200 characters. Ensures facts near chunk boundaries are
   not lost.
@@ -148,9 +148,9 @@ for the nearest section heading (ALL CAPS line, numbered section like
 
 ### 3.3 Embedder
 
-`src/core/embedder.py` wraps `sentence-transformers/all-MiniLM-L6-v2`.
+`src/core/embedder.py` calls Ollama's `/api/embed` endpoint with `nomic-embed-text`.
 
-- Output: 384-dimensional normalized float32 vectors (each chunk becomes
+- Output: 768-dimensional normalized float32 vectors (each chunk becomes
   a list of 384 numbers that act like GPS coordinates in "meaning space"
   -- similar meanings land at nearby coordinates)
 - Dimension read from model at load time (never hardcoded)
@@ -628,7 +628,7 @@ Injection trap: AES_RE regex catches "AES-512" anywhere in answer text.
 
 | Metric | Value | Conditions |
 |--------|-------|-----------|
-| Embedding speed | ~100 chunks/sec | CPU, all-MiniLM-L6-v2 |
+| Embedding speed | ~100 chunks/sec | CPU, nomic-embed-text via Ollama |
 | Vector search | < 100 ms | 40K chunks, block scan |
 | FTS5 keyword search | < 10 ms | 40K chunks |
 | Index skip (unchanged) | < 1 sec | Hash-based detection |

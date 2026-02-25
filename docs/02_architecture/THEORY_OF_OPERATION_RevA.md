@@ -213,8 +213,8 @@ HybridRAG uses two types of AI model:
 A small model (~87 MB) that converts text into meaning fingerprints.
 It runs on the CPU of any modern laptop and never requires internet.
 
-- **Model**: all-MiniLM-L6-v2
-- **Publisher**: Microsoft (open-source, Apache 2.0 license)
+- **Model**: nomic-embed-text (768 dimensions, served by Ollama)
+- **Publisher**: Nomic AI (open-source, Apache 2.0 license)
 - **Runs**: Always locally, never sends data anywhere
 
 ### 2. Language Model (Generates Answers)

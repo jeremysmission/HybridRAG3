@@ -45,7 +45,7 @@ three tiers:
 
 | Model | Dimensions | Size | License | Origin | Status |
 |-------|-----------|------|---------|--------|--------|
-| all-MiniLM-L6-v2 | 384 | 80 MB | Apache 2.0 | Microsoft/USA | INSTALLED -- primary for all profiles |
+| nomic-embed-text | 768 | 274 MB | Apache 2.0 | Nomic AI/USA | INSTALLED -- served by Ollama, primary for all profiles |
 
 ### Document Parsers
 
@@ -214,14 +214,17 @@ Profile switching is wired in `scripts/_set_model.py` and the GUI TuningTab.
 
 These appear on the roadmap or in architecture docs but have no code paths yet.
 
-### PII Sanitization Pipeline
+### PII Sanitization Pipeline -- IMPLEMENTED
 
 | Item | Detail |
 |------|--------|
-| Config flag | security.pii_sanitization: true (config exists, logic does not) |
-| Purpose | Auto-redact SSNs, credit cards, personal data before indexing |
-| Scope | Pre-indexing filter in src/core/ |
-| Dependencies | TBD (regex-based vs NER model) |
+| Config flag | security.pii_sanitization: true |
+| Module | src/security/pii_scrubber.py (~65 lines, pure regex) |
+| Purpose | Auto-redact emails, phones, SSNs, credit cards, IPv4 before online API calls |
+| Scope | Wired into APIRouter.query() in src/core/llm_router.py (online path only) |
+| GUI | Toggle in Settings > API & Admin > Security & Privacy section |
+| Dependencies | None (stdlib re module only) |
+| Tests | tests/test_pii_scrubber.py (16 tests, all passing) |
 
 ### Hallucination Guard (Full Implementation)
 

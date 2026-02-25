@@ -16,7 +16,7 @@
 # PROFILE DETAILS:
 #
 #   laptop_safe (8-16GB RAM, no GPU):
-#     - Embedder: all-MiniLM-L6-v2 (384d, CPU)
+#     - Embedder: nomic-embed-text (768d, Ollama)
 #     - LLM: phi4-mini (3.8B, 8K context)
 #     - batch_size=16, top_k=5, block=200K
 #
@@ -60,8 +60,8 @@ def _config_path():
 profiles = {
     'laptop_safe': {
         'embedding': {
-            'model_name': 'all-MiniLM-L6-v2',
-            'dimension': 384,
+            'model_name': 'nomic-embed-text',
+            'dimension': 768,
             'batch_size': 16,
             'device': 'cpu',
         },
@@ -138,7 +138,7 @@ with open(cfg_file, 'w') as f:
 desc = {
     'laptop_safe': (
         'Laptop (8-16GB RAM, CPU)\n'
-        '  Embedder: all-MiniLM-L6-v2 (384d, cpu)\n'
+        '  Embedder: nomic-embed-text (768d, Ollama)\n'
         '  Default LLM: phi4-mini (3.8B, 8K ctx)'
     ),
     'desktop_power': (

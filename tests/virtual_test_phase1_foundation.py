@@ -242,7 +242,7 @@ def _():
                 "mode: offline\n"
                 "embedding:\n"
                 "  batch_size: 16\n"
-                "  model_name: all-MiniLM-L6-v2\n"
+                "  model_name: nomic-embed-text\n"
                 "  device: cpu\n"
             )
 
@@ -269,7 +269,7 @@ def _():
                 cfg2 = yaml.safe_load(f)
 
             assert cfg2["embedding"]["batch_size"] == 64, "batch_size not updated"
-            assert cfg2["embedding"]["model_name"] == "all-MiniLM-L6-v2", (
+            assert cfg2["embedding"]["model_name"] == "nomic-embed-text", (
                 "model_name was clobbered by profile switch!"
             )
             assert cfg2["embedding"]["device"] == "cpu", (

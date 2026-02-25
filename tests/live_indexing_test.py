@@ -491,7 +491,7 @@ def phase2_indexing(data_dir: str, source_dir: str):
     ok("Directories ready")
 
     # Initialize components
-    info("Loading embedding model (all-MiniLM-L6-v2)...")
+    info("Loading embedding model (nomic-embed-text)...")
     t0 = time.time()
     embedder = Embedder(config.embedding.model_name)
     ok(f"Embedder loaded in {time.time() - t0:.1f}s (dim={embedder.dimension})")

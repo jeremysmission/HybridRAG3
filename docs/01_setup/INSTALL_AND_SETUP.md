@@ -348,6 +348,10 @@ retrieval:
   hybrid_search: true               # Vector + BM25 fusion
   reranker_enabled: false           # Keep OFF (see warnings below)
 
+security:
+  audit_logging: true               # Structured audit log
+  pii_sanitization: true            # Strip PII before online API calls
+
 ollama:
   base_url: http://localhost:11434
   model: phi4-mini                  # Which Ollama model to use

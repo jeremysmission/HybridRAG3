@@ -55,6 +55,11 @@ COPY_DIRS = [
     "tools/work_validation",  # model validation scripts (approved stack)
     "diagnostics",
     "scripts",              # model wizard (_set_model.py, _model_meta.py)
+    "docs/01_setup",        # installation and setup guides
+    "docs/02_architecture", # architecture docs (block diagrams, interfaces)
+    "docs/03_guides",       # user guide, GUI guide, glossary, shortcuts
+    "docs/04_demo",         # demo prep and scripts
+    "docs/08_learning",     # study guides and learning materials
 ]
 
 # Individual files to copy
@@ -224,7 +229,7 @@ src/
     indexer.py        # Document ingestion pipeline
     chunker.py        # Text splitting with overlap
     chunk_ids.py      # Deterministic ID generation
-    embedder.py       # Sentence-transformer embeddings
+    embedder.py       # Ollama nomic-embed-text embeddings (768-dim)
     vector_store.py   # SQLite + numpy vector search
     retriever.py      # Hybrid retrieval (vector + keyword)
     llm_router.py     # Multi-provider LLM routing
@@ -260,8 +265,8 @@ See `config/default_config.yaml` for configuration options.
 
 - Python 3.11+
 - ~200MB disk for dependencies
-- ~87MB for embedding model (downloads on first run)
-- Optional: Ollama for local LLM inference
+- Ollama with nomic-embed-text model (required for embeddings)
+- Optional: Ollama LLM models (phi4-mini, mistral:7b) for offline inference
 - Optional: Azure OpenAI API for cloud inference
 
 ## License

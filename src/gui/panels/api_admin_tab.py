@@ -14,6 +14,7 @@
 #
 # Sections:
 #   A. API Credentials  -- endpoint URL, API key, save/test/clear
+#   A2. Security & Privacy -- PII scrubber toggle (online-only)
 #   B. Data Paths       -- source folder, index folder, save to config
 #   C. Online Model Selection -- treeview with ranked models
 #   D. Admin Defaults  -- save current / restore defaults
@@ -623,6 +624,7 @@ class ApiAdminTab(tk.Frame):
 
         # Build sections
         self._build_credentials_section(t)
+        self._build_security_section(t)
         self._paths_panel = DataPathsPanel(self._inner, config, app_ref)
         self._paths_panel.pack(fill=tk.X, padx=16, pady=8)
         self._model_panel = ModelSelectionPanel(
@@ -862,6 +864,75 @@ class ApiAdminTab(tk.Frame):
                 text="[FAIL] {}".format(str(e)[:60]), fg=t["red"])
 
     # ================================================================
+    # SECTION A2: SECURITY & PRIVACY
+    # ================================================================
+
+    def _build_security_section(self, t):
+        """Build security toggle for PII scrubbing.
+
+        One Checkbutton that controls whether emails, phone numbers,
+        SSNs, credit cards, and IP addresses are stripped from prompts
+        before they leave the machine via online API calls.
+        """
+        frame = tk.LabelFrame(
+            self._inner, text="Security & Privacy", padx=16, pady=8,
+            bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD,
+        )
+        frame.pack(fill=tk.X, padx=16, pady=8)
+        self._security_frame = frame
+
+        row = tk.Frame(frame, bg=t["panel_bg"])
+        row.pack(fill=tk.X, pady=4)
+
+        # Read current value from config
+        security = getattr(self.config, "security", None)
+        initial = getattr(security, "pii_sanitization", True) if security else True
+
+        self._pii_var = tk.BooleanVar(value=initial)
+        self._pii_cb = tk.Checkbutton(
+            row, text="PII Scrubber", variable=self._pii_var,
+            command=self._on_pii_toggle,
+            bg=t["panel_bg"], fg=t["fg"],
+            selectcolor=t["input_bg"], activebackground=t["panel_bg"],
+            activeforeground=t["fg"], font=FONT,
+        )
+        self._pii_cb.pack(side=tk.LEFT)
+
+        self._pii_hint = tk.Label(
+            row,
+            text="Strips emails, phones, SSNs before sending to online APIs",
+            anchor=tk.W, bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+        )
+        self._pii_hint.pack(side=tk.LEFT, padx=(8, 0))
+
+    def _on_pii_toggle(self):
+        """Write PII sanitization toggle to config and persist to YAML."""
+        value = self._pii_var.get()
+
+        # Update live config object
+        security = getattr(self.config, "security", None)
+        if security:
+            security.pii_sanitization = value
+
+        # Persist to YAML
+        try:
+            import yaml
+            root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
+            cfg_path = os.path.join(root, "config", "default_config.yaml")
+            if os.path.isfile(cfg_path):
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+            else:
+                data = {}
+            if "security" not in data:
+                data["security"] = {}
+            data["security"]["pii_sanitization"] = value
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        except Exception as e:
+            logger.warning("pii_toggle_save_failed: %s", e)
+
+    # ================================================================
     # MODE-AWARE FIELD STATE
     # ================================================================
 
@@ -881,6 +952,9 @@ class ApiAdminTab(tk.Frame):
                               disabledforeground=t["disabled_fg"])
             for btn in (self.save_cred_btn, self.test_btn, self.clear_cred_btn):
                 btn.config(state=tk.DISABLED)
+            # PII scrubber not needed offline -- gray it out
+            if hasattr(self, "_pii_cb"):
+                self._pii_cb.config(state=tk.DISABLED)
             # Append offline note without clobbering credential info
             current_text = self.cred_status_label.cget("text")
             if "(offline)" not in current_text:
@@ -897,6 +971,8 @@ class ApiAdminTab(tk.Frame):
                 widget.config(state=tk.NORMAL, fg=t["input_fg"])
             for btn in (self.save_cred_btn, self.test_btn, self.clear_cred_btn):
                 btn.config(state=tk.NORMAL)
+            if hasattr(self, "_pii_cb"):
+                self._pii_cb.config(state=tk.NORMAL)
             self._refresh_credential_status()
 
     # ================================================================
@@ -1057,7 +1133,7 @@ class ApiAdminTab(tk.Frame):
         self._scroll.apply_theme({"bg": t["panel_bg"]})
         self._paths_panel.apply_theme(t)
         self._model_panel.apply_theme(t)
-        for frame_attr in ("_cred_frame", "_defaults_frame"):
+        for frame_attr in ("_cred_frame", "_security_frame", "_defaults_frame"):
             frame = getattr(self, frame_attr, None)
             if frame:
                 frame.configure(bg=t["panel_bg"], fg=t["accent"])

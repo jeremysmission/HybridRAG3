@@ -45,8 +45,10 @@
 
 from __future__ import annotations
 
+import copy
 import os
 import sys
+import uuid
 import yaml
 import dataclasses
 from dataclasses import dataclass, field
@@ -177,7 +179,10 @@ class OllamaConfig:
     base_url: str = "http://localhost:11434"
     model: str = "phi4-mini"
     timeout_seconds: int = 120     # How long to wait for a response
-    context_window: int = 8192     # Max tokens the model can see at once
+    context_window: int = 4096     # Max tokens the model can see at once
+    keep_alive: int = -1           # Seconds to keep model loaded (-1 = forever)
+    num_predict: int = 512         # Max output tokens per generation
+    num_thread: int = 0            # CPU threads (0 = auto-detect)
 
 
 @dataclass
@@ -406,6 +411,52 @@ class SecurityConfig:
 
 
 # -------------------------------------------------------------------
+# Freeze helper: makes a dataclass instance and its children immutable
+# -------------------------------------------------------------------
+
+# Cache of frozen wrapper classes so we create at most one per base class.
+# This avoids creating a new class on every snapshot call.
+_frozen_class_cache: dict = {}
+
+
+def _make_frozen(obj) -> None:
+    """
+    Recursively freeze a dataclass instance so attribute sets raise.
+
+    Works by swapping ``obj.__class__`` to a dynamically generated
+    subclass whose ``__setattr__`` raises ``RuntimeError``.  This is
+    instance-specific -- the original class and its other instances
+    are unaffected.
+
+    Only operates on objects that are dataclass instances.  Non-dataclass
+    fields (str, int, list, etc.) are left alone because they are
+    already value-copied by ``copy.deepcopy``.
+    """
+    if not dataclasses.is_dataclass(obj) or isinstance(obj, type):
+        return
+
+    base = type(obj)
+    if base not in _frozen_class_cache:
+        def _blocked_setattr(self, name, value):
+            raise RuntimeError("Cannot modify frozen config snapshot")
+
+        frozen_cls = type(
+            "Frozen" + base.__name__,
+            (base,),
+            {"__setattr__": _blocked_setattr},
+        )
+        _frozen_class_cache[base] = frozen_cls
+
+    object.__setattr__(obj, "__class__", _frozen_class_cache[base])
+
+    # Recurse into child dataclass fields
+    for f in dataclasses.fields(base):
+        child = getattr(obj, f.name)
+        if dataclasses.is_dataclass(child) and not isinstance(child, type):
+            _make_frozen(child)
+
+
+# -------------------------------------------------------------------
 # Master Config -- the one object that holds everything
 # -------------------------------------------------------------------
 
@@ -417,11 +468,20 @@ class Config:
     Every component receives this object (or a sub-config from it)
     so there is one source of truth for all settings.
 
+    Snapshot support (config safety for concurrent access):
+      config.snapshot() returns a deep-copied, frozen Config that
+      raises RuntimeError on any attribute write.  Use this to give
+      a query thread a stable view of settings while the GUI thread
+      may be toggling modes.
+
     Example:
         config = load_config(".")
         print(config.mode)                    # "offline"
         print(config.paths.database)          # "C:\\...\\hybridrag.sqlite3"
         print(config.embedding.batch_size)    # 16
+
+        snap = config.snapshot()              # frozen deep copy
+        snap.mode = "online"                  # raises RuntimeError
     """
     mode: str = "offline"   # "offline" (Ollama) or "online" (OpenAI API)
 
@@ -439,6 +499,63 @@ class Config:
     hallucination_guard: HallucinationGuardConfig = field(
         default_factory=HallucinationGuardConfig,
     )
+
+    # --- Snapshot metadata ---
+    frozen: bool = False          # True on snapshots; blocks attribute writes
+    version: int = 0              # Auto-increments on every mutation
+    snapshot_id: str = ""         # UUID stamp set by snapshot()
+
+    def __setattr__(self, name: str, value) -> None:
+        """
+        Guard against mutation of frozen snapshots.
+
+        During normal ``__init__`` (and ``__post_init__``), the ``frozen``
+        attribute either does not exist yet or is ``False``, so writes
+        proceed normally.  After ``snapshot()`` sets ``frozen=True``,
+        all further attribute writes raise ``RuntimeError``.
+
+        On every successful write to a non-metadata field, ``version``
+        is incremented so concurrent readers can detect config drift.
+        """
+        # Allow writes when frozen flag is not yet set (during __init__)
+        # or when it is explicitly False (normal mutable config).
+        if getattr(self, "frozen", False):
+            raise RuntimeError("Cannot modify frozen config snapshot")
+
+        object.__setattr__(self, name, value)
+
+        # Auto-increment version on substantive mutations.
+        # Skip for the metadata fields themselves to avoid infinite
+        # recursion and noisy version bumps during init.
+        if name not in ("frozen", "version", "snapshot_id"):
+            current = getattr(self, "version", 0)
+            object.__setattr__(self, "version", current + 1)
+
+    def snapshot(self) -> Config:
+        """
+        Return a deep-copied, frozen snapshot of this config.
+
+        The snapshot is a fully independent copy -- modifying the
+        original config after calling snapshot() does not affect
+        the snapshot, and attempting to modify the snapshot raises
+        ``RuntimeError``.
+
+        Sub-configs (PathsConfig, EmbeddingConfig, etc.) are also
+        frozen recursively, so ``snap.paths.database = "x"`` raises.
+
+        Each snapshot gets a unique ``snapshot_id`` (UUID4) for log
+        correlation and race-condition debugging.
+        """
+        snap = copy.deepcopy(self)
+        # Set metadata via object.__setattr__ to bypass the frozen guard
+        object.__setattr__(snap, "snapshot_id", str(uuid.uuid4()))
+        object.__setattr__(snap, "frozen", True)
+        # Freeze all nested sub-config dataclasses
+        for f in dataclasses.fields(Config):
+            child = getattr(snap, f.name)
+            if dataclasses.is_dataclass(child) and not isinstance(child, type):
+                _make_frozen(child)
+        return snap
 
     # --- Convenience properties for guard settings ---
     @property

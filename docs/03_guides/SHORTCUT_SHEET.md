@@ -454,7 +454,7 @@ Access methods:
 ### Key Config Values
 ```yaml
 Chunk size:        1200 characters (with 200 overlap)
-Embedding model:   all-MiniLM-L6-v2 (384 dimensions)
+Embedding model:   nomic-embed-text (768 dimensions, via Ollama)
 Vector store:      SQLite + memory-mapped float16 file
 Search method:     Hybrid (vector cosine + BM25 keyword + RRF fusion)
 RRF k-value:       60 (balances vector vs keyword ranking)

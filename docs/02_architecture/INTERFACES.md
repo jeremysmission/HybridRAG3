@@ -134,7 +134,7 @@ store.close()
 ```python
 from src.core.embedder import Embedder
 
-embedder = Embedder(model_name="all-MiniLM-L6-v2")
+embedder = Embedder(model_name="nomic-embed-text")
 
 # Batch embedding (for indexing)
 vectors: np.ndarray = embedder.embed_batch(texts)

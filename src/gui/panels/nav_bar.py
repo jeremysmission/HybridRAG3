@@ -18,6 +18,7 @@ class NavBar(tk.Frame):
     TABS = [
         ("Query", "query"),
         ("Data", "data"),
+        ("Eval", "eval"),
         ("Settings", "settings"),
         ("Cost", "cost"),
         ("Ref", "reference"),

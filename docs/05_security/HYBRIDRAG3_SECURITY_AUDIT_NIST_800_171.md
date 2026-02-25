@@ -432,7 +432,7 @@ are visible to any process running as the same user.
 | # | Item | Risk ID | NIST Control | Effort | Description |
 |---|------|---------|-------------|--------|-------------|
 | REM-08 | FIPS mode validation | - | 3.13.11 | 1 day | Enable Windows FIPS mode on work laptop. Verify OpenSSL FIPS module in Python. Test all crypto operations still work. |
-| REM-09 | Pre-download model for air-gap deployment | R-06 | 3.13.1 | 0.5 day | Document procedure to download all-MiniLM-L6-v2 on connected machine and transfer .model_cache to air-gapped system. |
+| REM-09 | Pre-download model for air-gap deployment | R-06 | 3.13.1 | 0.5 day | Document procedure to run `ollama pull nomic-embed-text` on connected machine and transfer Ollama model cache to air-gapped system. |
 | REM-10 | Query rate anomaly detection | - | 3.14.7 | 1-2 days | Track queries per hour. Alert if rate exceeds 3x normal baseline (potential unauthorized automated use). |
 | REM-11 | Formal user security guide | - | 3.2.1 | 1 day | Create SECURITY_GUIDE.md covering: safe usage practices, what data is safe to query, when to use offline mode, credential management procedures. |
 

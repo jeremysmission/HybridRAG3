@@ -119,7 +119,7 @@ def _ensure_booted():
             store.connect()
             _vector_store = store
 
-            # Step 3: Load the embedding model (all-MiniLM-L6-v2, ~100MB)
+            # Step 3: Load the embedding model (nomic-embed-text via Ollama)
             from src.core.embedder import Embedder
             embedder = Embedder(model_name=config_obj.embedding.model_name)
 
@@ -167,7 +167,7 @@ mcp = FastMCP(
 # get an answer backed by real documents from the knowledge base.
 #
 # Under the hood it runs the full HybridRAG3 pipeline:
-#   1. Embed the query using all-MiniLM-L6-v2
+#   1. Embed the query using nomic-embed-text (Ollama)
 #   2. Search the vector database for relevant chunks
 #   3. Build context from the top-k chunks
 #   4. Send context + question to the LLM (Ollama or API)

@@ -1,6 +1,6 @@
 # HybridRAG3 -- User Guide
 
-Last Updated: 2026-02-22
+Last Updated: 2026-02-24
 
 This guide covers daily use of HybridRAG after installation is
 complete. For first-time setup, see [INSTALL_AND_SETUP.md](INSTALL_AND_SETUP.md).
@@ -413,6 +413,12 @@ Open the admin menu from the GUI: **Admin** >
 | **min_score** | 0.10 | Minimum relevance score. Chunks below this are discarded. Raise if answers include irrelevant info. Lower if queries return no results. |
 | **Hybrid search** | ON | Combines meaning search + keyword search. Leave ON for best results. |
 | **Reranker** | OFF | Second-pass accuracy model. **Keep OFF for general use** -- enabling it degrades unanswerable, injection, and ambiguous question handling. |
+
+### Security & Privacy
+
+| Setting | Default | What It Does |
+|---------|---------|-------------|
+| **PII Scrubber** | ON | Strips emails, phone numbers, SSNs, credit card numbers, and IP addresses from prompts before sending to online APIs. Only active in online mode -- offline queries never leave the machine so scrubbing is not needed. Toggle is grayed out when in offline mode. |
 
 ### LLM Settings
 

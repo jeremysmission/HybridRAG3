@@ -473,7 +473,7 @@ def check_embedding_dimensions(embedder: Any) -> ProbeResult:
     """
     PROBE: Are the embedding dimensions consistent?
 
-    The model (all-MiniLM-L6-v2) should produce 384-dimensional vectors.
+    The model (nomic-embed-text) should produce 768-dimensional vectors.
     If dimensions change (wrong model loaded, corrupted cache), all
     similarity calculations break silently.
     """
@@ -508,7 +508,7 @@ def check_embedding_dimensions(embedder: Any) -> ProbeResult:
                 severity=Severity.SEV_1,
             )
 
-        expected_dim = 384  # all-MiniLM-L6-v2
+        expected_dim = 768  # nomic-embed-text
         if dim1 != expected_dim:
             return ProbeResult(
                 probe_name="embedding_dimensions",

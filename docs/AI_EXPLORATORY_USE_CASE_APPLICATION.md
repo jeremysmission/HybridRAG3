@@ -70,7 +70,7 @@ No framework wrappers, no hidden abstraction layers, no transitive dependency ch
 ```
   User Question
        |
-  [ EMBEDDER ] --> 384-dim vector
+  [ EMBEDDER ] --> 768-dim vector (nomic-embed-text via Ollama)
        |
   [ RETRIEVER ] --> Hybrid: vector (semantic) + BM25 (keyword) merged via RRF
        |
@@ -92,7 +92,7 @@ No framework wrappers, no hidden abstraction layers, no transitive dependency ch
        |
   [ CHUNKER ] --> 1,200 char chunks, 200 overlap, heading prepend
        |
-  [ EMBEDDER ] --> all-MiniLM-L6-v2, ~100 chunks/sec on CPU
+  [ EMBEDDER ] --> nomic-embed-text via Ollama, 768-dim
        |
   [ SQLite + Memmap Vectors ] --> FTS5 keyword index + float16 vector store
 ```
@@ -105,6 +105,7 @@ No framework wrappers, no hidden abstraction layers, no transitive dependency ch
   3. Embedding lockdown      -- No runtime model downloads
   4. API endpoint control    -- Single approved endpoint in online mode
   5. Input sanitization      -- Path traversal and injection rejection
+  5b. PII scrubbing          -- Regex-based redaction of emails, phones, SSNs, cards, IPs before online API calls
   6. Prompt hardening        -- 9-rule injection-resistant template
   7. Output verification     -- NLI claim checking, golden probes, contradiction policy
   8. Audit logging           -- Every query, response, cost, and security event
@@ -118,14 +119,15 @@ All Python. All open-source. All company-approved with versions pinned to approv
 
 | Component | Package | License |
 |-----------|---------|---------|
-| Embeddings | sentence-transformers 2.7.0 | Apache 2.0 |
+| Embeddings | nomic-embed-text via Ollama (768-dim) | Apache 2.0 |
 | Vectors/search | NumPy 1.26.4, SQLite FTS5 | BSD-3, Public domain |
 | Local LLM | Ollama (MIT), vLLM 0.10.1 (Apache 2.0) | MIT, Apache 2.0 |
 | Online API | openai SDK 1.45.1 | Apache 2.0 |
 | GUI | tkinter (stdlib) | PSF |
 | REST API | FastAPI 0.115.0 | MIT |
-| Credentials | keyring 24.3.0 (Windows DPAPI) | MIT |
+| Credentials | keyring 23.13.1 (Windows DPAPI) | MIT |
 | Logging | structlog 24.4.0 | MIT |
+| PII scrubbing | Built-in regex engine (stdlib re) | N/A (no dependency) |
 | Parsing | pdfplumber, python-docx, openpyxl, python-pptx, pytesseract + stdlib | MIT/Apache/BSD |
 
 **System metrics:** 42,298 lines production code | 207 files | 491 tests (201 pytest + 290 virtual) | 49 file formats | 98% eval pass rate on 400-question set
@@ -153,7 +155,8 @@ All offline models from US/EU publishers with permissive licenses. Full audit do
 - Ingests only internal, unclassified engineering documents from local file servers
 - In offline mode: **no data leaves the machine**
 - In online mode: only the query + retrieved passages sent to approved endpoint (not the full corpus)
-- No PII, no PHI, no restricted material, no external data sources
+- PII scrubber auto-strips emails, phone numbers, SSNs, credit cards, and IP addresses from prompts before online API transmission (configurable toggle)
+- No PHI, no restricted material, no external data sources
 - Decommissioning = delete the folder. No residual data in cloud services or model weights.
 
 ---

@@ -482,8 +482,7 @@ Reports due to Congress by June 16, 2026 and August 31, 2026.
 
 | Model | Params | Accuracy | Speed | License | Origin |
 |-------|--------|----------|-------|---------|--------|
-| all-MiniLM-L6-v2 | 22M | ~78-80% | 14.7ms/1K tok | Apache 2.0 | USA (Microsoft) |
-| nomic-embed-text-v1 | 137M | 86.2% | ~45ms/1K tok | Apache 2.0 | USA (Nomic AI) |
+| **nomic-embed-text** | 137M | 86.2% | ~45ms/1K tok | Apache 2.0 | USA (Nomic AI) |
 | nomic-embed-text-v2-moe | MoE | Higher | Moderate | Apache 2.0 | USA (Nomic AI) |
 | EmbeddingGemma-300M | 300M | Strong | Light | Apache 2.0 | USA (Google) |
 
@@ -629,7 +628,7 @@ Sources:
 - [LinkedIn: Jobs on the Rise 2026](https://www.linkedin.com/pulse/linkedin-jobs-rise-2026-25-fastest-growing-roles-us-linkedin-news-dlb1c)
 - [Second Talent: AI Engineering Skills and Salaries](https://www.secondtalent.com/resources/most-in-demand-ai-engineering-skills-and-salary-ranges/)
 - [NStarX: RAG Evolution 2026-2030](https://nstarxinc.com/blog/the-next-frontier-of-rag-how-enterprise-knowledge-systems-will-evolve-2026-2030/)
-- [ClearanceJobs: U.S. Tech Force](https://news.clearancejobs.com/2025/12/17/inside-the-u-s-tech-force-what-the-federal-governments-ai-hiring-push-means/)
+- [U.S. Tech Force Hiring Push (2025)](https://news.clearancejobs.com/2025/12/17/inside-the-u-s-tech-force-what-the-federal-governments-ai-hiring-push-means/)
 - [TechForce.gov](https://techforce.gov/)
 
 ---
@@ -644,7 +643,7 @@ You are not starting from zero. You are starting from strength:
    frameworks, and 98% pass rate on 400-question golden set
 2. **Rare niche**: Air-gapped/offline AI deployment (high demand, low supply)
 3. **Domain expertise**: RF/signals knowledge CS grads cannot replicate
-4. **Security posture**: Clearance eligibility + regulated industry experience
+4. **Security posture**: Vetting eligibility + regulated industry experience
 5. **Already coding**: Python, FastAPI, pytest, config management
 
 Frame yourself not as "an RF engineer trying to learn AI" but as **"an AI
@@ -870,9 +869,9 @@ Sources:
 | Ball Aerospace (Boulder) | $64K-$153K | Company avg $100K |
 | Sierra Nevada Corp | $63K-$143K | Company avg $96K |
 
-### Security Clearance Premium
+### Security Vetting Premium
 
-| Clearance Level | National Avg | Premium Over Uncleared |
+| Vetting Level | National Avg | Premium Over Unvetted |
 |----------------|-------------|----------------------|
 | Secret | $93,748 | +10-20% |
 | Top Secret | $134,144 | +25-35% |
@@ -905,8 +904,8 @@ Sources:
 - [Levels.fyi: Anduril](https://www.levels.fyi/companies/anduril-industries/salaries/software-engineer)
 - [Levels.fyi: Palantir](https://www.levels.fyi/companies/palantir/salaries/software-engineer)
 - [ZipRecruiter: RAG Engineer Salary](https://www.ziprecruiter.com/Salaries/Rag-Engineer-Salary)
-- [ClearanceJobs: Salary Calculator](https://about.clearancejobs.com/salary-calculator)
-- [CyberSecJobs: TS/SCI Salary Premium](https://cybersecjobs.com/ts-sci-salary-premium-the-real-numbers-behind-your-security-clearance/)
+- [Government Salary Calculator](https://about.clearancejobs.com/salary-calculator)
+- [TS/SCI Salary Premium Data](https://cybersecjobs.com/ts-sci-salary-premium-the-real-numbers-behind-your-security-clearance/)
 
 ---
 
@@ -997,15 +996,15 @@ owning outcomes and influencing other engineers' work.
 | Deployment | Public cloud (AWS, Azure) | Air-gapped, on-prem only |
 | Models | HuggingFace, OpenAI APIs | Custom/approved models only |
 | Focus | Consumer/product impact | Mission-critical reliability |
-| Clearance | Not required | Required (TS/SCI preferred) |
+| Vetting | Not required | Security vetting required |
 | Compliance | Standard security | CMMC 2.0, DFARS, supply chain verification |
 | Development | Agile, rapid iteration | Approval workflows before deployment |
-| Bottleneck | Technical interview | 12-18 month clearance vetting |
+| Bottleneck | Technical interview | 12-18 month security vetting |
 
 **Critical constraint**: Government integrators face a unique talent scarcity.
-They need cleared AI engineers with model governance experience, but clearance
-processing takes 12-18 months. Many hire cleared engineers from other
-specialties and retrain (expensive). **A cleared engineer who already knows
+They need vetted AI engineers with model governance experience, but security
+vetting takes 12-18 months. Many hire vetted engineers from other
+specialties and retrain (expensive). **A vetted engineer who already knows
 RAG/AI is extremely valuable.**
 
 ### 10.6 Portfolio Evidence Hiring Managers Want
@@ -1077,7 +1076,7 @@ are increasingly uncompetitive. Band 3 engineers must either:
 2. **Have domain expertise** (healthcare, finance, logistics, government AI)
 
 For your profile, the combination of RF domain expertise + production RAG +
-air-gapped deployment + clearance eligibility is a rare and high-value stack
+air-gapped deployment + security vetting eligibility is a rare and high-value stack
 that most candidates cannot replicate.
 
 Sources:
@@ -1130,12 +1129,12 @@ Sources:
 
 - [LinkedIn: Jobs on the Rise 2026](https://www.linkedin.com/pulse/linkedin-jobs-rise-2026-25-fastest-growing-roles-us-linkedin-news-dlb1c)
 - [ZipRecruiter: RAG Engineer Salary](https://www.ziprecruiter.com/Salaries/Rag-Engineer-Salary)
-- [ClearanceJobs: U.S. Tech Force](https://news.clearancejobs.com/2025/12/17/inside-the-u-s-tech-force-what-the-federal-governments-ai-hiring-push-means/)
+- [U.S. Tech Force Hiring Push (2025)](https://news.clearancejobs.com/2025/12/17/inside-the-u-s-tech-force-what-the-federal-governments-ai-hiring-push-means/)
 - [TechForce.gov](https://techforce.gov/)
 - [DARPA RFMLS Program](https://www.darpa.mil/research/programs/radio-frequency-machine-learning-systems)
 - [Built In: AI Engineer Salary Colorado](https://builtin.com/salaries/us/colorado-co/ai-engineer)
 - [Levels.fyi: Anduril](https://www.levels.fyi/companies/anduril-industries/salaries/software-engineer)
-- [ClearanceJobs: Salary Calculator](https://about.clearancejobs.com/salary-calculator)
+- [Government Salary Calculator](https://about.clearancejobs.com/salary-calculator)
 
 ### Certifications and Training
 

@@ -165,7 +165,7 @@ PROBE_DOMAINS: List[ProbeDomain] = [
             "shows F1 of 0.89 and exact match of 0.82. The inference "
             "pipeline runs on a single RTX 4090 at 35 tokens per second "
             "with 4-bit GPTQ quantization. The RAG retriever uses "
-            "all-MiniLM-L6-v2 embeddings with cosine similarity."
+            "nomic-embed-text embeddings with cosine similarity."
         ),
         should_pass=[
             ("The model is a fine-tuned LLaMA-3 8B.",

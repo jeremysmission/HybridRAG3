@@ -23,15 +23,15 @@ sticky note -- the label is the name, and the note has the value written on it.
 
 ```python
 # src/core/embedder.py:107
-DEFAULT_MODEL = "all-MiniLM-L6-v2"
+DEFAULT_MODEL = "nomic-embed-text"
 ```
 
-Here `DEFAULT_MODEL` is the variable name and `"all-MiniLM-L6-v2"` is the
+Here `DEFAULT_MODEL` is the variable name and `"nomic-embed-text"` is the
 value (a text string). Whenever code later says `DEFAULT_MODEL`, Python
-substitutes the value `"all-MiniLM-L6-v2"`.
+substitutes the value `"nomic-embed-text"`.
 
 > **What to notice:** Python uses `=` for assignment ("put this value into this
-> name"), not for math equality. `DEFAULT_MODEL = "all-MiniLM-L6-v2"` means
+> name"), not for math equality. `DEFAULT_MODEL = "nomic-embed-text"` means
 > "store this text under the name DEFAULT_MODEL."
 
 ---
@@ -779,8 +779,8 @@ ollama:
   model: phi4-mini
   timeout_seconds: 600
 embedding:
-  model_name: all-MiniLM-L6-v2
-  dimension: 384
+  model_name: nomic-embed-text
+  dimension: 768
   batch_size: 16
   device: cpu
 ```
@@ -806,8 +806,8 @@ with open(path, "r", encoding="utf-8") as f:
         "timeout_seconds": 600,
     },
     "embedding": {
-        "model_name": "all-MiniLM-L6-v2",
-        "dimension": 384,
+        "model_name": "nomic-embed-text",
+        "dimension": 768,
         ...
     },
 }
@@ -960,15 +960,15 @@ embeddings = self.model.encode(
 return embeddings.astype(np.float32, copy=False)
 ```
 
-- `np.zeros((0, 384))` creates an empty array with 0 rows and 384 columns.
+- `np.zeros((0, 768))` creates an empty array with 0 rows and 768 columns.
 - `.astype(np.float32, copy=False)` converts the data type to 32-bit floats
   without making a copy if it is already float32.
-- The embedding model returns an array of shape `(N, 384)` where N is the
-  number of texts and 384 is the embedding dimension.
+- The embedding model returns an array of shape `(N, 768)` where N is the
+  number of texts and 768 is the embedding dimension.
 
 Key numpy concepts for this project:
-- **Shape**: `(1000, 384)` means 1000 rows, 384 columns -- 1000 text chunks,
-  each represented by 384 numbers.
+- **Shape**: `(1000, 768)` means 1000 rows, 768 columns -- 1000 text chunks,
+  each represented by 768 numbers.
 - **dtype**: `float32` (4 bytes per number) vs `float16` (2 bytes) -- the
   project uses float16 on disk to save space.
 - **memmap**: memory-mapped files -- numpy reads from disk on demand instead
@@ -1196,7 +1196,7 @@ User types: "What is the operating frequency?"
      |                     |
      v                     |
   [Retriever] (src/core/retriever.py)
-    1. embed_query() -- convert question to 384-number vector
+    1. embed_query() -- convert question to 768-number vector
     2. Vector search -- find chunks with similar vectors
     3. BM25 search  -- find chunks with matching keywords
     4. RRF fusion   -- merge both ranked lists

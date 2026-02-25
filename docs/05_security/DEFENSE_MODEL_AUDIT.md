@@ -79,7 +79,7 @@ Before evaluating candidates, the following publishers/entities are **categorica
 
 | Model | Dims | Size | Publisher | License | MTEB Avg | Status |
 |-------|------|------|-----------|---------|----------|--------|
-| all-MiniLM-L6-v2 (current) | 384 | 80MB | Microsoft | MIT | ~56 | APPROVED |
+| nomic-embed-text (current) | 768 | 274MB | Nomic AI (USA) | Apache 2.0 | 62+ | INSTALLED |
 | nomic-embed-text v1.5 | 768 | 0.5GB | Nomic AI (USA) | Apache 2.0 | 62+ | RECOMMENDED upgrade |
 | snowflake-arctic-embed-l-v2.0 | 1024 | ~1.1GB | Snowflake (USA) | Apache 2.0 | 65+ | Workstation tier |
 

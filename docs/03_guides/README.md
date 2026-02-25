@@ -169,7 +169,7 @@ HybridRAG3/
 |   |   |-- indexer.py              File scanning, parsing, chunking, embedding
 |   |   |-- chunker.py             Text to chunks with heading detection
 |   |   |-- chunk_ids.py           Deterministic chunk ID generation
-|   |   |-- embedder.py            all-MiniLM-L6-v2 text to vector
+|   |   |-- embedder.py            nomic-embed-text via Ollama, 768-dim
 |   |   |-- vector_store.py        SQLite + memmap storage, FTS5 search
 |   |   |-- retriever.py           Hybrid search (vector + BM25 RRF)
 |   |   |-- query_engine.py        Search to LLM to answer pipeline
@@ -266,9 +266,7 @@ HybridRAG3/
 
 ```
 .venv/                              Python virtual environment
-.model_cache/                       Embedding model (all-MiniLM-L6-v2, 87MB)
-.hf_cache/                          HuggingFace cache
-.torch_cache/                       PyTorch cache
+.model_cache/                       (legacy, no longer used -- embeddings served by Ollama)
 logs/                               Diagnostic and run logs
 
 D:\RAG Indexed Data\                Outside the project folder

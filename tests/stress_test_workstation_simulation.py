@@ -215,7 +215,7 @@ def query_embedding_latency(hw: HardwareProfile, concurrent: int) -> float:
     """
     Time to embed the user's query text (single sentence).
 
-    all-MiniLM-L6-v2 on CPU: ~10-20ms for single sentence.
+    nomic-embed-text on CPU: ~10-20ms for single sentence.
     With concurrent users, CPU contention adds overhead.
     """
     base_ms = 15  # Single query embedding on modern CPU
@@ -940,7 +940,7 @@ def main():
     print("=" * 78)
     print()
     print("  Current NPU capabilities (via OpenVINO):")
-    print("    - Embedding model (all-MiniLM-L6-v2): CAN offload to NPU")
+    print("    - Embedding model (nomic-embed-text): CAN offload to NPU")
     print("      Frees CPU for BM25/reranker while NPU handles embeddings")
     print("      Expected: ~5ms query embedding (faster than CPU)")
     print("    - Reranker (cross-encoder): Possible via OpenVINO ONNX export")

@@ -64,7 +64,7 @@ REST API ENDPOINTS:
 
 PROFILES: laptop_safe (8-16GB), desktop_power (32-64GB), server_max (64GB+)
 
-KEY CONFIG: chunk_size=1200, overlap=200, embedding=all-MiniLM-L6-v2 (384d)
+KEY CONFIG: chunk_size=1200, overlap=200, embedding=nomic-embed-text (768d)
   top_k=12, min_score=0.10, temperature=0.05, reranker=OFF
 
 EMERGENCY RECOVERY:
@@ -205,7 +205,7 @@ BOOT SEQUENCE:
   -> Configure network gate -> Probe backends -> BootResult
 
 QUERY PATH:
-  User question -> Query Engine -> Embedder (384-dim vector)
+  User question -> Query Engine -> Embedder (768-dim vector)
   -> Retriever: BM25 keyword (FTS5) + Vector cosine (memmap)
   -> RRF Fusion + min_score filter -> top_k chunks
   -> Prompt Builder (9-rule template) -> LLM Router
@@ -215,7 +215,7 @@ QUERY PATH:
 INDEXING PATH:
   Source folder -> File scan + hash check (skip unchanged)
   -> Parser (49+ formats) -> Chunker (1200c, 200 overlap)
-  -> Embedder (batch, 384d) -> VectorStore -> SQLite + Memmap
+  -> Embedder (batch, 768d) -> VectorStore -> SQLite + Memmap
 
 STORAGE:
   hybridrag.sqlite3 (chunks + FTS5 index)
@@ -231,8 +231,8 @@ HELP_SOFTWARE_STACK = """\
 SOFTWARE STACK
 ==============
 
-CORE: Python 3.10, torch 2.10.0, sentence-transformers 2.7.0, numpy 1.26.4
-EMBEDDING: all-MiniLM-L6-v2 (384d, ~80MB, Apache 2.0, ~100 chunks/s CPU)
+CORE: Python 3.12, numpy 1.26.4, httpx, pyyaml
+EMBEDDING: nomic-embed-text (768d, 274MB, Apache 2.0, served by Ollama)
 STORAGE: SQLite + NumPy memmap (float16). No external DB server.
 RETRIEVAL: Hybrid vector + BM25 via RRF (k=60). Reranker available but OFF.
 CHUNKING: 1200 chars, 200 overlap, smart boundary detection, heading prepend.
@@ -308,8 +308,8 @@ CREDENTIALS:
   3-layer resolution: keyring > env var > config file.
   Keys never logged in full (only first 8 chars shown).
 
-EMBEDDING MODEL: all-MiniLM-L6-v2 cached locally in .model_cache/
-  HF_HUB_OFFLINE=1 prevents any download attempts after first cache.
+EMBEDDING MODEL: nomic-embed-text served by Ollama (localhost:11434).
+  No HuggingFace dependency. Model pulled via: ollama pull nomic-embed-text
 
 DATA SOVEREIGNTY: All documents indexed locally. Vector store is local SQLite
   + memmap files. No cloud storage. No telemetry.

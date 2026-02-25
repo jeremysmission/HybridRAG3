@@ -2,8 +2,8 @@
 # HybridRAG Model Cache Scanner
 # ============================================================================
 # PURPOSE: Find ALL embedding model caches on your machine.
-#   The all-MiniLM-L6-v2 model is ~80MB. You only need ONE copy.
-#   This script finds every copy so you can decide which to keep.
+#   HybridRAG3 now uses nomic-embed-text served by Ollama (768-dim).
+#   Old HuggingFace/sentence-transformers caches can be safely deleted.
 #
 # HOW IT WORKS:
 #   1. Searches common cache locations (HuggingFace, torch, pip, etc.)

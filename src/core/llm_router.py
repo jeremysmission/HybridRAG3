@@ -214,6 +214,22 @@ class OllamaRouter:
         self._health_cache = None
         self._health_ttl = 30  # seconds between live checks
 
+    def _build_options(self):
+        """Build the Ollama options dict from config for generation speed.
+
+        Centralised here so query() and query_stream() stay in sync.
+        Keys with value 0 are omitted so Ollama uses its own defaults.
+        """
+        opts = {
+            "temperature": getattr(self.config.api, "temperature", 0.05),
+            "num_ctx": self.config.ollama.context_window,
+            "num_predict": getattr(self.config.ollama, "num_predict", 512),
+        }
+        num_thread = getattr(self.config.ollama, "num_thread", 0)
+        if num_thread > 0:
+            opts["num_thread"] = num_thread
+        return opts
+
     def is_available(self) -> bool:
         """
         Check if Ollama is running and reachable.
@@ -268,8 +284,9 @@ class OllamaRouter:
         payload = {
             "model": self.config.ollama.model,
             "prompt": prompt,
-            "stream": False,    # Get the full response at once, not word-by-word
-            
+            "stream": False,
+            "keep_alive": getattr(self.config.ollama, "keep_alive", -1),
+            "options": self._build_options(),
         }
 
         try:
@@ -335,6 +352,8 @@ class OllamaRouter:
             "model": self.config.ollama.model,
             "prompt": prompt,
             "stream": True,
+            "keep_alive": getattr(self.config.ollama, "keep_alive", -1),
+            "options": self._build_options(),
         }
 
         try:
@@ -1109,6 +1128,13 @@ class APIRouter:
         except NetworkBlockedError as e:
             self.logger.error("api_query_blocked_by_gate", error=str(e))
             return None
+
+        # -- PII scrub (only when enabled in config) --
+        if getattr(self.config, "security", None) and self.config.security.pii_sanitization:
+            from src.security.pii_scrubber import scrub_pii
+            prompt, pii_count = scrub_pii(prompt)
+            if pii_count > 0:
+                self.logger.info("pii_scrubbed", count=pii_count)
 
         start_time = time.time()
 

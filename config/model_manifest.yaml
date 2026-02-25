@@ -10,8 +10,8 @@
 #
 # SECURITY NOTE: All models run 100% locally. No data leaves the machine.
 #   - Ollama models: downloaded once via `ollama pull`, stored locally
-#   - HuggingFace models: downloaded once, cached in .model_cache/
-#   - HF_HUB_OFFLINE=1 prevents any runtime downloads after initial cache
+#   - Embedding model (nomic-embed-text) also served by Ollama
+#   - No HuggingFace dependencies for core operation
 #
 # LAST UPDATED: 2026-02-22
 # APPROVED BY: See docs/05_security/ (model audit document)
@@ -25,37 +25,32 @@
 required:
 
   # --- Embedding Model (converts text to vectors for search) ---
-  - name: "all-MiniLM-L6-v2"
+  - name: "nomic-embed-text"
     type: "embedding"
-    vendor: "Microsoft"
+    vendor: "Nomic AI"
     vendor_country: "USA"
     license: "Apache 2.0"
-    size_mb: 87
-    dimensions: 384
-    download_source: "HuggingFace (sentence-transformers/all-MiniLM-L6-v2)"
-    download_url: "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2"
-    local_cache_path: ".model_cache/"
-    pip_dependency: "sentence-transformers==2.7.0"
+    size_mb: 274
+    dimensions: 768
+    download_source: "Ollama (ollama pull nomic-embed-text)"
+    ollama_tag: "nomic-embed-text"
+    runtime: "Ollama"
     config_key: "embedding.model_name"
     security_controls:
-      - "HF_HUB_OFFLINE=1 blocks runtime downloads"
-      - "TRANSFORMERS_OFFLINE=1 blocks runtime downloads"
-      - "HF_HUB_DISABLE_TELEMETRY=1 blocks telemetry"
-      - "HF_HUB_DISABLE_IMPLICIT_TOKEN=1 blocks token auth"
-    install_command: |
-      # One-time download (requires internet):
-      $env:HF_HUB_OFFLINE = "0"
-      python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
-      $env:HF_HUB_OFFLINE = "1"
+      - "Served locally by Ollama on 127.0.0.1:11434"
+      - "No HuggingFace dependency -- no runtime downloads"
+      - "Embedder calls Ollama HTTP API (/api/embed) via httpx"
+    install_command: "ollama pull nomic-embed-text"
     airgap_transfer: |
       # Copy from home machine to work machine:
-      # Source: <home>\.model_cache\  (entire folder)
-      # Dest:   <work>\HybridRAG3\.model_cache\
-      # The folder contains model weights, tokenizer, and config files.
+      # Source: %USERPROFILE%\.ollama\models\  (entire folder)
+      # Dest:   target machine same path
+      # The Ollama model store contains all pulled model weights.
     notes: >
       Primary embedding model. Converts document chunks and queries into
-      384-dimensional vectors for semantic search. Small, fast, CPU-friendly.
+      768-dimensional vectors for semantic search. Served by Ollama HTTP API.
       Required for ALL operations (indexing and querying).
+      Replaced all-MiniLM-L6-v2 (384d, HuggingFace) in Session 15.
 
   # --- LLM Model (generates answers from retrieved context) ---
   - name: "phi4-mini"
@@ -234,9 +229,7 @@ runtime_dependencies:
     type: "pip_packages"
     manifest: "requirements.txt"
     key_packages:
-      - "sentence-transformers==2.7.0  # Loads embedding + cross-encoder models"
-      - "torch==2.10.0                 # PyTorch backend for model inference"
-      - "transformers==4.57.6          # HuggingFace model loading"
+      - "httpx                         # HTTP client for Ollama embedding API"
       - "openai==1.45.1                # API client for online mode (pinned, never upgrade to 2.x)"
     install_command: "pip install -r requirements.txt"
     notes: "All Python packages pinned to exact versions in requirements.txt."
@@ -271,25 +264,20 @@ banned:
 #   Run installer, open new terminal, verify: ollama --version
 #
 # Step 3: Pull required Ollama models (requires internet, one-time)
-#   ollama pull phi4-mini              # 2.3 GB -- REQUIRED
+#   ollama pull nomic-embed-text       # 274 MB -- REQUIRED (embedding)
+#   ollama pull phi4-mini              # 2.3 GB -- REQUIRED (LLM)
 #   ollama pull mistral:7b             # 4.1 GB -- optional
 #   ollama pull phi4:14b-q4_K_M        # 9.1 GB -- optional
 #   ollama pull gemma3:4b              # 3.3 GB -- optional
 #   ollama pull mistral-nemo:12b       # 7.1 GB -- optional
 #
-# Step 4: Cache HuggingFace embedding model (requires internet, one-time)
-#   $env:HF_HUB_OFFLINE = "0"
-#   python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
-#   $env:HF_HUB_OFFLINE = "1"
-#
-# Step 5: Verify
+# Step 4: Verify
 #   ollama list                        # Should show pulled models
 #   python -c "from src.core.embedder import Embedder; e = Embedder(); print(e.dimension)"
-#   # Should print: 384
+#   # Should print: 768
 #
 # For fully air-gapped transfer (no internet on target):
 #   Copy from internet-connected machine:
-#   - .model_cache\ folder          -> target .model_cache\
 #   - %USERPROFILE%\.ollama\models\ -> target same path
 #   - .venv\ folder (or re-install from wheels bundle)
 # ============================================================================

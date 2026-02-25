@@ -67,7 +67,7 @@ With overlap, both chunks contain the full sentence.
 
 Computers can't search text the way humans read. To make documents
 searchable by meaning (not just by exact keywords), we convert each chunk
-of text into a list of 384 numbers called a **vector embedding**.
+of text into a list of 768 numbers called a **vector embedding**.
 
 These numbers encode the *meaning* of the text, not the specific words.
 Two chunks that talk about the same topic will have similar numbers,
@@ -81,9 +81,9 @@ frequency content will have similar FFT outputs, even if their time-domain
 waveforms look different.
 
 **How it works technically:**
-- A pre-trained neural network (all-MiniLM-L6-v2, 80 MB) reads the text
-- It outputs 384 numbers between roughly -1 and +1
-- These numbers are the "coordinates" of that text in a 384-dimensional
+- A pre-trained neural network (nomic-embed-text, served by Ollama) reads the text
+- It outputs 768 numbers between roughly -1 and +1
+- These numbers are the "coordinates" of that text in a 768-dimensional
   meaning space
 - Similar meanings = nearby coordinates = similar numbers
 
@@ -108,13 +108,13 @@ against your library to identify it.
 **What gets stored:**
 - The original text of each chunk
 - Which file it came from and where in the file
-- The 384-number embedding vector
+- The 768-number embedding vector
 - A hash of the source file (so we know if it changes later)
 
 #### Step 4: Retrieval (Finding Relevant Chunks)
 
 When a user asks a question, we embed their question the same way
-(convert it to 384 numbers), then find which stored chunks have the
+(convert it to 768 numbers), then find which stored chunks have the
 most similar numbers. This is called **vector search**.
 
 **RF Analogy:** This is signal matching. You take the unknown signal
@@ -248,7 +248,7 @@ YOU TYPE THE QUESTION
 +--------+ +--------+
 |embedder| |vector_ |
 |.py     | |store.py|
-|embed   | |.search |  Vector search: converts your question to 384 numbers,
+|embed   | |.search |  Vector search: converts your question to 768 numbers,
 |_query()| |()      |  then finds stored chunks with similar numbers.
 +--------+ +---+----+
                |
@@ -378,7 +378,7 @@ YOUR DOCUMENTS FOLDER (e.g., D:\RAG Source Data)
         |      Add section headings for context.
         |
         +-- f. EMBED (src/core/embedder.py)
-        |      Convert each chunk to 384 numbers.
+        |      Convert each chunk to 768 numbers.
         |      Batch processing: 16 chunks at a time.
         |
         +-- g. STORE (src/core/vector_store.py)
@@ -413,7 +413,7 @@ already has (INSERT OR IGNORE). No duplicates, no manual cleanup.
 | `src/core/query_engine.py` | Orchestrates the 6-step query pipeline |
 | `src/core/retriever.py` | Finds relevant document chunks (vector + keyword search) |
 | `src/core/vector_store.py` | Stores and searches embeddings (SQLite + memmap) |
-| `src/core/embedder.py` | Converts text to 384-number vectors |
+| `src/core/embedder.py` | Converts text to 768-number vectors |
 | `src/core/chunker.py` | Splits documents into overlapping pieces |
 | `src/core/indexer.py` | Orchestrates the full indexing pipeline |
 | `src/core/llm_router.py` | Routes queries to Ollama (offline) or API (online) |
@@ -664,22 +664,23 @@ returned as readable messages.
 ### Vector Embeddings
 
 **What:** A list of numbers that represents the meaning of a piece of
-text. HybridRAG3 uses 384 numbers per chunk.
+text. HybridRAG3 uses 768 numbers per chunk.
 
-**Why 384?** It's a balance between quality and storage. More numbers =
+**Why 768?** It's a balance between quality and storage. More numbers =
 more precise meaning capture, but more disk space and slower search.
-384 dimensions is the "sweet spot" used by the all-MiniLM-L6-v2 model.
+768 dimensions is the output size of the nomic-embed-text model, which
+provides higher retrieval accuracy than the previous 384-dimension model.
 
 **Key insight:** Words that mean similar things end up near each other in
-this 384-dimensional space. "Frequency" and "hertz" are nearby.
+this 768-dimensional space. "Frequency" and "hertz" are nearby.
 "Frequency" and "breakfast" are far apart.
 
-**The model that creates them (all-MiniLM-L6-v2):**
-- 80 MB download, runs on any laptop CPU
-- Trained on billions of sentence pairs from the internet
-- Input: any text up to 256 words
-- Output: exactly 384 numbers between -1 and +1
-- Speed: ~100 chunks per second on a laptop
+**The model that creates them (nomic-embed-text via Ollama):**
+- 274 MB download, served locally by Ollama
+- Trained on billions of sentence pairs and documents
+- Input: any text up to 8192 tokens
+- Output: exactly 768 numbers between -1 and +1
+- Speed: fast on CPU; GPU-accelerated when available
 
 ### Cosine Similarity
 
@@ -774,7 +775,7 @@ INPUT: "What is the operating frequency?"
 **Key numbers:**
 - phi4-mini: 3.8 billion parameters, 32 attention layers
 - GPT-4: estimated 1.7 trillion parameters
-- all-MiniLM-L6-v2 (the embedding model): 22 million parameters, 6 layers
+- nomic-embed-text (the embedding model): 137 million parameters
 - More parameters = smarter but slower and bigger
 
 ### Tokenization
