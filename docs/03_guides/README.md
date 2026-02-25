@@ -101,9 +101,9 @@ rag-profile server_max        64GB+ RAM, batch=128, maximum throughput
 ## Modes of Operation
 
 ### Offline Mode (default)
-- Uses vLLM (workstation) or Ollama (laptop) running locally
+- Uses Ollama running locally (vLLM available on workstation only, not laptop)
 - No internet required after setup
-- Response time: ~2-5 seconds (vLLM/GPU) or ~5-10 seconds (Ollama/GPU) or ~180 seconds (CPU only)
+- Response time: ~2-5 seconds (vLLM/workstation GPU) or ~5-10 seconds (Ollama/GPU) or ~180 seconds (CPU only)
 - Best for: Air-gapped environments, SCIFs, field use
 
 ### Online Mode
@@ -141,8 +141,8 @@ Three independent layers prevent any accidental network calls at runtime:
 
 | Layer | What It Blocks | How |
 |-------|---------------|-----|
-| PowerShell (start_hybridrag.ps1) | HuggingFace + transformers | Session environment variables |
-| Python (embedder.py) | HuggingFace in ANY Python process | os.environ enforcement before import |
+| PowerShell (start_hybridrag.ps1) | Outbound network calls | Session environment variables |
+| Python (embedder.py) | Non-Ollama embedding calls | os.environ enforcement before import |
 | Config (SEC-001) | LLM queries to public endpoints | Empty API endpoint default |
 
 All three must fail before data leaves the machine.
@@ -293,11 +293,8 @@ All packages sourced from PyPI (pypi.org) -- open-source with permissive license
 
 | Component | Package | License | Purpose |
 |-----------|---------|---------|---------|
-| Embeddings | sentence-transformers | Apache 2.0 | Text to vector conversion |
-| ML Backend | torch (PyTorch) | BSD-3 | Tensor computation (CPU + GPU) |
-| Tokenizer | transformers | Apache 2.0 | Text tokenization |
+| Embeddings | nomic-embed-text (Ollama) | Apache 2.0 | Text to 768-dim vectors (served by Ollama) |
 | Vector Math | numpy | BSD-3 | Numerical computation |
-| ML Utilities | scikit-learn | BSD-3 | Distance metrics |
 | Database | sqlite3 (built-in) | Public Domain | Metadata + keyword search |
 | PDF Parsing | pdfplumber, pypdf | MIT | Document text extraction |
 | Office Docs | python-docx, python-pptx, openpyxl | MIT | Word, PowerPoint, Excel |
@@ -362,7 +359,7 @@ are machine-specific:
 - start_hybridrag.ps1 (different paths per machine)
 - .gitignore (may have machine-specific entries)
 - .venv/ (different Python builds)
-- .model_cache/, .hf_cache/, .torch_cache/ (downloaded locally)
+- .model_cache/ (legacy, no longer used -- embeddings served by Ollama)
 - API keys (stored in Windows Credential Manager, local to each login)
 
 ## License

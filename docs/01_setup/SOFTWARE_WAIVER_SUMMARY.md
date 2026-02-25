@@ -40,7 +40,7 @@ These are installed, working, and appear on the approved software list.
 | Python | 3.11.9 | PSF-2.0 | Python.org/USA | Runtime |
 | pip | 26.0.1 | MIT | PyPA/USA | Package installer |
 | numpy | 1.26.4 | BSD-3 | NumFOCUS/USA | Vector math |
-| openai | 1.45.1 | MIT | OpenAI/USA | API client (PINNED v1.x) |
+| openai | 1.51.2 | MIT | OpenAI/USA | API client (PINNED v1.x) |
 | tiktoken | 0.8.0 | MIT | OpenAI/USA | Token counting (offline) |
 | httpx | 0.28.1 | BSD-3 | Encode/UK | HTTP client |
 | requests | 2.32.5 | Apache 2.0 | PSF/USA | HTTP client |
@@ -171,7 +171,7 @@ depends on openai>=1.99.1 and cannot install without it.
 | Publisher | UC Berkeley / USA |
 | Purpose | GPU-optimized model serving with batching and caching |
 | Requirement | Dual RTX 3090 workstation (on order) |
-| Package 2 | openai>=1.99.1 (upgrade from current 1.45.1) |
+| Package 2 | openai>=1.99.1 (upgrade from current 1.51.2) |
 | License | MIT |
 | Publisher | OpenAI / USA |
 | Purpose | Required dependency for vLLM; API client for cloud models |

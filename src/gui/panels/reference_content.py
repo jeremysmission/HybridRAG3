@@ -237,7 +237,7 @@ STORAGE: SQLite + NumPy memmap (float16). No external DB server.
 RETRIEVAL: Hybrid vector + BM25 via RRF (k=60). Reranker available but OFF.
 CHUNKING: 1200 chars, 200 overlap, smart boundary detection, heading prepend.
 LLM OFFLINE: Ollama (phi4-mini default). vLLM on workstation.
-LLM ONLINE: OpenRouter / Azure OpenAI / OpenAI (openai SDK 1.45.1).
+LLM ONLINE: OpenRouter / Azure OpenAI / OpenAI (openai SDK 1.51.2).
 GUI: tkinter (stdlib, zero deps). REST API: FastAPI 0.115.0 + Uvicorn.
 PARSING: pdfplumber, python-docx, openpyxl, python-pptx, pytesseract, Pillow.
 CREDENTIALS: keyring (Windows Credential Manager, DPAPI encrypted).

@@ -3,7 +3,8 @@
 # Updated: 2026-02-24
 # Changelog: 2026-02-24 -- Added pytest, psutil; cross-referenced against waiver_cheat_sheet_v4b
 # Pin policy: Exact versions from waiver cheat sheet v4b
-# openai PINNED to 1.45.1 -- never upgrade to 2.x (breaking API changes)
+# openai PINNED to 1.51.2 -- never upgrade to 2.x (breaking API changes)
+# Bumped 1.45.1->1.51.2 (2026-02-25): Gov Azure mirror purged 1.45.1; applying for store approval
 # xxhash ELIMINATED -- replaced by built-in hashlib
 # LangChain BANNED -- dependency hell
 # HuggingFace RETIRED -- embeddings now served by Ollama (nomic-embed-text)
@@ -12,7 +13,7 @@
 # ============================================================================
 
 # -- Core AI / Model APIs --------------------------------------------------
-openai==1.45.1                 # MIT -- PINNED v1.x forever; never 2.x syntax
+openai==1.51.2                 # MIT -- PINNED v1.x forever; never 2.x syntax (APPLYING FOR APPROVAL)
 tiktoken==0.8.0                # MIT -- OpenAI token counting (offline, no network)
 
 # -- Embeddings ------------------------------------------------------------
@@ -65,7 +66,7 @@ click==8.3.1                   # BSD-3 -- CLI toolkit (uvicorn dep, Pallets/USA)
 
 # -- GPU LLM Inference (Workstation Only) ------------------------------------
 # vllm==0.10.1                 # Apache 2.0 -- GPU LLM inference (YELLOW: waiver request 2)
-#   ^^^ COMMENTED OUT: conflicts with openai==1.45.1 (vllm needs openai>=1.99.1)
+#   ^^^ COMMENTED OUT: conflicts with openai==1.51.2 (vllm needs openai>=1.99.1)
 #   Not needed for demo -- Ollama handles local GPU inference for now.
 
 # -- Credential Storage -------------------------------------------------------

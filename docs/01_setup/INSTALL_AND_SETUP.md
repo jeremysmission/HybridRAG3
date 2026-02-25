@@ -110,8 +110,9 @@ pip install -r requirements.txt
 ```
 
 This downloads ~200 MB of packages. Takes 2-5 minutes depending on
-internet speed. (PyTorch/HuggingFace were removed -- embeddings are
-now served by Ollama.)
+internet speed. (sentence-transformers, torch, and HuggingFace
+dependencies are retired -- embeddings are now served by Ollama
+nomic-embed-text.)
 
 **Note:** `pytest` and `psutil` are included in requirements.txt. You do
 not need to install them separately.

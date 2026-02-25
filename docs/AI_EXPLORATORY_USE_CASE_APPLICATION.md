@@ -122,7 +122,7 @@ All Python. All open-source. All company-approved with versions pinned to approv
 | Embeddings | nomic-embed-text via Ollama (768-dim) | Apache 2.0 |
 | Vectors/search | NumPy 1.26.4, SQLite FTS5 | BSD-3, Public domain |
 | Local LLM | Ollama (MIT), vLLM 0.10.1 (Apache 2.0) | MIT, Apache 2.0 |
-| Online API | openai SDK 1.45.1 | Apache 2.0 |
+| Online API | openai SDK 1.51.2 | Apache 2.0 |
 | GUI | tkinter (stdlib) | PSF |
 | REST API | FastAPI 0.115.0 | MIT |
 | Credentials | keyring 23.13.1 (Windows DPAPI) | MIT |
