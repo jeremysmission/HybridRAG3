@@ -1,6 +1,6 @@
 # HybridRAG3 -- Technical Theory of Operation
 
-Revision: B | Date: 2026-02-25
+Revision: C | Date: 2026-02-25
 
 ---
 
@@ -55,6 +55,12 @@ enforcing zero-trust outbound access control.
 
 **Design priorities**: Offline operation, crash safety, low RAM usage,
 full auditability, zero external server dependencies.
+
+**RevC changes from RevB**: Bulk transfer engine hardened for production
+nightly sync (VPN resilience, memory safety, JSON event logging, 80 stress
+tests). Desktop_power hardware profile set as default for all machines
+(dual-RTX-3090 workstation baseline). 22 QA bug fixes across 15 files.
+Test suite expanded to 406 pytest + 745 virtual + 140 setup simulation.
 
 **RevB changes from RevA**: Embedder migrated from sentence-transformers
 MiniLM-L6-v2 (384-dim) to Ollama nomic-embed-text (768-dim). All
@@ -732,11 +738,11 @@ fe, cyber, gen. Each profile selects primary and alternate models:
 `fault_analysis.py`: Automated fault hypothesis engine. Classifies by
 severity, generates fix suggestions, tracks fault history.
 
-**Test counts (RevB):**
+**Test counts (RevC):**
 
 | Suite | Count | Description |
 |-------|-------|-------------|
-| pytest | 373 | Unit and integration tests |
+| pytest | 406 | Unit, integration, and stress tests |
 | Virtual | 745 | Configuration permutation tests |
 | Setup simulation | 140 | Install and setup scenario tests |
 
@@ -862,7 +868,90 @@ calibration (addressed by Exact: rule).
 
 ---
 
-## 17. Scale-Out Path
+## 17. Nightly Data Sync (Bulk Transfer v2)
+
+`src/tools/bulk_transfer_v2.py` -- Production-grade file transfer engine
+for nightly source data updates over corporate VPN networks.
+
+**Architecture: Three-Stage Atomic Transfer**
+
+```
+Source folder                    Staging area               Final destination
+(network share)                  (local SSD)                (source_folder)
+     |                               |                           |
+     v                               v                           v
+  [Discover] --> [Copy to .tmp] --> [SHA-256 verify] --> [Rename to verified/]
+                                         |
+                                    (mismatch?)
+                                         |
+                                         v
+                                    [quarantine/ + .reason file]
+```
+
+Every file goes through three stages:
+1. **incoming/** -- Active transfer, `.tmp` extension during copy
+2. **verified/** -- SHA-256 hash matches source, safe to use
+3. **quarantine/** -- Hash mismatch or copy failure, with `.reason` file
+
+**SQLite Manifest Database** (`transfer_manifest.py`):
+- `source_manifest` table: tracks every source file by path, mtime, size, content hash
+- `transfer_log` table: records every transfer attempt with status, duration, hash
+- `INSERT OR REPLACE` with full field list prevents mtime clobber on resume
+- Resume logic: `is_already_transferred()` checks `abs(stored_mtime - current_mtime) < 2.0`
+- Content-hash deduplication: identical files across runs are detected and skipped
+
+**VPN/Corporate Network Resilience:**
+
+| Feature | Mechanism |
+|---------|-----------|
+| Connection drop detection | Consecutive failure counter (threshold: 20) |
+| Recovery wait | Exponential backoff: 30s -> 60s -> 120s -> ... -> 600s max |
+| Reachability probe | `os.listdir(source_root)` tests SMB/CIFS mount |
+| Timeout discrimination | Network `ETIMEDOUT` (retryable) vs copy-stall (abort) |
+| Stall detection | Per-file timeout, configurable via `stall_timeout` |
+
+**Memory Safety for Multi-Day Operation:**
+
+| Feature | Mechanism |
+|---------|-----------|
+| Garbage collection | `gc.collect()` every N files (default 10,000) |
+| Speed history cap | Rolling window capped at 500 samples |
+| Checkpoint logging | Background thread logs stats every 300 seconds |
+| Peak queue tracking | Monitors maximum concurrent transfer queue depth |
+
+**Monitoring and Reporting:**
+
+| Output | Format | Purpose |
+|--------|--------|---------|
+| JSON event log | JSONL file | Machine-readable for nightly cron monitoring |
+| Progress callback | Python callable | GUI integration, status indicators |
+| Full report | Structured text | Post-run summary with operational health |
+| Checkpoint log | Python logging | Periodic stats during long runs |
+
+**Configuration** (`TransferConfig`):
+
+| Field | Default | Purpose |
+|-------|---------|---------|
+| `max_workers` | 4 | Concurrent copy threads |
+| `max_retries` | 3 | Per-file retry attempts |
+| `verify_hash` | true | SHA-256 integrity check |
+| `network_health_interval` | 60s | Health check frequency |
+| `stall_timeout` | 120s | Per-file copy timeout |
+| `max_consecutive_failures` | 20 | Threshold for network recovery |
+| `network_recovery_wait` | 30s | Initial backoff wait |
+| `network_recovery_max_wait` | 600s | Maximum backoff wait |
+| `gc_interval` | 10000 | Files between GC passes |
+| `checkpoint_interval` | 300s | Seconds between checkpoint logs |
+| `max_speed_history` | 500 | Rolling speed sample cap |
+
+**Test Coverage**: 80 stress tests covering connection dropout, speed
+fluctuation, scale (1000+ files), large files, memory safety, incomplete
+file recovery, network recovery, chaos injection, disk space exhaustion,
+nightly incremental sync, and special paths (unicode, spaces, long names).
+
+---
+
+## 18. Scale-Out Path
 
 Current memmap brute-force search is O(N) and will not scale beyond
 ~500K vectors without unacceptable latency. Planned migration:
@@ -881,7 +970,7 @@ Full analysis: `docs/research/FAISS_MIGRATION_PLAN.md`.
 
 ---
 
-## 18. Key Dependencies
+## 19. Key Dependencies
 
 **Core runtime** (no torch, no sentence-transformers, no HuggingFace):
 
