@@ -29,10 +29,32 @@ key = os.environ.get('HYBRIDRAG_API_KEY') or (sys.argv[1] if len(sys.argv) > 1 e
 if not key:
     print("  [ERROR] No API key provided (set HYBRIDRAG_API_KEY or pass as argument).")
     sys.exit(1)
-keyring.set_password("hybridrag", "azure_api_key", key)
-stored = keyring.get_password("hybridrag", "azure_api_key")
+try:
+    keyring.set_password("hybridrag", "azure_api_key", key)
+except Exception as e:
+    print("  [FAIL] Keyring storage failed: {}".format(e))
+    print()
+    print("  This usually means the keyring config is broken.")
+    print("  Fix: Delete or repair this file, then retry:")
+    cfg_path = os.path.join(
+        os.environ.get("LOCALAPPDATA", ""),
+        "Python Keyring", "keyringrc.cfg",
+    )
+    print("    {}".format(cfg_path))
+    print()
+    print("  Or set backend to Windows Credential Manager:")
+    print("    [backend]")
+    print("    default-keyring = keyring.backends.Windows.WinVaultKeyring")
+    sys.exit(1)
+
+try:
+    stored = keyring.get_password("hybridrag", "azure_api_key")
+except Exception:
+    stored = None
+
 if stored == key:
     print("  [OK] API key stored successfully.")
     print("  Preview: " + stored[:4] + "..." + stored[-4:])
 else:
-    print("  [ERROR] Key storage failed. Keyring may not be available.")
+    print("  [FAIL] Key storage failed. Stored value does not match.")
+    sys.exit(1)

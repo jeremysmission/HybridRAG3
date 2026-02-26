@@ -170,6 +170,7 @@ def _load_backends(app, logger):
     router = None
     store = None
     embedder = None
+    init_errors = []
 
     try:
         logger.info("Loading backends (this may take a moment)...")
@@ -214,7 +215,7 @@ def _load_backends(app, logger):
             logger.info("[OK] LLM router ready")
             return r
 
-        init_errors = []
+        _INIT_TIMEOUT = 60  # seconds -- fail fast, don't hang GUI
 
         with ThreadPoolExecutor(max_workers=3) as pool:
             fut_store = pool.submit(_init_store)
@@ -222,17 +223,17 @@ def _load_backends(app, logger):
             fut_router = pool.submit(_init_router)
 
             try:
-                store = fut_store.result()
+                store = fut_store.result(timeout=_INIT_TIMEOUT)
             except Exception as e:
                 logger.warning("[WARN] VectorStore init failed: %s", e)
                 init_errors.append("Database: {}".format(e))
             try:
-                embedder = fut_embedder.result()
+                embedder = fut_embedder.result(timeout=_INIT_TIMEOUT)
             except Exception as e:
                 logger.warning("[WARN] Embedder init failed: %s", e)
                 init_errors.append("Embedder: {}".format(e))
             try:
-                router = fut_router.result()
+                router = fut_router.result(timeout=_INIT_TIMEOUT)
             except Exception as e:
                 logger.warning("[WARN] LLMRouter init failed: %s", e)
                 init_errors.append("LLM Router: {}".format(e))
@@ -302,6 +303,15 @@ def _load_backends(app, logger):
         # -- IBIT: stepped verification display then final badge --
         _run_ibit_sequence(app, config, query_engine, indexer, router, logger)
 
+        # Safety net: if IBIT hasn't cleared loading after 90s, force clear.
+        # Prevents the GUI from being stuck in "Loading..." forever.
+        def _loading_timeout():
+            if hasattr(app, "status_bar") and app.status_bar._loading:
+                logger.warning("[WARN] Loading timeout -- forcing ready state")
+                app.status_bar.set_ibit_result(0, 0, [])
+
+        app.after(90_000, _loading_timeout)
+
     try:
         app.after(0, _attach)
     except Exception as e:
@@ -322,9 +332,17 @@ def _run_ibit_sequence(app, config, query_engine, indexer, router, logger):
     STEP_DELAY_MS = 150  # Per-check display hold (ms)
 
     def _do_ibit():
-        results = run_ibit(config, query_engine, indexer, router)
-        # Schedule stepped display on main thread
-        _step_display(app, results, 0, STEP_DELAY_MS)
+        try:
+            results = run_ibit(config, query_engine, indexer, router)
+            # Schedule stepped display on main thread
+            app.after(0, lambda: _step_display(app, results, 0, STEP_DELAY_MS))
+        except Exception as e:
+            logger.warning("[WARN] IBIT failed: %s", e)
+            # Safety net: clear loading state even on crash
+            try:
+                app.after(0, lambda: app.status_bar.set_ibit_result(0, 0, []))
+            except Exception:
+                pass
 
     # Run checks in background to avoid blocking GUI
     import threading

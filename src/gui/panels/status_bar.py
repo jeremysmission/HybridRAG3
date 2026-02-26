@@ -166,8 +166,10 @@ class StatusBar(tk.Frame):
                     fg=t["fg"],
                 )
         elif mode == "offline":
-            model = getattr(self.config, "ollama", None)
-            model_name = getattr(model, "model", "phi4-mini") if model else "phi4-mini"
+            model_name = status.get("ollama_model", "")
+            if not model_name:
+                model = getattr(self.config, "ollama", None)
+                model_name = getattr(model, "model", "unknown") if model else "unknown"
             self.llm_label.config(
                 text="LLM: {} (Ollama)".format(model_name),
                 fg=t["fg"],
