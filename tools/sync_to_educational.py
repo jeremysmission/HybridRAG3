@@ -3,11 +3,17 @@ HybridRAG3 -- Sanitize and Sync to Educational Repo
 FILE: tools/sync_to_educational.py
 
 WHAT THIS DOES:
-  1. Copies source code from D:\\HybridRAG3 to D:\\HybridRAG3_Educational
-  2. Strips defense/contractor/corporate/personal references
-  3. Replaces machine-specific paths with placeholders
-  4. Writes a clean educational README
-  5. Skips files that should never be public (.venv, caches, API keys, .bak)
+  1. CLEANS the destination (deletes everything except .git/)
+  2. MIRRORS all source code from D:\\HybridRAG3 to D:\\HybridRAG3_Educational
+  3. SKIPS only files/dirs matching SKIP_PATTERNS (denylist)
+  4. SANITIZES text content (strips banned words, replaces paths)
+  5. SCANS for any banned words that slipped through
+
+WHY FULL MIRROR (not allowlist):
+  Previous versions used COPY_DIRS + COPY_FILES allowlists. New files
+  were silently missed, causing bugs to ship in the home repo but never
+  reach Educational. The denylist approach copies EVERYTHING by default.
+  Only explicitly dangerous content is excluded.
 
 RULES:
   - No "defense", "contractor", "NGC", "Northrop", "Grumman", "classified"
@@ -21,18 +27,12 @@ USAGE: python tools\\sync_to_educational.py
   Run from D:\\HybridRAG3 (the private repo)
 
 CHANGELOG:
-  2026-02-16: Added "scripts" to COPY_DIRS (model wizard files).
-              Moved api_mode_commands.ps1 from SKIP to COPY (NGC paths removed).
-              Added hallucination_guard to SKIP (unverified, defer to future sync).
-              Fixed false-positive regex: NIST/CUI now use \\b word boundaries
-              to prevent corrupting "Administration" -> "Admisecurity standardration".
-              Added standalone "clearance" and "randaje" to TEXT_REPLACEMENTS
-              (previously only "security clearance" was caught).
-  2026-02-17: Replaced 3 specific virtual_test skips with catch-all "virtual_test"
-              prefix (catches all current and future virtual test files).
-              Added sync_to_educational.py itself to SKIP (contains banned terms).
-              Added "Claude" and "Anthropic" to TEXT_REPLACEMENTS and banned words
-              (session artifacts that should not appear in educational repo).
+  2026-02-25: REDESIGN: Replaced allowlist (COPY_DIRS + COPY_FILES) with
+              denylist (SKIP_PATTERNS). Now mirrors entire repo minus skips.
+              Added clean step: deletes stale files in Educational before copy.
+              New files automatically sync without manual config changes.
+  2026-02-17: Added "Claude" and "Anthropic" to TEXT_REPLACEMENTS.
+  2026-02-16: Fixed false-positive regex (NIST word boundaries).
 """
 import os
 import sys
@@ -46,45 +46,25 @@ import re
 SRC_ROOT = r"D:\HybridRAG3"
 DST_ROOT = r"D:\HybridRAG3_Educational"
 
-# Folders to copy (relative to SRC_ROOT)
-COPY_DIRS = [
-    "src",
-    "tests",
-    "config",
-    "tools/py",
-    "tools/work_validation",  # model validation scripts (approved stack)
-    "diagnostics",
-    "scripts",              # model wizard (_set_model.py, _model_meta.py)
-    "docs/01_setup",        # installation and setup guides
-    "docs/02_architecture", # architecture docs (block diagrams, interfaces)
-    "docs/03_guides",       # user guide, GUI guide, glossary, shortcuts
-    "docs/04_demo",         # demo prep and scripts
-    "docs/08_learning",     # study guides and learning materials
-]
-
-# Individual files to copy
-COPY_FILES = [
-    "requirements_approved.txt",
-    ".gitignore",
-    "tools/master_toolkit.ps1",
-    "tools/_rebuild_toolkit.py",
-    "tools/test_all_diagnostics.ps1",
-    "tools/api_mode_commands.ps1",   # cleaned of corporate paths; has rag-set-model
-    "tools/setup_home.ps1",          # home machine setup wizard
-    "tools/setup_home.bat",          # home setup launcher (double-click)
-    "tools/setup_work.ps1",          # work machine setup wizard
-    "tools/setup_work.bat",          # work setup launcher (double-click)
-    "INSTALL.bat",                   # universal installer entry point
-    "start.cmd",                     # cross-env launcher (works on restricted machines)
-    "run.cmd",                       # fallback launcher via python tools/run.py
-    "start_rag.bat",                 # execution policy bypass launcher (double-click)
-    "start_gui.bat",                 # direct GUI launcher (double-click)
-]
-
-# Files/folders to NEVER copy
+# ---------------------------------------------------------------------------
+# SKIP PATTERNS (denylist -- everything NOT here gets copied)
+# ---------------------------------------------------------------------------
+# Matching rules (checked by should_skip):
+#   "*.ext"  -- glob: any file ending in .ext
+#   "name"   -- exact basename match OR substring in full path
+#
+# Categories:
+#   [BUILD]    Build artifacts, caches, runtime output
+#   [GIT]      Git internals
+#   [MACHINE]  Machine-specific generated files
+#   [PRIVATE]  Personal/session/career docs (not for public)
+#   [SECURITY] Dense defense content (too sensitive even after sanitization)
+#   [BINARY]   Binary files that cannot be text-sanitized
+#   [SELF]     This script (contains banned terms in its config)
+# ---------------------------------------------------------------------------
 SKIP_PATTERNS = [
+    # [BUILD] Build artifacts and caches
     ".venv",
-    ".git",
     "__pycache__",
     ".model_cache",
     ".hf_cache",
@@ -92,43 +72,65 @@ SKIP_PATTERNS = [
     "*.bak",
     "*.pyc",
     "*.pyo",
-    "start_hybridrag.ps1",        # machine-specific
-    "eval guides",                 # gitignored personal folder
-    "USB Installer Research",      # personal-only: offline USB installer prototype
-    "releases",                    # zip transfers
     "data",                        # indexed data
     "logs",                        # runtime logs
     "temp_diag",                   # temp diagnostic output
-    "work_transfer.ps1",          # has NGC paths
-    "azure_api_test.ps1",         # has NGC paths
-    "fix_azure_detection.ps1",    # has NGC paths
-    "rebuilt_rag_commands.ps1",   # has NGC paths
-    # -- Hallucination guard: skip until verified and installed properly --
+    "releases",                    # zip transfers
+
+    # [GIT] Git internals
+    ".git",
+
+    # [MACHINE] Machine-specific generated files
+    "start_hybridrag.ps1",         # has real paths (template is generated fresh)
+    ".claude",                     # AI assistant workspace (intentionally untracked)
+    "deploy_comments.ps1",         # intentionally untracked
+
+    # [PRIVATE] Personal/session docs
+    "eval guides",                 # gitignored personal folder
+    "USB Installer Research",      # personal-only: offline USB installer prototype
+    "HANDOVER",                    # session handover docs (personal workflow details)
+    "Handover",                    # case variant
+    "SESSION",                     # session-specific reports (SESSION11, etc.)
+    "Session",                     # case variant (Session_15_Changes, etc.)
+    "AI_ASSISTED_DEVELOPMENT_NOTES",  # private project mgmt notes
+    "WORK_LAPTOP_DEPLOY",         # work-specific deployment docs
+    "WORKSTATION_STRESS_TEST",    # hardware-specific test doc
+    "virtual_test",                # ALL virtual test files (contain session refs)
+    "sync_to_educational.py",      # [SELF] this script (contains banned terms)
+
+    # [SECURITY] Directories too dense with defense content to sanitize cleanly
+    "05_security",                 # defense audit, NIST docs, waiver sheets, git rules
+    "07_career",                   # personal career details
+    "09_project_mgmt",            # internal project management
+
+    # [SECURITY] Individual files with heavy defense/corporate content
+    "work_transfer.ps1",
+    "azure_api_test.ps1",
+    "fix_azure_detection.ps1",
+    "rebuilt_rag_commands.ps1",
+    "new_commands_for_start_hybridrag.ps1",
+    "write_llm_router_fix.ps1",
     "hallucination_guard",         # entire src/core/hallucination_guard/ subfolder
-    # guard_config.py: now synced (clean dataclass, no banned words)
     "feature_registry.py",         # feature toggle (guard dependency)
     "grounded_query_engine.py",    # guard wrapper for query engine
     "guard_diagnostic.py",         # guard health check
-    "virtual_test",                # ALL virtual test files (contain Claude/session refs)
-    "sync_to_educational.py",      # this script itself (contains banned terms in config)
-    "HANDOVER",                    # session handover docs (personal workflow details)
     "rag-features.ps1",           # guard PowerShell commands
-    "HYBRIDRAG3_SECURITY_AUDIT_NIST_800_171.md",  # full NIST audit doc
     "01_knowledge_distillation_finetuning_tutorial.md",  # heavy defense refs
-    "02_vscode_ai_completion_comparison.md",  # defense environment refs
-    "03_python_learning_curriculum_12weeks.md",  # personal career details
-    "*.lnk",                       # Windows shortcut files (personal/machine-specific)
-    "*.docx",                      # Binary Office docs (cannot sanitize text inside)
-    "*.xlsx",                      # Binary Office spreadsheets (cannot sanitize)
-    "~$*",                         # Word/Excel temp lock files
-    "Handover",                    # case variant of HANDOVER (session-specific docs)
-    "SESSION11",                   # session-specific detailed reports
-    "AI_ASSISTED_DEVELOPMENT_NOTES",  # private project mgmt notes (also Bond-marked)
-    "WORK_LAPTOP_DEPLOY",         # work-specific deployment session docs
-    "waiver_cheat_sheet",         # work-specific waiver docs
+    "02_vscode_ai_completion_comparison.md",              # defense environment refs
+    "03_python_learning_curriculum_12weeks.md",           # personal career details
+    "waiver_cheat_sheet",         # work-specific waiver docs (basename prefix match)
     "Product_Roadmap",            # internal roadmap docs
     "Software_Audit",             # internal audit docs
-    "DEFENSE_MODEL_AUDIT",        # filename contains banned word "defense"
+    "DEFENSE_MODEL_AUDIT",        # filename contains banned word
+
+    # [BINARY] Files that cannot be text-sanitized
+    "*.docx",                      # Binary Office docs
+    "*.xlsx",                      # Binary Office spreadsheets
+    "~$*",                         # Word/Excel temp lock files
+    "*.lnk",                       # Windows shortcut files
+
+    # [HOME-ONLY] Files that only belong in the personal repo
+    "requirements.txt",            # personal reqs (Educational uses requirements_approved.txt)
 ]
 
 # Text replacements (case-insensitive where noted)
@@ -176,17 +178,15 @@ TEXT_REPLACEMENTS = [
     (r"MIL-STD-\d+", "industry standard"),
     (r"ARINC \d+", "industry standard"),
     (r"security clearance", "access authorization"),
-    (r"\bclearance\b", "authorization"),   # standalone "clearance" (not just "security clearance")
+    (r"\bclearance\b", "authorization"),
 
     # Personal/machine paths
-    # randaje is the work username -- paths replaced with {USER_HOME}, not banned
-    # jerem is the personal laptop username -- must never appear in Educational repo
     (r"C:\\Users\\randaje\\OneDrive - NGC\\Desktop\\HybridRAG3", "{PROJECT_ROOT}"),
     (r"C:\\Users\\randaje", "{USER_HOME}"),
-    (r"\brandaje\b", "{USERNAME}"),         # catch any remaining work username references
-    (r"C:\\Users\\jerem\\OneDrive[^\"]*", "{USER_HOME}"),   # personal laptop paths
+    (r"\brandaje\b", "{USERNAME}"),
+    (r"C:\\Users\\jerem\\OneDrive[^\"]*", "{USER_HOME}"),
     (r"C:\\Users\\jerem", "{USER_HOME}"),
-    (r"\bjerem\b", "{USERNAME}"),           # catch any remaining personal username references
+    (r"\bjerem\b", "{USERNAME}"),
     (r"OneDrive - NGC", "OneDrive"),
     (r"D:\\KnowledgeBase", "{KNOWLEDGE_BASE}"),
     (r"D:\\RAG Indexed Data", "{DATA_DIR}"),
@@ -227,38 +227,11 @@ This repository exists for **educational purposes** -- to study and learn:
 - Diagnostic and fault analysis systems
 - Security-conscious software design
 
-## Architecture
-
-```
-src/
-  core/           # Core RAG engine
-    indexer.py        # Document ingestion pipeline
-    chunker.py        # Text splitting with overlap
-    chunk_ids.py      # Deterministic ID generation
-    embedder.py       # Ollama nomic-embed-text embeddings (768-dim)
-    vector_store.py   # SQLite + numpy vector search
-    retriever.py      # Hybrid retrieval (vector + keyword)
-    llm_router.py     # Multi-provider LLM routing
-    config.py         # Dataclass-based configuration
-  diagnostic/     # Health monitoring
-  tools/          # System utilities
-tools/
-  py/             # Extracted Python toolkit scripts
-  master_toolkit.ps1  # PowerShell command interface
-tests/            # Test suites
-config/           # YAML configuration templates
-```
-
-## Key Design Principles
-
-1. **Zero Magic** -- Every operation is explicit and traceable
-2. **Offline-First** -- Works without internet by default
-3. **Auditable** -- Full logging, deterministic behavior
-4. **Minimal Dependencies** -- Only what's needed, pinned versions
-5. **Readable** -- Extensive comments for learning
-
 ## Setup
 
+Double-click `INSTALL.bat` and follow the prompts.
+
+Or manually:
 ```bash
 python -m venv .venv
 .venv\\Scripts\\activate    # Windows
@@ -269,7 +242,7 @@ See `config/default_config.yaml` for configuration options.
 
 ## Requirements
 
-- Python 3.11+
+- Python 3.12+
 - ~200MB disk for dependencies
 - Ollama with nomic-embed-text model (required for embeddings)
 - Optional: Ollama LLM models (phi4-mini, mistral:7b) for offline inference
@@ -290,7 +263,12 @@ def should_skip(path):
     basename = os.path.basename(path)
     for pattern in SKIP_PATTERNS:
         if pattern.startswith("*."):
+            # Glob: match file extension
             if basename.endswith(pattern[1:]):
+                return True
+        elif pattern.startswith("~$"):
+            # Prefix glob: match files starting with ~$
+            if basename.startswith("~$"):
                 return True
         elif basename == pattern or pattern in path:
             return True
@@ -321,7 +299,8 @@ def copy_and_sanitize_file(src_path, dst_path):
 
     # Binary files -- copy as-is
     ext = os.path.splitext(src_path)[1].lower()
-    if ext in [".pyc", ".pyo", ".exe", ".dll", ".so", ".zip", ".gz"]:
+    if ext in [".pyc", ".pyo", ".exe", ".dll", ".so", ".zip", ".gz",
+               ".png", ".jpg", ".jpeg", ".gif", ".ico", ".sqlite3"]:
         shutil.copy2(src_path, dst_path)
         return "copied"
 
@@ -347,14 +326,30 @@ def copy_and_sanitize_file(src_path, dst_path):
     return "sanitized" if changed else "clean"
 
 
+def clean_destination(dst_root):
+    """Remove everything in destination except .git/ directory."""
+    removed = 0
+    for item in os.listdir(dst_root):
+        if item == ".git":
+            continue
+        path = os.path.join(dst_root, item)
+        if os.path.isdir(path):
+            shutil.rmtree(path)
+            removed += 1
+        else:
+            os.remove(path)
+            removed += 1
+    return removed
+
+
 # ---------------------------------------------------------------------------
 # MAIN
 # ---------------------------------------------------------------------------
 
 def main():
     print()
-    print("  HybridRAG3 -> Educational Sync")
-    print("  ================================")
+    print("  HybridRAG3 -> Educational Sync (full mirror)")
+    print("  =============================================")
     print()
 
     if not os.path.exists(SRC_ROOT):
@@ -366,84 +361,46 @@ def main():
         print("  Create it first: mkdir %s" % DST_ROOT)
         sys.exit(1)
 
-    stats = {"copied": 0, "sanitized": 0, "skipped": 0}
+    # Step 1: Clean destination (preserve .git only)
+    print("  --- Step 1: Cleaning destination ---")
+    removed = clean_destination(DST_ROOT)
+    print("  [OK] Removed %d items (preserved .git)" % removed)
+    print()
 
-    # Copy directories
-    for rel_dir in COPY_DIRS:
-        src_dir = os.path.join(SRC_ROOT, rel_dir)
-        dst_dir = os.path.join(DST_ROOT, rel_dir)
+    # Step 2: Mirror source to destination (skip patterns, sanitize text)
+    print("  --- Step 2: Copying and sanitizing ---")
+    stats = {"copied": 0, "sanitized": 0, "skipped": 0, "private": 0}
 
-        if not os.path.exists(src_dir):
-            print("  [SKIP] %s (not found)" % rel_dir)
-            continue
+    for root, dirs, files in os.walk(SRC_ROOT):
+        # Filter out skipped directories (in-place to prevent os.walk descent)
+        dirs[:] = sorted(d for d in dirs if not should_skip(os.path.join(root, d)))
 
-        for root, dirs, files in os.walk(src_dir):
-            # Filter out skip dirs
-            dirs[:] = [d for d in dirs if not should_skip(os.path.join(root, d))]
-
-            for fname in files:
-                src_path = os.path.join(root, fname)
-                if should_skip(src_path):
-                    stats["skipped"] += 1
-                    continue
-
-                rel_path = os.path.relpath(src_path, SRC_ROOT)
-                dst_path = os.path.join(DST_ROOT, rel_path)
-
-                result = copy_and_sanitize_file(src_path, dst_path)
-                if "skipped:private" in result:
-                    stats["skipped"] += 1
-                    print("  [SKIP-PRIVATE] %s" % rel_path)
-                elif "sanitized" in result:
-                    stats["sanitized"] += 1
-                    print("  [SANITIZED] %s" % rel_path)
-                else:
-                    stats["copied"] += 1
-
-    # Copy individual files
-    for rel_file in COPY_FILES:
-        src_path = os.path.join(SRC_ROOT, rel_file)
-        dst_path = os.path.join(DST_ROOT, rel_file)
-
-        if not os.path.exists(src_path):
-            print("  [SKIP] %s (not found)" % rel_file)
-            continue
-
-        if should_skip(src_path):
-            stats["skipped"] += 1
-            continue
-
-        result = copy_and_sanitize_file(src_path, dst_path)
-        if "skipped:private" in result:
-            stats["skipped"] += 1
-            print("  [SKIP-PRIVATE] %s" % rel_file)
-        elif "sanitized" in result:
-            stats["sanitized"] += 1
-            print("  [SANITIZED] %s" % rel_file)
-        else:
-            stats["copied"] += 1
-
-    # Copy safe docs (skip the ones with heavy defense content)
-    docs_src = os.path.join(SRC_ROOT, "docs")
-    if os.path.exists(docs_src):
-        for fname in os.listdir(docs_src):
-            if should_skip(fname):
+        for fname in sorted(files):
+            src_path = os.path.join(root, fname)
+            if should_skip(src_path):
                 stats["skipped"] += 1
                 continue
-            src_path = os.path.join(docs_src, fname)
-            if os.path.isfile(src_path):
-                dst_path = os.path.join(DST_ROOT, "docs", fname)
-                result = copy_and_sanitize_file(src_path, dst_path)
-                if "skipped:private" in result:
-                    stats["skipped"] += 1
-                    print("  [SKIP-PRIVATE] docs/%s" % fname)
-                elif "sanitized" in result:
-                    stats["sanitized"] += 1
-                    print("  [SANITIZED] docs/%s" % fname)
-                else:
-                    stats["copied"] += 1
 
-    # Write educational README
+            rel_path = os.path.relpath(src_path, SRC_ROOT)
+            dst_path = os.path.join(DST_ROOT, rel_path)
+
+            result = copy_and_sanitize_file(src_path, dst_path)
+            if "skipped:private" in result:
+                stats["private"] += 1
+                print("  [SKIP-PRIVATE] %s" % rel_path)
+            elif "sanitized" in result:
+                stats["sanitized"] += 1
+                print("  [SANITIZED] %s" % rel_path)
+            else:
+                stats["copied"] += 1
+
+    print()
+    print("  Copied: %d  Sanitized: %d  Skipped: %d  Private: %d" % (
+        stats["copied"], stats["sanitized"], stats["skipped"], stats["private"]))
+
+    # Step 3: Write educational README (overwrites any synced README)
+    print()
+    print("  --- Step 3: Writing educational files ---")
     readme_path = os.path.join(DST_ROOT, "README.md")
     with open(readme_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(EDUCATIONAL_README)
@@ -467,19 +424,16 @@ def main():
         f.write('Write-Host "HybridRAG3 ready." -ForegroundColor Green\n')
     print("  [OK] start_hybridrag.ps1.template")
 
-    # Final banned-word check
+    # Step 4: Banned-word scan on destination
     print()
-    print("  --- Banned Word Scan ---")
-    # Banned words with whether they need word-boundary matching
-    # Short terms like NGC match inside class names (ChunkingConfig)
-    # so they need word-boundary regex matching
+    print("  --- Step 4: Banned word scan ---")
     banned = [
         ("defense contractor", False),
         ("defense", False),
-        ("NGC", True),       # word boundary -- avoid ChunkingConfig false positive
+        ("NGC", True),
         ("Northrop", False),
         ("Grumman", False),
-        ("classified", True),  # word boundary -- avoid "misclassified" false positive
+        ("classified", True),
         ("NIST 800-171", False),
         ("NIST 800-53", False),
         ("NIST", True),
@@ -487,14 +441,12 @@ def main():
         ("CJCSM", False),
         ("ITAR", True),
         ("CMMC", True),
-        ("clearance", False),
-        # randaje is the work username -- not banned, use $env:USERPROFILE instead of hardcoding
-        # jerem is the personal laptop username -- must never appear in Educational repo
-        ("jerem", True),       # word boundary -- personal laptop username
+        ("clearance", True),   # word boundary -- avoid "clearancejobs" URL match
+        ("jerem", True),
         ("OneDrive - NGC", False),
         ("D:\\\\KnowledgeBase", False),
         ("jeremysmission", False),
-        ("Claude", True),          # word boundary -- avoid "excluded" false positive
+        ("Claude", True),
         ("Anthropic", False),
     ]
     found_any = False
@@ -509,7 +461,6 @@ def main():
                 continue
             for word, use_boundary in banned:
                 if use_boundary:
-                    # Use regex word boundaries to avoid substring matches
                     if re.search(r"\b" + re.escape(word) + r"\b", text):
                         rel = os.path.relpath(fpath, DST_ROOT)
                         print("  [WARN] '%s' found in %s" % (word, rel))
@@ -524,15 +475,12 @@ def main():
         print("  [OK] No banned words found")
 
     print()
-    print("  Summary: %d copied, %d sanitized, %d skipped" % (
-        stats["copied"], stats["sanitized"], stats["skipped"]))
-    print()
-    print("  Next steps:")
+    print("  =============================================")
+    print("  Sync complete. Next steps:")
     print("    cd D:\\HybridRAG3_Educational")
     print("    git add -A")
-    print("    git commit -m \"Initial educational release\"")
-    print("    git branch -M main")
-    print("    git push -u origin main")
+    print('    git commit -m "Sync from private repo"')
+    print("    git push origin main")
     print()
 
 

@@ -310,6 +310,13 @@ Write-Host ""
 Write-Ok "Settings confirmed"
 Write-Host "  ---- Automated setup begins now. You will see real-time progress. ----"
 
+# PS 5.1 converts native command stderr (pip WARNINGs) to ErrorRecords.
+# With 'Stop', these become terminating errors that crash the script before
+# $LASTEXITCODE can be checked. Phase 2 pip/python calls already have their
+# own error handling (while loops, $LASTEXITCODE, try/catch), so 'Continue'
+# is correct here. Cmdlets inside try/catch use explicit -ErrorAction Stop.
+$ErrorActionPreference = 'Continue'
+
 Set-Location "$PROJECT_ROOT"
 if (-not (Test-Path "$DATA_DIR"))   { New-Item -ItemType Directory -Path "$DATA_DIR" -Force | Out-Null; Write-Ok "Created: $DATA_DIR" }
 if (-not (Test-Path "$SOURCE_DIR")) { New-Item -ItemType Directory -Path "$SOURCE_DIR" -Force | Out-Null; Write-Ok "Created: $SOURCE_DIR" }
@@ -327,16 +334,27 @@ $stepTimer = [System.Diagnostics.Stopwatch]::StartNew()
 if (Test-Path ".venv") {
     Write-Ok ".venv already exists -- skipping (use Purge to redo)"
 } else {
-    Write-Host "  Creating .venv -- please wait (typically 30-60 seconds)..."
-    Write-Host "  (You will see a confirmation when it finishes)"
-    if ($PY_VER_FLAG) {
-        & $PY_EXE $PY_VER_FLAG -m venv .venv
-    } else {
-        & $PY_EXE -m venv .venv
-    }
-    if (-not (Test-Path ".venv\Scripts\python.exe")) {
-        Write-Fail "Virtual environment creation failed"
-        exit 1
+    $stepDone = $false
+    while (-not $stepDone) {
+        Write-Host "  Creating .venv -- please wait (typically 30-60 seconds)..."
+        Write-Host "  (You will see a confirmation when it finishes)"
+        if ($PY_VER_FLAG) {
+            & $PY_EXE $PY_VER_FLAG -m venv .venv
+        } else {
+            & $PY_EXE -m venv .venv
+        }
+        if (Test-Path ".venv\Scripts\python.exe") {
+            $stepDone = $true
+        } else {
+            Write-Fail "Virtual environment creation failed"
+            $choice = Request-Recovery "Creating venv" 4
+            switch ($choice) {
+                "R" { continue }
+                "S" { Write-Warn "Skipped venv creation"; $stepDone = $true }
+                "X" { Write-ManualResume 4 $TOTAL_STEPS; exit 0 }
+                default { continue }
+            }
+        }
     }
 }
 $stepTimer.Stop()
@@ -407,9 +425,38 @@ while (-not $stepDone) {
         $stepDone = $true
     } else {
         Write-Fail "Package installation failed after $maxAttempts attempts"
-        $choice = Request-Recovery "Installing packages" 6
+        $choice = Request-Recovery "Installing packages" 6 -DrillDown
         switch ($choice) {
             "R" { continue }
+            "D" {
+                Write-Host ""
+                Write-Host "  --- Drill-Down: Installing packages individually ---" -ForegroundColor Cyan
+                Write-Host ""
+                $reqLines = Get-Content "$PROJECT_ROOT\requirements.txt" | Where-Object { $_ -match '\S' -and $_ -notmatch '^\s*#' }
+                foreach ($reqLine in $reqLines) {
+                    $pkgDone = $false
+                    while (-not $pkgDone) {
+                        Write-Host "    Installing: $reqLine" -ForegroundColor White
+                        & $PIP install $reqLine 2>&1
+                        if ($LASTEXITCODE -eq 0) {
+                            Write-Ok "$reqLine"
+                            $pkgDone = $true
+                        } else {
+                            Write-Fail "$reqLine"
+                            Write-Host ""
+                            Write-Host "  [R] Retry   [S] Skip   [X] Exit"
+                            $pkgChoice = Read-Host "  Choose [R/S/X]"
+                            switch ($pkgChoice.ToUpper()) {
+                                "R" { continue }
+                                "S" { Write-Warn "Skipped $reqLine"; $pkgDone = $true }
+                                "X" { Write-ManualResume 6 $TOTAL_STEPS; exit 0 }
+                                default { continue }
+                            }
+                        }
+                    }
+                }
+                $stepDone = $true
+            }
             "S" { Write-Warn "Skipped package install"; $stepDone = $true }
             "X" { Write-ManualResume 6 $TOTAL_STEPS; exit 0 }
             default { continue }
@@ -427,22 +474,37 @@ Write-Ok "All packages installed ($(Format-Elapsed $stepTimer))"
 Write-Step 7 "Configuring default_config.yaml"
 
 $configPath = "$PROJECT_ROOT\config\default_config.yaml"
-if (Test-Path "$configPath") {
-    $content = Get-Content "$configPath" -Raw -Encoding UTF8
-    $dbPath = "$DATA_DIR\hybridrag.sqlite3"
-    $embPath = "$DATA_DIR\_embeddings"
-    # BUG 3 fix: escape $ in paths so -replace does not treat them as backreferences
-    $safeDbPath = $dbPath.Replace('$', '$$')
-    $safeEmbPath = $embPath.Replace('$', '$$')
-    $safeSrcDir = $SOURCE_DIR.Replace('$', '$$')
-    $content = $content -replace '(?m)^(\s*database:\s*).*$', "`$1$safeDbPath"
-    $content = $content -replace '(?m)^(\s*embeddings_cache:\s*).*$', "`$1$safeEmbPath"
-    $content = $content -replace '(?m)^(\s*source_folder:\s*).*$', "`$1$safeSrcDir"
-    # YAML is consumed by Python -- must NOT have BOM (Set-Content adds BOM in PS 5.1)
-    [System.IO.File]::WriteAllText($configPath, $content)
-    Write-Ok "Config updated with your paths"
-} else {
-    Write-Warn "Config file not found -- configure paths manually"
+$stepDone = $false
+while (-not $stepDone) {
+    try {
+        if (Test-Path "$configPath") {
+            $content = Get-Content "$configPath" -Raw -Encoding UTF8 -ErrorAction Stop
+            $dbPath = "$DATA_DIR\hybridrag.sqlite3"
+            $embPath = "$DATA_DIR\_embeddings"
+            # BUG 3 fix: escape $ in paths so -replace does not treat them as backreferences
+            $safeDbPath = $dbPath.Replace('$', '$$')
+            $safeEmbPath = $embPath.Replace('$', '$$')
+            $safeSrcDir = $SOURCE_DIR.Replace('$', '$$')
+            $content = $content -replace '(?m)^(\s*database:\s*).*$', "`$1$safeDbPath"
+            $content = $content -replace '(?m)^(\s*embeddings_cache:\s*).*$', "`$1$safeEmbPath"
+            $content = $content -replace '(?m)^(\s*source_folder:\s*).*$', "`$1$safeSrcDir"
+            # YAML is consumed by Python -- must NOT have BOM (Set-Content adds BOM in PS 5.1)
+            [System.IO.File]::WriteAllText($configPath, $content)
+            Write-Ok "Config updated with your paths"
+        } else {
+            Write-Warn "Config file not found -- configure paths manually"
+        }
+        $stepDone = $true
+    } catch {
+        Write-Fail "Config update failed: $_"
+        $choice = Request-Recovery "Config YAML" 7
+        switch ($choice) {
+            "R" { continue }
+            "S" { Write-Warn "Skipped config update"; $stepDone = $true }
+            "X" { Write-ManualResume 7 $TOTAL_STEPS; exit 0 }
+            default { continue }
+        }
+    }
 }
 
 # ==================================================================
@@ -451,14 +513,29 @@ if (Test-Path "$configPath") {
 Write-Step 8 "Configuring start_hybridrag.ps1"
 
 $startScript = "$PROJECT_ROOT\start_hybridrag.ps1"
-if (Test-Path "$startScript") {
-    $content = Get-Content "$startScript" -Raw -Encoding UTF8
-    $content = $content -replace '(?m)^\$DATA_DIR\s*=\s*"[^"]*"', "`$DATA_DIR   = `"$DATA_DIR`""
-    $content = $content -replace '(?m)^\$SOURCE_DIR\s*=\s*"[^"]*"', "`$SOURCE_DIR = `"$SOURCE_DIR`""
-    Set-Content -Path "$startScript" -Value $content -Encoding UTF8
-    Write-Ok "start_hybridrag.ps1 paths updated"
-} else {
-    Write-Warn "start_hybridrag.ps1 not found -- configure paths manually"
+$stepDone = $false
+while (-not $stepDone) {
+    try {
+        if (Test-Path "$startScript") {
+            $content = Get-Content "$startScript" -Raw -Encoding UTF8 -ErrorAction Stop
+            $content = $content -replace '(?m)^\$DATA_DIR\s*=\s*"[^"]*"', "`$DATA_DIR   = `"$DATA_DIR`""
+            $content = $content -replace '(?m)^\$SOURCE_DIR\s*=\s*"[^"]*"', "`$SOURCE_DIR = `"$SOURCE_DIR`""
+            Set-Content -Path "$startScript" -Value $content -Encoding UTF8 -ErrorAction Stop
+            Write-Ok "start_hybridrag.ps1 paths updated"
+        } else {
+            Write-Warn "start_hybridrag.ps1 not found -- configure paths manually"
+        }
+        $stepDone = $true
+    } catch {
+        Write-Fail "Start script update failed: $_"
+        $choice = Request-Recovery "Start script" 8
+        switch ($choice) {
+            "R" { continue }
+            "S" { Write-Warn "Skipped start script update"; $stepDone = $true }
+            "X" { Write-ManualResume 8 $TOTAL_STEPS; exit 0 }
+            default { continue }
+        }
+    }
 }
 
 $logsDir = "$PROJECT_ROOT\logs"
@@ -505,6 +582,8 @@ while (-not $stepDone) {
 # ======================================================================
 Write-Step 10 "Running full diagnostics"
 $stepTimer = [System.Diagnostics.Stopwatch]::StartNew()
+$stepDone = $false
+while (-not $stepDone) {
 $diagPass = 0
 $diagFail = 0
 
@@ -607,8 +686,6 @@ if ($testExitCode -eq 0) {
     Write-Warn "Some tests had issues (common without Ollama running)"
 }
 
-$stepTimer.Stop()
-
 # --- Summary ---
 Write-Host ""
 Write-Host "  ============================================" -ForegroundColor Cyan
@@ -622,6 +699,53 @@ if ($diagFail -gt 0) {
     Write-Host "    Checks failed : 0" -ForegroundColor Green
 }
 Write-Host "    Time elapsed  : $(Format-Elapsed $stepTimer)"
+Write-Host ""
+
+    if ($diagFail -eq 0) {
+        $stepDone = $true
+    } else {
+        $choice = Request-Recovery "Diagnostics" 10 -DrillDown
+        switch ($choice) {
+            "R" { continue }
+            "D" {
+                Write-Host ""
+                Write-Host "  --- Drill-Down: Re-checking imports individually ---" -ForegroundColor Cyan
+                Write-Host ""
+                foreach ($pkg in $packages) {
+                    $pkgDone = $false
+                    while (-not $pkgDone) {
+                        & $PYTHON -c "import $($pkg.mod)" 2>&1 | Out-Null
+                        if ($LASTEXITCODE -eq 0) {
+                            Write-Host "    [OK] $($pkg.label)" -ForegroundColor Green
+                            $pkgDone = $true
+                        } else {
+                            Write-Host "    [FAIL] $($pkg.label)" -ForegroundColor Red
+                            $pipName = if ($pkg.mod -eq "yaml") { "pyyaml" } else { $pkg.mod }
+                            Write-Host "    Fix: $PIP install $pipName" -ForegroundColor Gray
+                            Write-Host ""
+                            Write-Host "  [R] Retry (re-installs $pipName)   [S] Skip   [X] Exit"
+                            $pkgChoice = Read-Host "  Choose [R/S/X]"
+                            switch ($pkgChoice.ToUpper()) {
+                                "R" {
+                                    & $PIP install $pipName 2>&1
+                                    continue
+                                }
+                                "S" { Write-Warn "Skipped $($pkg.label)"; $pkgDone = $true }
+                                "X" { Write-ManualResume 10 $TOTAL_STEPS; exit 0 }
+                                default { continue }
+                            }
+                        }
+                    }
+                }
+                $stepDone = $true
+            }
+            "S" { Write-Warn "Skipped diagnostics recovery"; $stepDone = $true }
+            "X" { Write-ManualResume 10 $TOTAL_STEPS; exit 0 }
+            default { continue }
+        }
+    }
+} # end diagnostics while loop
+$stepTimer.Stop()
 
 # ==================================================================
 # Done!

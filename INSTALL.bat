@@ -84,7 +84,7 @@ echo  ============================================================
 echo  Setup encountered an issue. See the messages above.
 echo.
 echo  COMMON FIXES:
-echo    1. Make sure Python 3.10 or newer is installed
+echo    1. Make sure Python 3.12 or newer is installed
 echo    2. If on a work laptop, ask IT for Python access
 echo    3. Make sure you have internet access for downloads
 echo    4. Try running as Administrator (right-click, Run as admin)

@@ -363,6 +363,77 @@ for script_name, content in [("setup_home.ps1", home), ("setup_work.ps1", work)]
 
 
 # ===================================================================
+# TEST GROUP 8: PS 5.1 Gotcha Patterns
+# ===================================================================
+# These catch known PowerShell 5.1 runtime bugs that look correct
+# in PS 7 but fail silently or crash on PS 5.1.
+print("\n=== PS 5.1 Gotcha Patterns ===")
+
+# Pattern 1: Unparenthesized string multiplication in array contexts
+# PS comma operator binds tighter than *: "=" * 70, "next" => "=" * (70, "next")
+# This throws: Cannot convert System.Object[] to System.Int32
+# Fix: ("=" * 70), "next"
+MULT_IN_ARRAY = re.compile(r'"[^"]*"\s*\*\s*\d+\s*,')
+for script_name, content in [("setup_home.ps1", home), ("setup_work.ps1", work)]:
+    if not content:
+        continue
+    matches = []
+    for i, line in enumerate(content.split("\n"), 1):
+        if line.strip().startswith("#"):
+            continue
+        # Skip Python code inside here-strings
+        if "print(" in line:
+            continue
+        if MULT_IN_ARRAY.search(line):
+            matches.append((i, line.strip()))
+    check(f"{script_name} no unparenthesized string*N in arrays",
+          len(matches) == 0,
+          f"Lines {[m[0] for m in matches]}: comma binds before * in PS 5.1")
+
+# Pattern 2: ErrorActionPreference must be 'Continue' for Phase 2
+# Phase 2 has native commands (pip, python) whose stderr WARNINGs
+# become terminating errors under 'Stop' in PS 5.1
+for script_name, content in [("setup_home.ps1", home), ("setup_work.ps1", work)]:
+    if not content:
+        continue
+    phase2_marker = "Automated setup begins now"
+    phase2_idx = content.find(phase2_marker)
+    if phase2_idx >= 0:
+        # Check that ErrorActionPreference is set to Continue AFTER the marker
+        phase2 = content[phase2_idx:]
+        has_continue = "$ErrorActionPreference = 'Continue'" in phase2
+        check(f"{script_name} ErrorActionPreference=Continue in Phase 2",
+              has_continue,
+              "'Stop' converts native command stderr to terminating errors in PS 5.1")
+
+# Pattern 3: Cmdlets inside try/catch should have -ErrorAction Stop
+# When global ErrorActionPreference is 'Continue', cmdlet errors are
+# non-terminating and will NOT be caught by try/catch without explicit flag
+CMDLETS_NEEDING_EA = ["Get-Content", "Set-Content", "Out-File"]
+for script_name, content in [("setup_home.ps1", home), ("setup_work.ps1", work)]:
+    if not content:
+        continue
+    lines = content.split("\n")
+    in_try = False
+    missing = []
+    for i, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if stripped.startswith("try {") or stripped == "try {":
+            in_try = True
+        if stripped.startswith("} catch") or stripped == "} catch {":
+            in_try = False
+        if in_try:
+            for cmdlet in CMDLETS_NEEDING_EA:
+                if cmdlet in stripped and "-ErrorAction" not in stripped:
+                    missing.append((i, cmdlet))
+    check(f"{script_name} cmdlets in try/catch have -ErrorAction Stop",
+          len(missing) == 0,
+          f"Lines {[m[0] for m in missing]}: {[m[1] for m in missing]} need -ErrorAction Stop")
+
+
+# ===================================================================
 # SUMMARY
 # ===================================================================
 print(f"\n{'='*60}")
