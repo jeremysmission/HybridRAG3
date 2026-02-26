@@ -989,6 +989,22 @@ while (-not $stepDone) {
         $stepDone = $true
     } else {
         Write-Fail "Cannot reach Ollama at localhost:11434"
+        if ($ollamaError) {
+            Write-Host "  Error: $ollamaError" -ForegroundColor DarkGray
+        }
+        Write-Host ""
+        Write-Host "  WHAT IS OLLAMA?" -ForegroundColor White
+        Write-Host "    Ollama runs AI models locally on your computer (no internet needed)."
+        Write-Host "    Without it, HybridRAG3 still works -- it just uses online AI instead."
+        Write-Host ""
+        Write-Host "  TO INSTALL (optional):" -ForegroundColor White
+        Write-Host "    1. Download from https://ollama.com/download"
+        Write-Host "    2. Run the installer"
+        Write-Host "    3. Open a terminal and run: ollama pull nomic-embed-text"
+        Write-Host "    4. Then re-run this setup, or press [R] below"
+        Write-Host ""
+        Write-Host "  Press [S] to skip if you only need online/cloud AI." -ForegroundColor Yellow
+        Write-Host ""
         $choice = Request-Recovery "Checking Ollama" 12 -DrillDown
         switch ($choice) {
             "R" { continue }
@@ -1052,7 +1068,6 @@ while (-not $stepDone) {
                     Write-Host "      Bypassed: $bypassed" -ForegroundColor $(if($bypassed){"Green"}else{"Red"})
                     if (-not $bypassed) {
                         Write-Host "      [FAIL] Proxy is intercepting localhost traffic" -ForegroundColor Red
-                        Write-Host "      This is why Invoke-RestMethod cannot reach Ollama" -ForegroundColor Gray
                     }
                 } else {
                     Write-Host "      No default proxy set" -ForegroundColor Green
@@ -1063,27 +1078,51 @@ while (-not $stepDone) {
                 try {
                     $curlVer = & curl.exe --version 2>&1 | Select-Object -First 1
                     Write-Host "      $curlVer" -ForegroundColor DarkGray
-                    $curlOut = & curl.exe --noproxy "localhost,127.0.0.1" --silent --max-time 5 "http://localhost:11434" 2>&1
+                    $curlOut = & curl.exe --noproxy "localhost,127.0.0.1" --silent --max-time 10 "http://localhost:11434" 2>&1
                     $curlCode = $LASTEXITCODE
                     if ($curlCode -eq 0 -and $curlOut -match "Ollama") {
-                        Write-Host "      [OK] curl.exe reached Ollama (proxy bypassed)" -ForegroundColor Green
+                        Write-Host "      [OK] curl.exe reached Ollama" -ForegroundColor Green
                     } else {
-                        Write-Host "      [FAIL] curl.exe could not reach Ollama (exit $curlCode)" -ForegroundColor Red
+                        Write-Host "      [FAIL] curl.exe exit code $curlCode" -ForegroundColor Red
+                        if ($curlOut) { Write-Host "      Output: $curlOut" -ForegroundColor Gray }
                     }
                 } catch {
                     Write-Host "      [WARN] curl.exe not available" -ForegroundColor Yellow
                 }
 
-                # Check 6: WebSession method test
-                Write-Host "  [6] WebSession proxy-free test:" -ForegroundColor White
+                # Check 6: curl.exe /api/tags (verbose)
+                Write-Host "  [6] curl.exe /api/tags (verbose):" -ForegroundColor White
                 try {
-                    $testSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-                    $testSession.Proxy = New-Object System.Net.WebProxy
-                    $testResult = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 5 -ErrorAction Stop -WebSession $testSession
-                    Write-Host "      [OK] WebSession method reached Ollama" -ForegroundColor Green
+                    $curlVerbose = & curl.exe --noproxy "localhost,127.0.0.1" --silent --show-error --max-time 10 "http://localhost:11434/api/tags" 2>&1
+                    $curlCode2 = $LASTEXITCODE
+                    if ($curlCode2 -eq 0) {
+                        Write-Host "      [OK] Got response (length $($curlVerbose.Length))" -ForegroundColor Green
+                        $preview = if ($curlVerbose.Length -gt 200) { $curlVerbose.Substring(0, 200) + "..." } else { $curlVerbose }
+                        Write-Host "      Preview: $preview" -ForegroundColor DarkGray
+                    } else {
+                        Write-Host "      [FAIL] exit code $curlCode2" -ForegroundColor Red
+                    }
                 } catch {
-                    Write-Host "      [FAIL] WebSession method failed: $($_.Exception.Message)" -ForegroundColor Red
+                    Write-Host "      [WARN] curl.exe failed: $($_.Exception.Message)" -ForegroundColor Yellow
                 }
+
+                # Check 7: Invoke-RestMethod verbose error
+                Write-Host "  [7] Invoke-RestMethod detail:" -ForegroundColor White
+                try {
+                    $testSession2 = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+                    $testSession2.Proxy = New-Object System.Net.WebProxy
+                    $testResult = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 10 -ErrorAction Stop -WebSession $testSession2
+                    Write-Host "      [OK] Invoke-RestMethod succeeded on retry" -ForegroundColor Green
+                } catch {
+                    Write-Host "      [FAIL] $($_.Exception.GetType().Name): $($_.Exception.Message)" -ForegroundColor Red
+                    if ($_.Exception.InnerException) {
+                        Write-Host "      Inner: $($_.Exception.InnerException.GetType().Name): $($_.Exception.InnerException.Message)" -ForegroundColor Red
+                    }
+                }
+
+                # Check 8: PowerShell version
+                Write-Host "  [8] PowerShell version:" -ForegroundColor White
+                Write-Host "      $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))" -ForegroundColor White
 
                 Write-Host ""
                 Write-Host "  --- End Drill-Down ---" -ForegroundColor Cyan

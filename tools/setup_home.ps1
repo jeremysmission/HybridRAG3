@@ -551,10 +551,35 @@ Write-Step 9 "Checking Ollama"
 
 $stepDone = $false
 while (-not $stepDone) {
+    $ollamaOk = $false
+    $ollamaError = ""
+    $models = @()
+
+    # --- Method 1: Invoke-RestMethod ---
     try {
-        $response = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 3 -ErrorAction Stop
-        Write-Ok "Ollama is running"
+        $response = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 10 -ErrorAction Stop
+        $ollamaOk = $true
         $models = $response.models | ForEach-Object { $_.name }
+    } catch {
+        $ollamaError = $_.Exception.Message
+    }
+
+    # --- Method 2: curl.exe fallback ---
+    if (-not $ollamaOk) {
+        try {
+            $curlResult = & curl.exe --silent --max-time 10 "http://localhost:11434/api/tags" 2>&1
+            $curlExit = $LASTEXITCODE
+            if ($curlExit -eq 0 -and $curlResult) {
+                $parsed = $curlResult | ConvertFrom-Json
+                $ollamaOk = $true
+                $models = $parsed.models | ForEach-Object { $_.name }
+                Write-Host "  (connected via curl.exe -- Invoke-RestMethod failed)" -ForegroundColor DarkGray
+            }
+        } catch { }
+    }
+
+    if ($ollamaOk) {
+        Write-Ok "Ollama is running"
         if ($models -contains "nomic-embed-text:latest" -or $models -contains "nomic-embed-text") {
             Write-Ok "nomic-embed-text model found"
         } else {
@@ -566,10 +591,96 @@ while (-not $stepDone) {
             Write-Warn "phi4-mini NOT found -- run: ollama pull phi4-mini"
         }
         $stepDone = $true
-    } catch {
-        $choice = Request-Recovery "Checking Ollama" 9
+    } else {
+        Write-Fail "Cannot reach Ollama at localhost:11434"
+        if ($ollamaError) {
+            Write-Host "  Error: $ollamaError" -ForegroundColor Red
+        }
+        $choice = Request-Recovery "Checking Ollama" 9 -DrillDown
         switch ($choice) {
             "R" { continue }
+            "D" {
+                Write-Host ""
+                Write-Host "  --- Drill-Down: Ollama Connectivity Diagnostics ---" -ForegroundColor Cyan
+                Write-Host ""
+
+                # Check 1: Is Ollama process running?
+                Write-Host "  [1] Ollama process:" -ForegroundColor White
+                $ollamaProcs = Get-Process -Name "ollama*" -ErrorAction SilentlyContinue
+                if ($ollamaProcs) {
+                    foreach ($p in $ollamaProcs) {
+                        Write-Host "      [OK] $($p.ProcessName) (PID $($p.Id))" -ForegroundColor Green
+                    }
+                } else {
+                    Write-Host "      [FAIL] No ollama process found" -ForegroundColor Red
+                    Write-Host "      Fix: Start Ollama (ollama serve) or launch the Ollama app" -ForegroundColor Gray
+                }
+
+                # Check 2: Is port 11434 listening?
+                Write-Host "  [2] Port 11434:" -ForegroundColor White
+                try {
+                    $tcpTest = Test-NetConnection -ComputerName localhost -Port 11434 -WarningAction SilentlyContinue -ErrorAction Stop
+                    if ($tcpTest.TcpTestSucceeded) {
+                        Write-Host "      [OK] Port 11434 is open" -ForegroundColor Green
+                    } else {
+                        Write-Host "      [FAIL] Port 11434 is closed" -ForegroundColor Red
+                        Write-Host "      Ollama may not be running, or a firewall is blocking it" -ForegroundColor Gray
+                    }
+                } catch {
+                    Write-Host "      [WARN] Test-NetConnection not available" -ForegroundColor Yellow
+                }
+
+                # Check 3: curl.exe direct test
+                Write-Host "  [3] curl.exe direct test:" -ForegroundColor White
+                try {
+                    $curlOut = & curl.exe --silent --max-time 10 "http://localhost:11434" 2>&1
+                    $curlCode = $LASTEXITCODE
+                    if ($curlCode -eq 0 -and $curlOut -match "Ollama") {
+                        Write-Host "      [OK] curl.exe reached Ollama" -ForegroundColor Green
+                    } else {
+                        Write-Host "      [FAIL] curl.exe exit code $curlCode" -ForegroundColor Red
+                        if ($curlOut) { Write-Host "      Output: $curlOut" -ForegroundColor Gray }
+                    }
+                } catch {
+                    Write-Host "      [WARN] curl.exe not available" -ForegroundColor Yellow
+                }
+
+                # Check 4: curl.exe /api/tags (verbose)
+                Write-Host "  [4] curl.exe /api/tags (verbose):" -ForegroundColor White
+                try {
+                    $curlVerbose = & curl.exe --silent --show-error --max-time 10 "http://localhost:11434/api/tags" 2>&1
+                    $curlCode2 = $LASTEXITCODE
+                    if ($curlCode2 -eq 0) {
+                        Write-Host "      [OK] Got response (length $($curlVerbose.Length))" -ForegroundColor Green
+                        $preview = if ($curlVerbose.Length -gt 200) { $curlVerbose.Substring(0, 200) + "..." } else { $curlVerbose }
+                        Write-Host "      Preview: $preview" -ForegroundColor DarkGray
+                    } else {
+                        Write-Host "      [FAIL] exit code $curlCode2" -ForegroundColor Red
+                    }
+                } catch {
+                    Write-Host "      [WARN] curl.exe failed: $($_.Exception.Message)" -ForegroundColor Yellow
+                }
+
+                # Check 5: Invoke-RestMethod verbose error
+                Write-Host "  [5] Invoke-RestMethod detail:" -ForegroundColor White
+                try {
+                    $testResponse = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 10 -ErrorAction Stop
+                    Write-Host "      [OK] Invoke-RestMethod succeeded on retry" -ForegroundColor Green
+                } catch {
+                    Write-Host "      [FAIL] $($_.Exception.GetType().Name): $($_.Exception.Message)" -ForegroundColor Red
+                    if ($_.Exception.InnerException) {
+                        Write-Host "      Inner: $($_.Exception.InnerException.GetType().Name): $($_.Exception.InnerException.Message)" -ForegroundColor Red
+                    }
+                }
+
+                # Check 6: PowerShell version
+                Write-Host "  [6] PowerShell version:" -ForegroundColor White
+                Write-Host "      $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))" -ForegroundColor White
+
+                Write-Host ""
+                Write-Host "  --- End Drill-Down ---" -ForegroundColor Cyan
+                Write-Host ""
+            }
             "S" { Write-Warn "Skipped Ollama check"; $stepDone = $true }
             "X" { Write-ManualResume 9 $TOTAL_STEPS; exit 0 }
             default { continue }
