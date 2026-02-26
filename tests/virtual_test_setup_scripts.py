@@ -433,6 +433,39 @@ for script_name, content in [("setup_home.ps1", home), ("setup_work.ps1", work)]
           f"Lines {[m[0] for m in missing]}: {[m[1] for m in missing]} need -ErrorAction Stop")
 
 
+# Pattern 4: Invoke-RestMethod must NOT use -Proxy ([System.Net.WebProxy]::new())
+# In PS 5.1, -Proxy takes [Uri], not [WebProxy]. This silently fails on
+# some corporate proxy configs. Correct method: -WebSession with empty proxy.
+BROKEN_PROXY = re.compile(r'-Proxy\s+\(\[System\.Net\.WebProxy\]::new\(\)\)')
+for script_name, content in [("setup_home.ps1", home), ("setup_work.ps1", work)]:
+    if not content:
+        continue
+    matches = []
+    for i, line in enumerate(content.split("\n"), 1):
+        if line.strip().startswith("#"):
+            continue
+        if BROKEN_PROXY.search(line):
+            matches.append(i)
+    check(f"{script_name} no broken -Proxy WebProxy pattern",
+          len(matches) == 0,
+          f"Lines {matches}: -Proxy takes [Uri] not [WebProxy] in PS 5.1, use -WebSession")
+
+# Pattern 5: Ollama check in work script must use -WebSession (proxy bypass)
+# Home script does not need proxy bypass (no corporate proxy)
+if work:
+    has_websession = "-WebSession" in work
+    check("setup_work.ps1 Ollama check uses -WebSession for proxy bypass",
+          has_websession,
+          "Invoke-RestMethod needs -WebSession with empty WebProxy to bypass proxy in PS 5.1")
+
+# Pattern 6: Work script Ollama check should have curl.exe fallback
+if work:
+    has_curl_fallback = "curl.exe" in work and "noproxy" in work
+    check("setup_work.ps1 Ollama check has curl.exe fallback",
+          has_curl_fallback,
+          "curl.exe --noproxy bypasses all .NET proxy logic as fallback")
+
+
 # ===================================================================
 # SUMMARY
 # ===================================================================

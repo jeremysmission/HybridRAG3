@@ -934,25 +934,161 @@ if ($configureApi -eq "y" -or $configureApi -eq "Y") {
 # ==================================================================
 # Step 12: Check Ollama
 # ==================================================================
+# PS 5.1 proxy bypass: Invoke-RestMethod has no -NoProxy flag (added
+# in PS 7). The -Proxy parameter takes [Uri], not [WebProxy]. And
+# $env:NO_PROXY is ignored by .NET Framework WebRequest (Unix-only).
+#
+# Correct method for PS 5.1: create a WebRequestSession with an empty
+# WebProxy (Address=$null means IsBypassed returns true for all URIs).
+# Fallback: curl.exe --noproxy (ships with Windows 10 1803+).
+# ==================================================================
 Write-Step 12 "Checking Ollama"
+
+# Build proxy-free session for Invoke-RestMethod (PS 5.1 compatible)
+$ollamaSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+$ollamaSession.Proxy = New-Object System.Net.WebProxy
 
 $stepDone = $false
 while (-not $stepDone) {
+    $ollamaOk = $false
+    $ollamaError = ""
+    $models = @()
+
+    # --- Method 1: Invoke-RestMethod with proxy-free WebSession ---
     try {
-        $env:NO_PROXY = "localhost,127.0.0.1"
-        $response = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 3 -ErrorAction Stop -Proxy ([System.Net.WebProxy]::new())
-        Write-Ok "Ollama is running"
+        $response = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 5 -ErrorAction Stop -WebSession $ollamaSession
+        $ollamaOk = $true
         $models = $response.models | ForEach-Object { $_.name }
+    } catch {
+        $ollamaError = $_.Exception.Message
+    }
+
+    # --- Method 2: curl.exe fallback (bypasses all .NET proxy logic) ---
+    if (-not $ollamaOk) {
+        try {
+            $curlResult = & curl.exe --noproxy "localhost,127.0.0.1" --silent --max-time 5 "http://localhost:11434/api/tags" 2>&1
+            $curlExit = $LASTEXITCODE
+            if ($curlExit -eq 0 -and $curlResult) {
+                $parsed = $curlResult | ConvertFrom-Json
+                $ollamaOk = $true
+                $models = $parsed.models | ForEach-Object { $_.name }
+                Write-Host "  (connected via curl.exe -- proxy was blocking PowerShell)" -ForegroundColor DarkGray
+            }
+        } catch {
+            # curl.exe not available or JSON parse failed -- fall through
+        }
+    }
+
+    if ($ollamaOk) {
+        Write-Ok "Ollama is running"
         if ($models -contains "nomic-embed-text:latest" -or $models -contains "nomic-embed-text") {
             Write-Ok "nomic-embed-text model found"
         } else {
             Write-Warn "nomic-embed-text NOT found -- run: ollama pull nomic-embed-text"
         }
         $stepDone = $true
-    } catch {
-        $choice = Request-Recovery "Checking Ollama" 12
+    } else {
+        Write-Fail "Cannot reach Ollama at localhost:11434"
+        $choice = Request-Recovery "Checking Ollama" 12 -DrillDown
         switch ($choice) {
             "R" { continue }
+            "D" {
+                Write-Host ""
+                Write-Host "  --- Drill-Down: Ollama Connectivity Diagnostics ---" -ForegroundColor Cyan
+                Write-Host ""
+
+                # Check 1: Is Ollama process running?
+                Write-Host "  [1] Ollama process:" -ForegroundColor White
+                $ollamaProcs = Get-Process -Name "ollama*" -ErrorAction SilentlyContinue
+                if ($ollamaProcs) {
+                    foreach ($p in $ollamaProcs) {
+                        Write-Host "      [OK] $($p.ProcessName) (PID $($p.Id))" -ForegroundColor Green
+                    }
+                } else {
+                    Write-Host "      [FAIL] No ollama process found" -ForegroundColor Red
+                    Write-Host "      Fix: Start Ollama (ollama serve) or launch the Ollama app" -ForegroundColor Gray
+                }
+
+                # Check 2: Is port 11434 listening?
+                Write-Host "  [2] Port 11434:" -ForegroundColor White
+                try {
+                    $tcpTest = Test-NetConnection -ComputerName localhost -Port 11434 -WarningAction SilentlyContinue -ErrorAction Stop
+                    if ($tcpTest.TcpTestSucceeded) {
+                        Write-Host "      [OK] Port 11434 is open" -ForegroundColor Green
+                    } else {
+                        Write-Host "      [FAIL] Port 11434 is closed" -ForegroundColor Red
+                        Write-Host "      Ollama may not be running, or a firewall is blocking it" -ForegroundColor Gray
+                    }
+                } catch {
+                    Write-Host "      [WARN] Test-NetConnection not available" -ForegroundColor Yellow
+                }
+
+                # Check 3: System proxy config
+                Write-Host "  [3] System proxy:" -ForegroundColor White
+                try {
+                    $inetSettings = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+                    $proxyEnabled = (Get-ItemProperty $inetSettings -ErrorAction SilentlyContinue).ProxyEnable
+                    $proxyServer  = (Get-ItemProperty $inetSettings -ErrorAction SilentlyContinue).ProxyServer
+                    $autoConfig   = (Get-ItemProperty $inetSettings -ErrorAction SilentlyContinue).AutoConfigURL
+                    if ($proxyEnabled -eq 1 -and $proxyServer) {
+                        Write-Host "      Proxy enabled: $proxyServer" -ForegroundColor Yellow
+                    } else {
+                        Write-Host "      No manual proxy configured" -ForegroundColor Green
+                    }
+                    if ($autoConfig) {
+                        Write-Host "      PAC auto-config: $autoConfig" -ForegroundColor Yellow
+                    }
+                } catch {
+                    Write-Host "      Could not read registry" -ForegroundColor Yellow
+                }
+
+                # Check 4: .NET default proxy
+                Write-Host "  [4] .NET default proxy (what PowerShell uses):" -ForegroundColor White
+                $dotnetProxy = [System.Net.WebRequest]::DefaultWebProxy
+                if ($dotnetProxy) {
+                    $proxyFor = $dotnetProxy.GetProxy([Uri]"http://localhost:11434")
+                    $bypassed = $dotnetProxy.IsBypassed([Uri]"http://localhost:11434")
+                    Write-Host "      Proxy for localhost: $proxyFor" -ForegroundColor White
+                    Write-Host "      Bypassed: $bypassed" -ForegroundColor $(if($bypassed){"Green"}else{"Red"})
+                    if (-not $bypassed) {
+                        Write-Host "      [FAIL] Proxy is intercepting localhost traffic" -ForegroundColor Red
+                        Write-Host "      This is why Invoke-RestMethod cannot reach Ollama" -ForegroundColor Gray
+                    }
+                } else {
+                    Write-Host "      No default proxy set" -ForegroundColor Green
+                }
+
+                # Check 5: curl.exe direct test
+                Write-Host "  [5] curl.exe direct test:" -ForegroundColor White
+                try {
+                    $curlVer = & curl.exe --version 2>&1 | Select-Object -First 1
+                    Write-Host "      $curlVer" -ForegroundColor DarkGray
+                    $curlOut = & curl.exe --noproxy "localhost,127.0.0.1" --silent --max-time 5 "http://localhost:11434" 2>&1
+                    $curlCode = $LASTEXITCODE
+                    if ($curlCode -eq 0 -and $curlOut -match "Ollama") {
+                        Write-Host "      [OK] curl.exe reached Ollama (proxy bypassed)" -ForegroundColor Green
+                    } else {
+                        Write-Host "      [FAIL] curl.exe could not reach Ollama (exit $curlCode)" -ForegroundColor Red
+                    }
+                } catch {
+                    Write-Host "      [WARN] curl.exe not available" -ForegroundColor Yellow
+                }
+
+                # Check 6: WebSession method test
+                Write-Host "  [6] WebSession proxy-free test:" -ForegroundColor White
+                try {
+                    $testSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+                    $testSession.Proxy = New-Object System.Net.WebProxy
+                    $testResult = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 5 -ErrorAction Stop -WebSession $testSession
+                    Write-Host "      [OK] WebSession method reached Ollama" -ForegroundColor Green
+                } catch {
+                    Write-Host "      [FAIL] WebSession method failed: $($_.Exception.Message)" -ForegroundColor Red
+                }
+
+                Write-Host ""
+                Write-Host "  --- End Drill-Down ---" -ForegroundColor Cyan
+                Write-Host ""
+            }
             "S" { Write-Warn "Skipped Ollama check"; $stepDone = $true }
             "X" { Write-ManualResume 12 $TOTAL_STEPS; exit 0 }
             default { continue }
