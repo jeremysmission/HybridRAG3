@@ -84,6 +84,7 @@ SKIP_PATTERNS = [
     "start_hybridrag.ps1",         # has real paths (template is generated fresh)
     ".claude",                     # AI assistant workspace (intentionally untracked)
     "deploy_comments.ps1",         # intentionally untracked
+    "mcp_server.py",               # MCP tool server for AI agents (private infra)
 
     # [PRIVATE] Personal/session docs
     "eval guides",                 # gitignored personal folder
