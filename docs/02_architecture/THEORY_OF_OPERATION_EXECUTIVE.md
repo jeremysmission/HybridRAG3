@@ -129,7 +129,7 @@ with a USB installer for environments that have no network access at all.
 | Option | Hardware | Best For |
 |--------|----------|----------|
 | **Laptop** | 8 GB RAM, standard CPU | Individual use, travel, portable access |
-| **Workstation** | 64 GB RAM, dual GPU (48 GB VRAM) | Team use, large document sets, fast response |
+| **Workstation** | 64 GB RAM, 12 GB GPU | Team use, large document sets, fast response |
 | **USB (Air-Gapped)** | Any Windows PC | Environments with no network connectivity |
 
 All three options run the same software. Documents indexed on one machine

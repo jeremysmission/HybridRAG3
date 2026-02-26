@@ -17,7 +17,8 @@ This document provides:
 ```
 +===================================================================+
 |                    HYBRIDRAG3 SYSTEM ARCHITECTURE                  |
-|                  Current: Desktop Power (64 GB / 48 GB GPU)        |
+|                  Work: 64 GB RAM / 12 GB GPU (single card)         |
+|                  Home: 128 GB RAM / 48 GB GPU (dual RTX 3090)      |
 +===================================================================+
 
   SOURCE DATA (650 GB target)          USERS
@@ -157,7 +158,9 @@ This document provides:
 
 **Why this matters most:** LLM generation is 95%+ of total query time. A user asking a question waits 2-10 seconds, and all of that is LLM. Everything else combined (embed + search + build) is under 200 ms.
 
-**Next scale-up:** mistral-small3.1:24b fits on one RTX 3090 (15 GB). Use the second 3090 for a parallel instance. This gives 2x concurrent throughput with excellent answer quality.
+**Work (12 GB GPU):** Maximum is phi4:14b-q4_K_M at 9.1 GB, leaving ~2.4 GB for embedder. The 24B model (15 GB) does NOT fit. Quality ceiling is "Great" not "Excellent."
+
+**Home (48 GB GPU):** mistral-small3.1:24b fits on one RTX 3090 (15 GB). Use the second 3090 for a parallel instance. This gives 2x concurrent throughput with excellent answer quality.
 
 ---
 
@@ -184,8 +187,8 @@ Query Pipeline Time Budget:
 
 **Requires hardware:**
 - Bigger model = better answers but slower per query
-- More VRAM = can run bigger model
-- Dual GPU = 2x concurrent throughput
+- More VRAM = can run bigger model (work: max 14B on 12 GB; home: 24B on 24 GB)
+- Dual GPU = 2x concurrent throughput (home only -- work has single GPU)
 
 ### Bottleneck 2: Embedding Generation (Index Time) -- HARDWARE LIMITED
 
@@ -260,46 +263,77 @@ These require NO hardware investment. They are code or configuration changes.
 
 ## 5. Hardware Limitations (Requires Investment)
 
-### Current Hardware: Dual-RTX-3090 Workstation
+Two hardware tiers exist. Work workstations are the production deployment
+target. The home PC is for development and testing.
+
+### Work Workstations (Production Target)
 
 | Resource | Available | Currently Used | Headroom |
 |----------|-----------|---------------|----------|
 | System RAM | 64 GB | ~6 GB (search) | 58 GB free |
-| GPU VRAM (card 1) | 24 GB | ~9 GB (mistral-nemo:12b + nomic-embed) | 15 GB free |
-| GPU VRAM (card 2) | 24 GB | 0 (idle) | 24 GB free |
-| Total VRAM | 48 GB | ~9 GB | 39 GB free |
+| GPU VRAM | 12 GB (single card) | ~7.6 GB (mistral-nemo + nomic-embed) | 4.4 GB free |
 | Storage | SSD | ~16 GB index data | Ample |
 
-### What the hardware limits:
+### Home PC (Development)
+
+| Resource | Available | Currently Used | Headroom |
+|----------|-----------|---------------|----------|
+| System RAM | 128 GB | ~6 GB (search) | 122 GB free |
+| GPU VRAM (card 1) | 24 GB | ~7.6 GB (mistral-nemo + nomic-embed) | 16.4 GB free |
+| GPU VRAM (card 2) | 24 GB | 0 (idle) | 24 GB free |
+| Total VRAM | 48 GB | ~7.6 GB | 40.4 GB free |
+| Storage | SSD | ~16 GB index data | Ample |
+
+### What limits the WORK workstation (12 GB GPU):
 
 | Limitation | Why | What fixes it |
 |-----------|-----|---------------|
-| LLM quality ceiling | Bigger models need more VRAM | Already have headroom: 24B fits on one 3090 |
-| Concurrent LLM throughput | One Ollama instance = sequential | Use second GPU for parallel LLM instance |
-| Embedding speed | GPU-bound during index build | Second GPU or faster GPU |
-| Maximum model size | 24 GB per card | NVLink or A100 (80 GB) for 70B+ models |
+| LLM quality ceiling | Max model is phi4:14b (9.1 GB) | Requires bigger GPU card |
+| No 24B models | mistral-small3.1 needs 15 GB | Does NOT fit on 12 GB |
+| No dual-GPU parallelism | Single GPU card | Only home PC has dual GPU |
+| VRAM contention | LLM + embedder share 12 GB | Careful model selection |
+| Maximum concurrent users | 1 at a time (sequential LLM) | vLLM batching helps, but limited |
+
+### VRAM budget (work -- 12 GB)
+
+| Configuration | LLM | Embedder | Total | Fits? |
+|--------------|-----|----------|-------|-------|
+| phi4-mini + nomic | 2.3 GB | 0.5 GB | 2.8 GB | YES (9.2 GB free) |
+| mistral:7b + nomic | 4.1 GB | 0.5 GB | 4.6 GB | YES (7.4 GB free) |
+| mistral-nemo:12b + nomic | 7.1 GB | 0.5 GB | 7.6 GB | YES (4.4 GB free) |
+| phi4:14b-q4_K_M + nomic | 9.1 GB | 0.5 GB | 9.6 GB | YES (2.4 GB free) |
+| mistral-small3.1:24b + nomic | 15 GB | 0.5 GB | 15.5 GB | **NO** |
+| faiss-gpu (f16) + phi4:14b | 1.2 + 9.1 + 0.5 GB | -- | 10.8 GB | YES (tight) |
+| faiss-gpu (f32) + phi4:14b | 4.7 + 9.1 + 0.5 GB | -- | 14.3 GB | **NO** |
 
 ### Hardware scale-up path:
 
 ```
-CURRENT (Dual RTX 3090)                    NEXT SCALE-UP
-48 GB GPU, 64 GB RAM                       (no hardware purchase needed)
-=========================                   ============================
+WORK WORKSTATION (12 GB GPU)                HOME PC (48 GB GPU)
+64 GB RAM, single card                      128 GB RAM, dual RTX 3090
+============================                ============================
 
-GPU 1: mistral-nemo:12b (7.1 GB)    -->    GPU 1: mistral-small3.1:24b (15 GB)
-        + nomic-embed-text (0.5 GB)                 + nomic-embed-text (0.5 GB)
-        = 7.6 GB / 24 GB                           = 15.5 GB / 24 GB
-
-GPU 2: idle                          -->    GPU 2: mistral-nemo:12b (7.1 GB)
-        = 0 GB / 24 GB                             + nomic-embed-text (0.5 GB)
+GPU: phi4:14b (9.1 GB)                     GPU 1: mistral-small3.1:24b (15 GB)
+     + nomic-embed (0.5 GB)                        + nomic-embed (0.5 GB)
+     = 9.6 GB / 12 GB                             = 15.5 GB / 24 GB
+     (2.4 GB free -- tight)
+                                            GPU 2: mistral-nemo:12b (7.1 GB)
+                                                    + nomic-embed (0.5 GB)
                                                     = 7.6 GB / 24 GB
 
-Throughput: 1x (sequential)          -->    Throughput: 2x (parallel instances)
-Quality: Great (12B)                 -->    Quality: Excellent (24B primary)
-Concurrent: 1 at a time             -->    Concurrent: 2 at a time
+Max model: phi4:14b (14B)                  Max model: 24B (one card) or 14B x2
+Quality ceiling: Great                      Quality ceiling: Excellent
+Concurrent: 1 at a time                    Concurrent: 2 at a time (dual GPU)
 ```
 
-**Key insight:** The next scale-up requires NO hardware purchase. We have 39 GB of unused VRAM. The upgrade is purely software configuration: deploy a bigger model on GPU 1 and use GPU 2 for a parallel instance.
+**Key insight for work:** The 12 GB GPU ceiling means phi4:14b is the
+largest model that fits. This is still a significant upgrade over
+phi4-mini (3.8B) and delivers "Great" quality answers. To reach
+"Excellent" (24B), work machines would need a GPU upgrade (RTX 4090
+24 GB or better).
+
+**Key insight for home:** The next scale-up requires NO hardware purchase.
+We have 40 GB of unused VRAM. Deploy 24B on GPU 1, parallel 12B on GPU 2.
 
 ---
 
@@ -307,14 +341,26 @@ Concurrent: 1 at a time             -->    Concurrent: 2 at a time
 
 ### Phase 1: Software Only (This Quarter)
 
+**Work (12 GB GPU):**
+
 | Action | Component | Before | After | Effort |
 |--------|-----------|--------|-------|--------|
 | Enable vLLM | LLM serving | Ollama (sequential) | vLLM (batched) | 1 day |
+| Deploy phi4:14b | LLM quality | phi4-mini (3.8B) | phi4:14b (14B) | 1 hour (pull) |
+| Schedule nightly sync | Data freshness | Manual copy | Auto overnight | 1 hour |
+| Response caching | Repeat queries | 2-10 sec always | 0 ms for repeats | 1 week |
+
+**Expected result:** Better answer quality (14B vs 3.8B), automated data updates, instant cached responses.
+
+**Home (48 GB GPU):**
+
+| Action | Component | Before | After | Effort |
+|--------|-----------|--------|-------|--------|
 | Deploy 24B model | LLM quality | mistral-nemo:12b | mistral-small3.1:24b | 1 hour (pull) |
 | Dual-GPU serving | Throughput | 1x sequential | 2x parallel | 1 day |
-| Schedule nightly sync | Data freshness | Manual copy | Auto overnight | 1 hour |
+| Enable vLLM | LLM serving | Ollama (sequential) | vLLM (batched) | 1 day |
 
-**Expected result:** 2x throughput, better answer quality, automated data updates.
+**Expected result:** Excellent answer quality, 2x concurrent throughput.
 
 ### Phase 2: Index Scale-Up (When Hitting 500K Chunks)
 
@@ -332,7 +378,7 @@ Concurrent: 1 at a time             -->    Concurrent: 2 at a time
 |--------|-----------|--------|-------|--------|
 | Add response cache | Query latency | 2-10 sec always | 0 ms for repeats | 1 week |
 | Query priority queue | User experience | FIFO | Priority by role/urgency | 2 days |
-| Load balancer | Availability | Single instance | Failover between GPUs | 1 week |
+| Load balancer (home only) | Availability | Single instance | Failover between GPUs | 1 week |
 
 **Expected result:** Team-ready service with sub-second cached responses.
 
@@ -349,7 +395,7 @@ Concurrent: 1 at a time             -->    Concurrent: 2 at a time
 | Vector Search (memmap) | Stable | No (at 39K) | FAISS IVF | 500K+ chunks |
 | BM25 Search (FTS5) | Stable | No | -- | -- |
 | RRF Fusion | Stable | No | -- | -- |
-| LLM Generation | BOTTLENECK | YES | 24B model + dual GPU | Team deployment |
+| LLM Generation | BOTTLENECK | YES | phi4:14b (work) / 24B (home) | Team deployment |
 | Hallucination Guard | Stable | No | Reactivate NLI | Model available |
 | Cost Tracker | Stable | No | -- | -- |
 | Network Gate | Stable | No | -- | -- |
@@ -364,28 +410,31 @@ Concurrent: 1 at a time             -->    Concurrent: 2 at a time
 ```
 HIGH IMPACT
      ^
-     |  [Enable vLLM]     [24B Model]     [Dual-GPU LLM]
+     |  [Enable vLLM]     [phi4:14b]       [Response Cache]
      |       $0              $0               $0
+     |                    (work max)
      |
-     |  [Response Cache]   [Nightly Sched]
-     |       $0              $0
+     |  [Nightly Sched]   [FAISS IVF]      [24B Model]
+     |       $0              $0              $0 (home only)
      |
-     |  [FAISS IVF]        [Better Embedder]
-     |       $0              $0 + re-index time
+     |  [Better Embedder]  [Query Priority]
+     |    $0 + re-index         $0
      |
-     |                     [Query Priority]
-     |                          $0
+     |                     [Dual-GPU LLM]   [GPU upgrade]
+     |                      $0 (home only)   ~$1,500-2,000
+     |                                       (work: RTX 4090)
      |
-     |                                      [A100 80GB]
+LOW  |                                      [A100 80GB]
      |                                       ~$10,000
-     |
-LOW  |  [NVLink bridge]
-     |       ~$200
      +-------------------------------------------------->
    $0 cost                                     HIGH COST
 ```
 
-**Every high-impact upgrade is free.** The hardware we have (dual 3090, 48 GB VRAM, 64 GB RAM) is sufficient for the next 2-3 scale-up phases. The only hardware investment that would provide meaningful capability beyond our current ceiling is an A100 (80 GB unified VRAM for 70B+ models), which is not needed at current scale.
+**Most high-impact upgrades are free.** On work machines (12 GB GPU), the
+biggest free win is deploying phi4:14b (9.1 GB) with vLLM batching. The
+24B model requires a GPU upgrade at work (RTX 4090 24 GB, ~$1,500-2,000).
+On the home PC (48 GB dual 3090), every upgrade including 24B and dual-GPU
+parallelism is free.
 
 ---
 

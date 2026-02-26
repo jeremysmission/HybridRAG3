@@ -289,7 +289,8 @@ active and provides the first line of protection.
 **Hardware requirements**:
 - Minimum: Any Windows 10/11 laptop with 8 GB RAM
 - Recommended: 16+ GB RAM for faster performance
-- Workstation: Dual RTX 3090 (48 GB GPU) with vLLM for production throughput
+- Work workstation: 64 GB RAM, 12 GB single GPU with Ollama/vLLM
+- Home PC: Dual RTX 3090 (48 GB GPU, 128 GB RAM) for max throughput
 
 ---
 
