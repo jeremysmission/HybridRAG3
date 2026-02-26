@@ -72,7 +72,7 @@
 ## Deployment and Scalability
 
 - **Minimum hardware**: runs on 8GB RAM laptops.
-- **Maximum hardware**: scales to dual-GPU workstations (48GB VRAM).
+- **Maximum hardware**: scales from 12 GB single-GPU workstations to 48 GB dual-GPU home rigs.
 - **Three hardware profiles**: laptop_safe, desktop_power, server_max.
 - **USB offline installer** for security-conscious and restricted facilities.
 - **Corporate proxy auto-detection** and CA bundle handling for regulated environments.

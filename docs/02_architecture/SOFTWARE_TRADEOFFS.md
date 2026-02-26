@@ -63,7 +63,8 @@ producing 768-dimensional vectors.
 ## 2. LLM Inference: Ollama + vLLM
 
 **What We Chose:** Ollama for single-GPU and laptop inference, with vLLM
-as the high-throughput backend for dual-GPU workstation deployments.
+as the high-throughput backend for GPU-equipped deployments (work: 12 GB
+single GPU; home: 48 GB dual RTX 3090).
 
 **What We Considered:**
 
@@ -81,7 +82,7 @@ as the high-throughput backend for dual-GPU workstation deployments.
   `ollama run`). No GGUF file wrangling, no quantization scripts.
 - Supports all five approved models out of the box.
 - vLLM adds continuous batching, PagedAttention, and tensor parallelism --
-  critical for dual-RTX 3090 throughput under concurrent queries.
+  critical for concurrent query throughput on the home PC (dual 3090).
 - Both are Apache 2.0 licensed. Both run fully offline.
 
 **What We Gave Up:**
@@ -123,7 +124,8 @@ as the high-throughput backend for dual-GPU workstation deployments.
 - MIT and Apache 2.0 licenses carry no military-use or government-use
   restrictions.
 - The stack scales from a laptop with 8 GB RAM (phi4-mini at 2.3 GB) to
-  a dual-3090 workstation (mistral-nemo:12b at 7.1 GB, 128K context).
+  a work workstation (phi4:14b at 9.1 GB on 12 GB GPU) to the home PC
+  (mistral-nemo:12b at 7.1 GB or 24B model on dual 3090).
 - Nine role-based profiles select the optimal model per use case without
   user intervention.
 

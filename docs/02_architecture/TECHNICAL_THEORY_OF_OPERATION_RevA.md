@@ -648,7 +648,7 @@ Current memmap brute-force search is O(N) and will not scale beyond
 
 - **Phase 1**: `faiss-cpu` with `IVF256,SQ8` as drop-in replacement
 - **Phase 2**: `IVF4096,SQ8` for 50M+ vectors (~18.6 GB, 90-95% recall)
-- **Phase 3**: GPU-accelerated FAISS on dual RTX 3090 workstation
+- **Phase 3**: GPU-accelerated FAISS on home PC (dual RTX 3090, 128 GB RAM)
   (requires WSL2 or native Linux -- no Windows GPU FAISS support)
 
 Full analysis: `docs/research/FAISS_MIGRATION_PLAN.md`.

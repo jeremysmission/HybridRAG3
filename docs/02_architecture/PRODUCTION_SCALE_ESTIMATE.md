@@ -140,9 +140,13 @@ VRAM.
 | **Total (gpu f32 + mistral:7b)** | **8.8 GB** (fits in 12 GB) |
 | **Total (gpu f32 + phi4:14b)** | **13.8 GB** (DOES NOT FIT in 12 GB) |
 
-Recommendation: If using faiss-gpu on the workstation, use f16 vectors
-to preserve VRAM for the LLM. Or stay on faiss-cpu and give all 12 GB
-to the LLM (bigger model = better answers).
+Recommendation for work (12 GB): Stay on faiss-cpu and give all 12 GB
+to the LLM (bigger model = better answers). faiss-gpu f16 is possible
+but competes with the LLM for limited VRAM.
+
+Note: Home PC has 48 GB VRAM (dual RTX 3090, 128 GB RAM). All
+combinations fit easily, including faiss-gpu f32 + phi4:14b (14.3 GB
+on one card, 9.7 GB free).
 
 ### Embedding generation time (one-time cost to build index)
 

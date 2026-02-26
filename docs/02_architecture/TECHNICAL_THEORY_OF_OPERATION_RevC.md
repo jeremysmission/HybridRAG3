@@ -59,7 +59,7 @@ full auditability, zero external server dependencies.
 **RevC changes from RevB**: Bulk transfer engine hardened for production
 nightly sync (VPN resilience, memory safety, JSON event logging, 80 stress
 tests). Desktop_power hardware profile set as default for all machines
-(dual-RTX-3090 workstation baseline). 22 QA bug fixes across 15 files.
+(work: 64 GB / 12 GB GPU; home: 128 GB / 48 GB dual-3090). 22 QA bug fixes across 15 files.
 Test suite expanded to 406 pytest + 745 virtual + 140 setup simulation.
 
 **RevB changes from RevA**: Embedder migrated from sentence-transformers
@@ -963,8 +963,9 @@ Current memmap brute-force search is O(N) and will not scale beyond
 | 3 | GPU FAISS | 50M+ | GPU VRAM | 95%+ |
 
 Phase 3 requires WSL2 or native Linux -- no Windows GPU FAISS support.
-Dual RTX 3090 workstation (48 GB GPU, 64 GB RAM) is the target
-platform for Phase 3.
+Home PC (dual RTX 3090, 48 GB GPU, 128 GB RAM) is the target platform
+for Phase 3. Work workstations (64 GB RAM, 12 GB single GPU) are
+limited to Phase 1-2 without a GPU upgrade.
 
 Full analysis: `docs/research/FAISS_MIGRATION_PLAN.md`.
 
