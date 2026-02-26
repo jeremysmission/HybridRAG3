@@ -557,10 +557,9 @@ Write-Ok "Certificate support installed ($(Format-Elapsed $stepTimer))"
 # Step 7: Install approved packages (7A through 7R)
 # ==================================================================
 # Packages are installed in small groups (7A-7R) so that if the
-# corporate proxy drops a connection, we know exactly which group
-# failed. If a group fails, choose [D] to drill into individual
-# packages. openai is attempted LAST (7Q) since it may not be on
-# the corporate mirror yet.
+# proxy drops a connection, we know exactly which group failed.
+# If a group fails, choose [D] to drill into individual packages.
+# openai is attempted LAST (7Q) since it has the most dependencies.
 # ------------------------------------------------------------------
 Write-Step 7 "Installing packages (7A-7R, grouped for proxy resilience)"
 $stepTimer = [System.Diagnostics.Stopwatch]::StartNew()
@@ -594,7 +593,7 @@ $headerText = ($headerLines -join "`n") + "`n"
 Write-Host ""
 Write-Host "  Packages are split into small groups (7A through 7R)."
 Write-Host "  If a group fails, choose [D] to drill into individual packages."
-Write-Host "  openai is attempted last (7Q) -- may not be on corporate mirror."
+Write-Host "  openai is attempted last (7Q) -- has the most dependencies."
 Write-Host ""
 Write-Host "  Log file: $LOG_FILE" -ForegroundColor DarkGray
 Write-Host ""
