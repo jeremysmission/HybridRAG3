@@ -74,6 +74,13 @@ trick questions, and adversarial prompts, it achieves 98% accuracy.
 **Preserved knowledge.** Indexed documents are permanently searchable.
 Institutional knowledge no longer depends on individual memory.
 
+**Always current.** An automated nightly sync engine keeps the knowledge
+base up to date. It copies new and changed files from network shares
+overnight, verifies every file with SHA-256 checksums, and handles
+network interruptions gracefully -- including VPN drops, corporate
+proxy issues, and connection throttling. No manual intervention
+required once scheduled.
+
 **Role-specific intelligence.** Nine built-in AI profiles (software
 engineering, systems administration, project management, cybersecurity,
 and more) tailor behavior to different job functions.
@@ -122,7 +129,7 @@ with a USB installer for environments that have no network access at all.
 | Option | Hardware | Best For |
 |--------|----------|----------|
 | **Laptop** | 8 GB RAM, standard CPU | Individual use, travel, portable access |
-| **Workstation** | 64 GB RAM, dual GPU | Team use, large document sets, fast response |
+| **Workstation** | 64 GB RAM, dual GPU (48 GB VRAM) | Team use, large document sets, fast response |
 | **USB (Air-Gapped)** | Any Windows PC | Environments with no network connectivity |
 
 All three options run the same software. Documents indexed on one machine
@@ -157,6 +164,7 @@ annual value projections.
 | Text chunks searchable | ~40,000 |
 | Supported file formats | 49+ |
 | Accuracy (400-question eval) | 98% |
+| Automated stress tests | 406+ |
 | Search methods | 2 (meaning-based + keyword-based) |
 | Hallucination guard layers | 5 |
 | Network lockdown layers | 3 |
@@ -196,5 +204,6 @@ A live demo takes 20 minutes on any Windows laptop, no advance setup.
 
 ---
 
-*For architecture details, see TECHNICAL_THEORY_OF_OPERATION_RevA.md.
-For security specifics, see SECURITY_THEORY_OF_OPERATION_RevA.md.*
+*For architecture details, see TECHNICAL_THEORY_OF_OPERATION_RevC.md.
+For security specifics, see SECURITY_THEORY_OF_OPERATION_RevA.md.
+For upgrade planning, see SYSTEM_UPGRADE_ROADMAP.md.*
