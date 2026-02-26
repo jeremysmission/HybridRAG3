@@ -594,8 +594,21 @@ while (-not $stepDone) {
     } else {
         Write-Fail "Cannot reach Ollama at localhost:11434"
         if ($ollamaError) {
-            Write-Host "  Error: $ollamaError" -ForegroundColor Red
+            Write-Host "  Error: $ollamaError" -ForegroundColor DarkGray
         }
+        Write-Host ""
+        Write-Host "  WHAT IS OLLAMA?" -ForegroundColor White
+        Write-Host "    Ollama runs AI models locally on your computer (no internet needed)."
+        Write-Host "    Without it, HybridRAG3 still works -- it just uses online AI instead."
+        Write-Host ""
+        Write-Host "  TO INSTALL (optional):" -ForegroundColor White
+        Write-Host "    1. Download from https://ollama.com/download"
+        Write-Host "    2. Run the installer"
+        Write-Host "    3. Open a terminal and run: ollama pull nomic-embed-text"
+        Write-Host "    4. Then re-run this setup, or press [R] below"
+        Write-Host ""
+        Write-Host "  Press [S] to skip if you only need online/cloud AI." -ForegroundColor Yellow
+        Write-Host ""
         $choice = Request-Recovery "Checking Ollama" 9 -DrillDown
         switch ($choice) {
             "R" { continue }
