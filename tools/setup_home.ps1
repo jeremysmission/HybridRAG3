@@ -194,7 +194,7 @@ while ($wizStep -le 3) {
         if (-not $PY_EXE) {
             Write-Fail "Python is not installed."
             Write-Host "  1. Go to https://www.python.org/downloads/"
-            Write-Host "  2. Download Python 3.11 or 3.12"
+            Write-Host "  2. Download Python 3.12"
             Write-Host "  3. IMPORTANT: Check 'Add Python to PATH'"
             Write-Host "  4. Restart computer, then re-run INSTALL.bat"
             Write-Host ""
