@@ -1779,6 +1779,7 @@ class LLMRouter:
         """
         status = {
             "mode": self.config.mode,
+            "ollama_model": self.config.ollama.model,
             "ollama_available": self.ollama.is_available(),
             "vllm_enabled": self.vllm is not None,
             "vllm_available": self.vllm.is_available() if self.vllm else False,

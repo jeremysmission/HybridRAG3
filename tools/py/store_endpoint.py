@@ -75,16 +75,48 @@ def main():
     print(f"    API Version: {api_version or '(not set)'}")
     print()
 
-    store_endpoint(endpoint)
-    print(f"  [OK] Endpoint stored: {endpoint}")
+    errors = []
+
+    try:
+        store_endpoint(endpoint)
+        print(f"  [OK] Endpoint stored: {endpoint}")
+    except Exception as e:
+        errors.append(("Endpoint", str(e)))
+        print(f"  [FAIL] Could not store endpoint: {e}")
 
     if deployment:
-        store_deployment(deployment)
-        print(f"  [OK] Deployment stored: {deployment}")
+        try:
+            store_deployment(deployment)
+            print(f"  [OK] Deployment stored: {deployment}")
+        except Exception as e:
+            errors.append(("Deployment", str(e)))
+            print(f"  [FAIL] Could not store deployment: {e}")
 
     if api_version:
-        store_api_version(api_version)
-        print(f"  [OK] API version stored: {api_version}")
+        try:
+            store_api_version(api_version)
+            print(f"  [OK] API version stored: {api_version}")
+        except Exception as e:
+            errors.append(("API Version", str(e)))
+            print(f"  [FAIL] Could not store API version: {e}")
+
+    if errors:
+        print()
+        print("  [WARN] Keyring storage failed for: {}".format(
+            ", ".join(name for name, _ in errors)))
+        print()
+        print("  This usually means the keyring config is broken.")
+        print("  Fix: Delete or repair this file, then retry:")
+        cfg_path = os.path.join(
+            os.environ.get("LOCALAPPDATA", ""),
+            "Python Keyring", "keyringrc.cfg",
+        )
+        print(f"    {cfg_path}")
+        print()
+        print("  Or set backend to Windows Credential Manager:")
+        print("    [backend]")
+        print("    default-keyring = keyring.backends.Windows.WinVaultKeyring")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

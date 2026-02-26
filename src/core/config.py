@@ -177,7 +177,7 @@ class OllamaConfig:
     Ollama runs on your machine -- no internet needed, no API costs.
     """
     base_url: str = "http://localhost:11434"
-    model: str = "mistral-nemo:12b"
+    model: str = "phi4-mini"
     timeout_seconds: int = 600     # How long to wait for a response
     context_window: int = 16384    # Max tokens the model can see at once
     keep_alive: int = -1           # Seconds to keep model loaded (-1 = forever)
