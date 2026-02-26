@@ -96,7 +96,7 @@ class EmbeddingMemmapStore:
       never returns them because nothing in SQLite points to them.
     """
 
-    def __init__(self, data_dir: str, dim: int = 384):
+    def __init__(self, data_dir: str, dim: int = 768):
         self.data_dir = data_dir
         self.dim = int(dim)
         self.dat_path = os.path.join(self.data_dir, "embeddings.f16.dat")
@@ -209,7 +209,7 @@ class VectorStore:
         vs.close()   # Always close when done (BUG-003 fix)
     """
 
-    def __init__(self, db_path: str, embedding_dim: int = 384):
+    def __init__(self, db_path: str, embedding_dim: int = 768):
         self.db_path = db_path
         self.embedding_dim = embedding_dim
         self.conn: Optional[sqlite3.Connection] = None

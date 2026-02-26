@@ -545,6 +545,179 @@ class ModelSelectionPanel(tk.LabelFrame):
 
 
 # ====================================================================
+# OfflineModelSelectionPanel -- Ollama model picker for offline mode
+# ====================================================================
+
+class OfflineModelSelectionPanel(tk.LabelFrame):
+    """Offline model selection with ranked treeview and use-case dropdown.
+
+    Mirrors ModelSelectionPanel but reads from the local approved model
+    stack (WORK_ONLY_MODELS) instead of making API calls.
+    Writes selected model to config.ollama.model.
+    """
+
+    def __init__(self, parent, config, app_ref=None):
+        t = current_theme()
+        super().__init__(parent, text="Offline Model Selection", padx=16, pady=8,
+                         bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
+        self.config = config
+        self._app = app_ref
+        self._build(t)
+        self._populate()
+
+    def _build(self, t):
+        """Build control row + treeview."""
+        ctrl_row = tk.Frame(self, bg=t["panel_bg"])
+        ctrl_row.pack(fill=tk.X, pady=(0, 4))
+
+        tk.Label(
+            ctrl_row, text="Use case:", anchor=tk.W,
+            bg=t["panel_bg"], fg=t["fg"], font=FONT,
+        ).pack(side=tk.LEFT)
+
+        from scripts._model_meta import USE_CASES
+        self._uc_keys = list(USE_CASES.keys())
+        uc_labels = [USE_CASES[k]["label"] for k in self._uc_keys]
+        self.uc_var = tk.StringVar(value=uc_labels[0] if uc_labels else "")
+        self.uc_dropdown = ttk.Combobox(
+            ctrl_row, textvariable=self.uc_var, values=uc_labels,
+            state="readonly", width=24, font=FONT,
+        )
+        self.uc_dropdown.pack(side=tk.LEFT, padx=(8, 8))
+        self.uc_dropdown.bind("<<ComboboxSelected>>", self._on_uc_change)
+
+        self.status_label = tk.Label(
+            self, text="", anchor=tk.W,
+            bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+        )
+        self.status_label.pack(fill=tk.X, pady=(0, 4))
+
+        # Treeview
+        columns = ("model", "role", "eng", "gen", "score", "vram_gb", "note")
+        self.tree = ttk.Treeview(
+            self, columns=columns, show="headings", height=6,
+            selectmode="browse",
+        )
+        for col, hdr, w, anchor in [
+            ("model", "Model", 180, tk.W),
+            ("role", "Role", 70, tk.W),
+            ("eng", "ENG", 45, tk.CENTER),
+            ("gen", "GEN", 45, tk.CENTER),
+            ("score", "Score", 50, tk.CENTER),
+            ("vram_gb", "VRAM", 60, tk.CENTER),
+            ("note", "Note", 220, tk.W),
+        ]:
+            self.tree.heading(col, text=hdr)
+            self.tree.column(col, width=w, anchor=anchor, minwidth=max(40, w - 15))
+
+        tree_scroll = ttk.Scrollbar(self, orient=tk.VERTICAL,
+                                     command=self.tree.yview)
+        self.tree.configure(yscrollcommand=tree_scroll.set)
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.tree.tag_configure("primary", background="#1a3a1a")
+        self.tree.bind("<<TreeviewSelect>>", self._on_select)
+
+    def _get_uc_key(self):
+        from scripts._model_meta import USE_CASES
+        label = self.uc_var.get()
+        for k, uc in USE_CASES.items():
+            if uc["label"] == label:
+                return k
+        return "sw"
+
+    def _on_uc_change(self, event=None):
+        self._populate()
+
+    def _populate(self):
+        """Fill the treeview with approved offline models ranked for the use case."""
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        from scripts._model_meta import (
+            WORK_ONLY_MODELS, RECOMMENDED_OFFLINE,
+            use_case_score as uc_score,
+        )
+
+        uc_key = self._get_uc_key()
+        rec = RECOMMENDED_OFFLINE.get(uc_key, {})
+        rec_primary = rec.get("primary", "")
+        rec_alt = rec.get("alt", "")
+
+        # Current model from config
+        current_model = getattr(
+            getattr(self.config, "ollama", None), "model", ""
+        ) or ""
+
+        scored = []
+        for name, meta in WORK_ONLY_MODELS.items():
+            score = uc_score(meta["tier_eng"], meta["tier_gen"], uc_key)
+            role = ""
+            if name == rec_primary:
+                role = "primary"
+            elif name == rec_alt:
+                role = "alt"
+            elif name == rec.get("upgrade", ""):
+                role = "upgrade"
+            scored.append({
+                "name": name,
+                "role": role,
+                "tier_eng": meta["tier_eng"],
+                "tier_gen": meta["tier_gen"],
+                "score": score,
+                "vram_gb": meta.get("vram_gb", "?"),
+                "note": meta.get("note", ""),
+            })
+
+        scored.sort(key=lambda x: x["score"], reverse=True)
+
+        for m in scored:
+            tags = ()
+            if m["name"] == rec_primary:
+                tags = ("primary",)
+
+            self.tree.insert("", tk.END, iid=m["name"], values=(
+                m["name"], m["role"],
+                m["tier_eng"], m["tier_gen"], m["score"],
+                m["vram_gb"], m["note"],
+            ), tags=tags)
+
+        # Select current model in tree
+        if current_model and current_model in [c["name"] for c in scored]:
+            self.tree.selection_set(current_model)
+            self.tree.see(current_model)
+
+        t = current_theme()
+        self.status_label.config(
+            text="{} approved models. Current: {}".format(
+                len(scored), current_model or "(none)"),
+            fg=t["fg"],
+        )
+
+    def _on_select(self, event=None):
+        """Write selected model to config.ollama.model."""
+        sel = self.tree.selection()
+        if not sel:
+            return
+        model_name = sel[0]
+        ollama = getattr(self.config, "ollama", None)
+        if ollama:
+            ollama.model = model_name
+        t = current_theme()
+        self.status_label.config(
+            text="Selected: {}".format(model_name), fg=t["fg"])
+
+    def apply_theme(self, t):
+        self.configure(bg=t["panel_bg"], fg=t["accent"])
+        if t["name"] == "dark":
+            self.tree.tag_configure("primary", background="#1a3a1a")
+        else:
+            self.tree.tag_configure("primary", background="#e8f5e9")
+        _theme_widget(self, t)
+
+
+# ====================================================================
 # Module-level helper -- config snapshot (no widget state needed)
 # ====================================================================
 
@@ -627,6 +800,9 @@ class ApiAdminTab(tk.Frame):
         self._build_security_section(t)
         self._paths_panel = DataPathsPanel(self._inner, config, app_ref)
         self._paths_panel.pack(fill=tk.X, padx=16, pady=8)
+        self._offline_model_panel = OfflineModelSelectionPanel(
+            self._inner, config, app_ref)
+        self._offline_model_panel.pack(fill=tk.X, padx=16, pady=8)
         self._model_panel = ModelSelectionPanel(
             self._inner, config, self.endpoint_var, self.key_var)
         self._model_panel.pack(fill=tk.X, padx=16, pady=8)
@@ -937,7 +1113,7 @@ class ApiAdminTab(tk.Frame):
     # ================================================================
 
     def _apply_mode_state(self):
-        """Gray out API credential fields when in offline mode.
+        """Gray out API fields in offline mode, offline panel in online mode.
 
         Called at init and after every mode toggle so that non-technical
         users are not confused by editable but irrelevant fields.
@@ -947,12 +1123,12 @@ class ApiAdminTab(tk.Frame):
         t = current_theme()
         mode = getattr(self.config, "mode", "offline") if self.config else "offline"
         if mode == "offline":
+            # Gray out online API fields
             for widget in (self.endpoint_entry, self.key_entry):
                 widget.config(state=tk.DISABLED, disabledbackground=t["input_bg"],
                               disabledforeground=t["disabled_fg"])
             for btn in (self.save_cred_btn, self.test_btn, self.clear_cred_btn):
                 btn.config(state=tk.DISABLED)
-            # PII scrubber not needed offline -- gray it out
             if hasattr(self, "_pii_cb"):
                 self._pii_cb.config(state=tk.DISABLED)
             # Append offline note without clobbering credential info
@@ -966,7 +1142,12 @@ class ApiAdminTab(tk.Frame):
                     self.cred_status_label.config(
                         text="(offline mode -- API credentials not needed)",
                         fg=t["disabled_fg"])
+            # Enable offline model panel, refresh its data
+            if hasattr(self, "_offline_model_panel"):
+                self._offline_model_panel.uc_dropdown.config(state="readonly")
+                self._offline_model_panel._populate()
         else:
+            # Enable online API fields
             for widget in (self.endpoint_entry, self.key_entry):
                 widget.config(state=tk.NORMAL, fg=t["input_fg"])
             for btn in (self.save_cred_btn, self.test_btn, self.clear_cred_btn):
@@ -974,6 +1155,9 @@ class ApiAdminTab(tk.Frame):
             if hasattr(self, "_pii_cb"):
                 self._pii_cb.config(state=tk.NORMAL)
             self._refresh_credential_status()
+            # Gray out offline model panel in online mode
+            if hasattr(self, "_offline_model_panel"):
+                self._offline_model_panel.uc_dropdown.config(state=tk.DISABLED)
 
     # ================================================================
     # SECTION D: ADMIN DEFAULTS
@@ -1132,6 +1316,8 @@ class ApiAdminTab(tk.Frame):
         self.configure(bg=t["panel_bg"])
         self._scroll.apply_theme({"bg": t["panel_bg"]})
         self._paths_panel.apply_theme(t)
+        if hasattr(self, "_offline_model_panel"):
+            self._offline_model_panel.apply_theme(t)
         self._model_panel.apply_theme(t)
         for frame_attr in ("_cred_frame", "_security_frame", "_defaults_frame"):
             frame = getattr(self, frame_attr, None)

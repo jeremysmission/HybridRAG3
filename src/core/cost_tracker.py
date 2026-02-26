@@ -216,9 +216,10 @@ class CostTracker:
 
         # Notify all registered listeners (GUI panels).
         # Each listener is a callback function that receives the new event.
-        # We catch exceptions per-listener so one broken callback does not
-        # prevent others from updating.
-        for cb in self._listeners:
+        # Snapshot the list to avoid "list changed size during iteration"
+        # if a listener is added/removed during notification (e.g. Cost
+        # Dashboard opening/closing mid-query).
+        for cb in list(self._listeners):
             try:
                 cb(event)
             except Exception as e:

@@ -227,8 +227,12 @@ class OllamaRouter:
         Centralised here so query() and query_stream() stay in sync.
         Keys with value 0 are omitted so Ollama uses its own defaults.
         """
+        # Read temperature from ollama config first, fall back to api config
+        temperature = getattr(self.config.ollama, "temperature", None)
+        if temperature is None:
+            temperature = getattr(self.config.api, "temperature", 0.05)
         opts = {
-            "temperature": getattr(self.config.api, "temperature", 0.05),
+            "temperature": temperature,
             "num_ctx": self.config.ollama.context_window,
             "num_predict": getattr(self.config.ollama, "num_predict", 512),
         }
@@ -1520,6 +1524,17 @@ def refresh_deployments():
     return result
 
 
+def invalidate_deployment_cache():
+    """Clear the deployment cache without re-probing.
+
+    Called on mode switch to ensure stale model lists from a previous
+    mode don't persist.
+    """
+    global _deployment_cache
+    with _deployment_lock:
+        _deployment_cache = None
+
+
 # --- SECTION 6: LLM ROUTER (MAIN ORCHESTRATOR) ----------------------------
 
 # ============================================================================
@@ -1733,6 +1748,29 @@ class LLMRouter:
                     "model": result.model,
                     "latency_ms": result.latency_ms,
                 }
+
+    def close(self):
+        """Release HTTP clients held by backend routers.
+
+        Call before replacing an LLMRouter instance (e.g. on mode switch)
+        to avoid leaking sockets and file descriptors.
+        """
+        if hasattr(self, "ollama") and hasattr(self.ollama, "_client"):
+            try:
+                self.ollama._client.close()
+            except Exception:
+                pass
+        if hasattr(self, "vllm") and self.vllm and hasattr(self.vllm, "_client"):
+            try:
+                self.vllm._client.close()
+            except Exception:
+                pass
+        if hasattr(self, "api") and self.api and hasattr(self.api, "client"):
+            try:
+                if self.api.client:
+                    self.api.client.close()
+            except Exception:
+                pass
 
     def get_status(self) -> Dict[str, Any]:
         """

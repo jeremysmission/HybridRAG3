@@ -166,11 +166,16 @@ class QueryEngine:
                 )
 
             # ------------------------------------------------------------
-            # Step 3: Build LLM prompt
+            # Step 3: Build LLM prompt (with overflow protection)
             # ------------------------------------------------------------
             # Wrap the context + question in a carefully engineered prompt
             # with 9 rules that prevent hallucination, handle ambiguity,
             # and resist injection attacks. See _build_prompt() below.
+            #
+            # Context window protection: estimate token count and trim
+            # context if it would overflow. The 9-rule prompt + question
+            # is ~800 tokens; we reserve that plus a margin for the answer.
+            context = self._trim_context_to_fit(context, user_query)
             prompt = self._build_prompt(user_query, context)
 
             # ------------------------------------------------------------
@@ -358,6 +363,35 @@ class QueryEngine:
                 mode=self.config.mode, error=error_msg,
             )
             yield {"done": True, "result": result}
+
+    def _trim_context_to_fit(self, context: str, user_query: str) -> str:
+        """Trim context so the full prompt fits within the context window.
+
+        Estimates tokens at ~4 chars/token. Reserves space for the prompt
+        rules (~800 tokens), the question, and the model's answer
+        (num_predict). If context is too long, truncates from the end
+        (lowest-relevance chunks are appended last by the retriever).
+        """
+        ctx_window = getattr(
+            getattr(self.config, "ollama", None), "context_window", 16384
+        )
+        num_predict = getattr(
+            getattr(self.config, "ollama", None), "num_predict", 512
+        )
+        # Reserve: prompt rules + question + answer generation budget
+        prompt_overhead_tokens = 800 + (len(user_query) // 4) + num_predict
+        max_context_tokens = max(ctx_window - prompt_overhead_tokens, 512)
+        max_context_chars = max_context_tokens * 4
+
+        if len(context) > max_context_chars:
+            self.logger.warning(
+                "context_trimmed",
+                original_chars=len(context),
+                trimmed_chars=max_context_chars,
+                ctx_window=ctx_window,
+            )
+            context = context[:max_context_chars]
+        return context
 
     def _build_prompt(self, user_query: str, context: str) -> str:
         """

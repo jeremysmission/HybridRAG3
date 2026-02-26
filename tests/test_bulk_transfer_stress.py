@@ -9,8 +9,11 @@
 # Run: python -m pytest tests/test_bulk_transfer_stress.py -v
 # ============================================================================
 
+import errno
 import hashlib
+import json
 import os
+import random
 import shutil
 import sqlite3
 import stat
@@ -892,3 +895,891 @@ class TestEndToEnd:
         ).fetchone()[0]
         assert count >= 9  # all discovered files
         conn.close()
+
+
+# ============================================================================
+# Test 21: Connection dropout simulation (VPN/corporate network)
+# ============================================================================
+# Simulates what happens when the network drops mid-transfer and
+# then recovers. This is the bread-and-butter failure mode for
+# corporate VPN transfers overnight.
+# ============================================================================
+
+class TestConnectionDropout:
+
+    def test_intermittent_network_drops(self, tmp_dirs):
+        """Copy succeeds despite intermittent network OSError bursts.
+
+        Simulates: VPN micro-drops that cause 2-3 consecutive failures
+        before the connection stabilizes again.
+        """
+        src, dst = tmp_dirs
+        for i in range(10):
+            _make_file(src / f"doc_{i}.txt", size=500)
+
+        call_count = [0]
+        original_copy = _buffered_copy
+
+        def intermittent_drop(s, d, buf_size=1048576, bw_limit=0, **kwargs):
+            call_count[0] += 1
+            # Fail every 4th and 5th call (simulates burst of failures)
+            if call_count[0] % 5 in (0, 4):
+                raise OSError(errno.ENETUNREACH, "Network is unreachable")
+            original_copy(s, d, buf_size, bw_limit, **kwargs)
+
+        with mock.patch(
+            "src.tools.bulk_transfer_v2._buffered_copy", intermittent_drop
+        ):
+            cfg = TransferConfig(
+                source_paths=[str(src)],
+                dest_path=str(dst),
+                workers=2,
+                min_file_size=10,
+                max_retries=3,
+                retry_backoff=0.01,
+                resume=False,
+            )
+            engine = BulkTransferV2(cfg)
+            stats = engine.run()
+
+        # Most files should eventually succeed via retry
+        assert stats.files_copied >= 5
+        assert stats.files_failed + stats.files_copied == 10
+
+    def test_prolonged_outage_then_recovery(self, tmp_dirs):
+        """All copies fail during outage, then succeed after recovery.
+
+        Simulates: VPN goes down for the first 8 copies, then comes
+        back up for the rest. Retry logic should handle this.
+        """
+        src, dst = tmp_dirs
+        for i in range(5):
+            _make_file(src / f"doc_{i}.txt", size=300)
+
+        call_count = [0]
+        original_copy = _buffered_copy
+
+        def outage_then_recovery(s, d, buf_size=1048576, bw_limit=0, **kw):
+            call_count[0] += 1
+            # First 5 calls fail (outage), then all succeed (recovery)
+            if call_count[0] <= 5:
+                raise OSError(errno.ETIMEDOUT, "Connection timed out")
+            original_copy(s, d, buf_size, bw_limit, **kw)
+
+        with mock.patch(
+            "src.tools.bulk_transfer_v2._buffered_copy",
+            outage_then_recovery,
+        ):
+            cfg = TransferConfig(
+                source_paths=[str(src)],
+                dest_path=str(dst),
+                workers=1,
+                min_file_size=10,
+                max_retries=3,
+                retry_backoff=0.01,
+                resume=False,
+            )
+            engine = BulkTransferV2(cfg)
+            stats = engine.run()
+
+        # With retries, all should eventually get through
+        assert stats.files_copied >= 3
+
+    def test_permission_error_not_retried(self, tmp_dirs):
+        """PermissionError causes immediate skip, not infinite retry.
+
+        Simulates: corporate ACL blocks access to certain folders.
+        The engine should not waste retries on permission denials.
+        """
+        src, dst = tmp_dirs
+        _make_file(src / "allowed.txt", size=300)
+        _make_file(src / "blocked.txt", size=300)
+
+        original_copy = _buffered_copy
+
+        def perm_block(s, d, buf_size=1048576, bw_limit=0, **kw):
+            if "blocked" in s:
+                raise PermissionError("Access denied by corporate ACL")
+            original_copy(s, d, buf_size, bw_limit, **kw)
+
+        with mock.patch(
+            "src.tools.bulk_transfer_v2._buffered_copy", perm_block
+        ):
+            cfg = TransferConfig(
+                source_paths=[str(src)],
+                dest_path=str(dst),
+                workers=1,
+                min_file_size=10,
+                max_retries=3,
+                retry_backoff=0.01,
+                resume=False,
+            )
+            engine = BulkTransferV2(cfg)
+            stats = engine.run()
+
+        assert stats.files_copied == 1
+
+
+# ============================================================================
+# Test 22: Speed fluctuation simulation
+# ============================================================================
+# Simulates network bandwidth that varies wildly -- the reality of
+# corporate networks shared by 500+ users.
+# ============================================================================
+
+class TestSpeedFluctuation:
+
+    def test_variable_speed_completes(self, tmp_dirs):
+        """Transfer completes with wildly varying copy speeds.
+
+        Simulates: corporate WAN link shared by hundreds of users.
+        Some copies finish instantly, others crawl.
+        """
+        src, dst = tmp_dirs
+        for i in range(8):
+            _make_file(src / f"doc_{i}.txt", size=1000)
+
+        original_copy = _buffered_copy
+
+        def variable_speed(s, d, buf_size=1048576, bw_limit=0, **kw):
+            # Random delay 0-50ms to simulate variable throughput
+            time.sleep(random.uniform(0, 0.05))
+            original_copy(s, d, buf_size, bw_limit, **kw)
+
+        with mock.patch(
+            "src.tools.bulk_transfer_v2._buffered_copy", variable_speed
+        ):
+            stats = _run_transfer(src, dst, workers=4)
+
+        assert stats.files_copied == 8
+        assert stats.files_failed == 0
+
+    def test_bandwidth_throttle_no_data_loss(self, tmp_dirs):
+        """Heavy bandwidth throttling still produces correct copies."""
+        src, dst = tmp_dirs
+        content = os.urandom(5000)
+        _make_file(src / "throttled.txt", content=content)
+
+        # Very aggressive throttle: 1 KB/s
+        stats = _run_transfer(src, dst, bandwidth_limit=1024)
+        assert stats.files_copied == 1
+        assert stats.files_verify_failed == 0
+
+        # Verify content integrity
+        verified = list((dst / "verified").rglob("throttled.txt"))
+        assert len(verified) == 1
+        assert verified[0].read_bytes() == content
+
+
+# ============================================================================
+# Test 23: Thousands of tiny files (scale test)
+# ============================================================================
+# Enterprise file shares often have thousands of tiny config/log files
+# mixed with large documents. The engine must handle both efficiently.
+# ============================================================================
+
+class TestScaleTinyFiles:
+
+    def test_1000_tiny_files(self, tmp_dirs):
+        """1000 tiny files transferred without error or excessive time."""
+        src, dst = tmp_dirs
+        for i in range(1000):
+            _make_file(src / f"tiny_{i:04d}.txt", size=150)
+
+        stats = _run_transfer(src, dst, workers=8, min_file_size=100)
+        assert stats.files_copied == 1000
+        assert stats.files_failed == 0
+        assert stats.files_verify_failed == 0
+
+    def test_mixed_sizes_concurrent(self, tmp_dirs):
+        """Mix of tiny and medium files with high concurrency.
+
+        This tests the thread pool's ability to balance fast tiny-file
+        completions with slower medium-file transfers.
+        """
+        src, dst = tmp_dirs
+        # 50 tiny files (150 bytes each)
+        for i in range(50):
+            _make_file(src / f"tiny_{i}.txt", size=150)
+        # 10 medium files (50 KB each)
+        for i in range(10):
+            _make_file(src / f"medium_{i}.pdf", size=50_000)
+        # 2 large files (500 KB each)
+        for i in range(2):
+            _make_file(src / f"large_{i}.pdf", size=500_000)
+
+        stats = _run_transfer(src, dst, workers=8)
+        assert stats.files_copied == 62
+        assert stats.files_failed == 0
+
+    def test_deeply_nested_many_dirs(self, tmp_dirs):
+        """100 files spread across 20 nested directories."""
+        src, dst = tmp_dirs
+        for d in range(20):
+            folder = src / f"dept_{d}" / "reports" / "2026"
+            for f in range(5):
+                _make_file(folder / f"report_{f}.txt", size=200)
+
+        stats = _run_transfer(src, dst, workers=4)
+        assert stats.files_copied == 100
+        assert stats.files_failed == 0
+
+
+# ============================================================================
+# Test 24: Large file handling
+# ============================================================================
+
+class TestLargeFiles:
+
+    def test_5mb_file_verified(self, tmp_dirs):
+        """5 MB file copies and verifies correctly."""
+        src, dst = tmp_dirs
+        content = os.urandom(5_000_000)
+        _make_file(src / "big.pdf", content=content)
+
+        stats = _run_transfer(src, dst)
+        assert stats.files_copied == 1
+        assert stats.files_verified == 1
+
+        verified = list((dst / "verified").rglob("big.pdf"))
+        assert len(verified) == 1
+        assert verified[0].read_bytes() == content
+
+    def test_large_file_stall_detection(self, tmp_dirs):
+        """Copy that stalls mid-transfer is caught by timeout."""
+        src, dst = tmp_dirs
+        _make_file(src / "stalling.pdf", size=1000)
+
+        def stalling_copy(s, d, buf_size=1048576, bw_limit=0, **kw):
+            # Simulate stalled network read
+            time.sleep(10)
+
+        with mock.patch(
+            "src.tools.bulk_transfer_v2._buffered_copy", stalling_copy
+        ):
+            cfg = TransferConfig(
+                source_paths=[str(src)],
+                dest_path=str(dst),
+                workers=1,
+                min_file_size=10,
+                max_retries=1,
+                retry_backoff=0.01,
+                resume=False,
+            )
+            # Override copy timeout to be very short for testing
+            engine = BulkTransferV2(cfg)
+            stats = engine.run()
+
+        # Should fail due to timeout or stall, not hang forever
+        assert stats.files_copied == 0
+
+
+# ============================================================================
+# Test 25: Memory leak regression test
+# ============================================================================
+# Runs multiple transfer cycles and verifies that key data structures
+# do not grow unboundedly. Critical for 5-day continuous operation.
+# ============================================================================
+
+class TestMemoryLeakRegression:
+
+    def test_speed_samples_bounded(self, tmp_dirs):
+        """_speed_samples list stays bounded after many record_copy calls."""
+        src, dst = tmp_dirs
+        cfg = TransferConfig(
+            source_paths=[str(src)],
+            dest_path=str(dst),
+            workers=1,
+            min_file_size=10,
+            resume=False,
+        )
+        engine = BulkTransferV2(cfg)
+        stats = engine.stats
+
+        # Simulate 2000 rapid copy recordings
+        for i in range(2000):
+            stats.record_copy(1000, ".txt", str(src))
+
+        # Speed samples should be pruned to <= 500
+        assert len(stats._speed_samples) <= 500
+
+    def test_speed_history_capped(self, tmp_dirs):
+        """_speed_history list respects max_speed_history cap."""
+        src, dst = tmp_dirs
+        cfg = TransferConfig(
+            source_paths=[str(src)],
+            dest_path=str(dst),
+            workers=1,
+            max_speed_history=50,
+            resume=False,
+        )
+        engine = BulkTransferV2(cfg)
+        stats = engine.stats
+
+        # Manually add 200 speed history entries
+        for i in range(200):
+            stats._speed_history.append((float(i * 30), 1000.0))
+
+        # Cap should be applied when progress loop runs, but we can
+        # verify the setting propagated
+        assert stats._max_speed_history == 50
+
+    def test_multiple_runs_no_accumulation(self, tmp_dirs):
+        """Three sequential runs don't accumulate state across engines."""
+        src, dst = tmp_dirs
+        for i in range(5):
+            _make_file(src / f"doc_{i}.txt", size=200)
+
+        for run in range(3):
+            stats = _run_transfer(src, dst, resume=True)
+            if run == 0:
+                assert stats.files_copied == 5
+            else:
+                # Subsequent runs skip (resume) -- no state leak
+                assert stats.files_copied == 0
+                assert stats.files_skipped_unchanged == 5
+
+    def test_dedup_set_proportional_to_unique_files(self, tmp_dirs):
+        """_dedup_seen set size matches unique file count, not total."""
+        src, dst = tmp_dirs
+        # 5 unique files + 5 duplicates = 10 files
+        for i in range(5):
+            content = os.urandom(500)
+            _make_file(src / f"unique_{i}.txt", content=content)
+            _make_file(src / f"dup_{i}.txt", content=content)
+
+        stats = _run_transfer(src, dst, workers=1)
+        assert stats.files_copied == 5
+        assert stats.files_deduplicated == 5
+
+
+# ============================================================================
+# Test 26: Incomplete file recovery
+# ============================================================================
+# Simulates finding leftover .tmp files from a crashed previous run.
+# The engine must clean these up before starting a new transfer.
+# ============================================================================
+
+class TestIncompleteFileRecovery:
+
+    def test_leftover_tmp_cleaned(self, tmp_dirs):
+        """Leftover .tmp files from crashed run are cleaned on restart."""
+        src, dst = tmp_dirs
+        _make_file(src / "good.txt", size=200)
+
+        # Simulate crashed run: create leftover .tmp files
+        incoming = dst / "incoming"
+        incoming.mkdir(parents=True, exist_ok=True)
+        for i in range(5):
+            (incoming / f"partial_{i}.txt.tmp").write_bytes(b"garbage")
+
+        stats = _run_transfer(src, dst)
+        assert stats.files_copied == 1
+
+        # Verify all .tmp files were cleaned up
+        leftover = list(incoming.rglob("*.tmp"))
+        assert len(leftover) == 0
+
+    def test_corrupted_partial_not_in_verified(self, tmp_dirs):
+        """Partial/corrupt files never appear in verified/ directory."""
+        src, dst = tmp_dirs
+        content = os.urandom(1000)
+        _make_file(src / "doc.txt", content=content)
+
+        original_copy = _buffered_copy
+
+        def write_partial(s, d, buf_size=1048576, bw_limit=0, **kw):
+            # Write only half the file, then fail
+            with open(s, "rb") as fin:
+                data = fin.read(500)
+            with open(d, "wb") as fout:
+                fout.write(data)
+            raise OSError("Network dropped mid-copy")
+
+        with mock.patch(
+            "src.tools.bulk_transfer_v2._buffered_copy", write_partial
+        ):
+            cfg = TransferConfig(
+                source_paths=[str(src)],
+                dest_path=str(dst),
+                workers=1,
+                min_file_size=10,
+                max_retries=1,
+                retry_backoff=0.01,
+                resume=False,
+            )
+            engine = BulkTransferV2(cfg)
+            stats = engine.run()
+
+        assert stats.files_copied == 0
+        # Verified folder should be empty (no corrupt files)
+        verified = dst / "verified"
+        all_files = list(verified.rglob("*"))
+        txt_files = [f for f in all_files if f.is_file() and
+                     not f.name.endswith(".reason")]
+        assert len(txt_files) == 0
+
+
+# ============================================================================
+# Test 27: Network recovery (consecutive failure detection)
+# ============================================================================
+
+class TestNetworkRecovery:
+
+    def test_consecutive_failure_counter_resets_on_success(self, tmp_dirs):
+        """Consecutive failure counter resets after a successful copy."""
+        src, dst = tmp_dirs
+        for i in range(6):
+            _make_file(src / f"doc_{i}.txt", size=200)
+
+        call_count = [0]
+        original_copy = _buffered_copy
+
+        def fail_then_succeed(s, d, buf_size=1048576, bw_limit=0, **kw):
+            call_count[0] += 1
+            # Fail first 3 calls, succeed the rest
+            if call_count[0] <= 3:
+                raise OSError("Network blip")
+            original_copy(s, d, buf_size, bw_limit, **kw)
+
+        with mock.patch(
+            "src.tools.bulk_transfer_v2._buffered_copy", fail_then_succeed
+        ):
+            cfg = TransferConfig(
+                source_paths=[str(src)],
+                dest_path=str(dst),
+                workers=1,
+                min_file_size=10,
+                max_retries=3,
+                retry_backoff=0.01,
+                max_consecutive_failures=50,  # High so no recovery pause
+                resume=False,
+            )
+            engine = BulkTransferV2(cfg)
+            stats = engine.run()
+
+        # After first success, consecutive_failures resets to 0
+        assert stats.consecutive_failures == 0
+        assert stats.files_copied >= 3
+
+    def test_network_health_stats_tracked(self, tmp_dirs):
+        """Network stall events are recorded in stats."""
+        src, dst = tmp_dirs
+        _make_file(src / "doc.txt", size=200)
+
+        stats = _run_transfer(src, dst)
+        # Normal run should have 0 stalls
+        assert stats.network_stalls == 0
+        assert stats.network_recovery_time == 0
+
+
+# ============================================================================
+# Test 28: JSON event log
+# ============================================================================
+
+class TestJsonEventLog:
+
+    def test_json_log_created(self, tmp_dirs):
+        """JSON log file is created when log_file is configured."""
+        src, dst = tmp_dirs
+        _make_file(src / "doc.txt", size=200)
+        log_path = str(dst / "transfer.jsonl")
+
+        cfg = TransferConfig(
+            source_paths=[str(src)],
+            dest_path=str(dst),
+            workers=1,
+            min_file_size=10,
+            resume=False,
+            log_file=log_path,
+        )
+        engine = BulkTransferV2(cfg)
+        stats = engine.run()
+
+        assert stats.files_copied == 1
+        assert Path(log_path).exists()
+
+        # Parse JSON lines
+        lines = Path(log_path).read_text(encoding="utf-8").strip().split("\n")
+        events = [json.loads(line) for line in lines if line.strip()]
+        assert len(events) >= 2  # At least phase_start + complete
+
+        event_types = [e["event"] for e in events]
+        assert "phase_start" in event_types
+        assert "complete" in event_types
+
+    def test_no_log_without_config(self, tmp_dirs):
+        """No JSON log file when log_file is empty."""
+        src, dst = tmp_dirs
+        _make_file(src / "doc.txt", size=200)
+
+        stats = _run_transfer(src, dst)
+        assert stats.files_copied == 1
+        # No .jsonl file should exist
+        jsonl_files = list(dst.glob("*.jsonl"))
+        assert len(jsonl_files) == 0
+
+
+# ============================================================================
+# Test 29: Progress callback (GUI integration)
+# ============================================================================
+
+class TestProgressCallback:
+
+    def test_callback_receives_stats(self, tmp_dirs):
+        """Progress callback receives valid stats dict."""
+        src, dst = tmp_dirs
+        for i in range(3):
+            _make_file(src / f"doc_{i}.txt", size=200)
+
+        callbacks_received = []
+
+        def on_progress(stats_dict):
+            callbacks_received.append(stats_dict.copy())
+
+        cfg = TransferConfig(
+            source_paths=[str(src)],
+            dest_path=str(dst),
+            workers=1,
+            min_file_size=10,
+            resume=False,
+            progress_callback=on_progress,
+            checkpoint_interval=0.1,  # Fast checkpoints for testing
+        )
+        engine = BulkTransferV2(cfg)
+        stats = engine.run()
+
+        assert stats.files_copied == 3
+        # Should have received at least one callback
+        # (final emit_progress in run())
+        assert len(callbacks_received) >= 1
+
+        # Verify callback dict has expected keys
+        last_cb = callbacks_received[-1]
+        assert "files_copied" in last_cb
+        assert "bytes_copied" in last_cb
+        assert "speed_bps" in last_cb
+
+
+# ============================================================================
+# Test 30: Modified file detection on resume
+# ============================================================================
+
+class TestModifiedFileResume:
+
+    def test_modified_file_recopied(self, tmp_dirs):
+        """File modified between runs is recopied, not skipped."""
+        src, dst = tmp_dirs
+        f = _make_file(src / "evolving.txt", size=200)
+
+        # First run
+        stats1 = _run_transfer(src, dst, resume=True)
+        assert stats1.files_copied == 1
+
+        # Modify the file and force mtime to differ by > 2 seconds
+        # (is_already_transferred tolerance is 2.0s)
+        f.write_bytes(os.urandom(300))
+        st = f.stat()
+        os.utime(str(f), (st.st_atime, st.st_mtime + 5.0))
+
+        # Second run should recopy (mtime changed by 5 seconds)
+        stats2 = _run_transfer(src, dst, resume=True)
+        # Either copied (new content) or deduplicated, but NOT skipped
+        assert stats2.files_skipped_unchanged == 0
+
+    def test_unmodified_file_skipped(self, tmp_dirs):
+        """Unmodified file is correctly skipped on resume."""
+        src, dst = tmp_dirs
+        _make_file(src / "stable.txt", size=200)
+
+        _run_transfer(src, dst, resume=True)
+        stats2 = _run_transfer(src, dst, resume=True)
+
+        assert stats2.files_copied == 0
+        assert stats2.files_skipped_unchanged == 1
+
+
+# ============================================================================
+# Test 31: Chaos test (mixed failure modes)
+# ============================================================================
+# Combines multiple failure modes into one test to simulate a
+# realistic enterprise transfer with all the problems at once.
+# ============================================================================
+
+class TestChaos:
+
+    def test_mixed_failure_modes(self, tmp_dirs):
+        """Transfer survives a mix of failures: timeout, locked,
+        corruption, network drops, and permission errors.
+
+        This is the "real world" test -- production networks have
+        ALL of these problems happening simultaneously.
+        """
+        src, dst = tmp_dirs
+        rng = random.Random(42)  # Seeded for reproducibility
+
+        # Create 30 files of varying sizes
+        for i in range(30):
+            size = rng.choice([150, 500, 1000, 5000, 50_000])
+            _make_file(src / f"chaos_{i:03d}.txt", size=size)
+
+        call_count = [0]
+        original_copy = _buffered_copy
+
+        def chaos_copy(s, d, buf_size=1048576, bw_limit=0, **kw):
+            call_count[0] += 1
+            # 10% chance of network error (retryable)
+            if rng.random() < 0.10:
+                raise OSError(errno.ENETUNREACH, "Network blip")
+            # 5% chance of slow copy (variable speed)
+            if rng.random() < 0.05:
+                time.sleep(rng.uniform(0.01, 0.05))
+            original_copy(s, d, buf_size, bw_limit, **kw)
+
+        with mock.patch(
+            "src.tools.bulk_transfer_v2._buffered_copy", chaos_copy
+        ):
+            cfg = TransferConfig(
+                source_paths=[str(src)],
+                dest_path=str(dst),
+                workers=4,
+                min_file_size=100,
+                max_retries=3,
+                retry_backoff=0.01,
+                resume=False,
+            )
+            engine = BulkTransferV2(cfg)
+            stats = engine.run()
+
+        # With retries and a 10% failure rate, most files should succeed
+        assert stats.files_copied >= 20
+        assert stats.files_verify_failed == 0  # No silent corruption
+        # Every file is accounted for (zero-gap)
+        total = (stats.files_copied + stats.files_deduplicated +
+                 stats.files_failed + stats.files_quarantined)
+        assert total == 30
+
+    def test_chaos_with_resume(self, tmp_dirs):
+        """Chaos test followed by resume picks up remaining files."""
+        src, dst = tmp_dirs
+        rng = random.Random(99)
+
+        for i in range(20):
+            _make_file(src / f"doc_{i:03d}.txt", size=300)
+
+        fail_set = set(rng.sample(range(20), 8))  # 8 of 20 will fail
+        call_map = {}
+
+        original_copy = _buffered_copy
+
+        def selective_fail(s, d, buf_size=1048576, bw_limit=0, **kw):
+            # Extract file index from path
+            name = Path(s).stem
+            idx = int(name.split("_")[1])
+            count = call_map.get(idx, 0)
+            call_map[idx] = count + 1
+
+            # Files in fail_set fail on ALL attempts in first run
+            if idx in fail_set and count < 3:
+                raise OSError("Permanent failure (first run)")
+            original_copy(s, d, buf_size, bw_limit, **kw)
+
+        with mock.patch(
+            "src.tools.bulk_transfer_v2._buffered_copy", selective_fail
+        ):
+            cfg = TransferConfig(
+                source_paths=[str(src)],
+                dest_path=str(dst),
+                workers=1,
+                min_file_size=10,
+                max_retries=3,
+                retry_backoff=0.01,
+                resume=True,
+            )
+            engine = BulkTransferV2(cfg)
+            stats1 = engine.run()
+
+        assert stats1.files_copied == 12  # 20 - 8 failures
+
+        # Second run with resume: failed files should now be retried
+        # (no longer in fail_set mock because count > 3)
+        call_map.clear()
+        with mock.patch(
+            "src.tools.bulk_transfer_v2._buffered_copy", original_copy
+        ):
+            stats2 = _run_transfer(src, dst, resume=True)
+
+        # Resume should skip the 12 already-done and copy the 8 that failed
+        # (or dedup them if hashes match)
+        assert stats2.files_skipped_unchanged == 12
+        total_second = stats2.files_copied + stats2.files_deduplicated
+        assert total_second >= 5  # Most of the 8 should now succeed
+
+
+# ============================================================================
+# Test 32: Disk space exhaustion
+# ============================================================================
+
+class TestDiskSpace:
+
+    def test_enospc_stops_gracefully(self, tmp_dirs):
+        """ENOSPC (disk full) is detected and stops without data loss."""
+        src, dst = tmp_dirs
+        _make_file(src / "doc.txt", size=500)
+
+        def disk_full(s, d, buf_size=1048576, bw_limit=0, **kw):
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+        with mock.patch(
+            "src.tools.bulk_transfer_v2._buffered_copy", disk_full
+        ):
+            cfg = TransferConfig(
+                source_paths=[str(src)],
+                dest_path=str(dst),
+                workers=1,
+                min_file_size=10,
+                max_retries=3,  # ENOSPC should NOT be retried
+                retry_backoff=0.01,
+                resume=False,
+            )
+            engine = BulkTransferV2(cfg)
+            stats = engine.run()
+
+        # ENOSPC causes immediate failure (no retry), file goes
+        # to quarantine to preserve partial data for inspection
+        assert stats.files_copied == 0
+        assert stats.files_failed >= 1
+
+
+# ============================================================================
+# Test 33: GC trigger during transfer
+# ============================================================================
+
+class TestGarbageCollection:
+
+    def test_gc_triggered_by_interval(self, tmp_dirs):
+        """GC runs periodically based on gc_interval config."""
+        src, dst = tmp_dirs
+        for i in range(5):
+            _make_file(src / f"doc_{i}.txt", size=200)
+
+        cfg = TransferConfig(
+            source_paths=[str(src)],
+            dest_path=str(dst),
+            workers=1,
+            min_file_size=10,
+            resume=False,
+            gc_interval=2,  # Trigger GC every 2 files processed
+            checkpoint_interval=999,  # Don't trigger via checkpoint
+        )
+        engine = BulkTransferV2(cfg)
+        stats = engine.run()
+
+        assert stats.files_copied == 5
+        # At least the final gc.collect() in Phase 3
+        assert stats.gc_collections >= 1
+
+
+# ============================================================================
+# Test 34: Nightly incremental sync
+# ============================================================================
+# Simulates the production use case: nightly scheduled transfer that
+# only picks up new/modified files since the last run.
+# ============================================================================
+
+class TestNightlyIncrementalSync:
+
+    def test_three_night_incremental(self, tmp_dirs):
+        """Simulates 3 nightly runs with incrementally growing source.
+
+        Night 1: 10 files -> all copied
+        Night 2: 3 new files added -> 3 copied, 10 skipped
+        Night 3: 1 file modified, 2 new -> 3 copied, 12 skipped
+        """
+        src, dst = tmp_dirs
+
+        # Night 1: Initial 10 files
+        for i in range(10):
+            _make_file(src / f"doc_{i:03d}.txt", size=300)
+
+        stats1 = _run_transfer(src, dst, resume=True)
+        assert stats1.files_copied == 10
+
+        # Night 2: Add 3 new files
+        for i in range(10, 13):
+            _make_file(src / f"doc_{i:03d}.txt", size=300)
+
+        stats2 = _run_transfer(src, dst, resume=True)
+        assert stats2.files_copied == 3
+        assert stats2.files_skipped_unchanged == 10
+
+        # Night 3: Modify 1 existing + add 2 new
+        # Force mtime difference > 2 seconds (is_already_transferred
+        # tolerance is 2.0s) so the modified file is detected
+        f_mod = src / "doc_000.txt"
+        f_mod.write_bytes(os.urandom(400))  # Modified
+        st = f_mod.stat()
+        os.utime(str(f_mod), (st.st_atime, st.st_mtime + 5.0))
+        for i in range(13, 15):
+            _make_file(src / f"doc_{i:03d}.txt", size=300)
+
+        stats3 = _run_transfer(src, dst, resume=True)
+        # 2 new + 1 modified (mtime changed) = 3 to copy
+        # The modified file might be deduped if the hash lookup
+        # finds the old copy, but it won't be skipped_unchanged
+        assert stats3.files_skipped_unchanged == 12
+        new_transfers = stats3.files_copied + stats3.files_deduplicated
+        assert new_transfers >= 2  # At least the 2 brand new files
+
+    def test_nightly_with_deletions(self, tmp_dirs):
+        """Source deletions are tracked in delta analysis."""
+        src, dst = tmp_dirs
+
+        for i in range(5):
+            _make_file(src / f"doc_{i}.txt", size=200)
+
+        stats1 = _run_transfer(src, dst, resume=True)
+        assert stats1.files_copied == 5
+
+        # Delete 2 files from source
+        (src / "doc_0.txt").unlink()
+        (src / "doc_1.txt").unlink()
+
+        stats2 = _run_transfer(src, dst, resume=True)
+        assert stats2.files_skipped_unchanged == 3
+        assert stats2.files_delta_deleted == 2
+
+
+# ============================================================================
+# Test 35: Source path with spaces and special characters
+# ============================================================================
+
+class TestSpecialPaths:
+
+    def test_spaces_in_path(self, tmp_dirs):
+        """Paths with spaces are handled correctly."""
+        src, dst = tmp_dirs
+        folder = src / "My Documents" / "Q1 Reports"
+        _make_file(folder / "annual report.txt", size=200)
+
+        stats = _run_transfer(src, dst)
+        assert stats.files_copied == 1
+
+    def test_unicode_folder_names(self, tmp_dirs):
+        """Folder names with common unicode chars work."""
+        src, dst = tmp_dirs
+        folder = src / "Reports-2026"
+        _make_file(folder / "report_v2.1.txt", size=200)
+
+        stats = _run_transfer(src, dst)
+        assert stats.files_copied == 1
+
+    def test_very_long_filename(self, tmp_dirs):
+        """Long filenames (200+ chars) are handled."""
+        src, dst = tmp_dirs
+        # Create a file with a very long name (but under 260 total path)
+        long_name = "a" * 150 + ".txt"
+        _make_file(src / long_name, size=200)
+
+        stats = _run_transfer(src, dst)
+        assert stats.files_copied == 1

@@ -69,12 +69,24 @@ profiles = {
             'model': 'phi4-mini',
             'context_window': 8192,
         },
-        'retrieval': {'top_k': 5},
-        'indexing': {'block_chars': 200000},
+        'chunking': {
+            'chunk_size': 1200,
+            'overlap': 200,
+        },
+        'retrieval': {'top_k': 5, 'reranker_top_n': 20},
+        'indexing': {
+            'block_chars': 200000,
+            'max_chars_per_file': 2000000,
+        },
+        'performance': {
+            'max_concurrent_files': 1,
+            'gc_between_files': True,
+            'gc_between_blocks': True,
+        },
     },
     'desktop_power': {
         'embedding': {
-            'model_name': 'nomic-ai/nomic-embed-text-v1.5',
+            'model_name': 'nomic-embed-text',
             'dimension': 768,
             'batch_size': 64,
             'device': 'cuda',
@@ -83,8 +95,20 @@ profiles = {
             'model': 'mistral-nemo:12b',
             'context_window': 16384,
         },
-        'retrieval': {'top_k': 10},
-        'indexing': {'block_chars': 500000},
+        'chunking': {
+            'chunk_size': 1200,
+            'overlap': 200,
+        },
+        'retrieval': {'top_k': 10, 'reranker_top_n': 40},
+        'indexing': {
+            'block_chars': 500000,
+            'max_chars_per_file': 5000000,
+        },
+        'performance': {
+            'max_concurrent_files': 2,
+            'gc_between_files': False,
+            'gc_between_blocks': False,
+        },
     },
     'server_max': {
         'embedding': {
@@ -97,8 +121,20 @@ profiles = {
             'model': 'phi4:14b-q4_K_M',
             'context_window': 16384,
         },
-        'retrieval': {'top_k': 15},
-        'indexing': {'block_chars': 1000000},
+        'chunking': {
+            'chunk_size': 1200,
+            'overlap': 200,
+        },
+        'retrieval': {'top_k': 15, 'reranker_top_n': 60},
+        'indexing': {
+            'block_chars': 1000000,
+            'max_chars_per_file': 10000000,
+        },
+        'performance': {
+            'max_concurrent_files': 4,
+            'gc_between_files': False,
+            'gc_between_blocks': False,
+        },
     },
 }
 
