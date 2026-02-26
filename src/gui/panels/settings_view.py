@@ -93,7 +93,7 @@ def _detect_profile_name(config):
                 return name
     except Exception:
         pass
-    return "laptop_safe"
+    return "desktop_power"
 
 
 def _build_ranking_text(profile):

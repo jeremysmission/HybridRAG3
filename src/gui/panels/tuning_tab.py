@@ -277,7 +277,7 @@ class TuningTab(tk.Frame):
         self._profile_label.pack(side=tk.LEFT)
 
         profile_names = _load_profile_names()
-        self.profile_var = tk.StringVar(value="laptop_safe")
+        self.profile_var = tk.StringVar(value="desktop_power")
         self.profile_dropdown = ttk.Combobox(
             row, textvariable=self.profile_var, values=profile_names,
             state="readonly", width=20, font=FONT,

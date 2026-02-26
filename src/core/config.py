@@ -177,7 +177,7 @@ class OllamaConfig:
     Ollama runs on your machine -- no internet needed, no API costs.
     """
     base_url: str = "http://localhost:11434"
-    model: str = "phi4-mini"
+    model: str = "phi4:14b-q4_K_M"
     timeout_seconds: int = 600     # How long to wait for a response
     context_window: int = 16384    # Max tokens the model can see at once
     keep_alive: int = -1           # Seconds to keep model loaded (-1 = forever)
@@ -336,8 +336,8 @@ class RetrievalConfig:
        - Most accurate but adds 1-2 seconds per query
        - Toggle on/off via config or future GUI switch
     """
-    top_k: int = 8                 # How many chunks to send to the LLM
-    min_score: float = 0.20        # Minimum similarity score (0-1) to include
+    top_k: int = 10                # How many chunks to send to the LLM
+    min_score: float = 0.10        # Minimum similarity score (0-1) to include
     block_rows: int = 25000        # Memmap rows loaded per search block (RAM control)
     lex_boost: float = 0.06        # Legacy lexical boost (used when hybrid_search=False)
 
@@ -369,8 +369,8 @@ class IndexingConfig:
 
     Controls which files get indexed and how large files are handled.
     """
-    max_chars_per_file: int = 2_000_000   # Clamp files larger than this (safety)
-    block_chars: int = 200_000             # Process text in blocks of this size
+    max_chars_per_file: int = 5_000_000   # Clamp files larger than this (safety)
+    block_chars: int = 500_000             # Process text in blocks of this size
 
     # Which file types the indexer will attempt to parse
     supported_extensions: List[str] = field(default_factory=lambda: [
