@@ -502,7 +502,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 ---
 
-## Troubleshooting
+## Troubleshooting (Work Environment -- Section A only)
 
 ### "Running scripts is disabled on this system"
 
@@ -526,9 +526,12 @@ pip install <package>==<version> --timeout 120 --retries 10 --trusted-host pypi.
 
 ### "SSL: CERTIFICATE_VERIFY_FAILED"
 
-Corporate SSL inspection is intercepting the connection. Install
-pip-system-certs (step A9) and make sure your pip.ini has trusted-host
-entries (step A7).
+SSL inspection is intercepting the connection. Install pip-system-certs
+(step A9) and make sure your pip.ini has trusted-host entries (step A7).
+
+---
+
+## Troubleshooting (Both Environments)
 
 ### Import fails after install
 
@@ -536,7 +539,7 @@ The package may have installed but a dependency is missing. Install the
 specific package again without `--no-deps`:
 
 ```powershell
-pip install <package>==<version> --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120
+pip install <package>==<version>
 ```
 
 ### YAML config breaks after editing
