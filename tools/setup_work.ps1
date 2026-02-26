@@ -220,7 +220,7 @@ while ($wizStep -le 3) {
         }
         if (-not $PY_EXE) {
             Write-Fail "Python is not installed (or not on PATH)."
-            Write-Host "  Request Python 3.11 or 3.12 from your IT department."
+            Write-Host "  Request Python 3.12 from your IT department."
             Write-Host "  (Software Center, Company Portal, or ServiceNow)"
             Write-Host ""
             Write-Host "  B = Go back to change install location"
@@ -349,6 +349,13 @@ Write-Host ""
 Write-Ok "Settings confirmed"
 Write-Host "  ---- Automated setup begins now. You will see real-time progress. ----"
 
+# PS 5.1 converts native command stderr (pip/python WARNINGs) to ErrorRecords.
+# With 'Stop', these become terminating errors that crash the script before
+# $LASTEXITCODE can be checked. Phase 2 pip/python calls already have their
+# own error handling (while loops, $LASTEXITCODE, try/catch), so 'Continue'
+# is correct here. Cmdlets inside try/catch use explicit -ErrorAction Stop.
+$ErrorActionPreference = 'Continue'
+
 Set-Location "$PROJECT_ROOT"
 if (-not (Test-Path "$DATA_DIR"))   { New-Item -ItemType Directory -Path "$DATA_DIR" -Force | Out-Null; Write-Ok "Created: $DATA_DIR" }
 if (-not (Test-Path "$SOURCE_DIR")) { New-Item -ItemType Directory -Path "$SOURCE_DIR" -Force | Out-Null; Write-Ok "Created: $SOURCE_DIR" }
@@ -366,16 +373,27 @@ $stepTimer = [System.Diagnostics.Stopwatch]::StartNew()
 if (Test-Path ".venv") {
     Write-Ok ".venv already exists -- skipping (use Purge to redo)"
 } else {
-    Write-Host "  Creating .venv -- please wait (typically 30-60 seconds)..."
-    Write-Host "  (You will see a confirmation when it finishes)"
-    if ($PY_VER_FLAG) {
-        & $PY_EXE $PY_VER_FLAG -m venv .venv
-    } else {
-        & $PY_EXE -m venv .venv
-    }
-    if (-not (Test-Path ".venv\Scripts\python.exe")) {
-        Write-Fail "Virtual environment creation failed"
-        exit 1
+    $stepDone = $false
+    while (-not $stepDone) {
+        Write-Host "  Creating .venv -- please wait (typically 30-60 seconds)..."
+        Write-Host "  (You will see a confirmation when it finishes)"
+        if ($PY_VER_FLAG) {
+            & $PY_EXE $PY_VER_FLAG -m venv .venv
+        } else {
+            & $PY_EXE -m venv .venv
+        }
+        if (Test-Path ".venv\Scripts\python.exe") {
+            $stepDone = $true
+        } else {
+            Write-Fail "Virtual environment creation failed"
+            $choice = Request-Recovery "Creating venv" 4
+            switch ($choice) {
+                "R" { continue }
+                "S" { Write-Warn "Skipped venv creation"; $stepDone = $true }
+                "X" { Write-ManualResume 4 $TOTAL_STEPS; exit 0 }
+                default { continue }
+            }
+        }
     }
 }
 $stepTimer.Stop()
@@ -554,9 +572,9 @@ $LOG_FILE = "$logsDir\setup_install_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 
 # BUG 2 fix: Out-File writes BOM -- log file is consumed by Python, use WriteAllText instead
 $headerLines = @(
-    "=" * 70,
+    ("=" * 70),
     "HybridRAG3 Setup Install Log",
-    "=" * 70,
+    ("=" * 70),
     "Date       : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')",
     "Python     : $PY_EXE $(if($PY_VER_FLAG){$PY_VER_FLAG}else{'(system)'})",
     "pip        : $(& $PIP --version 2>&1)",
@@ -567,7 +585,7 @@ $headerLines = @(
     "NO_PROXY   : $(if($env:NO_PROXY){$env:NO_PROXY}else{'(not set)'})",
     "Project    : $PROJECT_ROOT",
     "Req file   : requirements_approved.txt",
-    "=" * 70,
+    ("=" * 70),
     ""
 )
 $headerText = ($headerLines -join "`n") + "`n"
@@ -763,22 +781,37 @@ if ($installTests -ne "n" -and $installTests -ne "N") {
 Write-Step 9 "Configuring default_config.yaml"
 
 $configPath = "$PROJECT_ROOT\config\default_config.yaml"
-if (Test-Path "$configPath") {
-    $content = Get-Content "$configPath" -Raw -Encoding UTF8
-    $dbPath = "$DATA_DIR\hybridrag.sqlite3"
-    $embPath = "$DATA_DIR\_embeddings"
-    # BUG 3 fix: escape $ in paths so -replace does not treat them as regex backreferences
-    $safeDbPath = $dbPath.Replace('$', '$$')
-    $safeEmbPath = $embPath.Replace('$', '$$')
-    $safeSrcDir = $SOURCE_DIR.Replace('$', '$$')
-    $content = $content -replace '(?m)^(\s*database:\s*).*$', "`$1$safeDbPath"
-    $content = $content -replace '(?m)^(\s*embeddings_cache:\s*).*$', "`$1$safeEmbPath"
-    $content = $content -replace '(?m)^(\s*source_folder:\s*).*$', "`$1$safeSrcDir"
-    # YAML is consumed by Python -- must NOT have BOM (Set-Content adds BOM in PS 5.1)
-    [System.IO.File]::WriteAllText($configPath, $content)
-    Write-Ok "Config updated with your paths"
-} else {
-    Write-Warn "Config file not found -- configure paths manually later"
+$stepDone = $false
+while (-not $stepDone) {
+    try {
+        if (Test-Path "$configPath") {
+            $content = Get-Content "$configPath" -Raw -Encoding UTF8 -ErrorAction Stop
+            $dbPath = "$DATA_DIR\hybridrag.sqlite3"
+            $embPath = "$DATA_DIR\_embeddings"
+            # BUG 3 fix: escape $ in paths so -replace does not treat them as regex backreferences
+            $safeDbPath = $dbPath.Replace('$', '$$')
+            $safeEmbPath = $embPath.Replace('$', '$$')
+            $safeSrcDir = $SOURCE_DIR.Replace('$', '$$')
+            $content = $content -replace '(?m)^(\s*database:\s*).*$', "`$1$safeDbPath"
+            $content = $content -replace '(?m)^(\s*embeddings_cache:\s*).*$', "`$1$safeEmbPath"
+            $content = $content -replace '(?m)^(\s*source_folder:\s*).*$', "`$1$safeSrcDir"
+            # YAML is consumed by Python -- must NOT have BOM (Set-Content adds BOM in PS 5.1)
+            [System.IO.File]::WriteAllText($configPath, $content)
+            Write-Ok "Config updated with your paths"
+        } else {
+            Write-Warn "Config file not found -- configure paths manually later"
+        }
+        $stepDone = $true
+    } catch {
+        Write-Fail "Config update failed: $_"
+        $choice = Request-Recovery "Config YAML" 9
+        switch ($choice) {
+            "R" { continue }
+            "S" { Write-Warn "Skipped config update"; $stepDone = $true }
+            "X" { Write-ManualResume 9 $TOTAL_STEPS; exit 0 }
+            default { continue }
+        }
+    }
 }
 
 # ==================================================================
@@ -789,21 +822,36 @@ Write-Step 10 "Creating start_hybridrag.ps1 from template"
 $templatePath = "$PROJECT_ROOT\start_hybridrag.ps1.template"
 $startScript = "$PROJECT_ROOT\start_hybridrag.ps1"
 
-if (Test-Path "$startScript") {
-    Write-Ok "start_hybridrag.ps1 already exists -- skipping"
-} elseif (Test-Path "$templatePath") {
-    $content = Get-Content "$templatePath" -Raw -Encoding UTF8
-    # BUG 3 fix: escape $ in replacement paths to prevent regex backreference corruption
-    $safeProjectRoot = $PROJECT_ROOT.Replace('$', '$$')
-    $safeDataDir = $DATA_DIR.Replace('$', '$$')
-    $safeSrcDir2 = $SOURCE_DIR.Replace('$', '$$')
-    $content = $content -replace 'C:\\path\\to\\HybridRAG3', $safeProjectRoot
-    $content = $content -replace 'C:\\path\\to\\data', $safeDataDir
-    $content = $content -replace 'C:\\path\\to\\source_docs', $safeSrcDir2
-    Set-Content -Path "$startScript" -Value $content -Encoding UTF8
-    Write-Ok "start_hybridrag.ps1 created from template"
-} else {
-    Write-Warn "No template found -- create start_hybridrag.ps1 manually"
+$stepDone = $false
+while (-not $stepDone) {
+    try {
+        if (Test-Path "$startScript") {
+            Write-Ok "start_hybridrag.ps1 already exists -- skipping"
+        } elseif (Test-Path "$templatePath") {
+            $content = Get-Content "$templatePath" -Raw -Encoding UTF8 -ErrorAction Stop
+            # BUG 3 fix: escape $ in replacement paths to prevent regex backreference corruption
+            $safeProjectRoot = $PROJECT_ROOT.Replace('$', '$$')
+            $safeDataDir = $DATA_DIR.Replace('$', '$$')
+            $safeSrcDir2 = $SOURCE_DIR.Replace('$', '$$')
+            $content = $content -replace 'C:\\path\\to\\HybridRAG3', $safeProjectRoot
+            $content = $content -replace 'C:\\path\\to\\data', $safeDataDir
+            $content = $content -replace 'C:\\path\\to\\source_docs', $safeSrcDir2
+            Set-Content -Path "$startScript" -Value $content -Encoding UTF8 -ErrorAction Stop
+            Write-Ok "start_hybridrag.ps1 created from template"
+        } else {
+            Write-Warn "No template found -- create start_hybridrag.ps1 manually"
+        }
+        $stepDone = $true
+    } catch {
+        Write-Fail "Template creation failed: $_"
+        $choice = Request-Recovery "Start script template" 10
+        switch ($choice) {
+            "R" { continue }
+            "S" { Write-Warn "Skipped start script creation"; $stepDone = $true }
+            "X" { Write-ManualResume 10 $TOTAL_STEPS; exit 0 }
+            default { continue }
+        }
+    }
 }
 
 $logsDir = "$PROJECT_ROOT\logs"
@@ -830,8 +878,23 @@ if ($configureApi -eq "y" -or $configureApi -eq "Y") {
     Write-Host ""
     $apiEndpoint = Read-Host "  API Endpoint"
     if ($apiEndpoint -ne "B" -and $apiEndpoint -ne "b" -and -not [string]::IsNullOrWhiteSpace($apiEndpoint)) {
-        & $PYTHON "tools/py/store_endpoint.py" $apiEndpoint 2>&1
-        Write-Ok "API endpoint stored"
+        $stepDone = $false
+        while (-not $stepDone) {
+            & $PYTHON "tools/py/store_endpoint.py" $apiEndpoint 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Write-Ok "API endpoint stored"
+                $stepDone = $true
+            } else {
+                Write-Fail "Failed to store API endpoint"
+                $choice = Request-Recovery "Store endpoint" 11
+                switch ($choice) {
+                    "R" { continue }
+                    "S" { Write-Warn "Skipped endpoint storage"; $stepDone = $true }
+                    "X" { Write-ManualResume 11 $TOTAL_STEPS; exit 0 }
+                    default { continue }
+                }
+            }
+        }
 
         Write-Host ""
         Write-Host "  Enter your API key (text is hidden as you type)."
@@ -842,9 +905,24 @@ if ($configureApi -eq "y" -or $configureApi -eq "Y") {
         try {
             $plainKey = [Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
             if (-not [string]::IsNullOrWhiteSpace($plainKey)) {
-                $env:HYBRIDRAG_API_KEY = $plainKey
-                & $PYTHON "tools/py/store_key.py" 2>&1
-                Write-Ok "API key stored in Windows Credential Manager"
+                $stepDone = $false
+                while (-not $stepDone) {
+                    $env:HYBRIDRAG_API_KEY = $plainKey
+                    & $PYTHON "tools/py/store_key.py" 2>&1
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Ok "API key stored in Windows Credential Manager"
+                        $stepDone = $true
+                    } else {
+                        Write-Fail "Failed to store API key"
+                        $choice = Request-Recovery "Store API key" 11
+                        switch ($choice) {
+                            "R" { continue }
+                            "S" { Write-Warn "Skipped API key storage"; $stepDone = $true }
+                            "X" { Write-ManualResume 11 $TOTAL_STEPS; exit 0 }
+                            default { continue }
+                        }
+                    }
+                }
             }
         } finally {
             [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
@@ -891,6 +969,8 @@ while (-not $stepDone) {
 # ======================================================================
 Write-Step 13 "Running full diagnostics"
 $stepTimer = [System.Diagnostics.Stopwatch]::StartNew()
+$stepDone = $false
+while (-not $stepDone) {
 $diagPass = 0
 $diagFail = 0
 
@@ -999,8 +1079,6 @@ if ($LASTEXITCODE -eq 0) {
     Write-Warn "pytest not installed -- skipping regression tests"
 }
 
-$stepTimer.Stop()
-
 # --- Diagnostic summary ---
 Write-Host ""
 Write-Host "  ============================================" -ForegroundColor Cyan
@@ -1015,6 +1093,52 @@ if ($diagFail -gt 0) {
 }
 Write-Host "    Time elapsed  : $(Format-Elapsed $stepTimer)"
 Write-Host ""
+
+    if ($diagFail -eq 0) {
+        $stepDone = $true
+    } else {
+        $choice = Request-Recovery "Diagnostics" 13 -DrillDown
+        switch ($choice) {
+            "R" { continue }
+            "D" {
+                Write-Host ""
+                Write-Host "  --- Drill-Down: Re-checking imports individually ---" -ForegroundColor Cyan
+                Write-Host ""
+                foreach ($pkg in $packages) {
+                    $pkgDone = $false
+                    while (-not $pkgDone) {
+                        & $PYTHON -c "import $($pkg.mod)" 2>&1 | Out-Null
+                        if ($LASTEXITCODE -eq 0) {
+                            Write-Host "    [OK] $($pkg.label)" -ForegroundColor Green
+                            $pkgDone = $true
+                        } else {
+                            Write-Host "    [FAIL] $($pkg.label)" -ForegroundColor Red
+                            $pipName = if ($pkg.mod -eq "yaml") { "pyyaml" } else { $pkg.mod }
+                            Write-Host "    Fix: $PIP install $pipName --trusted-host pypi.org --trusted-host files.pythonhosted.org" -ForegroundColor Gray
+                            Write-Host ""
+                            Write-Host "  [R] Retry (re-installs $pipName)   [S] Skip   [X] Exit"
+                            $pkgChoice = Read-Host "  Choose [R/S/X]"
+                            switch ($pkgChoice.ToUpper()) {
+                                "R" {
+                                    & $PIP install $pipName @TRUSTED 2>&1
+                                    continue
+                                }
+                                "S" { Write-Warn "Skipped $($pkg.label)"; $pkgDone = $true }
+                                "X" { Write-ManualResume 13 $TOTAL_STEPS; exit 0 }
+                                default { continue }
+                            }
+                        }
+                    }
+                }
+                $stepDone = $true
+            }
+            "S" { Write-Warn "Skipped diagnostics recovery"; $stepDone = $true }
+            "X" { Write-ManualResume 13 $TOTAL_STEPS; exit 0 }
+            default { continue }
+        }
+    }
+} # end diagnostics while loop
+$stepTimer.Stop()
 
 # ==================================================================
 # Done!
