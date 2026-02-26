@@ -454,6 +454,7 @@ class HybridRAGApp(tk.Tk):
             self.index_panel.set_ready(False)
         if hasattr(self, "status_bar"):
             self.status_bar.router = None
+            self.status_bar._init_error = None  # Clear previous error
             self.status_bar.set_loading_stage("Restarting...")
             self.status_bar.force_refresh()
 

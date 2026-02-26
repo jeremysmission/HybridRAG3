@@ -21,8 +21,8 @@
 #     - batch_size=16, top_k=5, block=200K
 #
 #   desktop_power (64GB RAM, 12GB VRAM):
-#     - Embedder: nomic-embed-text-v1.5 (768d, CUDA)
-#     - LLM: mistral-nemo:12b (12B, 128K context)
+#     - Embedder: nomic-embed-text (768d, CUDA)
+#     - LLM: phi4:14b-q4_K_M (14B, 16K context)
 #     - batch_size=64, top_k=10, block=500K
 #
 #   server_max (64GB+ RAM, 24GB+ VRAM):
@@ -92,7 +92,7 @@ profiles = {
             'device': 'cuda',
         },
         'ollama': {
-            'model': 'mistral-nemo:12b',
+            'model': 'phi4:14b-q4_K_M',
             'context_window': 16384,
         },
         'chunking': {
@@ -179,8 +179,8 @@ desc = {
     ),
     'desktop_power': (
         'Desktop (64GB RAM, 12GB VRAM)\n'
-        '  Embedder: nomic-embed-text-v1.5 (768d, cuda)\n'
-        '  Default LLM: mistral-nemo:12b (12B, 16K ctx)'
+        '  Embedder: nomic-embed-text (768d, cuda)\n'
+        '  Default LLM: phi4:14b-q4_K_M (14B, 16K ctx)'
     ),
     'server_max': (
         'Server (64GB+ RAM, 24GB+ VRAM)\n'

@@ -437,11 +437,17 @@ class TuningTab(tk.Frame):
             )
 
         self.config = new_config
-        if hasattr(self._app, "reload_config"):
-            self._app.reload_config(new_config)
+        try:
+            if hasattr(self._app, "reload_config"):
+                self._app.reload_config(new_config)
 
-        if hasattr(self._app, "reset_backends"):
-            self._app.reset_backends()
+            if hasattr(self._app, "reset_backends"):
+                self._app.reset_backends()
+        except Exception as e:
+            logger.warning("Profile apply failed during backend reset: %s", e)
+            self.after(0, self._profile_switch_failed,
+                       "Backend reset: {}".format(str(e)[:60]))
+            return
 
         self._refresh_profile_info()
         self._refresh_model_table()

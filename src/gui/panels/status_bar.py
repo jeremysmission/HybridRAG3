@@ -44,6 +44,7 @@ class StatusBar(tk.Frame):
         self._cbit_timer_id = None
         self._cbit_results = None   # Latest CBIT results
         self._query_engine = None   # Set by _attach() for CBIT use
+        self._init_error = None     # Set by _load_backends on failure
 
         self._build_widgets(t)
 
@@ -181,12 +182,22 @@ class StatusBar(tk.Frame):
         else:
             self.ollama_label.config(text="Ollama: Offline", fg=t["gray"])
 
+    def set_init_error(self, error_text):
+        """Store an init error message for display in status indicators."""
+        self._init_error = error_text
+
     def _update_no_router(self):
         """Display when no router is available."""
         t = current_theme()
         if self._loading:
             self.llm_label.config(text="LLM: Loading...", fg=t["gray"])
             self.ollama_label.config(text="Ollama: Loading...", fg=t["gray"])
+        elif self._init_error:
+            self.llm_label.config(
+                text="LLM: Init failed ({})".format(self._init_error[:40]),
+                fg=t["red"],
+            )
+            self.ollama_label.config(text="Ollama: Unknown", fg=t["gray"])
         else:
             self.llm_label.config(text="LLM: Not initialized", fg=t["fg"])
             self.ollama_label.config(text="Ollama: Unknown", fg=t["gray"])

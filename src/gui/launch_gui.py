@@ -214,6 +214,8 @@ def _load_backends(app, logger):
             logger.info("[OK] LLM router ready")
             return r
 
+        init_errors = []
+
         with ThreadPoolExecutor(max_workers=3) as pool:
             fut_store = pool.submit(_init_store)
             fut_embedder = pool.submit(_init_embedder)
@@ -223,14 +225,17 @@ def _load_backends(app, logger):
                 store = fut_store.result()
             except Exception as e:
                 logger.warning("[WARN] VectorStore init failed: %s", e)
+                init_errors.append("Database: {}".format(e))
             try:
                 embedder = fut_embedder.result()
             except Exception as e:
                 logger.warning("[WARN] Embedder init failed: %s", e)
+                init_errors.append("Embedder: {}".format(e))
             try:
                 router = fut_router.result()
             except Exception as e:
                 logger.warning("[WARN] LLMRouter init failed: %s", e)
+                init_errors.append("LLM Router: {}".format(e))
 
         # -- Ollama warmup: pre-load model weights into memory --
         if router and getattr(router, "ollama", None) and router.ollama.is_available():
@@ -277,8 +282,22 @@ def _load_backends(app, logger):
             app.index_panel.set_ready(indexer is not None)
         if hasattr(app, "status_bar"):
             app.status_bar.router = router
+            if init_errors:
+                app.status_bar.set_init_error(init_errors[0])
             app.status_bar.force_refresh()
         logger.info("[OK] Backends attached to GUI")
+
+        # Show init errors to user so they know what failed
+        if init_errors:
+            from tkinter import messagebox
+            messagebox.showwarning(
+                "Backend Init Errors",
+                "Some components failed to initialize:\n\n"
+                + "\n".join("  - {}".format(e) for e in init_errors)
+                + "\n\nThe system may have limited functionality."
+                "\nCheck that Ollama is running and the database"
+                " path exists.",
+            )
 
         # -- IBIT: stepped verification display then final badge --
         _run_ibit_sequence(app, config, query_engine, indexer, router, logger)
