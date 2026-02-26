@@ -17,7 +17,11 @@ logger = logging.getLogger(__name__)
 
 
 def _rebuild_router(app):
-    """Close old LLM router, build a new one, and propagate to query engine."""
+    """Close old LLM router, build a new one, and propagate to query engine.
+
+    Returns True on success, False on failure.  On failure shows a
+    messagebox so the user knows why the mode switch didn't work.
+    """
     try:
         from src.core.llm_router import LLMRouter, invalidate_deployment_cache
         old_router = getattr(app, "router", None)
@@ -30,8 +34,15 @@ def _rebuild_router(app):
             app.query_engine.llm_router = new_router
         if hasattr(app, "status_bar"):
             app.status_bar.router = new_router
+        return True
     except Exception as e:
         logger.warning("Router rebuild failed: %s", e)
+        messagebox.showwarning(
+            "Router Rebuild Failed",
+            "Could not rebuild LLM router:\n\n{}\n\n"
+            "Check that Ollama is running.".format(e),
+        )
+        return False
 
 
 def toggle_mode(app, new_mode):
@@ -94,6 +105,17 @@ def switch_to_online(app):
         )
     except Exception as e:
         logger.warning("Gate reconfiguration failed: %s", e)
+        # Revert to offline -- gate is in inconsistent state
+        if app.config:
+            app.config.mode = "offline"
+            persist_mode(app, "offline")
+        messagebox.showwarning(
+            "Gate Configuration Failed",
+            "Could not configure network gate for online mode:\n\n"
+            "{}\n\nReverted to offline mode.".format(e),
+        )
+        update_mode_buttons(app)
+        return
 
     # Rebuild LLM router so online mode actually has API credentials
     _rebuild_router(app)
@@ -134,6 +156,11 @@ def switch_to_offline(app):
         configure_gate(mode="offline")
     except Exception as e:
         logger.warning("Gate reconfiguration failed: %s", e)
+        messagebox.showwarning(
+            "Gate Configuration Failed",
+            "Could not configure network gate:\n\n{}\n\n"
+            "Continuing in offline mode.".format(e),
+        )
 
     # Rebuild LLM router for offline mode
     _rebuild_router(app)

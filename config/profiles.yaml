@@ -75,7 +75,7 @@ desktop_power:
     batch_size: 64               # 4x laptop = 4x faster embedding
     device: "cuda"               # 12GB VRAM handles nomic easily
   ollama:
-    model: "mistral-nemo:12b"    # 12B, 7.1GB, 128K ctx, Apache 2.0
+    model: "phi4:14b-q4_K_M"    # 14B, 9.1GB, MIT, strongest reasoning
     context_window: 16384        # More context = better answers
   chunking:
     chunk_size: 1200
@@ -92,7 +92,7 @@ desktop_power:
     gc_between_blocks: false
   notes: >
     Aggressive settings for 64GB RAM / 12GB VRAM machines.
-    Embedding: nomic-embed-text (768d, CUDA via Ollama). LLM: mistral-nemo:12b (128K ctx).
+    Embedding: nomic-embed-text (768d, CUDA via Ollama). LLM: phi4:14b-q4_K_M (14B, MIT).
     4x faster embedding than laptop_safe.
 
 # --- SERVER MAX ---
