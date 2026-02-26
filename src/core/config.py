@@ -138,7 +138,7 @@ class EmbeddingConfig:
     model_name: str = "nomic-embed-text"
     dimension: int = 768           # Must match model output (768 for nomic)
     batch_size: int = 64           # Texts per Ollama API call
-    device: str = "cpu"            # Unused (Ollama manages device)
+    device: str = "cuda"           # Unused (Ollama manages device)
 
     def __post_init__(self) -> None:
         # Allow env var override for batch size (useful for tuning per-machine)
@@ -177,12 +177,13 @@ class OllamaConfig:
     Ollama runs on your machine -- no internet needed, no API costs.
     """
     base_url: str = "http://localhost:11434"
-    model: str = "phi4-mini"
-    timeout_seconds: int = 120     # How long to wait for a response
-    context_window: int = 4096     # Max tokens the model can see at once
+    model: str = "mistral-nemo:12b"
+    timeout_seconds: int = 600     # How long to wait for a response
+    context_window: int = 16384    # Max tokens the model can see at once
     keep_alive: int = -1           # Seconds to keep model loaded (-1 = forever)
     num_predict: int = 512         # Max output tokens per generation
     num_thread: int = 0            # CPU threads (0 = auto-detect)
+    temperature: float = 0.05      # Generation temperature (0=deterministic)
 
 
 @dataclass

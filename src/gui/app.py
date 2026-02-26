@@ -486,6 +486,10 @@ class HybridRAGApp(tk.Tk):
         """Replace the running config and propagate to all panels."""
         self.config = new_config
 
+        # Propagate to query engine so it uses the new settings
+        if hasattr(self, "query_engine") and self.query_engine:
+            self.query_engine.config = new_config
+
         if hasattr(self, "query_panel"):
             self.query_panel.config = new_config
             self.query_panel._on_use_case_change()

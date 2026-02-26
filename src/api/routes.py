@@ -180,6 +180,25 @@ async def query(req: QueryRequest):
 
     result = await asyncio.to_thread(s.query_engine.query, req.question)
 
+    # Record cost event for PM dashboard (mirrors GUI query_panel behavior)
+    try:
+        from src.core.cost_tracker import get_cost_tracker
+        tracker = get_cost_tracker()
+        model = getattr(
+            getattr(s.config, "ollama" if result.mode == "offline" else "api", None),
+            "model", "",
+        ) or ""
+        tracker.record(
+            tokens_in=result.tokens_in,
+            tokens_out=result.tokens_out,
+            model=model,
+            mode=result.mode,
+            profile="api",
+            latency_ms=result.latency_ms,
+        )
+    except Exception as e:
+        logger.debug("Cost event emit failed: %s", e)
+
     return QueryResponse(
         answer=result.answer,
         sources=result.sources,
@@ -316,7 +335,10 @@ async def start_indexing(req: IndexRequest = None):
             indexer = Indexer(s.config, s.vector_store, s.embedder, chunker)
             callback = APIProgressCallback()
             indexer.index_folder(source_folder, callback)
-            indexer.close()
+            # NOTE: Do NOT call indexer.close() here. The indexer holds
+            # shared references to s.vector_store and s.embedder. Closing
+            # them would destroy the server-wide instances and crash all
+            # subsequent queries until restart.
         except Exception as e:
             logger.error("[FAIL] Indexing error: %s", e)
         finally:
@@ -382,6 +404,11 @@ async def set_mode(req: ModeRequest):
                    "Use rag-store-endpoint to set it first.",
         )
 
+    # Close old router's HTTP clients before replacing
+    old_router = getattr(s, "llm_router", None)
+    if old_router and hasattr(old_router, "close"):
+        old_router.close()
+
     # Update in-memory config
     s.config.mode = new_mode
 
@@ -389,6 +416,29 @@ async def set_mode(req: ModeRequest):
     from src.core.llm_router import LLMRouter
     s.llm_router = LLMRouter(s.config)
     s.query_engine.llm_router = s.llm_router
+
+    # Reconfigure network gate to match new mode
+    try:
+        from src.core.network_gate import configure_gate
+        if new_mode == "online":
+            from src.security.credentials import resolve_credentials
+            creds = resolve_credentials()
+            configure_gate(
+                mode="online",
+                api_endpoint=creds.endpoint or "",
+                allowed_prefixes=getattr(
+                    getattr(s.config, "api", None),
+                    "allowed_endpoint_prefixes", [],
+                ) if s.config else [],
+            )
+        else:
+            configure_gate(mode="offline")
+    except Exception as e:
+        logger.warning("Gate reconfiguration failed: %s", e)
+
+    # Invalidate deployment cache so model list reflects new mode
+    from src.core.llm_router import invalidate_deployment_cache
+    invalidate_deployment_cache()
 
     # Persist to YAML
     _update_yaml_mode(new_mode)

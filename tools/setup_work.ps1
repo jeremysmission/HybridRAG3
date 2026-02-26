@@ -1164,7 +1164,7 @@ $packages = @(
     @{mod="cryptography"; label="cryptography (encryption)"}
 )
 foreach ($pkg in $packages) {
-    & $PYTHON -c "import $($pkg.mod)" 2>&1 | Out-Null
+    $null = & $PYTHON -c "import $($pkg.mod)" 2>&1
     if ($LASTEXITCODE -eq 0) {
         Write-Host "    [OK] $($pkg.label)" -ForegroundColor Green
         $diagPass++
@@ -1281,7 +1281,7 @@ Write-Host ""
                 foreach ($pkg in $packages) {
                     $pkgDone = $false
                     while (-not $pkgDone) {
-                        & $PYTHON -c "import $($pkg.mod)" 2>&1 | Out-Null
+                        $null = & $PYTHON -c "import $($pkg.mod)" 2>&1
                         if ($LASTEXITCODE -eq 0) {
                             Write-Host "    [OK] $($pkg.label)" -ForegroundColor Green
                             $pkgDone = $true

@@ -68,8 +68,10 @@
 from __future__ import annotations
 
 import errno
+import gc
 import hashlib
 import json
+import logging
 import os
 import random
 import shutil
@@ -81,7 +83,9 @@ from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+
+logger = logging.getLogger(__name__)
 
 from .transfer_manifest import TransferManifest
 from .transfer_staging import StagingManager
@@ -170,6 +174,23 @@ class TransferConfig:
     follow_symlinks: bool = False       # Follow symlinks/junctions?
     long_path_warn: int = 250           # Warn on paths near MAX_PATH (260)
 
+    # --- VPN / corporate network resilience ---
+    # These settings handle the reality of SMB paths over VPN/corporate
+    # networks where connections drop, stall, or throttle unpredictably.
+    network_health_interval: float = 60.0    # Seconds between source reachability checks
+    stall_timeout: float = 120.0             # Seconds before declaring a copy stalled
+    max_consecutive_failures: int = 20       # Pause and wait for network recovery
+    network_recovery_wait: float = 30.0      # Seconds to wait when network appears down
+    network_recovery_max_wait: float = 600.0 # Max backoff for network recovery (10 min)
+
+    # --- Memory safety for multi-day operation ---
+    # 650 GB / 5 days = need careful memory management
+    gc_interval: int = 10000           # Force gc.collect() every N files processed
+    checkpoint_interval: float = 300.0 # Log checkpoint summary every N seconds
+    max_speed_history: int = 500       # Cap speed-over-time samples
+    log_file: str = ""                 # Path to JSON log file ("" = no file log)
+    progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None
+
 
 # ============================================================================
 # Transfer Statistics (thread-safe)
@@ -235,10 +256,21 @@ class TransferStats:
 
         # Speed-over-time history: sampled every 30s for final report
         self._speed_history: List[Tuple[float, float]] = []  # (elapsed, bps)
+        self._max_speed_history: int = 500  # Prevent unbounded growth
 
         # Phase 1 discovery counters (updated from walk thread)
         self.current_source_root: str = ""
         self.dirs_walked: int = 0
+
+        # Network health tracking
+        self.network_stalls: int = 0         # Times network appeared down
+        self.network_recovery_time: float = 0  # Total seconds in recovery waits
+        self.consecutive_failures: int = 0   # Current consecutive failure streak
+
+        # Memory tracking for multi-day operation
+        self.gc_collections: int = 0         # Times gc.collect() was triggered
+        self.peak_queue_size: int = 0        # Largest queue seen
+        self.checkpoints_logged: int = 0     # Checkpoint summaries emitted
 
     def record_copy(
         self, file_size: int, ext: str, source_root: str = "",
@@ -437,6 +469,30 @@ class TransferStats:
                 )
                 if i >= 29:  # Max 30 rows
                     break
+
+        # Network & memory health (for multi-day operation monitoring)
+        if self.network_stalls or self.gc_collections:
+            lines.extend(["", "  Operational health:"])
+            if self.network_stalls:
+                lines.append(
+                    f"    Network stalls:        {self.network_stalls:,}"
+                )
+                lines.append(
+                    f"    Recovery wait time:     "
+                    f"{_fmt_dur(self.network_recovery_time)}"
+                )
+            if self.gc_collections:
+                lines.append(
+                    f"    GC collections:        {self.gc_collections:,}"
+                )
+            if self.checkpoints_logged:
+                lines.append(
+                    f"    Checkpoints logged:    {self.checkpoints_logged:,}"
+                )
+            if self.peak_queue_size:
+                lines.append(
+                    f"    Peak queue size:       {self.peak_queue_size:,}"
+                )
 
         lines.extend(["", "=" * 70])
         return "\n".join(lines)
@@ -799,7 +855,18 @@ class AtomicTransferWorker:
     def transfer(
         self, queue: List[Tuple[str, str, str, int]],
     ) -> None:
-        """Transfer all files using a thread pool with backpressure."""
+        """Transfer all files using a thread pool with backpressure.
+
+        NON-PROGRAMMER NOTE:
+          "Backpressure" means we don't dump all 2 million files into the
+          thread pool at once (that would eat all the RAM). Instead we keep
+          a rolling window of at most workers*4 files in flight, and only
+          submit a new file when a previous one completes.
+
+          The network recovery logic detects when too many files fail in
+          a row (e.g., VPN dropped) and pauses all workers until the source
+          comes back online, with exponential backoff up to 10 minutes.
+        """
         # Start live progress display
         t = threading.Thread(
             target=self._progress_loop, daemon=True,
@@ -807,8 +874,9 @@ class AtomicTransferWorker:
         t.start()
 
         max_inflight = self.config.workers * 4
+        cfg = self.config
         with ThreadPoolExecutor(
-            max_workers=self.config.workers,
+            max_workers=cfg.workers,
         ) as pool:
             pending: set = set()
             q_idx = 0
@@ -833,6 +901,14 @@ class AtomicTransferWorker:
                         fut.result()
                     except Exception:
                         pass  # Errors handled inside _transfer_one
+
+                    # Network recovery: when consecutive failures exceed
+                    # threshold, pause and wait for the network to recover
+                    # (VPN reconnect, SMB re-establishment).
+                    if self.stats.consecutive_failures >= \
+                       cfg.max_consecutive_failures:
+                        self._network_recovery_wait()
+
                     if q_idx < len(queue) and not self._stop.is_set():
                         item = queue[q_idx]
                         q_idx += 1
@@ -840,7 +916,74 @@ class AtomicTransferWorker:
                             pool.submit(self._transfer_one, *item),
                         )
 
+                    # Periodic GC for multi-day transfers
+                    processed = self.stats.files_processed
+                    if cfg.gc_interval > 0 and \
+                       processed > 0 and processed % cfg.gc_interval == 0:
+                        gc.collect()
+                        self.stats.gc_collections += 1
+
         self._stop.set()
+
+    def _network_recovery_wait(self) -> None:
+        """Pause transfer and wait for network to recover.
+
+        NON-PROGRAMMER NOTE:
+          When many files fail in a row (e.g., 20 straight failures), it
+          usually means the VPN dropped or the SMB server is unreachable.
+          Rather than burning through the entire queue with failures, we
+          pause all workers and check if the source is reachable. We start
+          by waiting 30 seconds, then double the wait each time (up to 10
+          minutes). As soon as the first source responds, we resume.
+
+          Backoff sequence: 30s -> 60s -> 120s -> 240s -> 480s -> 600s (cap)
+        """
+        cfg = self.config
+        base_wait = cfg.network_recovery_wait
+        self.stats.network_stalls += 1
+        with self._log_lock:
+            print(
+                f"\n  [WARN] {self.stats.consecutive_failures} consecutive "
+                f"failures -- pausing for network recovery ({base_wait:.0f}s)"
+            )
+
+        while not self._stop.is_set():
+            # Count down the current wait in 5s increments so we can
+            # check the stop event frequently (responsive to Ctrl+C).
+            remaining = base_wait
+            while remaining > 0 and not self._stop.is_set():
+                time.sleep(min(remaining, 5.0))
+                remaining -= 5.0
+
+            if self._stop.is_set():
+                return
+
+            # Check if any source path is reachable
+            reachable = False
+            for sp in cfg.source_paths:
+                try:
+                    os.listdir(sp)
+                    reachable = True
+                    break
+                except OSError:
+                    pass
+
+            if reachable:
+                self.stats.consecutive_failures = 0
+                with self._log_lock:
+                    print(
+                        "\n  [OK] Network recovered, resuming transfer"
+                    )
+                return
+
+            # Exponential backoff: double the wait each cycle
+            self.stats.network_recovery_time += base_wait
+            base_wait = min(base_wait * 2, cfg.network_recovery_max_wait)
+            with self._log_lock:
+                print(
+                    f"\n  [WARN] Network still down, "
+                    f"waiting {base_wait:.0f}s..."
+                )
 
     # ------------------------------------------------------------------
     # Single-file atomic copy
@@ -862,6 +1005,7 @@ class AtomicTransferWorker:
             hash_src = _hash_file(source)
             if not hash_src:
                 self.stats.files_failed += 1
+                self.stats.consecutive_failures += 1
                 self.manifest.record_transfer(
                     self.run_id, source, result="failed",
                     error_message="Cannot read source for hashing",
@@ -955,7 +1099,12 @@ class AtomicTransferWorker:
                 except Exception as e:
                     last_err = f"{type(e).__name__}: {e}"
                     retries = attempt - 1
-                    if isinstance(e, (TimeoutError,)):
+                    # TimeoutError with an errno (e.g., ETIMEDOUT) is a
+                    # network timeout -- retryable. TimeoutError without
+                    # an errno is our copy-stall detector -- NOT retryable
+                    # (the file is stuck on a dead network path).
+                    if isinstance(e, TimeoutError) and \
+                       not getattr(e, "errno", 0):
                         break
                     if isinstance(e, OSError) and \
                        getattr(e, "errno", 0) == errno.ENOSPC:
@@ -966,11 +1115,18 @@ class AtomicTransferWorker:
 
             if not copied:
                 self.stats.files_failed += 1
-                self.staging.quarantine_file(
-                    tmp_path, dest_rel,
-                    f"Copy failed: {last_err}",
-                )
-                self.stats.files_quarantined += 1
+                self.stats.consecutive_failures += 1
+                # Only quarantine if the .tmp file was actually created.
+                # If the copy failed before writing any data (e.g.,
+                # network unreachable before socket connects), the .tmp
+                # file won't exist and quarantine_file would raise
+                # FileNotFoundError, masking the original error.
+                if tmp_path.exists():
+                    self.staging.quarantine_file(
+                        tmp_path, dest_rel,
+                        f"Copy failed: {last_err}",
+                    )
+                    self.stats.files_quarantined += 1
                 self.manifest.record_transfer(
                     self.run_id, source, result="failed",
                     hash_source=hash_src, retry_count=retries,
@@ -1033,13 +1189,24 @@ class AtomicTransferWorker:
                 duration_sec=dur, speed_mbps=speed,
                 result="success", retry_count=retries,
             )
+            # Update source_manifest with content_hash.
+            # IMPORTANT: preserve file_mtime from the pre-transfer stat
+            # so resume checks (is_already_transferred) can compare
+            # mtimes on the next run.  Without this, INSERT OR REPLACE
+            # clobbers file_mtime to 0 and resume never matches.
             self.manifest.record_source_file(
                 self.run_id, source, file_size=file_size,
+                file_mtime=pre_stat.st_mtime,
+                file_ctime=getattr(pre_stat, "st_ctime", 0.0),
                 content_hash=hash_src, extension=ext,
             )
 
+            # Reset consecutive failure counter on success (network is OK)
+            self.stats.consecutive_failures = 0
+
         except Exception as e:
             self.stats.files_failed += 1
+            self.stats.consecutive_failures += 1
             self.stats.record_source_event(source_root, "failed")
             self.manifest.record_transfer(
                 self.run_id, source, result="failed",
@@ -1063,7 +1230,13 @@ class AtomicTransferWorker:
             elapsed = self.stats.elapsed
             if elapsed - last_sample >= sample_interval:
                 speed = self.stats.speed_bps
-                self.stats._speed_history.append((elapsed, speed))
+                history = self.stats._speed_history
+                history.append((elapsed, speed))
+                # Cap speed history to prevent unbounded memory growth
+                # during multi-day transfers. Keep the most recent samples.
+                cap = self.stats._max_speed_history
+                if len(history) > cap:
+                    self.stats._speed_history = history[-cap:]
                 last_sample = elapsed
             self._stop.wait(timeout=2.0)
         print()
@@ -1088,18 +1261,26 @@ class BulkTransferV2:
     def __init__(self, config: TransferConfig) -> None:
         config.workers = min(max(config.workers, 1), 32)
         self.config = config
-        self.run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        # Include microseconds in run_id so rapid sequential runs
+        # (e.g., nightly tests) don't collide on the same second.
+        self.run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
         self.stats = TransferStats()
+        self.stats._max_speed_history = config.max_speed_history
         self.manifest: Optional[TransferManifest] = None
         self.staging: Optional[StagingManager] = None
         self._stop = threading.Event()
         self._log_lock = threading.Lock()
+        self._json_log: Optional[Any] = None
 
     def run(self) -> TransferStats:
         """Execute the full three-phase transfer pipeline."""
         cfg = self.config
         dest = Path(cfg.dest_path)
         dest.mkdir(parents=True, exist_ok=True)
+
+        # Initialize JSON log file if configured
+        if cfg.log_file:
+            self._init_json_log(cfg.log_file)
 
         # Initialize subsystems
         db_path = str(dest / "_transfer_manifest.db")
@@ -1136,20 +1317,34 @@ class BulkTransferV2:
         print("=" * 70)
         print()
 
+        # Start checkpoint thread for multi-day monitoring
+        checkpoint_thread = threading.Thread(
+            target=self._checkpoint_loop, daemon=True,
+        )
+        checkpoint_thread.start()
+
         try:
             # Phase 1: Source discovery
             print("[PHASE 1] Building source manifest...")
+            self._log_event("phase_start", phase=1, detail="Source discovery")
             discoverer = SourceDiscovery(
                 cfg, self.manifest, self.stats,
                 self.run_id, self._log_lock, self._stop,
             )
             queue = discoverer.discover()
             self.stats.files_manifest = self.stats.files_discovered
+            self.stats.peak_queue_size = len(queue)
             print(
                 f"  Manifest: {self.stats.files_discovered:,} files, "
                 f"{_fmt_size(self.stats.bytes_source_total)}"
             )
             print(f"  Transfer queue: {len(queue):,} files")
+            self._log_event(
+                "discovery_complete",
+                files_discovered=self.stats.files_discovered,
+                queue_size=len(queue),
+                bytes_total=self.stats.bytes_source_total,
+            )
 
             # Phase 1b: Delta sync analysis
             prev = self.manifest.get_previous_manifest(self.run_id)
@@ -1163,6 +1358,10 @@ class BulkTransferV2:
                     f"[PHASE 2] Transferring "
                     f"({cfg.workers} workers)..."
                 )
+                self._log_event(
+                    "phase_start", phase=2,
+                    detail=f"Transfer with {cfg.workers} workers",
+                )
                 worker = AtomicTransferWorker(
                     cfg, self.manifest, self.staging, self.stats,
                     self.run_id, self._stop, self._log_lock,
@@ -1172,6 +1371,7 @@ class BulkTransferV2:
             # Phase 3: Finalize
             print()
             print("[PHASE 3] Finalizing...")
+            self._log_event("phase_start", phase=3, detail="Finalize")
             self.manifest.finish_run(self.run_id)
             rotated = self.manifest.rotate_old_runs(keep=10)
             if rotated:
@@ -1184,13 +1384,23 @@ class BulkTransferV2:
             )
             print(report)
 
+            # Final GC pass
+            gc.collect()
+            self.stats.gc_collections += 1
+
         except KeyboardInterrupt:
             print("\n  [INTERRUPTED] Progress saved. Re-run to resume.")
             self._stop.set()
+            self._log_event("interrupted", detail="KeyboardInterrupt")
         finally:
+            # Emit final stats and complete event BEFORE closing log
+            self._emit_progress()
+            self._log_event("complete", **self._stats_snapshot())
+
             if self.manifest:
                 self.manifest.flush()
                 self.manifest.close()
+            self._close_json_log()
 
         print(self.stats.full_report())
         return self.stats
@@ -1234,6 +1444,111 @@ class BulkTransferV2:
         """Thread-safe print."""
         with self._log_lock:
             print(f"\n{msg}", flush=True)
+
+    # ------------------------------------------------------------------
+    # JSON event log (machine-readable audit trail for nightly cron)
+    # ------------------------------------------------------------------
+    # Complements the SQLite manifest (per-file) and text report
+    # (final summary) with timestamped operational events that a
+    # monitoring script can tail during multi-day transfers.
+    # ------------------------------------------------------------------
+
+    def _init_json_log(self, path: str) -> None:
+        """Open a JSON-lines log file for event recording."""
+        try:
+            parent = Path(path).parent
+            parent.mkdir(parents=True, exist_ok=True)
+            self._json_log = open(path, "a", encoding="utf-8")
+        except Exception as e:
+            logger.warning("Cannot open JSON log %s: %s", path, e)
+            self._json_log = None
+
+    def _close_json_log(self) -> None:
+        """Flush and close the JSON event log."""
+        if self._json_log:
+            try:
+                self._json_log.flush()
+                self._json_log.close()
+            except Exception:
+                pass
+            self._json_log = None
+
+    def _log_event(self, event: str, **data: Any) -> None:
+        """Write one JSON-lines event (timestamp + event + data)."""
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "run_id": self.run_id,
+            "event": event,
+            **data,
+        }
+        if self._json_log:
+            try:
+                self._json_log.write(json.dumps(entry) + "\n")
+                self._json_log.flush()
+            except Exception:
+                pass
+        logger.debug("transfer_event: %s", entry)
+
+    def _stats_snapshot(self) -> Dict[str, Any]:
+        """Return a dict of current stats for logging/callbacks."""
+        s = self.stats
+        return {
+            "elapsed": round(s.elapsed, 1),
+            "files_copied": s.files_copied,
+            "files_failed": s.files_failed,
+            "files_skipped_unchanged": s.files_skipped_unchanged,
+            "files_deduplicated": s.files_deduplicated,
+            "files_quarantined": s.files_quarantined,
+            "bytes_copied": s.bytes_copied,
+            "bytes_total": s.bytes_source_total,
+            "speed_bps": round(s.speed_bps, 0),
+            "network_stalls": s.network_stalls,
+            "gc_collections": s.gc_collections,
+            "consecutive_failures": s.consecutive_failures,
+        }
+
+    # ------------------------------------------------------------------
+    # Progress callback (GUI integration point)
+    # ------------------------------------------------------------------
+
+    def _emit_progress(self) -> None:
+        """Send current stats to the progress callback if configured."""
+        cb = self.config.progress_callback
+        if cb:
+            try:
+                cb(self._stats_snapshot())
+            except Exception:
+                pass
+
+    # ------------------------------------------------------------------
+    # Checkpoint loop (periodic summary during multi-day runs)
+    # ------------------------------------------------------------------
+    # The existing full_report() and verification_report only run at
+    # the END of a transfer. This loop prints periodic summaries DURING
+    # the transfer so you can check on a 5-day nightly run.
+    # ------------------------------------------------------------------
+
+    def _checkpoint_loop(self) -> None:
+        """Periodically log checkpoint summaries and trigger GC."""
+        cfg = self.config
+        gc_counter = 0
+        while not self._stop.is_set():
+            self._stop.wait(timeout=cfg.checkpoint_interval)
+            if self._stop.is_set():
+                break
+
+            self.stats.checkpoints_logged += 1
+            snap = self._stats_snapshot()
+            self._log_event("checkpoint", **snap)
+            self._emit_progress()
+
+            # Periodic garbage collection to prevent memory creep
+            # during multi-day transfers with millions of files.
+            gc_counter += 1
+            if gc_counter * cfg.checkpoint_interval >= cfg.gc_interval:
+                gc.collect()
+                self.stats.gc_collections += 1
+                gc_counter = 0
 
 
 # ============================================================================

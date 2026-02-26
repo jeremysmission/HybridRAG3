@@ -16,6 +16,24 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _rebuild_router(app):
+    """Close old LLM router, build a new one, and propagate to query engine."""
+    try:
+        from src.core.llm_router import LLMRouter, invalidate_deployment_cache
+        old_router = getattr(app, "router", None)
+        if old_router and hasattr(old_router, "close"):
+            old_router.close()
+        invalidate_deployment_cache()
+        new_router = LLMRouter(app.config)
+        app.router = new_router
+        if hasattr(app, "query_engine") and app.query_engine:
+            app.query_engine.llm_router = new_router
+        if hasattr(app, "status_bar"):
+            app.status_bar.router = new_router
+    except Exception as e:
+        logger.warning("Router rebuild failed: %s", e)
+
+
 def toggle_mode(app, new_mode):
     """
     Switch between online and offline mode.
@@ -77,6 +95,9 @@ def switch_to_online(app):
     except Exception as e:
         logger.warning("Gate reconfiguration failed: %s", e)
 
+    # Rebuild LLM router so online mode actually has API credentials
+    _rebuild_router(app)
+
     update_mode_buttons(app)
     app.status_bar.force_refresh()
     if hasattr(app, "query_panel"):
@@ -114,6 +135,9 @@ def switch_to_offline(app):
     except Exception as e:
         logger.warning("Gate reconfiguration failed: %s", e)
 
+    # Rebuild LLM router for offline mode
+    _rebuild_router(app)
+
     update_mode_buttons(app)
     app.status_bar.force_refresh()
     if hasattr(app, "query_panel"):
@@ -126,16 +150,35 @@ def switch_to_offline(app):
 
 
 def update_mode_buttons(app):
-    """Update mode button colors to reflect current state."""
+    """Update mode button colors to reflect current state.
+
+    Disables the ONLINE button when no API credentials are stored,
+    so users get a visual cue instead of a confusing error popup.
+    """
     t = app._theme
     mode = getattr(app.config, "mode", "offline") if app.config else "offline"
+
+    # Check if online mode is possible (credentials exist)
+    has_creds = False
+    try:
+        from src.security.credentials import credential_status
+        status = credential_status()
+        has_creds = status.get("api_key_set") and status.get("api_endpoint_set")
+    except Exception:
+        pass
+
     if mode == "online":
         app.online_btn.config(bg=t["active_btn_bg"], fg=t["active_btn_fg"],
-                              relief=tk.FLAT)
+                              relief=tk.FLAT, state=tk.NORMAL)
         app.offline_btn.config(bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"],
-                               relief=tk.FLAT)
+                               relief=tk.FLAT, state=tk.NORMAL)
     else:
         app.offline_btn.config(bg=t["active_btn_bg"], fg=t["active_btn_fg"],
-                               relief=tk.FLAT)
-        app.online_btn.config(bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"],
-                              relief=tk.FLAT)
+                               relief=tk.FLAT, state=tk.NORMAL)
+        if has_creds:
+            app.online_btn.config(bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"],
+                                  relief=tk.FLAT, state=tk.NORMAL)
+        else:
+            app.online_btn.config(bg=t.get("disabled_bg", t["inactive_btn_bg"]),
+                                  fg=t.get("disabled_fg", t["gray"]),
+                                  relief=tk.FLAT, state=tk.DISABLED)

@@ -70,7 +70,7 @@ laptop_safe:
 # Batch size 64 uses ~4GB peak RAM during indexing.
 desktop_power:
   embedding:
-    model_name: "nomic-ai/nomic-embed-text-v1.5"  # 0.5GB, 768 dims, better quality
+    model_name: "nomic-embed-text"   # 274MB, 768 dims, served by Ollama
     dimension: 768
     batch_size: 64               # 4x laptop = 4x faster embedding
     device: "cuda"               # 12GB VRAM handles nomic easily
@@ -92,7 +92,7 @@ desktop_power:
     gc_between_blocks: false
   notes: >
     Aggressive settings for 64GB RAM / 12GB VRAM machines.
-    Embedding: nomic (768d, CUDA). LLM: mistral-nemo:12b (128K ctx).
+    Embedding: nomic-embed-text (768d, CUDA via Ollama). LLM: mistral-nemo:12b (128K ctx).
     4x faster embedding than laptop_safe.
 
 # --- SERVER MAX ---
@@ -101,7 +101,7 @@ desktop_power:
 # Batch size 128 uses ~8GB peak RAM during indexing.
 server_max:
   embedding:
-    model_name: "snowflake-arctic-embed-l-v2.0"   # 1.1GB, 1024 dims, best quality
+    model_name: "snowflake-arctic-embed-l-v2.0"   # 1.1GB, 1024d, Snowflake/USA, Apache 2.0
     dimension: 1024
     batch_size: 128              # 8x laptop = maximum throughput
     device: "cuda"               # 24GB+ VRAM for large embedder

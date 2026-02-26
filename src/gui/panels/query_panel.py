@@ -30,7 +30,10 @@ import threading
 import time
 import logging
 
-from scripts._model_meta import USE_CASES, select_best_model
+from scripts._model_meta import (
+    USE_CASES, select_best_model, RECOMMENDED_OFFLINE, WORK_ONLY_MODELS,
+    use_case_score,
+)
 from src.core.llm_router import get_available_deployments
 from src.core.cost_tracker import get_cost_tracker
 from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_MONO, bind_hover
@@ -220,7 +223,8 @@ class QueryPanel(tk.LabelFrame):
     def _on_use_case_change(self, event=None):
         """Update model display when use case changes.
 
-        Offline: instant (reads config).
+        Offline: selects per-use-case model from RECOMMENDED_OFFLINE and
+                 applies temperature/top_k/reranker settings to live config.
         Online: runs get_available_deployments() in a background thread
         so the GUI never freezes on a network call.
         """
@@ -229,11 +233,35 @@ class QueryPanel(tk.LabelFrame):
 
         mode = getattr(self.config, "mode", "offline")
         if mode == "offline":
-            # Offline: show the configured Ollama model directly
-            ollama_model = getattr(
+            # Apply per-use-case offline model and tuning from RECOMMENDED_OFFLINE
+            rec = RECOMMENDED_OFFLINE.get(uc_key, {})
+            primary = rec.get("primary", "")
+            ollama_model = primary or getattr(
                 getattr(self.config, "ollama", None), "model", ""
             ) or "phi4-mini"
-            self.model_var.set("{} (offline)".format(ollama_model))
+
+            # Compute use-case score for display
+            meta = WORK_ONLY_MODELS.get(ollama_model, {})
+            score = use_case_score(
+                meta.get("tier_eng", 30), meta.get("tier_gen", 30), uc_key,
+            ) if meta else 0
+            self.model_var.set("{} (score {}, offline)".format(ollama_model, score))
+
+            # Apply tuning to live config (temperature, top_k, reranker)
+            if rec and self.config:
+                if hasattr(self.config, "ollama"):
+                    self.config.ollama.model = ollama_model
+                    if "context" in rec:
+                        self.config.ollama.context_window = rec["context"]
+                if "temperature" in rec and hasattr(self.config, "ollama"):
+                    self.config.ollama.temperature = rec["temperature"]
+                if hasattr(self.config, "retrieval"):
+                    if "top_k" in rec:
+                        self.config.retrieval.top_k = rec["top_k"]
+                    # NOTE: Do NOT apply reranker from RECOMMENDED_OFFLINE.
+                    # Standing rule: reranker destroys unanswerable/injection/
+                    # ambiguous eval scores. Reranker is controlled ONLY via
+                    # config YAML, never by use-case switching.
         else:
             # Online: resolve deployments off the main thread to avoid
             # freezing the GUI on a 1-3s network call.
@@ -341,10 +369,12 @@ class QueryPanel(tk.LabelFrame):
                     return
             # If generator exhausted without "done", re-enable button
             self.after(0, self._stop_elapsed_timer)
+            self.after(0, self._overlay.stop)
             self.after(0, lambda: self.ask_btn.config(state=tk.NORMAL))
         except Exception as e:
             error_msg = "[FAIL] {}: {}".format(type(e).__name__, e)
             self.after(0, self._stop_elapsed_timer)
+            self.after(0, self._overlay.cancel)
             self.after(0, self._show_error, error_msg)
 
     def _set_status(self, text):

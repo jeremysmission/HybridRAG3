@@ -73,7 +73,7 @@ $pipPackages = @(
 
 foreach ($pkg in $pipPackages) {
     Write-Status 'INFO' "Installing $pkg..."
-    pip install $pkg --quiet 2>&1 | Out-Null
+    $null = pip install $pkg --quiet 2>&1
     if ($LASTEXITCODE -eq 0) {
         Write-Status 'OK' "$pkg installed"
     } else {
