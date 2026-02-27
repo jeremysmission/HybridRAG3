@@ -1,4 +1,3 @@
-Bond
 # Two-Repo Strategy: Personal vs Work
 
 ## Why Two Repos
@@ -6,7 +5,7 @@ Bond
 HybridRAG3 runs in two environments with fundamentally different security
 postures.  One codebase serves both, but the work environment cannot receive
 the full private repo because it contains real machine paths, session
-artifacts, defense-context documentation, and AI-assistant references that
+artifacts, security-context documentation, and AI-assistant references that
 must never appear on a government terminal.
 
 The solution is a private repo (source of truth) and a sanitized public
