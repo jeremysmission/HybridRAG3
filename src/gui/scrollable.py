@@ -25,7 +25,17 @@ class ScrollableFrame(tk.Frame):
     All child widgets should be placed inside ``self.inner``.
     The inner frame width automatically matches the canvas width so
     pack(fill=X) children expand correctly.
+
+    Mousewheel routing: a single global binding routes events to
+    whichever ScrollableFrame the mouse is hovering over. This avoids
+    the old unbind_all() approach which nuked mousewheel handlers for
+    ALL scrollable frames when the mouse left any one of them.
     """
+
+    # Class-level: which instance currently owns mousewheel events.
+    # Only one ScrollableFrame receives scroll input at a time.
+    _active_instance = None
+    _global_bound = False
 
     def __init__(self, parent, **kw):
         super().__init__(parent, **kw)
@@ -58,9 +68,9 @@ class ScrollableFrame(tk.Frame):
         # Keep inner frame width matched to canvas
         self._canvas.bind("<Configure>", self._on_canvas_resize)
 
-        # Mousewheel scrolling (bind on enter, unbind on leave)
-        self._canvas.bind("<Enter>", self._bind_mousewheel)
-        self._canvas.bind("<Leave>", self._unbind_mousewheel)
+        # Mousewheel scrolling: claim/release on enter/leave
+        self._canvas.bind("<Enter>", self._claim_mousewheel)
+        self._canvas.bind("<Leave>", self._release_mousewheel)
 
     def _on_canvas_resize(self, event):
         """Sync inner frame width to canvas width.
@@ -77,14 +87,24 @@ class ScrollableFrame(tk.Frame):
         else:
             self._canvas.itemconfig("inner", height=inner_h)
 
-    def _bind_mousewheel(self, event):
-        self._canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+    def _claim_mousewheel(self, event):
+        """Mark this instance as the active scroll target."""
+        ScrollableFrame._active_instance = self
+        if not ScrollableFrame._global_bound:
+            self._canvas.bind_all("<MouseWheel>", ScrollableFrame._route_mousewheel)
+            ScrollableFrame._global_bound = True
 
-    def _unbind_mousewheel(self, event):
-        self._canvas.unbind_all("<MouseWheel>")
+    def _release_mousewheel(self, event):
+        """Release scroll ownership when mouse leaves."""
+        if ScrollableFrame._active_instance is self:
+            ScrollableFrame._active_instance = None
 
-    def _on_mousewheel(self, event):
-        self._canvas.yview_scroll(-1 * (event.delta // 120), "units")
+    @staticmethod
+    def _route_mousewheel(event):
+        """Route mousewheel to whichever ScrollableFrame the mouse is over."""
+        target = ScrollableFrame._active_instance
+        if target is not None:
+            target._canvas.yview_scroll(-1 * (event.delta // 120), "units")
 
     def apply_theme(self, t):
         """Re-apply theme colors to the canvas and inner frame."""

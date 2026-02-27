@@ -311,13 +311,21 @@ class HallucinationGuard:
 # =============================================================================
 
 _guard_instance = None
+_guard_lock = __import__("threading").Lock()
 
 
 def get_guard(config=None):
-    """Get or create singleton HallucinationGuard instance."""
+    """Get or create singleton HallucinationGuard instance.
+
+    Uses double-checked locking to avoid race conditions when two threads
+    call get_guard() during first initialization (matches the pattern used
+    by NetworkGate and CostTracker singletons).
+    """
     global _guard_instance
     if _guard_instance is None:
-        _guard_instance = HallucinationGuard(config)
+        with _guard_lock:
+            if _guard_instance is None:
+                _guard_instance = HallucinationGuard(config)
     return _guard_instance
 
 

@@ -31,6 +31,7 @@ from tkinter import ttk, filedialog
 import logging
 
 from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_SMALL, FONT_MONO, bind_hover
+from src.gui.helpers.safe_after import safe_after
 from src.core.config import save_config_field
 
 logger = logging.getLogger(__name__)
@@ -164,6 +165,11 @@ class DataPanel(tk.Frame):
         self._transfer_thread = None
         self._stop_event = threading.Event()
         self._poll_id = None
+
+        # Public testing state (same pattern as IndexPanel/QueryPanel)
+        self.transfer_done_event = threading.Event()
+        self.is_transferring = False
+        self.last_transfer_status = ""
 
         # Header so users can identify this as the downloader
         tk.Label(
@@ -362,9 +368,9 @@ class DataPanel(tk.Frame):
         """Background thread: delegate to pure function, schedule UI update."""
         try:
             summary = _scan_folder_summary(path)
-            self.after(0, self._set_preview_text, summary)
+            safe_after(self, 0, self._set_preview_text, summary)
         except Exception as e:
-            self.after(0, self._set_preview_text,
+            safe_after(self, 0, self._set_preview_text,
                        "[FAIL] Scan error: {}".format(str(e)[:80]))
 
     def _set_preview_text(self, text):
@@ -471,6 +477,11 @@ class DataPanel(tk.Frame):
         self._stats_label.config(text="")
         self._transfer_status.config(text="Starting transfer...", fg=t["gray"])
 
+        # Public testing state (main thread, before thread starts)
+        self.is_transferring = True
+        self.transfer_done_event.clear()
+        self.last_transfer_status = ""
+
         # Launch in background
         self._transfer_thread = threading.Thread(
             target=self._run_transfer, args=(source, dest), daemon=True,
@@ -516,7 +527,11 @@ class DataPanel(tk.Frame):
             except Exception:
                 pass
 
-            self.after(0, self._on_transfer_done)
+            # Thread-safe completion signal + status
+            self.is_transferring = False
+            self.last_transfer_status = "[OK] Transfer complete"
+            self.transfer_done_event.set()
+            safe_after(self, 0, self._on_transfer_done)
         except Exception as e:
             # Emit error event with full traceback
             try:
@@ -531,7 +546,10 @@ class DataPanel(tk.Frame):
                 pass
 
             msg = "[FAIL] {}: {}".format(type(e).__name__, str(e)[:80])
-            self.after(0, self._on_transfer_error, msg)
+            self.is_transferring = False
+            self.last_transfer_status = msg
+            self.transfer_done_event.set()
+            safe_after(self, 0, self._on_transfer_error, msg)
 
     def _on_stop_transfer(self):
         """Signal the transfer engine to stop."""

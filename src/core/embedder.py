@@ -208,3 +208,10 @@ class Embedder:
         if hasattr(self, "_client") and self._client is not None:
             self._client.close()
             self._client = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False

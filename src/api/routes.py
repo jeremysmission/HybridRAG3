@@ -112,8 +112,9 @@ async def status():
     try:
         stats = s.vector_store.get_stats()
     except Exception as e:
+        logger.error("Failed to get stats: %s", e, exc_info=True)
         raise HTTPException(
-            status_code=500, detail=f"Failed to get stats: {e}"
+            status_code=500, detail="Failed to retrieve database stats"
         )
 
     return StatusResponse(
@@ -178,7 +179,24 @@ async def query(req: QueryRequest):
     if not s.query_engine:
         raise HTTPException(status_code=503, detail="Query engine not initialized")
 
-    result = await asyncio.to_thread(s.query_engine.query, req.question)
+    # Timeout: prevent hung LLM calls from blocking indefinitely.
+    # Uses the configured timeout (default 600s for Ollama) with a ceiling.
+    timeout_sec = min(
+        getattr(getattr(s.config, "ollama", None), "timeout_seconds", 600),
+        600,
+    )
+    try:
+        result = await asyncio.wait_for(
+            asyncio.to_thread(s.query_engine.query, req.question),
+            timeout=timeout_sec,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504, detail="Query timed out. Try a shorter question or check LLM status."
+        )
+    except Exception as e:
+        logger.error("Query execution failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=502, detail="Query execution failed")
 
     # Record cost event for PM dashboard (mirrors GUI query_panel behavior)
     try:
@@ -198,6 +216,13 @@ async def query(req: QueryRequest):
         )
     except Exception as e:
         logger.debug("Cost event emit failed: %s", e)
+
+    # Return proper HTTP status when backend reports an error
+    if result.error:
+        raise HTTPException(
+            status_code=502,
+            detail=result.error,
+        )
 
     return QueryResponse(
         answer=result.answer,
@@ -258,7 +283,8 @@ async def query_stream(req: QueryRequest):
                         })
                         yield "event: done\ndata: {}\n\n".format(payload)
         except Exception as e:
-            yield "event: error\ndata: {}\n\n".format(str(e))
+            logger.error("Streaming query failed: %s", e, exc_info=True)
+            yield "event: error\ndata: Internal server error\n\n"
 
     return StreamingResponse(
         _generate(),

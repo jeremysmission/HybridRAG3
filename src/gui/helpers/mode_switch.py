@@ -20,6 +20,8 @@ from tkinter import messagebox
 import logging
 import threading
 
+from src.gui.helpers.safe_after import safe_after
+
 logger = logging.getLogger(__name__)
 
 # Guard against concurrent mode switches (double-click protection)
@@ -99,11 +101,8 @@ def _switch_async(app, switch_fn):
             logger.warning("Mode switch failed: %s", e)
         finally:
             _switch_lock.release()
-            # Re-enable UI on main thread
-            try:
-                app.after(0, _finish_switch, app)
-            except Exception:
-                pass
+            # Re-enable UI on main thread (via queue in headless mode)
+            safe_after(app, 0, _finish_switch, app)
 
     threading.Thread(target=_worker, daemon=True).start()
 
@@ -140,7 +139,7 @@ def _do_switch_to_online(app):
                 missing.append("API key")
             if not creds.has_endpoint:
                 missing.append("API endpoint")
-            app.after(0, messagebox.showwarning,
+            safe_after(app, 0, messagebox.showwarning,
                       "Credentials Missing",
                       "Cannot switch to online mode.\n\n"
                       "Missing: {}\n\n"
@@ -148,11 +147,11 @@ def _do_switch_to_online(app):
                       "PowerShell first, then try again.".format(", ".join(missing)))
             return
     except Exception as e:
-        app.after(0, messagebox.showwarning,
-                  "Credential Check Failed",
-                  "Could not verify credentials: {}\n\n"
-                  "Run rag-store-key and rag-store-endpoint from "
-                  "PowerShell first, then try again.".format(e))
+        safe_after(app, 0, messagebox.showwarning,
+                   "Credential Check Failed",
+                   "Could not verify credentials: {}\n\n"
+                   "Run rag-store-key and rag-store-endpoint from "
+                   "PowerShell first, then try again.".format(e))
         return
 
     # -- Transactional mode switch: do NOT mutate config.mode until
@@ -170,10 +169,10 @@ def _do_switch_to_online(app):
         )
     except Exception as e:
         logger.warning("Gate reconfiguration failed: %s", e)
-        app.after(0, messagebox.showwarning,
-                  "Gate Configuration Failed",
-                  "Could not configure network gate for online mode:\n\n"
-                  "{}\n\nMode remains offline.".format(e))
+        safe_after(app, 0, messagebox.showwarning,
+                   "Gate Configuration Failed",
+                   "Could not configure network gate for online mode:\n\n"
+                   "{}\n\nMode remains offline.".format(e))
         return
 
     # Rebuild router with cached credentials (no keyring re-lookup)
@@ -184,10 +183,10 @@ def _do_switch_to_online(app):
             configure_gate(mode="offline")
         except Exception:
             pass
-        app.after(0, messagebox.showwarning,
-                  "Router Rebuild Failed",
-                  "Could not rebuild LLM router:\n\n{}\n\n"
-                  "Mode remains offline.".format(result))
+        safe_after(app, 0, messagebox.showwarning,
+                   "Router Rebuild Failed",
+                   "Could not rebuild LLM router:\n\n{}\n\n"
+                   "Mode remains offline.".format(result))
         return
 
     # -- Success: commit mode change now --
@@ -219,20 +218,20 @@ def _do_switch_to_offline(app):
         configure_gate(mode="offline")
     except Exception as e:
         logger.warning("Gate reconfiguration failed: %s", e)
-        app.after(0, messagebox.showwarning,
-                  "Gate Configuration Failed",
-                  "Could not configure network gate:\n\n{}\n\n"
-                  "Continuing in current mode.".format(e))
+        safe_after(app, 0, messagebox.showwarning,
+                   "Gate Configuration Failed",
+                   "Could not configure network gate:\n\n{}\n\n"
+                   "Continuing in current mode.".format(e))
 
     # Rebuild router with cached credentials (avoids 5+ keyring lookups)
     from src.security.credentials import resolve_credentials
     creds = resolve_credentials(use_cache=True)
     result = _rebuild_router(app, credentials=creds)
     if isinstance(result, Exception):
-        app.after(0, messagebox.showwarning,
-                  "Router Rebuild Failed",
-                  "Could not rebuild LLM router:\n\n{}\n\n"
-                  "Check that Ollama is running.".format(result))
+        safe_after(app, 0, messagebox.showwarning,
+                   "Router Rebuild Failed",
+                   "Could not rebuild LLM router:\n\n{}\n\n"
+                   "Check that Ollama is running.".format(result))
         return
 
     # -- Success: commit mode change now --

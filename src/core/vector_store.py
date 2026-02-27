@@ -279,14 +279,15 @@ class VectorStore:
         """)
 
         # Migration: add file_hash to existing databases that lack it.
-        # If column already exists, SQLite raises "duplicate column name"
-        # which we catch and ignore. Existing data is preserved.
+        # If column already exists, SQLite raises OperationalError with
+        # "duplicate column name" which we catch and ignore.
+        # Other exceptions (disk-full, permission denied) must propagate.
         try:
             self.conn.execute(
                 "ALTER TABLE chunks ADD COLUMN file_hash TEXT DEFAULT '';"
             )
             self.conn.commit()
-        except Exception:
+        except sqlite3.OperationalError:
             pass  # Column already exists -- expected and fine
 
         self.conn.execute(
@@ -658,3 +659,11 @@ class VectorStore:
             except Exception:
                 pass
             self.conn = None
+
+    def __enter__(self):
+        self._ensure_connected()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False

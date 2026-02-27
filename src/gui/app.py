@@ -42,6 +42,7 @@ from src.gui.theme import (
 )
 from src.gui.scrollable import ScrollableFrame
 from src.gui.helpers import mode_switch
+from src.gui.helpers.safe_after import drain_ui_queue
 from src.gui.helpers.shutdown_coordinator import AppShutdownCoordinator
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,12 @@ class HybridRAGApp(tk.Tk):
 
         # Handle window close
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        # Heartbeat: drain the safe_after fallback queue every 50ms.
+        # When safe_after() cannot reach Tk via widget.after() (e.g. bg
+        # thread hits RuntimeError), callbacks land in _ui_queue. This
+        # pump ensures they always execute on the main thread.
+        self._drain_pump()
 
     # ----------------------------------------------------------------
     # MENU BAR -- File | View | Help (no Admin cascade -- it is a tab)
@@ -597,6 +604,22 @@ class HybridRAGApp(tk.Tk):
     # ----------------------------------------------------------------
     # CLEANUP
     # ----------------------------------------------------------------
+
+    def _drain_pump(self):
+        """Drain the safe_after fallback queue and reschedule.
+
+        Runs every 50ms on the main thread. If safe_after() had to enqueue
+        a callback (because widget.after() failed from a bg thread), this
+        pump ensures it still fires. Cost: ~0 when queue is empty.
+        """
+        try:
+            drain_ui_queue()
+        except Exception:
+            pass
+        try:
+            self.after(50, self._drain_pump)
+        except Exception:
+            pass  # App being destroyed -- stop pumping
 
     def _on_close(self):
         """Clean up and close the application.
