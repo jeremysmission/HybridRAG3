@@ -366,7 +366,7 @@ class Retriever:
         than hybrid for queries containing specific terms or part numbers,
         but simpler and faster.
         """
-        # Embed the query into a 384-dimensional vector
+        # Embed the query into a 768-dimensional vector
         q_vec = self._embed_query_cached(query)
 
         # Find the closest chunk embeddings by cosine similarity

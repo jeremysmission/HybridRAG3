@@ -37,6 +37,7 @@ from scripts._model_meta import (
 from src.core.llm_router import get_available_deployments
 from src.core.cost_tracker import get_cost_tracker
 from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_MONO, bind_hover
+from src.gui.helpers.safe_after import safe_after
 from src.gui.panels.loading_overlay import VectorFieldOverlay
 
 logger = logging.getLogger(__name__)
@@ -339,10 +340,10 @@ class QueryPanel(tk.LabelFrame):
         """Execute query in background thread (non-streaming fallback)."""
         try:
             result = self.query_engine.query(question)
-            self.after(0, self._display_result, result)
+            safe_after(self, 0, self._display_result, result)
         except Exception as e:
             error_msg = "[FAIL] {}: {}".format(type(e).__name__, e)
-            self.after(0, self._show_error, error_msg)
+            safe_after(self, 0, self._show_error, error_msg)
 
     def _run_query_stream(self, question):
         """Execute streaming query in background thread.
@@ -358,32 +359,32 @@ class QueryPanel(tk.LabelFrame):
                 if "phase" in chunk:
                     if chunk["phase"] == "searching":
                         # Still in SEARCHING -- update status text
-                        self.after(0, self._set_status, "Searching documents...")
+                        safe_after(self, 0, self._set_status, "Searching documents...")
                     elif chunk["phase"] == "generating":
                         # --- Transition: SEARCHING -> GENERATING ---
                         n = chunk.get("chunks", 0)
                         ms = chunk.get("retrieval_ms", 0)
                         msg = "Found {} chunks ({:.0f}ms) -- Generating answer...".format(n, ms)
-                        self.after(0, self._set_status, msg)
-                        self.after(0, self._start_elapsed_timer)
-                        self.after(0, self._prepare_streaming)
-                        self.after(0, self._overlay.stop)
+                        safe_after(self, 0, self._set_status, msg)
+                        safe_after(self, 0, self._start_elapsed_timer)
+                        safe_after(self, 0, self._prepare_streaming)
+                        safe_after(self, 0, self._overlay.stop)
                 elif "token" in chunk:
-                    self.after(0, self._append_token, chunk["token"])
+                    safe_after(self, 0, self._append_token, chunk["token"])
                 elif chunk.get("done"):
                     result = chunk.get("result")
                     if result:
-                        self.after(0, self._finish_stream, result)
+                        safe_after(self, 0, self._finish_stream, result)
                     return
             # If generator exhausted without "done", re-enable button
-            self.after(0, self._stop_elapsed_timer)
-            self.after(0, self._overlay.stop)
-            self.after(0, lambda: self.ask_btn.config(state=tk.NORMAL))
+            safe_after(self, 0, self._stop_elapsed_timer)
+            safe_after(self, 0, self._overlay.stop)
+            safe_after(self, 0, lambda: self.ask_btn.config(state=tk.NORMAL))
         except Exception as e:
             error_msg = "[FAIL] {}: {}".format(type(e).__name__, e)
-            self.after(0, self._stop_elapsed_timer)
-            self.after(0, self._overlay.cancel)
-            self.after(0, self._show_error, error_msg)
+            safe_after(self, 0, self._stop_elapsed_timer)
+            safe_after(self, 0, self._overlay.cancel)
+            safe_after(self, 0, self._show_error, error_msg)
 
     def _set_status(self, text):
         """Update the network/status label."""

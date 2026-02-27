@@ -155,9 +155,8 @@ def _do_switch_to_online(app):
                   "PowerShell first, then try again.".format(e))
         return
 
-    if app.config:
-        app.config.mode = "online"
-        persist_mode(app, "online")
+    # -- Transactional mode switch: do NOT mutate config.mode until
+    #    both gate and router succeed.  On failure, mode stays offline.
 
     try:
         from src.core.network_gate import configure_gate
@@ -171,22 +170,30 @@ def _do_switch_to_online(app):
         )
     except Exception as e:
         logger.warning("Gate reconfiguration failed: %s", e)
-        if app.config:
-            app.config.mode = "offline"
-            persist_mode(app, "offline")
         app.after(0, messagebox.showwarning,
                   "Gate Configuration Failed",
                   "Could not configure network gate for online mode:\n\n"
-                  "{}\n\nReverted to offline mode.".format(e))
+                  "{}\n\nMode remains offline.".format(e))
         return
 
     # Rebuild router with cached credentials (no keyring re-lookup)
     result = _rebuild_router(app, credentials=creds)
     if isinstance(result, Exception):
+        # Revert gate to offline since router failed
+        try:
+            configure_gate(mode="offline")
+        except Exception:
+            pass
         app.after(0, messagebox.showwarning,
                   "Router Rebuild Failed",
                   "Could not rebuild LLM router:\n\n{}\n\n"
-                  "Check that Ollama is running.".format(result))
+                  "Mode remains offline.".format(result))
+        return
+
+    # -- Success: commit mode change now --
+    if app.config:
+        app.config.mode = "online"
+        persist_mode(app, "online")
 
     logger.info("Switched to ONLINE mode")
 
@@ -201,11 +208,12 @@ def persist_mode(app, new_mode):
 
 
 def _do_switch_to_offline(app):
-    """Switch to offline mode (runs in background thread)."""
-    if app.config:
-        app.config.mode = "offline"
-        persist_mode(app, "offline")
+    """Switch to offline mode (runs in background thread).
 
+    Transactional: config.mode is only committed after gate + router succeed.
+    Offline switch is inherently safer (no credentials needed), but we still
+    defer the commit for consistency.
+    """
     try:
         from src.core.network_gate import configure_gate
         configure_gate(mode="offline")
@@ -214,7 +222,7 @@ def _do_switch_to_offline(app):
         app.after(0, messagebox.showwarning,
                   "Gate Configuration Failed",
                   "Could not configure network gate:\n\n{}\n\n"
-                  "Continuing in offline mode.".format(e))
+                  "Continuing in current mode.".format(e))
 
     # Rebuild router with cached credentials (avoids 5+ keyring lookups)
     from src.security.credentials import resolve_credentials
@@ -225,6 +233,12 @@ def _do_switch_to_offline(app):
                   "Router Rebuild Failed",
                   "Could not rebuild LLM router:\n\n{}\n\n"
                   "Check that Ollama is running.".format(result))
+        return
+
+    # -- Success: commit mode change now --
+    if app.config:
+        app.config.mode = "offline"
+        persist_mode(app, "offline")
 
     logger.info("Switched to OFFLINE mode")
 

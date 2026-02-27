@@ -81,6 +81,7 @@ from .chunker import Chunker, ChunkerConfig
 from .embedder import Embedder
 from .chunk_ids import make_chunk_id
 from .file_validator import FileValidator
+from .indexing.cancel import IndexCancelled
 import gc
 
 
@@ -177,9 +178,17 @@ class Indexer:
         folder_path: str,
         progress_callback: Optional[IndexingProgressCallback] = None,
         recursive: bool = True,
+        stop_flag: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
         Index all supported files in a folder.
+
+        Parameters
+        ----------
+        stop_flag : threading.Event or None
+            If set, indexing aborts cleanly by raising IndexCancelled.
+            Checked during discovery (every 500 files) and before each
+            file is processed.
 
         Returns dict with: total_files_scanned, total_files_indexed,
         total_files_skipped, total_chunks_added, elapsed_seconds,
@@ -212,6 +221,9 @@ class Indexer:
         _discovery_count = 0
         _glob_iter = folder.rglob("*") if recursive else folder.glob("*")
         while True:
+            # Check cancellation every 500 files during discovery
+            if stop_flag is not None and _discovery_count % 500 == 0 and stop_flag.is_set():
+                raise IndexCancelled("Cancelled during discovery")
             try:
                 f = next(_glob_iter)
             except StopIteration:
@@ -239,6 +251,12 @@ class Indexer:
 
         # --- Step 2: Process each file ---
         for idx, file_path in enumerate(supported_files, start=1):
+            # Cancel check at the top of the loop -- before any work.
+            # IndexCancelled inherits BaseException so it propagates
+            # through the "except Exception" handler below.
+            if stop_flag is not None and stop_flag.is_set():
+                raise IndexCancelled("Cancelled before file {}".format(idx))
+
             file_chunks_created = 0
             try:
                 progress_callback.on_file_start(
