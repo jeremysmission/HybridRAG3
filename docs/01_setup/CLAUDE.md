@@ -38,7 +38,7 @@ Web/forum research permitted without asking.
 - NO Meta/Llama (ITAR ban)
 - Approved stack: phi4-mini, mistral:7b, phi4:14b-q4_K_M, gemma3:4b, mistral-nemo:12b
 - Model definitions: scripts/_model_meta.py, scripts/_set_model.py
-- Default offline model: phi4-mini (config/default_config.yaml)
+- Default offline model: phi4:14b-q4_K_M (config/default_config.yaml)
 
 # Eval Protection
 - NEVER modify: scripts/run_eval.py, tools/eval_runner.py, tools/score_results.py, tools/run_all.py, Eval/*.json
@@ -52,5 +52,5 @@ Web/forum research permitted without asking.
 
 # Windows Gotchas
 - UnicodeEncodeError: wrap stdout with io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-- Chunker takes config object, not (chunk_size, overlap) args
+- Chunker takes config.chunking (ChunkingConfig object), NOT the full Config object
 - ensure_directories is module-level function, not PathsConfig method

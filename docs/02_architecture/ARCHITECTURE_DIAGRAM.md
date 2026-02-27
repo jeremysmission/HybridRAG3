@@ -69,7 +69,7 @@ flowchart TD
     Q --> QE["QUERY ENGINE<br/><i>orchestrates full pipeline</i>"]:::handoff
 
     %% ── Retrieval phase (blue) ──────────────────────
-    QE --> EMB["EMBEDDER<br/>MiniLM-L6-v2<br/>query → 384-dim vector"]:::retrieval
+    QE --> EMB["EMBEDDER<br/>nomic-embed-text<br/>query → 768-dim vector"]:::retrieval
     EMB --> RET["RETRIEVER<br/>hybrid search"]:::retrieval
 
     RET --> BM25["BM25 keyword<br/>search (FTS5)"]:::retrieval
@@ -120,12 +120,12 @@ flowchart TD
     SCAN --> HASH["Hash check<br/><i>skip unchanged files</i>"]:::retrieval
     HASH --> PARSE["File parser<br/>24+ formats"]:::retrieval
     PARSE --> CHUNK["CHUNKER<br/>1200 chars, 200 overlap<br/>smart boundary split"]:::retrieval
-    CHUNK --> EMBED["EMBEDDER<br/>MiniLM-L6-v2<br/>batch embed → 384d"]:::retrieval
+    CHUNK --> EMBED["EMBEDDER<br/>nomic-embed-text<br/>batch embed → 768d"]:::retrieval
 
     EMBED --> STORE["VECTOR STORE"]:::handoff
 
     STORE --> SQL[("SQLite<br/>chunks, metadata<br/>FTS5 index, hashes")]:::data
-    STORE --> MEM[("Memmap<br/>float16 vectors<br/>shape N x 384")]:::data
+    STORE --> MEM[("Memmap<br/>float16 vectors<br/>shape N x 768")]:::data
 
     %% ── Styles ──────────────────────────────────────
     classDef retrieval fill:#1976D2,stroke:#0D47A1,color:#fff
@@ -147,7 +147,7 @@ flowchart TD
             |
             +-- hybridrag.sqlite3       SQLite: chunks, metadata, FTS5, file hashes
             |
-            +-- embeddings.f16.dat      Memmap: float16 vectors, shape [N, 384]
+            +-- embeddings.f16.dat      Memmap: float16 vectors, shape [N, 768]
             |
             +-- embeddings_meta.json    Bookkeeping: dim, count, dtype
 ```
@@ -178,8 +178,8 @@ flowchart TD
      +----------------------------------------------------+
      |              EMBEDDING LOCKDOWN                     |
      |                                                    |
-     |   HF_HUB_OFFLINE=1 enforced at startup             |
-     |   Model loaded from local cache only                |
+     |   Ollama nomic-embed-text (768-dim)                |
+     |   Local only, no HuggingFace dependency            |
      +----------------------------------------------------+
 ```
 
