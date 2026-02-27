@@ -291,7 +291,7 @@ def boot_hybridrag(config_path=None) -> BootResult:
             import urllib.error
             from src.core.network_gate import get_gate
             ollama_host = config.get("ollama", {}).get(
-                "base_url", "http://localhost:11434",
+                "base_url", "http://127.0.0.1:11434",
             )
             get_gate().check_allowed(
                 f"{ollama_host}/api/tags", "ollama_boot_check", "boot",

@@ -28,7 +28,9 @@
 #   - Removes ~2.5GB of HuggingFace dependencies (torch, transformers, etc.)
 #
 # SECURITY MODEL:
-#   Ollama runs on localhost:11434 only. No data leaves the machine.
+#   Ollama runs on 127.0.0.1:11434 only. No data leaves the machine.
+#   Uses 127.0.0.1 (not "localhost") to prevent corporate proxy/DNS
+#   interception that can redirect embedding traffic to remote hosts.
 #   The OLLAMA_HOST env var can override the base URL if needed.
 #
 # INTERNET ACCESS: NONE
@@ -78,16 +80,24 @@ class Embedder:
         self.model_name = model_name or self.DEFAULT_MODEL
         self.logger = get_app_logger("embedder")
 
-        # Ollama base URL (standard env var, same as OllamaRouter)
+        # Ollama base URL -- default to 127.0.0.1 (NOT "localhost") to
+        # prevent corporate proxy/DNS interception. On work networks,
+        # "localhost" can resolve through corporate DNS and get redirected
+        # to a proxy IP (e.g. 301 -> 10.x.x.x), silently sending
+        # embedding text off-machine.
         self.base_url = os.getenv(
-            "OLLAMA_HOST", "http://localhost:11434"
+            "OLLAMA_HOST", "http://127.0.0.1:11434"
         ).rstrip("/")
 
         # Enforce localhost-only unless NetworkGate explicitly allows
         self._validate_host()
 
-        # Persistent HTTP client -- reuses TCP connections across calls
-        self._client = httpx.Client(timeout=httpx.Timeout(120))
+        # Persistent HTTP client -- never follow redirects (a redirect
+        # from localhost means a proxy is intercepting our traffic)
+        self._client = httpx.Client(
+            timeout=httpx.Timeout(120),
+            follow_redirects=False,
+        )
 
         # Detect dimension by embedding a probe string.
         # This also verifies Ollama is running and the model is pulled.
@@ -119,6 +129,25 @@ class Embedder:
                     f"NetworkGate blocked it: {exc}"
                 ) from exc
 
+    def _assert_no_redirect(self, resp) -> None:
+        """
+        Reject HTTP redirect responses (3xx).
+
+        WHY: Corporate proxies can intercept localhost requests and return
+        a 301/302 pointing to a remote proxy IP (e.g. 10.x.x.x). If we
+        followed the redirect, embedding text would be sent off-machine.
+        This was observed on work networks where "localhost" DNS resolved
+        through a corporate interceptor.
+        """
+        if 300 <= resp.status_code < 400:
+            location = resp.headers.get("location", "(unknown)")
+            raise OllamaNotRunningError(
+                f"Ollama at {self.base_url} returned redirect "
+                f"{resp.status_code} -> {location}. "
+                f"A corporate proxy may be intercepting localhost traffic. "
+                f"Verify Ollama is running: ollama serve"
+            )
+
     def _detect_dimension(self) -> int:
         """
         Embed a test string to discover the model's output dimension.
@@ -134,6 +163,7 @@ class Embedder:
                 f"{self.base_url}/api/embed",
                 json={"model": self.model_name, "input": ["dimension probe"]},
             )
+            self._assert_no_redirect(resp)
             resp.raise_for_status()
             data = resp.json()
             embeddings = data.get("embeddings", [[]])
@@ -191,6 +221,7 @@ class Embedder:
                 f"{self.base_url}/api/embed",
                 json={"model": self.model_name, "input": batch},
             )
+            self._assert_no_redirect(resp)
             resp.raise_for_status()
             data = resp.json()
             all_embeddings.extend(data["embeddings"])
