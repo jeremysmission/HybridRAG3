@@ -93,6 +93,11 @@ def run_selftests(base: Path) -> dict:
         ("selftest_data_pipeline", "tools/selftest_data_pipeline.py"),
         ("selftest_gui_registry", "tools/selftest_gui_registry.py"),
         ("selftest_model_state", "tools/selftest_model_state.py"),
+        ("selftest_config_integrity", "tools/selftest_config_integrity.py"),
+        ("thread_guard", "tools/thread_guard.py"),
+        ("event_recorder", "tools/gui_event_recorder.py"),
+        ("replay_engine", "tools/gui_replay.py"),
+        ("screenshot_diff", "tools/gui_screenshot.py"),
     ]:
         if not Path(script).exists():
             results[name] = {"status": "SKIP", "output": "file not found"}
@@ -168,6 +173,38 @@ def run_compileall() -> dict:
         return {"status": "TIMEOUT"}
 
 
+def run_matrix_coverage(base: Path) -> dict:
+    """Read tools/gui_matrix.json and produce a coverage report by status."""
+    matrix_path = Path("tools/gui_matrix.json")
+    if not matrix_path.exists():
+        report = {"error": "gui_matrix.json not found", "total": 0, "pass": 0, "fail": 0, "untested": 0}
+        (base / "matrix_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+        return report
+
+    data = json.loads(matrix_path.read_text(encoding="utf-8"))
+    entries = data.get("entries", [])
+    counts = {}
+    for entry in entries:
+        status = entry.get("status", "UNKNOWN").upper()
+        counts[status] = counts.get(status, 0) + 1
+
+    total = len(entries)
+    pass_count = counts.get("PASS", 0)
+    fail_count = counts.get("FAIL", 0)
+    untested_count = counts.get("UNTESTED", 0)
+
+    report = {
+        "total": total,
+        "pass": pass_count,
+        "fail": fail_count,
+        "untested": untested_count,
+        "coverage_pct": round(pass_count / total * 100, 1) if total > 0 else 0,
+        "by_status": counts,
+    }
+    (base / "matrix_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    return report
+
+
 def main() -> int:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     base = Path("output/troubleshoot") / ts
@@ -177,23 +214,41 @@ def main() -> int:
     overall_start = time.perf_counter()
 
     # 1) System diagnostics
-    print("[1/5] Collecting system diagnostics...")
+    print("[1/7] Collecting system diagnostics...")
     system = collect_system(base)
 
     # 2) Compileall
-    print("[2/5] Syntax check (compileall)...")
+    print("[2/7] Syntax check (compileall)...")
     compile_result = run_compileall()
 
     # 3) Core selftests
-    print("[3/5] Running core selftests...")
+    print("[3/7] Running core selftests...")
     selftests = run_selftests(base)
 
     # 4) API health
-    print("[4/5] Checking API health...")
+    print("[4/7] Checking API health...")
     api = run_api_health(base)
 
-    # 5) GUI behavioral engine
-    print("[5/5] Running GUI behavioral engine...")
+    # 5) Pytest
+    print("[5/7] Running pytest suite...")
+    try:
+        pytest_result = subprocess.check_output(
+            [sys.executable, "-m", "pytest", "tests/",
+             "--ignore=tests/test_fastapi_server.py", "-q", "--tb=line"],
+            text=True, stderr=subprocess.STDOUT, timeout=300,
+        ).strip()
+    except subprocess.CalledProcessError as e:
+        pytest_result = (e.output or "").strip()
+    except subprocess.TimeoutExpired:
+        pytest_result = "TIMEOUT: exceeded 300s"
+    (base / "pytest_output.txt").write_text(pytest_result, encoding="utf-8")
+
+    # 6) Matrix coverage
+    print("[6/7] Generating matrix coverage report...")
+    matrix = run_matrix_coverage(base)
+
+    # 7) GUI behavioral engine
+    print("[7/7] Running GUI behavioral engine...")
     gui = run_gui_behavioral(base)
 
     elapsed = round(time.perf_counter() - overall_start, 1)
@@ -222,6 +277,9 @@ def main() -> int:
         "gui_actions": gui.get("total_actions", 0),
         "gui_failures": gui_failures,
         "gui_p95_s": gui.get("performance", {}).get("p95_s"),
+        "matrix_total": matrix.get("total", 0),
+        "matrix_pass": matrix.get("pass", 0),
+        "matrix_coverage_pct": matrix.get("coverage_pct", 0),
         "overall": "PASS" if (selftest_pass and gui_failures == 0 and api_ok) else "FAIL",
     }
 
@@ -245,6 +303,7 @@ def main() -> int:
     print(f"  GUI Failures: {summary['gui_failures']}")
     if summary["gui_p95_s"] is not None:
         print(f"  GUI p95:    {summary['gui_p95_s']}s")
+    print(f"  Matrix:     {summary['matrix_pass']}/{summary['matrix_total']} ({summary['matrix_coverage_pct']}%)")
     print(f"  OVERALL:    {summary['overall']}")
     print("=" * 50)
 
