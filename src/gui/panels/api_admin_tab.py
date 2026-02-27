@@ -748,11 +748,29 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
                 text="[WARN] Ollama check failed: {}. Setting anyway.".format(str(e)[:60]),
                 fg=t["orange"])
 
+        # Update in-memory config
         ollama = getattr(self.config, "ollama", None)
         if ollama:
             ollama.model = model_name
+
+        # Persist to YAML so it survives restart
+        try:
+            from src.core.config import save_config_field
+            save_config_field("ollama.model", model_name)
+            logger.info("[OK] Offline model persisted: %s", model_name)
+        except Exception as e:
+            logger.warning("[WARN] Could not persist model to YAML: %s", e)
+
+        # Notify status bar to refresh
+        app = self._app
+        if app and hasattr(app, "status_bar"):
+            try:
+                app.status_bar.force_refresh()
+            except Exception:
+                pass
+
         self.status_label.config(
-            text="Selected: {}".format(model_name), fg=t["fg"])
+            text="Selected: {} (saved)".format(model_name), fg=t["fg"])
 
     def apply_theme(self, t):
         self.configure(bg=t["panel_bg"], fg=t["accent"])

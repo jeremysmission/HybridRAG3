@@ -115,14 +115,14 @@ def _finish_switch(app):
         app.status_bar.force_refresh()
     if hasattr(app, "query_panel"):
         app.query_panel._on_use_case_change()
-    # Refresh credential display in settings if it exists
-    settings = getattr(app, "_settings_view", None)
-    if settings is not None and hasattr(settings, "refresh_credential_status"):
-        settings.refresh_credential_status()
-    # Update API field state
-    if settings is not None and hasattr(settings, "_api_admin_tab"):
+    # Refresh credential display and mode state in admin panel
+    admin = getattr(app, "_admin_panel", None)
+    if admin is not None:
         try:
-            settings._api_admin_tab._apply_mode_state()
+            if hasattr(admin, "_refresh_credential_status"):
+                admin._refresh_credential_status()
+            if hasattr(admin, "_apply_mode_state"):
+                admin._apply_mode_state()
         except Exception:
             pass
 

@@ -1,8 +1,8 @@
 # ============================================================================
-# HybridRAG v3 -- Navigation Bar (src/gui/panels/nav_bar.py)       RevA
+# HybridRAG v3 -- Navigation Bar (src/gui/panels/nav_bar.py)       RevB
 # ============================================================================
 # Horizontal segmented control for switching content views in-place.
-# Replaces the old multi-window (Toplevel) navigation pattern.
+# Tabs are built dynamically from panel_registry -- no hardcoded list.
 #
 # INTERNET ACCESS: NONE
 # ============================================================================
@@ -10,19 +10,15 @@
 import tkinter as tk
 
 from src.gui.theme import FONT, FONT_BOLD, bind_hover
+from src.gui.panels.panel_registry import get_panels
 
 
 class NavBar(tk.Frame):
-    """Horizontal segmented control for switching content views."""
+    """Horizontal segmented control for switching content views.
 
-    TABS = [
-        ("Query", "query"),
-        ("Data", "data"),
-        ("Eval", "eval"),
-        ("Settings", "settings"),
-        ("Cost", "cost"),
-        ("Ref", "reference"),
-    ]
+    Tabs are built from panel_registry.get_panels() at construction time.
+    No hardcoded tab list -- the registry is the single source of truth.
+    """
 
     def __init__(self, parent, on_switch, theme):
         super().__init__(parent, bg=theme["panel_bg"])
@@ -39,7 +35,9 @@ class NavBar(tk.Frame):
         tab_row = tk.Frame(self, bg=t["panel_bg"])
         tab_row.pack(fill=tk.X, padx=8)
 
-        for display, name in self.TABS:
+        tabs = [(p.label, p.key) for p in get_panels()]
+
+        for display, name in tabs:
             # Container for label + underline
             tab_frame = tk.Frame(tab_row, bg=t["panel_bg"])
             tab_frame.pack(side=tk.LEFT)

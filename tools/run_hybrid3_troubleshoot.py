@@ -91,6 +91,8 @@ def run_selftests(base: Path) -> dict:
         ("selftest_ollama", "tools/selftest_ollama.py"),
         ("gui_smoke", "tools/gui_smoke.py"),
         ("selftest_data_pipeline", "tools/selftest_data_pipeline.py"),
+        ("selftest_gui_registry", "tools/selftest_gui_registry.py"),
+        ("selftest_model_state", "tools/selftest_model_state.py"),
     ]:
         if not Path(script).exists():
             results[name] = {"status": "SKIP", "output": "file not found"}

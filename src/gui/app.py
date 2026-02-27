@@ -1,35 +1,22 @@
 # ============================================================================
-# HybridRAG v3 -- Main GUI Application (src/gui/app.py)              RevA
+# HybridRAG v3 -- Main GUI Application (src/gui/app.py)              RevB
 # ============================================================================
 # WHAT: The main application window that ties all panels together.
 # WHY:  Single-window coordinator that owns the lifecycle of every panel,
 #       handles mode switching (offline/online), theme toggling, backend
 #       initialization, and config propagation.
 # HOW:  Uses lazy view switching -- only the Query view is built at startup;
-#       Settings, Cost, and Reference views are built on first access.
+#       all other views are built on first access via the panel registry.
 #       Views swap via pack_forget/pack (under 1ms, no flicker).
 # USAGE: Created by launch_gui.py.  Run `python src/gui/launch_gui.py`.
 #
-# Technology Decision: tkinter (Python standard library)
-#
-# WHY TKINTER:
-#   - Zero additional dependencies (already in Python stdlib)
-#   - Works on every machine including work laptops with restricted installs
-#   - No entry needed in requirements.txt
-#   - Suitable for prototype / human review before production UI
-#   - PyQt5/PySide6/wx/Dear PyGui are NOT in requirements.txt
-#
 # LAYOUT: Single window with NavBar-driven view switching:
 #   1. Title bar with mode toggle (OFFLINE / ONLINE) + theme toggle
-#   2. NavBar [Query] [Settings] [Cost] [Ref]
+#   2. NavBar -- tabs built from panel_registry (single source of truth)
 #   3. Content Frame (swaps views via pack_forget/pack, <1ms)
-#      - QueryView (QueryPanel + IndexPanel) -- default, eager-built
-#      - SettingsView -- lazy-built on first access
-#      - CostView (CostDashboard) -- lazy-built on first access
-#      - ReferenceView (ReferencePanel) -- lazy-built on first access
 #   4. Status bar (LLM, Ollama, Gate indicators)
 #
-# Menu bar: File | Admin | Help
+# Menu bar: File | View | Help (Admin removed -- accessible via nav tab)
 #
 # INTERNET ACCESS: Depends on mode.
 #   Offline: NONE (all local)
@@ -40,13 +27,13 @@ import tkinter as tk
 from tkinter import messagebox
 import logging
 import threading
+import traceback
 
 from src.gui.panels.query_panel import QueryPanel
 from src.gui.panels.index_panel import IndexPanel
 from src.gui.panels.status_bar import StatusBar
 from src.gui.panels.nav_bar import NavBar
-from src.gui.panels.cost_dashboard import CostDashboard
-from src.gui.panels.reference_panel import ReferencePanel
+from src.gui.panels.panel_registry import get_panels, _import_attr
 from src.core.cost_tracker import get_cost_tracker
 from src.gui.theme import (
     DARK, LIGHT, FONT, FONT_BOLD, FONT_TITLE,
@@ -106,11 +93,11 @@ class HybridRAGApp(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ----------------------------------------------------------------
-    # MENU BAR
+    # MENU BAR -- File | View | Help (no Admin cascade -- it is a tab)
     # ----------------------------------------------------------------
 
     def _build_menu_bar(self):
-        """Build File | Admin | Help menu bar."""
+        """Build File | View | Help menu bar."""
         t = self._theme
         menubar = tk.Menu(self, bg=t["menu_bg"], fg=t["menu_fg"],
                           activebackground=t["accent"],
@@ -139,30 +126,6 @@ class HybridRAGApp(tk.Tk):
                 command=lambda p=pct: self._apply_zoom(p / 100.0),
             )
         menubar.add_cascade(label="View", menu=view_menu)
-
-        # Admin menu -- commands switch views in-place
-        admin_menu = tk.Menu(menubar, tearoff=0,
-                             bg=t["menu_bg"], fg=t["menu_fg"],
-                             activebackground=t["accent"],
-                             activeforeground=t["accent_fg"], font=FONT)
-        admin_menu.add_command(
-            label="Admin Settings...",
-            command=lambda: self.show_view("settings"),
-        )
-        admin_menu.add_command(
-            label="PM Cost Dashboard...",
-            command=lambda: self.show_view("cost"),
-        )
-        admin_menu.add_command(
-            label="Eval / Tuning...",
-            command=lambda: self.show_view("eval"),
-        )
-        admin_menu.add_separator()
-        admin_menu.add_command(
-            label="Ref",
-            command=lambda: self.show_view("reference"),
-        )
-        menubar.add_cascade(label="Admin", menu=admin_menu)
 
         # Help menu
         help_menu = tk.Menu(menubar, tearoff=0,
@@ -257,7 +220,7 @@ class HybridRAGApp(tk.Tk):
         self.nav_bar.pack(fill=tk.X)
 
     # ----------------------------------------------------------------
-    # CONTENT FRAME + VIEW SWITCHING
+    # CONTENT FRAME + VIEW SWITCHING (registry-driven)
     # ----------------------------------------------------------------
 
     def _build_status_bar(self):
@@ -279,16 +242,12 @@ class HybridRAGApp(tk.Tk):
         self.show_view("query")
 
     def _build_query_view(self):
-        """Build QueryPanel + IndexPanel inside a scrollable container."""
+        """Build QueryPanel inside a scrollable container (standalone)."""
         view = ScrollableFrame(self._content, bg=self._theme["bg"])
         self.query_panel = QueryPanel(
             view.inner, config=self.config, query_engine=self.query_engine,
         )
         self.query_panel.pack(fill=tk.BOTH, expand=True, padx=16, pady=(8, 4))
-        self.index_panel = IndexPanel(
-            view.inner, config=self.config, indexer=self.indexer,
-        )
-        self.index_panel.pack(fill=tk.X, padx=16, pady=4)
         self._views["query"] = view
 
     def show_view(self, name):
@@ -303,46 +262,115 @@ class HybridRAGApp(tk.Tk):
 
         # Show target view (guard against failed build)
         if name not in self._views:
+            logger.warning("SWITCH key=%s mounted=FAIL (view not built)", name)
             return
         self._views[name].pack(in_=self._content, fill=tk.BOTH, expand=True)
         self._current_view = name
         self.nav_bar.select(name)
+        logger.info("SWITCH key=%s mounted=OK", name)
 
     def _build_view(self, name):
-        """Lazy-build a view the first time it is requested."""
+        """Lazy-build a view the first time it is requested.
+
+        Uses the panel registry to import the correct class, then
+        constructs with the appropriate arguments per panel type.
+        If building fails, mounts an error panel showing the traceback.
+        """
         try:
-            if name == "settings":
-                from src.gui.panels.settings_view import SettingsView
+            if name == "query":
+                # Handled eagerly by _build_query_view
+                return
+
+            if name == "index":
+                # Index panel -- standalone (not embedded in Query)
                 wrapper = ScrollableFrame(self._content, bg=self._theme["bg"])
-                view = SettingsView(wrapper.inner, config=self.config, app_ref=self)
-                view.pack(fill=tk.BOTH, expand=True)
-                self._settings_view = view   # keep ref for delegation
-                self._views["settings"] = wrapper
-            elif name == "data":
+                self.index_panel = IndexPanel(
+                    wrapper.inner, config=self.config, indexer=self.indexer,
+                )
+                self.index_panel.pack(fill=tk.X, padx=16, pady=8)
+                self._views["index"] = wrapper
+                return
+
+            if name == "data":
                 from src.gui.panels.data_panel import DataPanel
                 wrapper = ScrollableFrame(self._content, bg=self._theme["bg"])
                 view = DataPanel(wrapper.inner, config=self.config, app_ref=self)
                 view.pack(fill=tk.BOTH, expand=True)
                 self._data_panel = view
                 self._views["data"] = wrapper
-            elif name == "cost":
+                return
+
+            if name == "tuning":
+                from src.gui.panels.tuning_tab import TuningTab
+                wrapper = ScrollableFrame(self._content, bg=self._theme["bg"])
+                view = TuningTab(wrapper.inner, config=self.config, app_ref=self)
+                view.pack(fill=tk.BOTH, expand=True)
+                self._tuning_panel = view
+                self._views["tuning"] = wrapper
+                return
+
+            if name == "cost":
+                from src.gui.panels.cost_dashboard import CostDashboard
                 view = CostDashboard(self._content, self.cost_tracker)
                 self._views["cost"] = view
-            elif name == "eval":
-                from src.gui.panels.eval_tuning_panel import EvalTuningPanel
+                return
+
+            if name == "admin":
+                from src.gui.panels.api_admin_tab import ApiAdminTab
                 wrapper = ScrollableFrame(self._content, bg=self._theme["bg"])
-                view = EvalTuningPanel(
+                view = ApiAdminTab(wrapper.inner, config=self.config, app_ref=self)
+                view.pack(fill=tk.BOTH, expand=True)
+                self._admin_panel = view
+                self._views["admin"] = wrapper
+                return
+
+            if name == "ref":
+                from src.gui.panels.reference_panel import ReferencePanel
+                view = ReferencePanel(self._content)
+                self._views["ref"] = view
+                return
+
+            if name == "settings":
+                from src.gui.panels.settings_panel import SettingsPanel
+                wrapper = ScrollableFrame(self._content, bg=self._theme["bg"])
+                view = SettingsPanel(
                     wrapper.inner, config=self.config, app_ref=self,
                 )
                 view.pack(fill=tk.BOTH, expand=True)
-                self._eval_panel = view
-                self._views["eval"] = wrapper
-            elif name == "reference":
-                view = ReferencePanel(self._content)
-                self._views["reference"] = view
+                self._settings_panel = view
+                self._views["settings"] = wrapper
+                return
+
+            # Unknown view key -- log and show error
+            logger.warning("[WARN] Unknown view key: '%s'", name)
+
         except Exception as e:
-            import logging
-            logging.getLogger("app").warning("[WARN] Failed to build view '%s': %s", name, e)
+            # Build an error panel so the user sees the problem
+            tb = traceback.format_exc()
+            logger.warning("[WARN] Failed to build view '%s': %s\n%s", name, e, tb)
+            self._build_error_view(name, str(e), tb)
+
+    def _build_error_view(self, name, error_msg, tb_text):
+        """Mount a visible error panel when a view fails to build."""
+        t = self._theme
+        frame = tk.Frame(self._content, bg=t["bg"])
+        tk.Label(
+            frame, text="Failed to load: {}".format(name),
+            font=FONT_BOLD, bg=t["bg"], fg=t.get("red", "#ff4444"),
+        ).pack(anchor=tk.W, padx=16, pady=(16, 4))
+        tk.Label(
+            frame, text=error_msg, wraplength=700, justify=tk.LEFT,
+            font=FONT, bg=t["bg"], fg=t["fg"],
+        ).pack(anchor=tk.W, padx=16, pady=4)
+        # Traceback in a text widget
+        txt = tk.Text(
+            frame, height=12, wrap=tk.WORD, font=("Consolas", 9),
+            bg=t.get("input_bg", "#1e1e1e"), fg=t.get("input_fg", "#cccccc"),
+        )
+        txt.insert("1.0", tb_text)
+        txt.config(state=tk.DISABLED)
+        txt.pack(fill=tk.BOTH, expand=True, padx=16, pady=8)
+        self._views[name] = frame
 
     # ----------------------------------------------------------------
     # THEME TOGGLE
@@ -391,7 +419,7 @@ class HybridRAGApp(tk.Tk):
         # Content frame
         self._content.configure(bg=t["bg"])
 
-        # Propagate to panels
+        # Propagate to named panels
         if hasattr(self, "query_panel"):
             self.query_panel.apply_theme(t)
         if hasattr(self, "index_panel"):
@@ -400,8 +428,12 @@ class HybridRAGApp(tk.Tk):
             self.status_bar.apply_theme(t)
         if hasattr(self, "_data_panel"):
             self._data_panel.apply_theme(t)
-        if hasattr(self, "_eval_panel"):
-            self._eval_panel.apply_theme(t)
+        if hasattr(self, "_tuning_panel"):
+            self._tuning_panel.apply_theme(t)
+        if hasattr(self, "_admin_panel"):
+            self._admin_panel.apply_theme(t)
+        if hasattr(self, "_settings_panel"):
+            self._settings_panel.apply_theme(t)
 
         # Propagate to all cached views
         for view in self._views.values():
@@ -504,14 +536,14 @@ class HybridRAGApp(tk.Tk):
             self.status_bar.config = new_config
             self.status_bar.force_refresh()
 
-        # Propagate to settings view (both tabs) if it exists
-        settings = getattr(self, "_settings_view", None)
-        if settings is not None:
-            settings.config = new_config
-            if hasattr(settings, "_tuning_tab"):
-                settings._tuning_tab.config = new_config
-            if hasattr(settings, "_api_admin_tab"):
-                settings._api_admin_tab.config = new_config
+        # Propagate to standalone panels
+        admin = getattr(self, "_admin_panel", None)
+        if admin is not None:
+            admin.config = new_config
+
+        tuning = getattr(self, "_tuning_panel", None)
+        if tuning is not None:
+            tuning.config = new_config
 
         self._update_mode_buttons()
         logger.info("Config reloaded and propagated to all panels")
@@ -528,7 +560,7 @@ class HybridRAGApp(tk.Tk):
             "Local-first RAG system for technical document search.\n"
             "Zero-trust offline-default architecture.\n\n"
             "Technology: tkinter (Python standard library)\n"
-            "Backend: SQLite + memmap + sentence-transformers",
+            "Backend: SQLite + Ollama + nomic-embed-text",
         )
 
     # ----------------------------------------------------------------
