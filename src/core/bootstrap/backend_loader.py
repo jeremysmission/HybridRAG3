@@ -32,6 +32,8 @@ from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Any, List, Callable, Dict
 
+from src.core.constants import DEFAULT_EMBED_DIM
+
 logger = logging.getLogger(__name__)
 
 
@@ -94,7 +96,7 @@ class BackendLoader:
             os.makedirs(db_dir, exist_ok=True)  # portability + first-run
             s = VectorStore(
                 db_path=db_path,
-                embedding_dim=getattr(getattr(self.config, "embedding", None), "dimension", 384),
+                embedding_dim=getattr(getattr(self.config, "embedding", None), "dimension", DEFAULT_EMBED_DIM),
             )
             s.connect()
             bundle.timings_ms["vector_store"] = (time.perf_counter() - t0) * 1000

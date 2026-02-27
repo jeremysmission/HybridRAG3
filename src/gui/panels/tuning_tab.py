@@ -32,6 +32,7 @@ import threading
 import logging
 
 from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_SMALL, FONT_MONO, bind_hover
+from src.gui.helpers.safe_after import safe_after
 from src.gui.panels.settings_view import (
     _load_profile_names, _detect_profile_name, _build_ranking_text, _theme_widget,
 )
@@ -412,7 +413,7 @@ class TuningTab(tk.Frame):
             except Exception as e:
                 logger.warning("Could not clear embedder cache: %s", e)
 
-        self.after(0, self._profile_switch_done,
+        safe_after(self, 0, self._profile_switch_done,
                    new_config, profile, embedding_changed,
                    old_embed_model, new_embed_model)
 

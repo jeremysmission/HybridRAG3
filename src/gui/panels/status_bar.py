@@ -17,6 +17,7 @@ import threading
 import logging
 
 from src.gui.theme import current_theme, FONT
+from src.gui.helpers.safe_after import safe_after
 
 logger = logging.getLogger(__name__)
 
@@ -418,7 +419,7 @@ class StatusBar(tk.Frame):
                 results = run_cbit(
                     self.config, self._query_engine, self.router,
                 )
-                self.after(0, lambda: self._apply_cbit(results))
+                safe_after(self, 0, lambda: self._apply_cbit(results))
             except Exception as e:
                 logger.debug("CBIT error: %s", e)
 
@@ -469,8 +470,16 @@ class StatusBar(tk.Frame):
         self._refresh_status()
 
     def stop(self):
-        """Stop the periodic refresh timer and CBIT timer."""
+        """Stop the periodic refresh timer, dot animation, and CBIT timer."""
         self._stop_event.set()
+        # Cancel dot animation timer (F14 fix)
+        if self._dot_timer_id is not None:
+            try:
+                self.after_cancel(self._dot_timer_id)
+            except Exception:
+                pass
+            self._dot_timer_id = None
+        # Cancel CBIT timer
         if self._cbit_timer_id is not None:
             try:
                 self.after_cancel(self._cbit_timer_id)

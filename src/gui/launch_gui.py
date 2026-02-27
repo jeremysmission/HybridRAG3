@@ -32,6 +32,7 @@ import sys
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from src.core.constants import DEFAULT_EMBED_DIM
 
 # Ensure project root is on sys.path
 _project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -198,7 +199,7 @@ def _load_backends(app, logger):
             s = VectorStore(
                 db_path=db_path,
                 embedding_dim=getattr(
-                    getattr(config, "embedding", None), "dimension", 384
+                    getattr(config, "embedding", None), "dimension", DEFAULT_EMBED_DIM
                 ),
             )
             s.connect()

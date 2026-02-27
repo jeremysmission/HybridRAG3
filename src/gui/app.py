@@ -55,6 +55,7 @@ from src.gui.theme import (
 )
 from src.gui.scrollable import ScrollableFrame
 from src.gui.helpers import mode_switch
+from src.gui.helpers.shutdown_coordinator import AppShutdownCoordinator
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,7 @@ class HybridRAGApp(tk.Tk):
         self.indexer = indexer
         self.router = router
         self.cost_tracker = get_cost_tracker()
+        self.shutdown = AppShutdownCoordinator()
 
         # Apply initial theme
         self._theme = current_theme()
@@ -534,9 +536,38 @@ class HybridRAGApp(tk.Tk):
     # ----------------------------------------------------------------
 
     def _on_close(self):
-        """Clean up and close the application."""
+        """Clean up and close the application.
+
+        Shutdown sequence:
+          1. Signal all registered threads to stop.
+          2. Cancel known tkinter timer IDs (dot animation, elapsed, CBIT).
+          3. Join threads briefly (bounded at 2s total -- never freeze).
+          4. Flush cost tracker to SQLite.
+          5. destroy().
+        """
+        # Collect timer IDs to cancel
+        timer_ids = []
         if hasattr(self, "status_bar"):
             self.status_bar.stop()
+            timer_ids.append(getattr(self.status_bar, "_dot_timer_id", None))
+            timer_ids.append(getattr(self.status_bar, "_cbit_timer_id", None))
+        if hasattr(self, "query_panel"):
+            timer_ids.append(getattr(self.query_panel, "_elapsed_timer_id", None))
+
+        # Register known threads for join
+        if hasattr(self, "query_panel"):
+            qt = getattr(self.query_panel, "_query_thread", None)
+            if qt is not None:
+                self.shutdown.register_thread("query", qt)
+        if hasattr(self, "index_panel"):
+            it = getattr(self.index_panel, "_index_thread", None)
+            sf = getattr(self.index_panel, "_stop_flag", None)
+            if it is not None:
+                self.shutdown.register_thread("indexing", it, sf)
+
+        # Signal + cancel + join (bounded)
+        self.shutdown.request_shutdown(widget=self, timer_ids=timer_ids)
+
         # Clean up cost dashboard listener if it was built
         cost_view = self._views.get("cost") if hasattr(self, "_views") else None
         if cost_view is not None and hasattr(cost_view, "cleanup"):

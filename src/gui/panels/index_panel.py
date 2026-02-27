@@ -15,6 +15,7 @@ import logging
 from datetime import datetime
 
 from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_MONO, bind_hover
+from src.gui.helpers.safe_after import safe_after
 
 logger = logging.getLogger(__name__)
 
@@ -234,15 +235,19 @@ class IndexPanel(tk.LabelFrame):
 
     def _run_indexing(self, folder):
         """Execute indexing in background thread with progress callback."""
+        from src.core.indexing.cancel import IndexCancelled
         try:
             callback = _GUIProgressCallback(self)
             result = self.indexer.index_folder(
                 folder, progress_callback=callback, recursive=True,
+                stop_flag=self._stop_flag,
             )
-            self.after(0, self._on_indexing_done, result)
+            safe_after(self, 0, self._on_indexing_done, result)
+        except IndexCancelled:
+            safe_after(self, 0, self._on_indexing_cancelled)
         except Exception as e:
             error_msg = "[FAIL] {}: {}".format(type(e).__name__, e)
-            self.after(0, self._on_indexing_error, error_msg)
+            safe_after(self, 0, self._on_indexing_error, error_msg)
 
     def _on_indexing_done(self, result):
         """Handle indexing completion (called on main thread)."""
@@ -271,6 +276,16 @@ class IndexPanel(tk.LabelFrame):
         )
         self.progress_file_label.config(
             text="[OK] Indexing complete", fg=t["green"],
+        )
+
+    def _on_indexing_cancelled(self):
+        """Handle clean cancellation (called on main thread)."""
+        t = current_theme()
+        self.start_btn.config(state=tk.NORMAL, bg=t["accent"],
+                              fg=t["accent_fg"])
+        self.stop_btn.config(state=tk.DISABLED)
+        self.progress_file_label.config(
+            text="[OK] Indexing cancelled by user", fg=t["orange"],
         )
 
     def _on_indexing_error(self, error_msg):
@@ -316,21 +331,21 @@ class _GUIProgressCallback:
     def _flush_pending(self):
         """Push the latest stored state to the GUI (called at end of indexing)."""
         if self._pending_fname is not None:
-            self.panel.after(
-                0, self._update_file_start,
+            safe_after(
+                self.panel, 0, self._update_file_start,
                 self._pending_fname, self._pending_file_num,
                 self._pending_total,
             )
-            self.panel.after(0, self._update_file_complete)
+            safe_after(self.panel, 0, self._update_file_complete)
 
     def on_file_start(self, file_path, file_num, total_files):
         """Called when a file starts processing."""
         self._total_files = total_files
         fname = os.path.basename(file_path)
 
-        # Check stop flag
-        if self.panel._stop_flag.is_set():
-            raise InterruptedError("Indexing stopped by user")
+        # Stop flag is now checked in indexer.index_folder() at the top
+        # of the file loop, raising IndexCancelled (BaseException).
+        # No need to raise from the callback.
 
         # Always store latest state; only push to GUI if throttle allows
         self._pending_fname = fname
@@ -338,7 +353,7 @@ class _GUIProgressCallback:
         self._pending_total = total_files
 
         if self._should_update():
-            self.panel.after(0, self._update_file_start, fname, file_num, total_files)
+            safe_after(self.panel, 0, self._update_file_start, fname, file_num, total_files)
 
     def _update_file_start(self, fname, file_num, total_files):
         t = current_theme()
@@ -356,7 +371,7 @@ class _GUIProgressCallback:
         """Called when a file finishes processing."""
         self._file_count += 1
         if self._should_update():
-            self.panel.after(0, self._update_file_complete)
+            safe_after(self.panel, 0, self._update_file_complete)
 
     def _update_file_complete(self):
         self.panel.progress_bar["value"] = self._file_count
@@ -365,7 +380,7 @@ class _GUIProgressCallback:
         """Called when a file is skipped."""
         self._file_count += 1
         if self._should_update():
-            self.panel.after(0, self._update_file_complete)
+            safe_after(self.panel, 0, self._update_file_complete)
 
     def on_indexing_complete(self, total_chunks, elapsed_seconds):
         """Called when indexing finishes. Flush final state to GUI."""
@@ -374,7 +389,7 @@ class _GUIProgressCallback:
     def on_discovery_progress(self, files_found):
         """Called periodically during folder discovery (before indexing starts)."""
         if self._should_update():
-            self.panel.after(0, self._update_discovery, files_found)
+            safe_after(self.panel, 0, self._update_discovery, files_found)
 
     def _update_discovery(self, files_found):
         t = current_theme()
@@ -387,8 +402,8 @@ class _GUIProgressCallback:
         """Called when a file has an error -- always shown (errors are rare)."""
         t = current_theme()
         fname = os.path.basename(file_path)
-        self.panel.after(
-            0,
+        safe_after(
+            self.panel, 0,
             lambda: self.panel.progress_file_label.config(
                 text="[WARN] Error on {}: {}".format(fname, error[:60]),
                 fg=t["orange"],
