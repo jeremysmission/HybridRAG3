@@ -51,6 +51,7 @@ DST_ROOT = r"D:\HybridRAG3_Educational"
 # ---------------------------------------------------------------------------
 # Matching rules (checked by should_skip):
 #   "*.ext"  -- glob: any file ending in .ext
+#   "name/"  -- directory-only: exact basename match (no substring bleed)
 #   "name"   -- exact basename match OR substring in full path
 #
 # Categories:
@@ -74,9 +75,9 @@ SKIP_PATTERNS = [
     "*.pyc",
     "*.pyo",
     "*.log",
-    "data",                        # indexed data
-    "logs",                        # runtime logs
-    "output",                      # troubleshooter, diagnostics, downloads
+    "data/",                       # indexed data (dir only -- not data_panel.py)
+    "logs/",                       # runtime logs (dir only)
+    "output/",                     # troubleshooter, diagnostics, downloads (dir only)
     "claude_diag",                 # claude_diag, claude_diag_gui, claude_diag_run (substring)
     "temp_diag",                   # temp diagnostic output
     "releases",                    # zip transfers
@@ -308,6 +309,11 @@ def should_skip(path):
         elif pattern.startswith("~$"):
             # Prefix glob: match files starting with ~$
             if basename.startswith("~$"):
+                return True
+        elif pattern.endswith("/"):
+            # Directory-only: exact basename (no substring bleed into
+            # filenames like data_panel.py matching "data")
+            if basename == pattern[:-1]:
                 return True
         elif basename == pattern or pattern in path:
             return True
