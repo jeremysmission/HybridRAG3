@@ -1,3 +1,4 @@
+# Settings panel UI for viewing and editing application configuration
 from __future__ import annotations
 
 import os

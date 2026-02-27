@@ -177,7 +177,7 @@ def _():
         InvalidEndpointError, DeploymentNotConfiguredError,
         ProviderConfigError, ApiVersionNotConfiguredError,
         ConnectionFailedError, TLSValidationError, ProxyError,
-        TimeoutError, AuthRejectedError, ForbiddenError,
+        RequestTimeoutError, AuthRejectedError, ForbiddenError,
         DeploymentNotFoundError, RateLimitedError, ServerError,
         UnexpectedResponseError, OllamaNotRunningError,
         OllamaModelNotFoundError, IndexNotFoundError, IndexCorruptedError,
@@ -188,7 +188,7 @@ def _():
         InvalidEndpointError(), DeploymentNotConfiguredError(),
         ProviderConfigError(), ApiVersionNotConfiguredError(),
         ConnectionFailedError(), TLSValidationError(), ProxyError(),
-        TimeoutError(), AuthRejectedError(), ForbiddenError(),
+        RequestTimeoutError(), AuthRejectedError(), ForbiddenError(),
         DeploymentNotFoundError(), RateLimitedError(), ServerError(),
         UnexpectedResponseError(), OllamaNotRunningError(),
         OllamaModelNotFoundError(), IndexNotFoundError(), IndexCorruptedError(),
@@ -210,7 +210,7 @@ def _():
         InvalidEndpointError, DeploymentNotConfiguredError,
         ProviderConfigError, ApiVersionNotConfiguredError,
         ConnectionFailedError, TLSValidationError, ProxyError,
-        TimeoutError, AuthRejectedError, ForbiddenError,
+        RequestTimeoutError, AuthRejectedError, ForbiddenError,
         DeploymentNotFoundError, RateLimitedError, ServerError,
         UnexpectedResponseError, OllamaNotRunningError,
         OllamaModelNotFoundError, IndexNotFoundError, IndexCorruptedError,
@@ -221,7 +221,7 @@ def _():
         InvalidEndpointError(), DeploymentNotConfiguredError(),
         ProviderConfigError(), ApiVersionNotConfiguredError(),
         ConnectionFailedError(), TLSValidationError(), ProxyError(),
-        TimeoutError(), AuthRejectedError(), ForbiddenError(),
+        RequestTimeoutError(), AuthRejectedError(), ForbiddenError(),
         DeploymentNotFoundError(), RateLimitedError(), ServerError(),
         UnexpectedResponseError(), OllamaNotRunningError(),
         OllamaModelNotFoundError(), IndexNotFoundError(), IndexCorruptedError(),
@@ -240,7 +240,7 @@ def _():
         InvalidEndpointError, DeploymentNotConfiguredError,
         ProviderConfigError, ApiVersionNotConfiguredError,
         ConnectionFailedError, TLSValidationError, ProxyError,
-        TimeoutError, AuthRejectedError, ForbiddenError,
+        RequestTimeoutError, AuthRejectedError, ForbiddenError,
         DeploymentNotFoundError, RateLimitedError, ServerError,
         UnexpectedResponseError, OllamaNotRunningError,
         OllamaModelNotFoundError, IndexNotFoundError, IndexCorruptedError,
@@ -251,7 +251,7 @@ def _():
         InvalidEndpointError(), DeploymentNotConfiguredError(),
         ProviderConfigError(), ApiVersionNotConfiguredError(),
         ConnectionFailedError(), TLSValidationError(), ProxyError(),
-        TimeoutError(), AuthRejectedError(), ForbiddenError(),
+        RequestTimeoutError(), AuthRejectedError(), ForbiddenError(),
         DeploymentNotFoundError(), RateLimitedError(), ServerError(),
         UnexpectedResponseError(), OllamaNotRunningError(),
         OllamaModelNotFoundError(), IndexNotFoundError(), IndexCorruptedError(),
@@ -276,8 +276,8 @@ def _():
         config = yaml.safe_load(f)
     assert isinstance(config, dict)
     assert "api" in config
-    assert "http" in config
     assert "ollama" in config
+    assert "embedding" in config
 
 @check("Config has all required API fields")
 def _():
@@ -286,37 +286,40 @@ def _():
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
     api = config["api"]
-    required = ["provider", "auth_scheme", "deployment", "api_version", "endpoint", "key"]
+    # key lives in keyring/env, not in shipped config (security rule)
+    required = ["provider", "auth_scheme", "deployment", "api_version", "endpoint"]
     missing = [f for f in required if f not in api]
     assert len(missing) == 0, f"Missing API config fields: {missing}"
 
-@check("Config has all required HTTP fields")
+@check("Config has all required Ollama fields")
 def _():
     import yaml
     config_path = os.path.join(PROJECT_ROOT, "config", "default_config.yaml")
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
-    http = config["http"]
-    required = ["timeout", "max_retries", "retry_delay", "ca_bundle", "verify_ssl"]
-    missing = [f for f in required if f not in http]
-    assert len(missing) == 0, f"Missing HTTP config fields: {missing}"
+    ollama = config["ollama"]
+    required = ["base_url", "model", "timeout_seconds"]
+    missing = [f for f in required if f not in ollama]
+    assert len(missing) == 0, f"Missing Ollama config fields: {missing}"
 
-@check("Config provider value is valid")
+@check("Config provider value is valid (empty = offline default)")
 def _():
     import yaml
     config_path = os.path.join(PROJECT_ROOT, "config", "default_config.yaml")
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
-    assert config["api"]["provider"] in ("azure", "openai", "auto"), \
+    # Empty string is valid: offline-default mode has no cloud provider
+    assert config["api"]["provider"] in ("azure", "openai", "auto", ""), \
         f"Invalid provider: {config['api']['provider']}"
 
-@check("Config auth_scheme value is valid")
+@check("Config auth_scheme value is valid (empty = offline default)")
 def _():
     import yaml
     config_path = os.path.join(PROJECT_ROOT, "config", "default_config.yaml")
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
-    assert config["api"]["auth_scheme"] in ("api_key", "bearer", "auto"), \
+    # Empty string is valid: offline-default mode has no auth scheme
+    assert config["api"]["auth_scheme"] in ("api_key", "bearer", "auto", ""), \
         f"Invalid auth_scheme: {config['api']['auth_scheme']}"
 
 @check("Config does not contain actual secrets")
@@ -325,7 +328,7 @@ def _():
     config_path = os.path.join(PROJECT_ROOT, "config", "default_config.yaml")
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
-    assert not config["api"]["key"], "Config has a non-empty API key!"
+    assert not config["api"].get("key"), "Config has a non-empty API key!"
     assert not config["api"]["endpoint"], "Config has a non-empty endpoint!"
 
 
@@ -393,7 +396,7 @@ def _():
     required = [
         "src/__init__.py",
         "src/core/__init__.py",
-        "src/core/api/__init__.py",
+        "src/api/__init__.py",
         "src/security/__init__.py",
         "tests/__init__.py",
     ]
@@ -452,8 +455,8 @@ def _():
     config_path = os.path.join(PROJECT_ROOT, "config", "default_config.yaml")
     with open(config_path, "r") as f:
         content = f.read()
-    # Check that major sections have comments
-    sections = ["api:", "http:", "ollama:", "embedding:", "retrieval:", "paths:", "security:"]
+    # Check that major sections have comments (http retired; settings in api/ollama)
+    sections = ["api:", "ollama:", "embedding:", "retrieval:", "paths:", "security:"]
     for section in sections:
         idx = content.find(section)
         assert idx != -1, f"Section {section} not found in config"

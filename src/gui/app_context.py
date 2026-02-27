@@ -1,3 +1,4 @@
+# Singleton access point for the GUI Controller instance
 from __future__ import annotations
 from src.gui.core.paths import AppPaths
 from src.gui.core.controller import Controller

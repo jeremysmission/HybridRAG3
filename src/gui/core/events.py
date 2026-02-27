@@ -1,3 +1,4 @@
+# Structured GUI event dataclass and factory for diagnostics logging
 from __future__ import annotations
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone

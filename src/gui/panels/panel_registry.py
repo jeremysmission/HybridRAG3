@@ -1,3 +1,4 @@
+# Registry for discovering, registering, and lazy-loading GUI panels
 from __future__ import annotations
 
 import logging

@@ -1,3 +1,4 @@
+# Application path configuration for downloads, diagnostics, and run folders
 from __future__ import annotations
 import os
 from dataclasses import dataclass

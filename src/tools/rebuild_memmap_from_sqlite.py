@@ -1,3 +1,4 @@
+# Forced rebuild of the memmap embedding store from SQLite chunk text
 r"""
 src/tools/rebuild_memmap_from_sqlite.py
 

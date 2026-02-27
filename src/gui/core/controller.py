@@ -1,3 +1,4 @@
+# Central controller coordinating GUI state, jobs, diagnostics, and downloads
 from __future__ import annotations
 import os
 import uuid

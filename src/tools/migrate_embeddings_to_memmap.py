@@ -1,3 +1,4 @@
+# One-time migration of SQLite embeddings into the memmap vector store
 r"""
 src/tools/migrate_embeddings_to_memmap.py
 

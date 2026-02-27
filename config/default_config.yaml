@@ -1,3 +1,5 @@
+# Online API settings (Azure OpenAI / OpenAI-compatible endpoints)
+# Credentials live in keyring/env, not here (security rule)
 api:
   api_version: ''
   auth_scheme: ''
@@ -8,20 +10,24 @@ api:
   provider: ''
   temperature: 0.05
   timeout_seconds: 60
+# Document chunking parameters for indexing
 chunking:
   chunk_size: 1200
   max_heading_len: 160
   overlap: 200
+# Cost tracking for PM dashboard
 cost:
   daily_budget_usd: 5.0
   input_cost_per_1k: 0.0015
   output_cost_per_1k: 0.002
   track_enabled: true
+# Embedding model served by Ollama (nomic-embed-text, 768-dim)
 embedding:
   batch_size: 128
   device: cuda
   dimension: 768
   model_name: nomic-embed-text
+# Hallucination guard (DORMANT -- sentence-transformers retired Session 15)
 hallucination_guard:
   chunk_prune_k: 3
   enable_dual_path: false
@@ -32,10 +38,13 @@ hallucination_guard:
   shortcircuit_fail: 3
   shortcircuit_pass: 5
   threshold: 0.8
+# Indexing limits for large file handling
 indexing:
   block_chars: 1000000
   max_chars_per_file: 10000000
+# Network mode: offline (default), online, admin
 mode: offline
+# Ollama local LLM server settings (offline inference)
 ollama:
   base_url: http://localhost:11434
   context_window: 16384
@@ -44,14 +53,17 @@ ollama:
   num_predict: 512
   num_thread: 0
   timeout_seconds: 600
+# File system paths (override via user_overrides.yaml or env vars)
 paths:
   database: D:\RAG Indexed Data\hybridrag.sqlite3
   embeddings_cache: D:\RAG Indexed Data\_embeddings
   source_folder: D:\RAG Source Data
+# Performance tuning
 performance:
   gc_between_blocks: false
   gc_between_files: false
   max_concurrent_files: 4
+# Retrieval parameters for hybrid search
 retrieval:
   hybrid_search: true
   min_chunks: 1
@@ -61,6 +73,7 @@ retrieval:
   reranker_top_n: 60
   rrf_k: 60
   top_k: 15
+# Security and audit settings
 security:
   audit_logging: true
   pii_sanitization: true

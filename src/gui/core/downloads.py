@@ -1,3 +1,4 @@
+# In-memory registry tracking file download records and their statuses
 from __future__ import annotations
 import os
 from dataclasses import dataclass, asdict

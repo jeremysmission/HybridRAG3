@@ -1,3 +1,4 @@
+# Per-run diagnostics writer for environment snapshots, events, and logs
 from __future__ import annotations
 import json
 import os
