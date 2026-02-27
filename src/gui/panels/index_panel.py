@@ -119,10 +119,10 @@ class IndexPanel(tk.LabelFrame):
         self.start_btn.pack(side=tk.LEFT)
 
         self.stop_btn = tk.Button(
-            row1, text="Stop", command=self._on_stop, width=8,
+            row1, text="Stop Indexing", command=self._on_stop, width=12,
             state=tk.DISABLED,
-            bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"], font=FONT,
-            relief=tk.FLAT, bd=0, padx=12, pady=8,
+            bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"],
+            font=FONT_BOLD, relief=tk.FLAT, bd=0, padx=16, pady=8,
         )
         self.stop_btn.pack(side=tk.LEFT, padx=(8, 0))
 
@@ -256,8 +256,14 @@ class IndexPanel(tk.LabelFrame):
 
         # Reset UI
         self._stop_flag.clear()
-        self.start_btn.config(state=tk.DISABLED)
-        self.stop_btn.config(state=tk.NORMAL)
+        self.start_btn.config(state=tk.DISABLED,
+                              bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"])
+        self.stop_btn.config(state=tk.NORMAL,
+                             bg=t.get("red", "#e05555"),
+                             fg="#ffffff",
+                             activebackground=t.get("red_hover", "#c04040"),
+                             activeforeground="#ffffff")
+        bind_hover(self.stop_btn)
         self.progress_bar["value"] = 0
         self.progress_count_label.config(text="0 / 0 files")
         self.progress_file_label.config(text="Starting...", fg=t["gray"])
@@ -277,7 +283,9 @@ class IndexPanel(tk.LabelFrame):
         """Signal the indexing thread to stop after current file."""
         t = current_theme()
         self._stop_flag.set()
-        self.stop_btn.config(state=tk.DISABLED)
+        self.stop_btn.config(state=tk.DISABLED,
+                             bg=t["inactive_btn_bg"],
+                             fg=t["inactive_btn_fg"])
         self.progress_file_label.config(text="Stopping after current file...",
                                         fg=t["orange"])
 
@@ -320,8 +328,10 @@ class IndexPanel(tk.LabelFrame):
     def _on_indexing_done_inner(self, result):
         """Inner handler (separated so outer can catch and re-enable)."""
         t = current_theme()
-        self.start_btn.config(state=tk.NORMAL)
-        self.stop_btn.config(state=tk.DISABLED)
+        self.start_btn.config(state=tk.NORMAL, bg=t["accent"],
+                              fg=t["accent_fg"])
+        self.stop_btn.config(state=tk.DISABLED, bg=t["inactive_btn_bg"],
+                             fg=t["inactive_btn_fg"])
 
         total_chunks = result.get("total_chunks_added", 0)
         elapsed = result.get("elapsed_seconds", 0)
@@ -342,7 +352,8 @@ class IndexPanel(tk.LabelFrame):
         t = current_theme()
         self.start_btn.config(state=tk.NORMAL, bg=t["accent"],
                               fg=t["accent_fg"])
-        self.stop_btn.config(state=tk.DISABLED)
+        self.stop_btn.config(state=tk.DISABLED, bg=t["inactive_btn_bg"],
+                             fg=t["inactive_btn_fg"])
         self.progress_file_label.config(
             text="[OK] Indexing cancelled by user", fg=t["orange"],
         )
@@ -350,8 +361,10 @@ class IndexPanel(tk.LabelFrame):
     def _on_indexing_error(self, error_msg):
         """Handle indexing error (called on main thread)."""
         t = current_theme()
-        self.start_btn.config(state=tk.NORMAL)
-        self.stop_btn.config(state=tk.DISABLED)
+        self.start_btn.config(state=tk.NORMAL, bg=t["accent"],
+                              fg=t["accent_fg"])
+        self.stop_btn.config(state=tk.DISABLED, bg=t["inactive_btn_bg"],
+                             fg=t["inactive_btn_fg"])
         self.progress_file_label.config(text=error_msg, fg=t["red"])
 
 
