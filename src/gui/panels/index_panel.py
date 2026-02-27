@@ -14,7 +14,7 @@ import time
 import logging
 from datetime import datetime
 
-from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_MONO, bind_hover
+from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_SMALL, FONT_MONO, bind_hover
 from src.gui.helpers.safe_after import safe_after
 
 logger = logging.getLogger(__name__)
@@ -87,6 +87,15 @@ class IndexPanel(tk.LabelFrame):
             bg=t["panel_bg"], fg=t["gray"], font=("Segoe UI", 8),
         )
         self.paths_hint.pack(side=tk.RIGHT)
+
+        # -- Status indicator (shows why indexing is disabled) --
+        self._status_var = tk.StringVar(value="Waiting for backends...")
+        self._status_label = tk.Label(
+            self, textvariable=self._status_var,
+            bg=t["panel_bg"], fg=t.get("yellow", "#e8a838"),
+            font=FONT_SMALL, anchor=tk.W,
+        )
+        self._status_label.pack(fill=tk.X, pady=(0, 4))
 
         # -- Row 1: Controls --
         row1 = tk.Frame(self, bg=t["panel_bg"])
@@ -177,15 +186,42 @@ class IndexPanel(tk.LabelFrame):
             self.last_run_label.configure(fg=t["fg"])
         self.progress_count_label.configure(bg=t["panel_bg"], fg=t["fg"])
 
-    def set_ready(self, enabled):
+    def set_ready(self, enabled, reason=""):
         """Enable or disable the Start Indexing button based on backend readiness."""
         t = current_theme()
         if enabled:
             self.start_btn.config(state=tk.NORMAL, bg=t["accent"],
                                   fg=t["accent_fg"])
+            self._update_status("Ready to index", t.get("green", "#4ec96f"))
         else:
             self.start_btn.config(state=tk.DISABLED, bg=t["inactive_btn_bg"],
                                   fg=t["inactive_btn_fg"])
+            self._update_status(
+                reason or self._diagnose_disabled_reason(),
+                t.get("yellow", "#e8a838"),
+            )
+
+    def _update_status(self, text, color):
+        """Update the status indicator label."""
+        if hasattr(self, "_status_var"):
+            self._status_var.set(text)
+            self._status_label.configure(fg=color)
+
+    def _diagnose_disabled_reason(self):
+        """Return a human-readable reason why indexing is disabled."""
+        if self.indexer is None:
+            return "Backends loading... (embedder or database not ready)"
+        source = getattr(
+            getattr(self.config, "paths", None), "source_folder", ""
+        )
+        if not source:
+            return "Source folder not set (configure in Admin tab)"
+        if not os.path.isdir(source):
+            return "Source folder not found: {}".format(source)
+        db = getattr(getattr(self.config, "paths", None), "database", "")
+        if not db:
+            return "Database path not set (configure in Admin tab)"
+        return "Unknown reason -- check logs"
 
     def _on_start(self):
         """Start indexing in a background thread."""

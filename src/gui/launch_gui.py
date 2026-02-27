@@ -267,7 +267,7 @@ def _load_backends(app, logger):
             query_engine = GroundedQueryEngine(config, store, embedder, router)
             logger.info("[OK] Query engine ready")
 
-            chunker = Chunker(config)
+            chunker = Chunker(config.chunking)
             indexer = Indexer(config, store, embedder, chunker)
             logger.info("[OK] Indexer ready")
 

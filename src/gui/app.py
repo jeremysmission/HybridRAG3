@@ -291,7 +291,16 @@ class HybridRAGApp(tk.Tk):
                 # If backends already loaded (panel built after _attach),
                 # enable the Start button immediately.
                 if self.indexer is not None:
+                    self.index_panel.indexer = self.indexer
                     self.index_panel.set_ready(True)
+                    logger.info("[OK] Index panel: backends ready at build time")
+                else:
+                    # Backends not attached yet -- poll until they arrive
+                    # (covers the race where user clicks tab before backends
+                    #  finish loading in the background thread).
+                    logger.info("[WARN] Index panel built before backends ready"
+                                " -- starting deferred readiness check")
+                    self._poll_index_ready()
                 self._views["index"] = wrapper
                 return
 
@@ -375,6 +384,24 @@ class HybridRAGApp(tk.Tk):
         txt.config(state=tk.DISABLED)
         txt.pack(fill=tk.BOTH, expand=True, padx=16, pady=8)
         self._views[name] = frame
+
+    # ----------------------------------------------------------------
+    # DEFERRED READINESS
+    # ----------------------------------------------------------------
+
+    def _poll_index_ready(self, attempts=0):
+        """Check every 500ms if indexer has been attached; enable button."""
+        if self.indexer is not None and hasattr(self, "index_panel"):
+            self.index_panel.indexer = self.indexer
+            self.index_panel.set_ready(True)
+            logger.info("[OK] Index panel: deferred readiness resolved "
+                        "after %d polls", attempts)
+            return
+        if attempts >= 120:  # 60 seconds max
+            logger.warning("[WARN] Index panel: backends never arrived "
+                           "after 60s -- button stays disabled")
+            return
+        self.after(500, self._poll_index_ready, attempts + 1)
 
     # ----------------------------------------------------------------
     # THEME TOGGLE

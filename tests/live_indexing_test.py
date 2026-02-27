@@ -23,7 +23,8 @@ import os
 import sys
 import time
 import json
-import psutil
+import pytest
+psutil = pytest.importorskip("psutil")
 import traceback
 from pathlib import Path
 from datetime import datetime

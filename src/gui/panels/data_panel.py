@@ -165,6 +165,20 @@ class DataPanel(tk.Frame):
         self._stop_event = threading.Event()
         self._poll_id = None
 
+        # Header so users can identify this as the downloader
+        tk.Label(
+            self, text="Downloader / Bulk Transfer",
+            bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD,
+            anchor=tk.W,
+        ).pack(fill=tk.X, padx=16, pady=(8, 0))
+        tk.Label(
+            self,
+            text="Transfer files from network drives or local folders "
+                 "into your RAG source folder for indexing.",
+            bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+            anchor=tk.W, wraplength=600, justify=tk.LEFT,
+        ).pack(fill=tk.X, padx=16, pady=(0, 4))
+
         # Build sections
         self._build_source_path_section(t)
         self._build_browser_section(t)

@@ -619,6 +619,26 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
         self.tree.tag_configure("primary", background="#1a3a1a")
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
 
+        # --- Button row below treeview ---
+        btn_row = tk.Frame(self, bg=t["panel_bg"])
+        btn_row.pack(fill=tk.X, pady=(6, 2))
+
+        self._dl_btn = tk.Button(
+            btn_row, text="Check / Download Models",
+            command=self._open_download_dialog,
+            bg=t["accent"], fg=t["accent_fg"], font=FONT,
+            activebackground=t.get("accent_hover", t["accent"]),
+            cursor="hand2", relief=tk.FLAT, padx=12, pady=4,
+        )
+        self._dl_btn.pack(side=tk.LEFT)
+        bind_hover(self._dl_btn)
+
+        self._dl_status = tk.Label(
+            btn_row, text="", anchor=tk.W,
+            bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+        )
+        self._dl_status.pack(side=tk.LEFT, padx=(10, 0), fill=tk.X, expand=True)
+
     def _get_uc_key(self):
         from scripts._model_meta import USE_CASES
         label = self.uc_var.get()
@@ -771,6 +791,191 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
 
         self.status_label.config(
             text="Selected: {} (saved)".format(model_name), fg=t["fg"])
+
+    # ------------------------------------------------------------------
+    # Model Download Dialog
+    # ------------------------------------------------------------------
+
+    def _query_ollama_models(self):
+        """Return list of installed Ollama model names, or None on error."""
+        try:
+            import httpx
+            base = getattr(
+                getattr(self.config, "ollama", None), "base_url",
+                "http://127.0.0.1:11434",
+            )
+            r = httpx.get("{}/api/tags".format(base), timeout=5)
+            r.raise_for_status()
+            return [m.get("name", "") for m in r.json().get("models", [])]
+        except Exception as e:
+            logger.warning("[WARN] Ollama tags query failed: %s", e)
+            return None
+
+    def _open_download_dialog(self):
+        """Open a dialog showing installed vs missing approved models."""
+        t = current_theme()
+        self._dl_status.config(text="Checking Ollama...", fg=t["gray"])
+        self.update_idletasks()
+
+        installed = self._query_ollama_models()
+        if installed is None:
+            self._dl_status.config(
+                text="[FAIL] Cannot reach Ollama", fg=t["red"])
+            return
+
+        from scripts._model_meta import WORK_ONLY_MODELS
+
+        # Normalize installed names for matching (strip :latest tag)
+        installed_bases = set()
+        for m in installed:
+            installed_bases.add(m)
+            if ":" in m:
+                installed_bases.add(m.split(":")[0])
+
+        missing = []
+        present = []
+        for name in WORK_ONLY_MODELS:
+            base = name.split(":")[0]
+            if name in installed_bases or base in installed_bases:
+                present.append(name)
+            else:
+                missing.append(name)
+
+        self._dl_status.config(
+            text="{} installed, {} missing".format(len(present), len(missing)),
+            fg=t["fg"] if not missing else t.get("orange", "#e8a838"),
+        )
+
+        # Build dialog
+        dlg = tk.Toplevel(self)
+        dlg.title("Model Manager")
+        dlg.configure(bg=t["panel_bg"])
+        dlg.geometry("520x420")
+        dlg.transient(self.winfo_toplevel())
+        dlg.grab_set()
+
+        tk.Label(
+            dlg, text="Approved Offline Models",
+            bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD,
+        ).pack(pady=(12, 4))
+
+        # Installed section
+        tk.Label(
+            dlg, text="Installed ({})".format(len(present)),
+            bg=t["panel_bg"], fg=t.get("green", "#4ec96f"), font=FONT,
+            anchor=tk.W,
+        ).pack(fill=tk.X, padx=16, pady=(8, 2))
+
+        for name in present:
+            tk.Label(
+                dlg, text="  [OK] {}".format(name), anchor=tk.W,
+                bg=t["panel_bg"], fg=t["fg"], font=FONT_MONO,
+            ).pack(fill=tk.X, padx=16)
+
+        # Missing section
+        if missing:
+            tk.Label(
+                dlg, text="Missing ({})".format(len(missing)),
+                bg=t["panel_bg"], fg=t.get("orange", "#e8a838"), font=FONT,
+                anchor=tk.W,
+            ).pack(fill=tk.X, padx=16, pady=(12, 2))
+
+            for name in missing:
+                row = tk.Frame(dlg, bg=t["panel_bg"])
+                row.pack(fill=tk.X, padx=16, pady=1)
+                tk.Label(
+                    row, text="  [--] {}".format(name), anchor=tk.W,
+                    bg=t["panel_bg"], fg=t["gray"], font=FONT_MONO,
+                ).pack(side=tk.LEFT)
+
+            # Pull all missing button
+            tk.Label(
+                dlg, text="To install missing models, run in terminal:",
+                bg=t["panel_bg"], fg=t["fg"], font=FONT_SMALL,
+                anchor=tk.W,
+            ).pack(fill=tk.X, padx=16, pady=(12, 2))
+
+            cmds = "\n".join("ollama pull {}".format(m) for m in missing)
+            cmd_box = tk.Text(
+                dlg, height=min(len(missing) + 1, 6), wrap=tk.NONE,
+                bg=t.get("entry_bg", "#1e1e1e"), fg=t["fg"], font=FONT_MONO,
+                relief=tk.FLAT, padx=8, pady=4,
+            )
+            cmd_box.pack(fill=tk.X, padx=16, pady=(0, 4))
+            cmd_box.insert("1.0", cmds)
+            cmd_box.config(state=tk.DISABLED)
+
+            def _pull_all():
+                """Pull all missing models in background thread."""
+                pull_btn.config(state=tk.DISABLED, text="Pulling...")
+                pull_status.config(text="Starting downloads...", fg=t["fg"])
+                dlg.update_idletasks()
+
+                def _worker():
+                    import subprocess
+                    results = []
+                    for i, model in enumerate(missing):
+                        try:
+                            dlg.after(0, lambda m=model, n=i: pull_status.config(
+                                text="Pulling {}/{}: {}...".format(
+                                    n + 1, len(missing), m)))
+                            subprocess.run(
+                                ["ollama", "pull", model],
+                                capture_output=True, text=True, timeout=600,
+                            )
+                            results.append((model, True))
+                        except Exception as e:
+                            results.append((model, False))
+                            logger.warning("[WARN] ollama pull %s failed: %s",
+                                           model, e)
+
+                    ok = sum(1 for _, s in results if s)
+                    fail = len(results) - ok
+                    msg = "Done: {} pulled".format(ok)
+                    if fail:
+                        msg += ", {} failed".format(fail)
+
+                    def _finish():
+                        pull_status.config(
+                            text=msg,
+                            fg=t.get("green", "#4ec96f") if not fail
+                            else t.get("orange", "#e8a838"),
+                        )
+                        pull_btn.config(state=tk.NORMAL,
+                                        text="Pull All Missing")
+                        self._populate()  # refresh treeview
+
+                    dlg.after(0, _finish)
+
+                threading.Thread(target=_worker, daemon=True).start()
+
+            pull_btn = tk.Button(
+                dlg, text="Pull All Missing", command=_pull_all,
+                bg=t["accent"], fg=t["accent_fg"], font=FONT,
+                relief=tk.FLAT, padx=12, pady=4, cursor="hand2",
+            )
+            pull_btn.pack(pady=(4, 2))
+            bind_hover(pull_btn)
+
+            pull_status = tk.Label(
+                dlg, text="", anchor=tk.W,
+                bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+            )
+            pull_status.pack(fill=tk.X, padx=16)
+
+        else:
+            tk.Label(
+                dlg, text="All approved models are installed!",
+                bg=t["panel_bg"], fg=t.get("green", "#4ec96f"), font=FONT,
+                anchor=tk.W,
+            ).pack(fill=tk.X, padx=16, pady=(12, 2))
+
+        # Close button
+        tk.Button(
+            dlg, text="Close", command=dlg.destroy,
+            bg=t.get("inactive_btn_bg", "#333"), fg=t["fg"], font=FONT,
+            relief=tk.FLAT, padx=16, pady=4,
+        ).pack(pady=(8, 12))
 
     def apply_theme(self, t):
         self.configure(bg=t["panel_bg"], fg=t["accent"])

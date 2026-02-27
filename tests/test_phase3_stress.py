@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
 
 import pytest
-import numpy as np
+np = pytest.importorskip("numpy")
 
 # -- sys.path setup --
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
