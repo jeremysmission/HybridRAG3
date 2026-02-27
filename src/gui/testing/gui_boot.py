@@ -50,3 +50,51 @@ def boot_headless():
     app = HybridRAGApp(boot_result=boot_result, config=config)
     app.update()
     return app
+
+
+def attach_backends_sync(app, timeout_s=60):
+    """Attach GUI backends synchronously for deterministic tests.
+
+    Tooling-only helper. Calls the same backend loader as launch_gui.py
+    but runs in-process so tests can immediately invoke buttons.
+    Suppresses init-error messageboxes during loading.
+    """
+    import time
+    from tkinter import messagebox as mb_mod
+    from src.gui import launch_gui
+    from src.gui.helpers.safe_after import drain_ui_queue
+
+    _logger = logging.getLogger("gui_boot_sync")
+
+    # Suppress the init-error messagebox during headless testing
+    _orig_warn = mb_mod.showwarning
+    mb_mod.showwarning = lambda *a, **kw: None
+
+    try:
+        launch_gui._load_backends(app, _logger)
+
+        # Pump the event loop + drain queued callbacks
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            try:
+                app.update_idletasks()
+                app.update()
+                drain_ui_queue()
+            except Exception:
+                break
+
+            # Done once backends are attached
+            if app.query_engine is not None or app.indexer is not None:
+                break
+            time.sleep(0.1)
+
+        # One final pump for any remaining callbacks
+        try:
+            app.update_idletasks()
+            app.update()
+            drain_ui_queue()
+        except Exception:
+            pass
+
+    finally:
+        mb_mod.showwarning = _orig_warn

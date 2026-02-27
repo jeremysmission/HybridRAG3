@@ -83,6 +83,10 @@ class TuningTab(tk.Frame):
             "timeout_seconds": getattr(api, "timeout_seconds", 30) if api else 30,
         }
 
+    def get_profile_options(self):
+        """Return the list of available profile names (public testing API)."""
+        return list(self.profile_dropdown["values"])
+
     # ----------------------------------------------------------------
     # RETRIEVAL SETTINGS
     # ----------------------------------------------------------------

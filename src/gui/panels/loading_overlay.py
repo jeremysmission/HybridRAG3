@@ -24,6 +24,7 @@
 # ============================================================================
 
 import math
+import os
 import random
 import tkinter as tk
 
@@ -130,7 +131,16 @@ class VectorFieldOverlay(tk.Canvas):
 
         # Place over the answer area using place() geometry manager
         self.place(relx=0, rely=0, relwidth=1.0, relheight=1.0)
-        self.lift()   # ensure on top
+
+        # In headless mode, skip animation entirely (no display)
+        if os.environ.get("HYBRIDRAG_HEADLESS") == "1":
+            self._running = False
+            return
+
+        try:
+            self.lift()
+        except tk.TclError:
+            pass  # headless / withdrawn window -- safe to skip
 
         # Build nodes once we know actual size (after place renders)
         self.update_idletasks()

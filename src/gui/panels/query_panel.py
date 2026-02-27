@@ -74,6 +74,14 @@ class QueryPanel(tk.LabelFrame):
         self._model_auto = True          # True = recommendation picks model
         self._installed_models = []      # names from `ollama list`
 
+        # Public testing state -- poll these from harness/tools.
+        # Event is the thread-safe completion signal; plain attrs are
+        # convenience for assertions after the event fires.
+        self.query_done_event = threading.Event()
+        self.is_querying = False
+        self.last_answer_preview = ""
+        self.last_query_status = ""
+
         self._build_widgets(t)
 
         # Fetch installed Ollama models in background, then apply initial
@@ -453,6 +461,12 @@ class QueryPanel(tk.LabelFrame):
         self.ask_btn.config(state=tk.DISABLED)  # prevent double-submit
         self._stream_start = time.time()
 
+        # Public testing state (main thread, before thread starts)
+        self.is_querying = True
+        self.query_done_event.clear()
+        self.last_answer_preview = ""
+        self.last_query_status = ""
+
         # Clear previous answer for fresh output
         self.answer_text.config(state=tk.NORMAL)
         self.answer_text.delete("1.0", tk.END)
@@ -481,9 +495,18 @@ class QueryPanel(tk.LabelFrame):
         """Execute query in background thread (non-streaming fallback)."""
         try:
             result = self.query_engine.query(question)
+            # Thread-safe completion signal + status
+            self.is_querying = False
+            self.last_answer_preview = (result.answer or "")[:200]
+            self.last_query_status = "error" if result.error else "complete"
+            self.query_done_event.set()
             safe_after(self, 0, self._display_result, result)
         except Exception as e:
             error_msg = "[FAIL] {}: {}".format(type(e).__name__, e)
+            self.is_querying = False
+            self.last_answer_preview = error_msg
+            self.last_query_status = "error"
+            self.query_done_event.set()
             safe_after(self, 0, self._show_error, error_msg)
 
     def _run_query_stream(self, question):
@@ -515,14 +538,26 @@ class QueryPanel(tk.LabelFrame):
                 elif chunk.get("done"):
                     result = chunk.get("result")
                     if result:
+                        # Thread-safe completion signal + status
+                        self.is_querying = False
+                        self.last_answer_preview = (result.answer or "")[:200]
+                        self.last_query_status = "error" if result.error else "complete"
+                        self.query_done_event.set()
                         safe_after(self, 0, self._finish_stream, result)
                     return
-            # If generator exhausted without "done", re-enable button
+            # If generator exhausted without "done"
+            self.is_querying = False
+            self.last_query_status = "incomplete"
+            self.query_done_event.set()
             safe_after(self, 0, self._stop_elapsed_timer)
             safe_after(self, 0, self._overlay.stop)
             safe_after(self, 0, lambda: self.ask_btn.config(state=tk.NORMAL))
         except Exception as e:
             error_msg = "[FAIL] {}: {}".format(type(e).__name__, e)
+            self.is_querying = False
+            self.last_answer_preview = error_msg
+            self.last_query_status = "error"
+            self.query_done_event.set()
             safe_after(self, 0, self._stop_elapsed_timer)
             safe_after(self, 0, self._overlay.cancel)
             safe_after(self, 0, self._show_error, error_msg)

@@ -35,6 +35,13 @@ class IndexPanel(tk.LabelFrame):
         self._stop_flag = threading.Event()
         self._index_thread = None
 
+        # Public testing state -- poll these from harness/tools.
+        # Event is the thread-safe completion signal; plain attrs are
+        # convenience for assertions after the event fires.
+        self.index_done_event = threading.Event()
+        self.is_indexing = False
+        self.last_index_status = ""
+
         self._build_widgets(t)
 
     def _build_widgets(self, t):
@@ -255,6 +262,11 @@ class IndexPanel(tk.LabelFrame):
         self.progress_count_label.config(text="0 / 0 files")
         self.progress_file_label.config(text="Starting...", fg=t["gray"])
 
+        # Public testing state (main thread, before thread starts)
+        self.is_indexing = True
+        self.index_done_event.clear()
+        self.last_index_status = ""
+
         # Run in background
         self._index_thread = threading.Thread(
             target=self._run_indexing, args=(folder,), daemon=True,
@@ -278,11 +290,22 @@ class IndexPanel(tk.LabelFrame):
                 folder, progress_callback=callback, recursive=True,
                 stop_flag=self._stop_flag,
             )
+            # Thread-safe completion signal + status (before safe_after
+            # so headless harnesses can poll without after() firing)
+            self.is_indexing = False
+            self.last_index_status = "[OK] Indexing complete"
+            self.index_done_event.set()
             safe_after(self, 0, self._on_indexing_done, result)
         except IndexCancelled:
+            self.is_indexing = False
+            self.last_index_status = "[OK] Indexing cancelled by user"
+            self.index_done_event.set()
             safe_after(self, 0, self._on_indexing_cancelled)
         except Exception as e:
             error_msg = "[FAIL] {}: {}".format(type(e).__name__, e)
+            self.is_indexing = False
+            self.last_index_status = error_msg
+            self.index_done_event.set()
             safe_after(self, 0, self._on_indexing_error, error_msg)
 
     def _on_indexing_done(self, result):
