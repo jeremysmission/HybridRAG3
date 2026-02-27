@@ -713,6 +713,11 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
         # Verify model exists in Ollama before accepting
         try:
             import httpx
+            from src.core.network_gate import get_gate
+            get_gate().check_allowed(
+                "http://127.0.0.1:11434/api/tags",
+                "ollama_model_verify", "gui_admin",
+            )
             r = httpx.get("http://127.0.0.1:11434/api/tags", timeout=5)
             r.raise_for_status()
             available = [m.get("name") for m in r.json().get("models", [])]
@@ -787,9 +792,14 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
         """Return list of installed Ollama model names, or None on error."""
         try:
             import httpx
+            from src.core.network_gate import get_gate
             base = getattr(
                 getattr(self.config, "ollama", None), "base_url",
                 "http://127.0.0.1:11434",
+            )
+            get_gate().check_allowed(
+                "{}/api/tags".format(base),
+                "ollama_tags_query", "gui_admin",
             )
             r = httpx.get("{}/api/tags".format(base), timeout=5)
             r.raise_for_status()

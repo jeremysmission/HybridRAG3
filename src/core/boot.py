@@ -318,10 +318,15 @@ def boot_hybridrag(config_path=None) -> BootResult:
     ollama_thread.join(timeout=2.0)
 
     if ollama_thread.is_alive():
-        # Ollama slow or down -- don't block boot any longer.
-        # Status bar will verify availability within 30s.
-        result.offline_available = True
-        logger.info("BOOT Step 4: Ollama check timed out, assuming available")
+        # Ollama check did not complete in time. Do NOT assume available
+        # -- an optimistic True here masks real failures and causes the
+        # first offline query to crash instead of showing a clear message.
+        # Status bar CBIT will detect Ollama within 30s and update.
+        result.warnings.append(
+            "Ollama health check timed out (2s). "
+            "Offline mode will activate when Ollama responds."
+        )
+        logger.info("BOOT Step 4: Ollama check timed out, NOT assuming available")
 
     # === STEP 4.5: Check vLLM (if enabled) ===
     vllm_cfg = config.get("vllm", {}) if isinstance(config, dict) else {}

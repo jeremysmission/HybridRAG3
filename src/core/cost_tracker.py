@@ -216,10 +216,12 @@ class CostTracker:
 
         # Notify all registered listeners (GUI panels).
         # Each listener is a callback function that receives the new event.
-        # Snapshot the list to avoid "list changed size during iteration"
+        # Snapshot under lock to avoid "list changed size during iteration"
         # if a listener is added/removed during notification (e.g. Cost
         # Dashboard opening/closing mid-query).
-        for cb in list(self._listeners):
+        with self._lock:
+            listeners_snapshot = list(self._listeners)
+        for cb in listeners_snapshot:
             try:
                 cb(event)
             except Exception as e:
@@ -340,14 +342,16 @@ class CostTracker:
 
     def add_listener(self, callback: Callable[[CostEvent], None]) -> None:
         """Register a callback for new cost events."""
-        self._listeners.append(callback)
+        with self._lock:
+            self._listeners.append(callback)
 
     def remove_listener(self, callback: Callable[[CostEvent], None]) -> None:
         """Unregister a cost event callback."""
-        try:
-            self._listeners.remove(callback)
-        except ValueError:
-            pass
+        with self._lock:
+            try:
+                self._listeners.remove(callback)
+            except ValueError:
+                pass
 
     def export_csv(self, filepath: str) -> int:
         """Export all historical events to CSV. Returns row count."""

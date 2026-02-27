@@ -85,22 +85,32 @@ state = AppState()
 # Indexing progress callback
 # -------------------------------------------------------------------
 class APIProgressCallback(IndexingProgressCallback):
-    """Captures indexing progress for the /index/status endpoint."""
+    """Captures indexing progress for the /index/status endpoint.
+
+    All updates are protected by state.indexing_lock because the indexer
+    runs in a background thread while /index/status reads from the HTTP
+    handler thread. Without synchronization, multi-field dict updates
+    can produce inconsistent reads.
+    """
 
     def on_file_start(
         self, file_path: str, file_num: int, total_files: int
     ) -> None:
-        state.index_progress["current_file"] = os.path.basename(file_path)
-        state.index_progress["files_total"] = total_files
+        with state.indexing_lock:
+            state.index_progress["current_file"] = os.path.basename(file_path)
+            state.index_progress["files_total"] = total_files
 
     def on_file_complete(self, file_path: str, chunks_created: int) -> None:
-        state.index_progress["files_processed"] += 1
+        with state.indexing_lock:
+            state.index_progress["files_processed"] += 1
 
     def on_file_skipped(self, file_path: str, reason: str) -> None:
-        state.index_progress["files_skipped"] += 1
+        with state.indexing_lock:
+            state.index_progress["files_skipped"] += 1
 
     def on_error(self, file_path: str, error: str) -> None:
-        state.index_progress["files_errored"] += 1
+        with state.indexing_lock:
+            state.index_progress["files_errored"] += 1
 
 
 # -------------------------------------------------------------------

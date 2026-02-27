@@ -47,10 +47,18 @@ def run_startup_probe(database_path: str, source_folder: str, ollama_host: str =
         errors.append(f"Source folder not creatable: {e}")
 
     # Ollama reachability (warning only; online mode still works)
-    try:
-        sock = socket.create_connection((ollama_host, ollama_port), timeout=0.5)
-        sock.close()
-    except Exception:
-        warnings.append(f"Ollama not reachable at {ollama_host}:{ollama_port} (offline mode may be unavailable)")
+    # Validate host is loopback -- embeddings must never leave the machine
+    _loopback = {"localhost", "127.0.0.1", "::1", "[::1]"}
+    if ollama_host not in _loopback:
+        warnings.append(
+            f"Ollama host '{ollama_host}' is not loopback -- "
+            f"skipping probe (network gate policy)"
+        )
+    else:
+        try:
+            sock = socket.create_connection((ollama_host, ollama_port), timeout=0.5)
+            sock.close()
+        except Exception:
+            warnings.append(f"Ollama not reachable at {ollama_host}:{ollama_port} (offline mode may be unavailable)")
 
     return ProbeResult(ok=(len(errors) == 0), errors=errors, warnings=warnings)

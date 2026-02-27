@@ -39,8 +39,10 @@
 from __future__ import annotations
 
 import os
+from urllib.parse import urlparse
 
 from ..monitoring.logger import get_app_logger
+from .exceptions import OllamaNotRunningError, OllamaModelNotFoundError
 
 
 class Embedder:
@@ -55,6 +57,9 @@ class Embedder:
     # Default used only when no config is available (tests, scripts).
     # Production code should always pass model_name from config.
     DEFAULT_MODEL = "nomic-embed-text"
+
+    # Hostnames considered safe for embedding traffic (no gate check needed)
+    _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "[::1]"})
 
     def __init__(self, model_name: str | None = None):
         """
@@ -78,12 +83,41 @@ class Embedder:
             "OLLAMA_HOST", "http://localhost:11434"
         ).rstrip("/")
 
+        # Enforce localhost-only unless NetworkGate explicitly allows
+        self._validate_host()
+
         # Persistent HTTP client -- reuses TCP connections across calls
         self._client = httpx.Client(timeout=httpx.Timeout(120))
 
         # Detect dimension by embedding a probe string.
         # This also verifies Ollama is running and the model is pulled.
         self.dimension = self._detect_dimension()
+
+    def _validate_host(self) -> None:
+        """
+        Enforce that OLLAMA_HOST points to loopback unless NetworkGate
+        explicitly allows the destination. Prevents accidental data
+        exfiltration when OLLAMA_HOST is misconfigured to a remote host.
+        """
+        parsed = urlparse(self.base_url)
+        hostname = (parsed.hostname or "").lower()
+        if hostname not in self._LOOPBACK_HOSTS:
+            # Non-local host -- must pass NetworkGate
+            try:
+                from .network_gate import get_gate
+                get_gate().check_allowed(
+                    f"{self.base_url}/api/embed",
+                    "embedder_init", "embedder",
+                )
+                self.logger.info(
+                    "embedder_remote_host_allowed",
+                    base_url=self.base_url,
+                )
+            except Exception as exc:
+                raise OllamaNotRunningError(
+                    f"OLLAMA_HOST '{self.base_url}' is not localhost and "
+                    f"NetworkGate blocked it: {exc}"
+                ) from exc
 
     def _detect_dimension(self) -> int:
         """
@@ -112,15 +146,16 @@ class Embedder:
             )
             return dim
         except httpx.ConnectError:
-            raise RuntimeError(
+            raise OllamaNotRunningError(
                 f"Ollama is not running at {self.base_url}. "
                 f"Start it with: ollama serve"
             )
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
-                raise RuntimeError(
+                raise OllamaModelNotFoundError(
                     f"Embedding model '{self.model_name}' not found. "
-                    f"Pull it with: ollama pull {self.model_name}"
+                    f"Pull it with: ollama pull {self.model_name}",
+                    model=self.model_name,
                 )
             raise
 
