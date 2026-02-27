@@ -185,6 +185,9 @@ class QueryPanel(tk.LabelFrame):
             if isinstance(row, tk.Frame):
                 row.configure(bg=t["panel_bg"])
                 for child in row.winfo_children():
+                    # Skip ttk widgets -- they don't support -bg/-fg
+                    if isinstance(child, (ttk.Combobox, ttk.Widget)):
+                        continue
                     if isinstance(child, tk.Label):
                         child.configure(bg=t["panel_bg"], fg=t["fg"])
                     elif isinstance(child, tk.Entry):
@@ -282,8 +285,13 @@ class QueryPanel(tk.LabelFrame):
                            "{} (auto-selected)".format(best))
             else:
                 self.after(0, self.model_var.set, "(no model available)")
+        except RuntimeError:
+            pass  # Widget destroyed before thread finished -- safe to ignore
         except Exception:
-            self.after(0, self.model_var.set, "(discovery failed)")
+            try:
+                self.after(0, self.model_var.set, "(discovery failed)")
+            except RuntimeError:
+                pass  # Widget destroyed
 
     def _on_ask(self, event=None):
         """Handle Ask button click or Enter key.

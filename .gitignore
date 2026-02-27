@@ -79,6 +79,9 @@ _temp_*
 # Evaluation output (runtime, not source)
 eval_out/
 scored_out/
+
+# GUI E2E test output (regenerated each run)
+gui_e2e_report.json
 eval_baseline_*.jsonl
 eval_v2_*.jsonl
 

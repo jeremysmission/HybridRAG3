@@ -130,6 +130,13 @@ SKIP_PATTERNS = [
     "~$*",                         # Word/Excel temp lock files
     "*.lnk",                       # Windows shortcut files
 
+    # [AI-TOOL] AI tool configs and research (contain tool names, private workflow)
+    "CLAUDE.md",                    # AI tool project config (private workflow rules)
+    "ANDROID_REMOTE_CLAUDE_SETUP",  # AI tool remote setup guide
+    "CLAUDE_CLI_POWER_USER_GUIDE",  # AI tool CLI guide (model pricing, tool names)
+    "CLAUDE_CLI_2026_KEY_FINDINGS", # AI tool CLI research findings
+    "research",                     # research folder (AI tool evaluations, vendor docs)
+
     # [HOME-ONLY] Files that only belong in the personal repo
     "requirements.txt",            # personal reqs (Educational uses requirements_approved.txt)
 ]
@@ -195,11 +202,33 @@ TEXT_REPLACEMENTS = [
     (r"D:\\HybridRAG3", "{PROJECT_ROOT}"),
     (r"D:\\HybridRAG2", "{PROJECT_ROOT}"),
 
-    # Personal references
-    (r"Jeremy", "the developer"),
+    # Personal references (ORDER MATTERS: specific before generic)
     (r"jeremysmission", "{GITHUB_USER}"),
+    (r"Jeremy", "the developer"),
 
-    # AI tool references (session artifacts)
+    # Private workflow references -> generic
+    (r"home machine", "development machine"),
+    (r"home PC", "development workstation"),
+    (r"home repo", "source repo"),
+    (r"\bprivate repo\b", "source repo"),
+    (r"private repository", "source repository"),
+    (r"sync_to_educational\.py", "repo sync script"),
+    (r"sync_to_educational", "repo sync"),
+    (r"deploy_comments\.ps1", "deployment script"),
+    (r"deploy_comments", "deployment script"),
+    (r"LimitlessApp", "external tool"),
+    (r"Limitless\s+App", "external tool"),
+    (r"DialedIn", "Tuning"),
+
+    # AI tool references -- specific patterns before generic catch-all
+    (r"CLAUDE\.md", "PROJECT_CONFIG.md"),
+    (r"\.claude/", ".ai_config/"),
+    (r"claude_sessions/", "ai_sessions/"),
+    (r"anthropic/claude-", "cloud/model-"),
+    (r"claude-opus-4", "cloud-opus-4"),
+    (r"claude-sonnet-4", "cloud-sonnet-4"),
+    (r"claude-haiku-4", "cloud-haiku-4"),
+    (r"claude\.ai", "ai-provider.example"),
     (r"Claude", "AI assistant"),
     (r"Anthropic", "AI provider"),
 ]
@@ -449,6 +478,24 @@ def main():
         ("jeremysmission", False),
         ("Claude", True),
         ("Anthropic", False),
+        # Private workflow / infrastructure terms
+        ("home machine", False),
+        ("home PC", False),
+        ("home repo", False),
+        ("private repo", False),
+        ("deploy_comments", False),
+        ("sync_to_educational", False),
+        ("LimitlessApp", False),
+        ("Limitless App", False),
+        ("DialedIn", True),
+        (".claude/", False),
+        ("CLAUDE.md", False),
+        # AI model identifiers
+        ("claude-sonnet", False),
+        ("claude-opus", False),
+        ("claude-haiku", False),
+        ("claude.ai", False),
+        ("anthropic/claude", False),
     ]
     found_any = False
     for root, dirs, files in os.walk(DST_ROOT):
