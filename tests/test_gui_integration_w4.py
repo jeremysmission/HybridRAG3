@@ -419,39 +419,45 @@ def test_09_status_bar_online_mode():
 # ============================================================================
 
 def test_10_online_button_cred_error():
-    """Switching to online mode shows error dialog when credentials are missing."""
+    """Switching to online mode blocks when credentials are missing.
+
+    Tests the credential check in _do_switch_to_online directly (synchronous)
+    since the async wrapper + app.after() require a running Tk mainloop.
+    """
     from src.gui.app import HybridRAGApp
-    import src.gui.app as app_module
+    from src.security.credentials import ApiCredentials, invalidate_credential_cache
 
     config = FakeGUIConfig(mode="offline")
     app = HybridRAGApp(config=config)
     app.withdraw()
 
-    # Mock credential_status to return no credentials
-    mock_status = {
-        "api_key_set": False,
-        "api_endpoint_set": False,
-        "api_key_source": "none",
-        "api_endpoint_source": "none",
-    }
-
-    # Track warning calls -- patch messagebox in mode_switch where the call lives
-    import src.gui.helpers.mode_switch as ms_module
+    # Track warning calls -- intercept messagebox at the tkinter level
+    from tkinter import messagebox as mb_module
     warning_calls = []
-    original_showwarning = ms_module.messagebox.showwarning
+    original_showwarning = mb_module.showwarning
 
     def fake_showwarning(title, message):
         warning_calls.append((title, message))
 
-    ms_module.messagebox.showwarning = fake_showwarning
+    mb_module.showwarning = fake_showwarning
 
-    # Pre-import the credentials module and patch it
+    # Patch resolve_credentials to return empty creds (no key, no endpoint)
     from src.security import credentials as cred_mod
-    original_fn = cred_mod.credential_status
-    cred_mod.credential_status = lambda: mock_status
+    original_resolve = cred_mod.resolve_credentials
+    invalidate_credential_cache()
+    cred_mod.resolve_credentials = lambda **kw: ApiCredentials()
+
+    # Patch app.after to call the function immediately (no mainloop needed)
+    original_after = app.after
+    def immediate_after(ms, func, *args):
+        if callable(func):
+            func(*args)
+    app.after = immediate_after
 
     try:
-        app._switch_to_online()
+        # Call the internal synchronous function directly
+        from src.gui.helpers.mode_switch import _do_switch_to_online
+        _do_switch_to_online(app)
 
         # Should have shown a warning
         assert len(warning_calls) >= 1
@@ -460,8 +466,10 @@ def test_10_online_button_cred_error():
         # Mode should NOT have changed
         assert config.mode == "offline"
     finally:
-        ms_module.messagebox.showwarning = original_showwarning
-        cred_mod.credential_status = original_fn
+        mb_module.showwarning = original_showwarning
+        cred_mod.resolve_credentials = original_resolve
+        app.after = original_after
+        invalidate_credential_cache()
 
     app.status_bar.stop()
     app.destroy()

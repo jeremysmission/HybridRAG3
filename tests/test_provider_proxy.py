@@ -323,8 +323,8 @@ class TestProviderCredentialResolution:
     # ------------------------------------------------------------------
     # Test C-05: provider from keyring
     # ------------------------------------------------------------------
-    def test_c05_provider_from_keyring(self):
-        """Keyring provider takes priority over env var."""
+    def test_c05_provider_env_overrides_keyring(self):
+        """Env var provider takes priority over keyring (env-first design)."""
         self._clear_env()
         os.environ["HYBRIDRAG_API_PROVIDER"] = "openai"
 
@@ -339,9 +339,9 @@ class TestProviderCredentialResolution:
             from src.security import credentials as creds_mod
             import importlib
             importlib.reload(creds_mod)
-            result = creds_mod.resolve_credentials()
-        assert result.provider == "azure_gov"
-        assert result.source_provider == "keyring"
+            result = creds_mod.resolve_credentials(use_cache=False)
+        assert result.provider == "openai"
+        assert "env:" in result.source_provider
         self._clear_env()
 
 
