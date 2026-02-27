@@ -40,7 +40,7 @@ ollama:
   base_url: http://localhost:11434
   context_window: 16384
   keep_alive: -1
-  model: phi4-mini:latest
+  model: phi4:14b-q4_K_M
   num_predict: 512
   num_thread: 0
   timeout_seconds: 600
@@ -73,5 +73,5 @@ vllm:
   base_url: http://localhost:8000
   context_window: 16384
   enabled: false
-  model: phi4-mini
+  model: phi4:14b-q4_K_M
   timeout_seconds: 120

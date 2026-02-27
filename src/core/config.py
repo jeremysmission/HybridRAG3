@@ -201,7 +201,7 @@ class VLLMConfig:
     License: Apache 2.0 (UC Berkeley/USA).
     """
     base_url: str = "http://localhost:8000"
-    model: str = "phi4-mini"
+    model: str = "phi4:14b-q4_K_M"
     timeout_seconds: int = 120
     context_window: int = 16384
     enabled: bool = False

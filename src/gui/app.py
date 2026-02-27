@@ -288,6 +288,10 @@ class HybridRAGApp(tk.Tk):
                     wrapper.inner, config=self.config, indexer=self.indexer,
                 )
                 self.index_panel.pack(fill=tk.X, padx=16, pady=8)
+                # If backends already loaded (panel built after _attach),
+                # enable the Start button immediately.
+                if self.indexer is not None:
+                    self.index_panel.set_ready(True)
                 self._views["index"] = wrapper
                 return
 

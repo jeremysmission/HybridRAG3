@@ -71,13 +71,14 @@ class QueryPanel(tk.LabelFrame):
         self._streaming = False          # True while tokens are being appended
         self._stream_start = 0.0         # time.time() when the query started
         self._elapsed_timer_id = None    # after() id for the elapsed time display
+        self._model_auto = True          # True = recommendation picks model
+        self._installed_models = []      # names from `ollama list`
 
         self._build_widgets(t)
 
-        # Defer initial model selection so GUI renders immediately.
-        # get_available_deployments() may do a network call on first use,
-        # so we push it out of __init__ with a 100ms delay.
-        self.after(100, self._on_use_case_change)
+        # Fetch installed Ollama models in background, then apply initial
+        # use-case selection.  This avoids blocking the GUI on subprocess.
+        self.after(100, self._init_model_list)
 
     def _build_widgets(self, t):
         """Build all child widgets with theme colors."""
@@ -100,7 +101,7 @@ class QueryPanel(tk.LabelFrame):
         self.uc_dropdown.pack(side=tk.LEFT, padx=(8, 0))
         self.uc_dropdown.bind("<<ComboboxSelected>>", self._on_use_case_change)
 
-        # -- Row 1: Model display (read-only) --
+        # -- Row 1: Model selector (Auto + installed Ollama models) --
         row1 = tk.Frame(self, bg=t["panel_bg"])
         row1.pack(fill=tk.X, pady=(0, 8))
 
@@ -108,12 +109,21 @@ class QueryPanel(tk.LabelFrame):
                                          fg=t["fg"], font=FONT)
         self.model_text_label.pack(side=tk.LEFT)
 
-        self.model_var = tk.StringVar(value="(auto-selected)")
-        self.model_label = tk.Label(
-            row1, textvariable=self.model_var, anchor=tk.W,
+        self.model_var = tk.StringVar(value="Auto")
+        self.model_combo = ttk.Combobox(
+            row1, textvariable=self.model_var, values=["Auto"],
+            state="readonly", width=22, font=FONT,
+        )
+        self.model_combo.pack(side=tk.LEFT, padx=(8, 0))
+        self.model_combo.bind("<<ComboboxSelected>>", self._on_model_select)
+
+        # Score/info label beside the dropdown
+        self.model_info_var = tk.StringVar(value="")
+        self.model_info_label = tk.Label(
+            row1, textvariable=self.model_info_var, anchor=tk.W,
             fg=t["accent"], bg=t["panel_bg"], padx=8, font=FONT,
         )
-        self.model_label.pack(side=tk.LEFT, fill=tk.X)
+        self.model_info_label.pack(side=tk.LEFT, fill=tk.X)
 
         # -- Row 2: Question label + entry + Ask button --
         self.question_label = tk.Label(
@@ -202,7 +212,7 @@ class QueryPanel(tk.LabelFrame):
                             child.configure(bg=t["accent"], fg=t["accent_fg"],
                                             activebackground=t["accent_hover"])
 
-        self.model_label.configure(fg=t["accent"], bg=t["panel_bg"])
+        self.model_info_label.configure(fg=t["accent"], bg=t["panel_bg"])
         self.question_label.configure(bg=t["panel_bg"], fg=t["fg"])
         self.network_label.configure(bg=t["panel_bg"], fg=t["gray"])
         self.answer_text.configure(bg=t["input_bg"], fg=t["input_fg"],
@@ -224,41 +234,173 @@ class QueryPanel(tk.LabelFrame):
         if self.question_entry.get() == "Type your question here...":
             self.question_entry.delete(0, tk.END)
 
+    # ----------------------------------------------------------------
+    # MODEL LIST + SELECTION
+    # ----------------------------------------------------------------
+
+    _EMBED_MODELS = {"nomic-embed-text", "all-minilm", "mxbai-embed",
+                     "snowflake-arctic-embed", "bge-"}
+
+    def _init_model_list(self):
+        """Fetch installed Ollama models in background, then apply defaults."""
+        threading.Thread(
+            target=self._fetch_installed_models, daemon=True,
+        ).start()
+
+    def _fetch_installed_models(self):
+        """Background: get installed Ollama model names (excludes embedders)."""
+        try:
+            from scripts._model_meta import get_offline_models_with_specs
+            models = get_offline_models_with_specs()
+            names = []
+            for m in models:
+                name = m["name"]
+                # Skip embedding-only models
+                skip = False
+                for pat in self._EMBED_MODELS:
+                    if pat in name.lower():
+                        skip = True
+                        break
+                if not skip:
+                    names.append(name)
+            safe_after(self, 0, self._apply_model_list, names)
+        except Exception as e:
+            logger.debug("Model list fetch failed: %s", e)
+            safe_after(self, 0, self._on_use_case_change)
+
+    def _apply_model_list(self, names):
+        """Set combobox values and trigger initial model selection."""
+        self._installed_models = names
+        values = ["Auto"] + names
+        self.model_combo["values"] = values
+
+        # If config already has a model that isn't the recommendation
+        # default, pre-select it (user's persisted choice).
+        cfg_model = getattr(
+            getattr(self.config, "ollama", None), "model", ""
+        ) or ""
+        # Strip ":latest" for comparison
+        cfg_base = cfg_model.replace(":latest", "")
+        # Check if user previously chose a non-default model
+        uc_key = self._uc_keys[0]
+        rec_primary = RECOMMENDED_OFFLINE.get(uc_key, {}).get("primary", "")
+        if cfg_base and cfg_base != rec_primary and cfg_base in [
+            n.replace(":latest", "") for n in names
+        ]:
+            # Find the matching full name in installed list
+            for n in names:
+                if n.replace(":latest", "") == cfg_base:
+                    self.model_var.set(n)
+                    self._model_auto = False
+                    break
+
+        self._on_use_case_change()
+
+    def _on_model_select(self, event=None):
+        """Handle user selecting a model from the dropdown."""
+        chosen = self.model_var.get()
+        if chosen == "Auto":
+            self._model_auto = True
+            self._on_use_case_change()
+        else:
+            # Manual selection -- lock this model
+            self._model_auto = False
+            if hasattr(self.config, "ollama"):
+                self.config.ollama.model = chosen
+            self._update_model_info(chosen)
+
+    def _update_model_info(self, model_name):
+        """Update the score/info label for the given model."""
+        idx = self._uc_labels.index(self.uc_var.get()) if self.uc_var.get() in self._uc_labels else 0
+        uc_key = self._uc_keys[idx]
+        meta = WORK_ONLY_MODELS.get(model_name.replace(":latest", ""), {})
+        if meta:
+            score = use_case_score(
+                meta.get("tier_eng", 30), meta.get("tier_gen", 30), uc_key,
+            )
+            self.model_info_var.set("score {}, offline".format(score))
+        else:
+            self.model_info_var.set("offline")
+
+    # ----------------------------------------------------------------
+    # USE CASE CHANGE
+    # ----------------------------------------------------------------
+
     def _on_use_case_change(self, event=None):
         """Update model display when use case changes.
 
-        Offline: selects per-use-case model from RECOMMENDED_OFFLINE and
-                 applies temperature/top_k/reranker settings to live config.
+        Offline + Auto: selects per-use-case model from RECOMMENDED_OFFLINE
+                        and applies temperature/top_k settings to live config.
+        Offline + Manual: keeps user's model, still applies tuning params.
         Online: runs get_available_deployments() in a background thread
-        so the GUI never freezes on a network call.
+                so the GUI never freezes on a network call.
         """
         idx = self._uc_labels.index(self.uc_var.get()) if self.uc_var.get() in self._uc_labels else 0
         uc_key = self._uc_keys[idx]
 
         mode = getattr(self.config, "mode", "offline")
         if mode == "offline":
-            # Apply per-use-case offline model and tuning from RECOMMENDED_OFFLINE
             rec = RECOMMENDED_OFFLINE.get(uc_key, {})
-            primary = rec.get("primary", "")
-            ollama_model = primary or getattr(
-                getattr(self.config, "ollama", None), "model", ""
-            ) or "phi4-mini"
 
-            # Compute use-case score for display
-            meta = WORK_ONLY_MODELS.get(ollama_model, {})
-            score = use_case_score(
-                meta.get("tier_eng", 30), meta.get("tier_gen", 30), uc_key,
-            ) if meta else 0
-            self.model_var.set("{} (score {}, offline)".format(ollama_model, score))
+            if self._model_auto:
+                # Auto mode: score ALL installed models for this use case
+                # and pick the highest-scoring one.  This ensures the best
+                # available hardware is used (e.g., phi4:14b on 48GB GPU).
+                best_model = None
+                best_score = -1
+                for name in self._installed_models:
+                    base = name.replace(":latest", "")
+                    meta = WORK_ONLY_MODELS.get(base, {})
+                    if meta:
+                        s = use_case_score(
+                            meta.get("tier_eng", 30),
+                            meta.get("tier_gen", 30),
+                            uc_key,
+                        )
+                        if s > best_score:
+                            best_score = s
+                            best_model = name
 
-            # Apply tuning to live config (temperature, top_k, reranker)
-            if rec and self.config:
+                if best_model:
+                    ollama_model = best_model
+                elif not self._installed_models:
+                    # Model list not fetched yet -- use config default
+                    # (will be re-evaluated when _apply_model_list fires)
+                    ollama_model = getattr(
+                        getattr(self.config, "ollama", None), "model", ""
+                    ) or rec.get("primary", "phi4:14b-q4_K_M")
+                else:
+                    # Models loaded but none in WORK_ONLY_MODELS -- use
+                    # recommendation chain: primary > alt > fallback > config
+                    ollama_model = (
+                        rec.get("primary", "")
+                        or rec.get("alt", "")
+                        or rec.get("fallback", "")
+                        or getattr(
+                            getattr(self.config, "ollama", None), "model", ""
+                        )
+                        or "phi4:14b-q4_K_M"
+                    )
+
+                self.model_var.set("Auto")
                 if hasattr(self.config, "ollama"):
                     self.config.ollama.model = ollama_model
+            else:
+                # Manual mode: keep user's chosen model
+                ollama_model = self.model_var.get()
+                if hasattr(self.config, "ollama"):
+                    self.config.ollama.model = ollama_model
+
+            self._update_model_info(ollama_model)
+
+            # Apply per-use-case tuning (temperature, top_k, context)
+            # regardless of auto/manual -- these are use-case-specific
+            if rec and self.config:
+                if hasattr(self.config, "ollama"):
                     if "context" in rec:
                         self.config.ollama.context_window = rec["context"]
-                if "temperature" in rec and hasattr(self.config, "ollama"):
-                    self.config.ollama.temperature = rec["temperature"]
+                    if "temperature" in rec:
+                        self.config.ollama.temperature = rec["temperature"]
                 if hasattr(self.config, "retrieval"):
                     if "top_k" in rec:
                         self.config.retrieval.top_k = rec["top_k"]
@@ -269,7 +411,7 @@ class QueryPanel(tk.LabelFrame):
         else:
             # Online: resolve deployments off the main thread to avoid
             # freezing the GUI on a 1-3s network call.
-            self.model_var.set("(loading...)")
+            self.model_info_var.set("loading...")
             threading.Thread(
                 target=self._resolve_online_model,
                 args=(uc_key,),
@@ -282,15 +424,14 @@ class QueryPanel(tk.LabelFrame):
             deployments = get_available_deployments()
             best = select_best_model(uc_key, deployments)
             if best:
-                self.after(0, self.model_var.set,
-                           "{} (auto-selected)".format(best))
+                safe_after(self, 0, self.model_info_var.set, best)
             else:
-                self.after(0, self.model_var.set, "(no model available)")
+                safe_after(self, 0, self.model_info_var.set, "(no model)")
         except RuntimeError:
             pass  # Widget destroyed before thread finished -- safe to ignore
         except Exception:
             try:
-                self.after(0, self.model_var.set, "(discovery failed)")
+                safe_after(self, 0, self.model_info_var.set, "(discovery failed)")
             except RuntimeError:
                 pass  # Widget destroyed
 
@@ -557,7 +698,13 @@ class QueryPanel(tk.LabelFrame):
         try:
             tracker = get_cost_tracker()
             mode = getattr(result, "mode", "offline")
-            model = self.model_var.get().split(" (")[0] if self.model_var.get() else ""
+            chosen = self.model_var.get()
+            if chosen == "Auto":
+                model = getattr(
+                    getattr(self.config, "ollama", None), "model", ""
+                ) or ""
+            else:
+                model = chosen
             profile = self.get_current_use_case_key()
             tracker.record(
                 tokens_in=getattr(result, "tokens_in", 0),

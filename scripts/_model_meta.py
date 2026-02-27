@@ -110,37 +110,40 @@ USE_CASES = {
 # ============================================================================
 
 RECOMMENDED_OFFLINE = {
-    "sw":    {"primary": "phi4-mini", "alt": "mistral:7b",
-              "upgrade": "mistral-nemo:12b",  # 128K ctx, stronger reasoning
+    "sw":    {"primary": "phi4:14b-q4_K_M", "alt": "mistral-nemo:12b",
+              "fallback": "phi4-mini",  # CPU-only / low-VRAM fallback
               "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
 
-    "eng":   {"primary": "phi4-mini", "alt": "mistral:7b",
-              "secondary_test": "phi4:14b-q4_K_M",  # Hardware margin rejection; test at 8K ctx
-              "upgrade": "mistral-nemo:12b",  # 128K ctx, stronger reasoning
+    "eng":   {"primary": "phi4:14b-q4_K_M", "alt": "mistral-nemo:12b",
+              "fallback": "phi4-mini",
               "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
 
-    "sys":   {"primary": "phi4-mini", "alt": "mistral:7b",
-              "upgrade": "mistral-nemo:12b",  # Better chain-of-thought for diagnostics
+    "sys":   {"primary": "phi4:14b-q4_K_M", "alt": "mistral-nemo:12b",
+              "fallback": "phi4-mini",
               "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
 
-    "draft": {"primary": "phi4-mini", "alt": "phi4:14b-q4_K_M",
+    "draft": {"primary": "phi4:14b-q4_K_M", "alt": "mistral-nemo:12b",
+              "fallback": "phi4-mini",
               "temperature": 0.05, "context": 16384, "reranker": True, "top_k": 8},
 
-    "log":   {"primary": "phi4:14b-q4_K_M", "alt": "phi4-mini",
+    "log":   {"primary": "phi4:14b-q4_K_M", "alt": "mistral-nemo:12b",
+              "fallback": "phi4-mini",
               "temperature": 0.0, "context": 8192, "reranker": True, "top_k": 10},
 
-    "pm":    {"primary": "phi4-mini", "alt": "gemma3:4b",
+    "pm":    {"primary": "phi4:14b-q4_K_M", "alt": "mistral-nemo:12b",
+              "fallback": "gemma3:4b",
               "temperature": 0.25, "context": 8192, "reranker": False, "top_k": 5},
 
-    "fe":    {"primary": "phi4-mini", "alt": "mistral:7b",
+    "fe":    {"primary": "phi4:14b-q4_K_M", "alt": "mistral-nemo:12b",
+              "fallback": "phi4-mini",
               "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
 
-    "cyber": {"primary": "phi4-mini", "alt": "mistral:7b",
-              "upgrade": "mistral-nemo:12b",  # Stronger reasoning for threat analysis
+    "cyber": {"primary": "phi4:14b-q4_K_M", "alt": "mistral-nemo:12b",
+              "fallback": "phi4-mini",
               "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
 
-    "gen":   {"primary": "mistral:7b", "alt": "phi4-mini",
-              "upgrade": "mistral-nemo:12b",  # 128K ctx, broad knowledge
+    "gen":   {"primary": "mistral-nemo:12b", "alt": "phi4:14b-q4_K_M",
+              "fallback": "mistral:7b",  # 128K ctx, broad knowledge
               "temperature": 0.3, "context": 8192, "reranker": False, "top_k": 5},
 }
 
@@ -168,19 +171,19 @@ WORK_ONLY_MODELS = {
     # All scores include ~3pt Q4 quantization penalty vs FP16.
     "phi4-mini":        {"size_gb": 2.3, "vram_gb": 5.5,
                          "tier_eng": 52, "tier_gen": 48,
-                         "note": "Primary for 7/9 profiles (MIT, Microsoft/USA)"},
+                         "note": "Laptop fallback only (MIT, Microsoft/USA)"},
     "mistral:7b":       {"size_gb": 4.1, "vram_gb": 5.5,
                          "tier_eng": 40, "tier_gen": 48,
                          "note": "Alt for eng/sys/fe/cyber (Apache 2.0, Mistral/France)"},
     "phi4:14b-q4_K_M":  {"size_gb": 9.1, "vram_gb": 11.0,
                          "tier_eng": 72, "tier_gen": 65,
-                         "note": "Logistics primary, CAD alt (MIT, Microsoft/USA)"},
+                         "note": "Desktop/workstation primary for 8/9 profiles (MIT, Microsoft/USA)"},
     "gemma3:4b":        {"size_gb": 3.3, "vram_gb": 4.0,
                          "tier_eng": 50, "tier_gen": 46,
                          "note": "PM fast summarization (Apache 2.0, Google/USA)"},
     "mistral-nemo:12b": {"size_gb": 7.1, "vram_gb": 10.0,
                          "tier_eng": 48, "tier_gen": 55,
-                         "note": "Upgrade for sw/eng/sys/cyber/gen (Apache 2.0, Mistral+NVIDIA, 128K ctx)"},
+                         "note": "Desktop alt for all profiles, gen primary (Apache 2.0, Mistral+NVIDIA, 128K ctx)"},
 }
 
 PERSONAL_FUTURE = {

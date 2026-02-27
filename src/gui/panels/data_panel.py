@@ -628,9 +628,9 @@ class DataPanel(tk.Frame):
         ).pack(side=tk.LEFT, padx=(12, 0))
 
     def _goto_index(self):
-        """Switch to the Query view (which contains the Index panel)."""
+        """Switch to the Index panel view."""
         if hasattr(self._app, "show_view"):
-            self._app.show_view("query")
+            self._app.show_view("index")
 
     # ================================================================
     # THEME
