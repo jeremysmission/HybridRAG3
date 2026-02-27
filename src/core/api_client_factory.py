@@ -405,12 +405,12 @@ class ApiClientFactory:
           config.yaml eliminates all guessing.
         """
         # Check explicit config first
-        explicit_provider = self.api_config.get("provider", "auto").strip().lower()
+        explicit_provider = (self.api_config.get("provider", "auto") or "auto").strip().lower()
 
         if explicit_provider in ("azure", "openai"):
             return explicit_provider
 
-        if explicit_provider != "auto":
+        if explicit_provider not in ("auto", ""):
             raise ProviderConfigError(
                 f"Unrecognized api.provider: '{explicit_provider}'. "
                 f"Valid options: azure, openai, auto"
@@ -568,7 +568,7 @@ class ApiClientFactory:
         Returns:
             Tuple of (header_name, header_value)
         """
-        explicit_scheme = self.api_config.get("auth_scheme", "auto").strip().lower()
+        explicit_scheme = (self.api_config.get("auth_scheme", "auto") or "auto").strip().lower()
 
         if explicit_scheme == "api_key" or (explicit_scheme == "auto" and provider == "azure"):
             return ("api-key", api_key)

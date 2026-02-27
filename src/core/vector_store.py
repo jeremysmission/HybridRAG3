@@ -222,7 +222,9 @@ class VectorStore:
         if db_dir:
             os.makedirs(db_dir, exist_ok=True)
 
-        self.conn = sqlite3.connect(self.db_path)
+        self.conn = sqlite3.connect(
+            self.db_path, check_same_thread=False
+        )
 
         # SQLite performance tuning (safe for single-user desktop use).
         # WHY THESE PRAGMAS:
