@@ -41,11 +41,17 @@ from src.gui.theme import (
 def needs_setup(project_root):
     """Return True if the first-run wizard should be shown.
 
+    Validates that configured paths actually exist on disk, not just that
+    the setup_complete flag is set.  This handles the case where config
+    was written on a different machine (e.g. synced from private repo to
+    Educational repo) and the paths don't exist locally.
+
     Checks (in order):
-      1. HYBRIDRAG_DATA_DIR env var set  -> skip wizard
-      2. YAML has setup_complete: true   -> skip wizard
-      3. YAML paths already populated    -> skip wizard
-      4. Otherwise                       -> show wizard
+      1. HYBRIDRAG_DATA_DIR env var set           -> skip wizard
+      2. No config file / unparseable             -> show wizard
+      3. Paths not configured                     -> show wizard
+      4. Configured paths don't exist on disk     -> show wizard
+      5. Everything valid                         -> skip wizard
     """
     if os.environ.get("HYBRIDRAG_DATA_DIR"):
         return False
@@ -62,14 +68,24 @@ def needs_setup(project_root):
     except Exception:
         return True
 
-    if data.get("setup_complete") is True:
-        return False
-
     paths = data.get("paths", {})
-    if paths.get("database") and paths.get("source_folder"):
-        return False
+    source = paths.get("source_folder", "")
+    database = paths.get("database", "")
 
-    return True
+    # Both paths must be configured
+    if not source or not database:
+        return True
+
+    # Source folder must exist on disk
+    if not os.path.isdir(source):
+        return True
+
+    # Database parent directory must exist (or be creatable)
+    db_parent = os.path.dirname(database)
+    if db_parent and not os.path.isdir(db_parent):
+        return True
+
+    return False
 
 
 # ---------------------------------------------------------------------------

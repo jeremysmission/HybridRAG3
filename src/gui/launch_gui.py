@@ -108,15 +108,16 @@ def _get_or_build_embedder(model_name, logger):
     """Return a cached Embedder if model_name matches, else build a new one."""
     global _cached_embedder
 
-    # Try the preload first (only blocks if preload is still running)
+    # Try the preload first (bounded wait -- GUI must not hang if Ollama is down)
     if not _preload_done.is_set():
         logger.info("Waiting for eager preload to finish...")
-    _preload_done.wait()
+    if not _preload_done.wait(timeout=5.0):
+        logger.warning("[WARN] Eager preload did not finish within 5s; continuing without it")
 
     with _cached_embedder_lock:
         # Use cached if model matches
         if (_cached_embedder is not None
-                and _cached_embedder.model is not None
+                and getattr(_cached_embedder, "model_name", None) is not None
                 and _cached_embedder.model_name == model_name):
             logger.info("[OK] Embedder reused from cache")
             return _cached_embedder
@@ -124,7 +125,7 @@ def _get_or_build_embedder(model_name, logger):
         # Use preload result if model matches and cache is empty
         preloaded = _preload_result.get("embedder")
         if (preloaded is not None
-                and preloaded.model is not None
+                and getattr(preloaded, "model_name", None) is not None
                 and preloaded.model_name == model_name):
             _cached_embedder = preloaded
             logger.info("[OK] Embedder loaded (from eager preload)")
@@ -189,18 +190,20 @@ def _load_backends(app, logger):
         def _init_store():
             _set_stage(app, "VectorStore...")
             db_path = getattr(getattr(config, "paths", None), "database", "")
-            if db_path and os.path.exists(os.path.dirname(db_path) or "."):
-                s = VectorStore(
-                    db_path=db_path,
-                    embedding_dim=getattr(
-                        getattr(config, "embedding", None), "dimension", 384
-                    ),
-                )
-                s.connect()
-                logger.info("[OK] Vector store connected")
-                return s
-            logger.warning("[WARN] No database path configured")
-            return None
+            if not db_path:
+                logger.warning("[WARN] No database path configured")
+                return None
+            db_dir = os.path.dirname(db_path) or "."
+            os.makedirs(db_dir, exist_ok=True)
+            s = VectorStore(
+                db_path=db_path,
+                embedding_dim=getattr(
+                    getattr(config, "embedding", None), "dimension", 384
+                ),
+            )
+            s.connect()
+            logger.info("[OK] Vector store connected")
+            return s
 
         def _init_embedder():
             _set_stage(app, "Embedder...")
