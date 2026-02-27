@@ -80,6 +80,11 @@ SKIP_PATTERNS = [
     "claude_diag",                 # claude_diag, claude_diag_gui, claude_diag_run (substring)
     "temp_diag",                   # temp diagnostic output
     "releases",                    # zip transfers
+    "demo_transcript.json",        # diagnostic artifact
+    "gui_e2e_report_mock.json",    # diagnostic artifact
+    "runtime_traces_after.json",   # diagnostic artifact
+    "compile_stderr.log",          # diagnostic artifact (also caught by *.log)
+    "*.tmp",                       # temp files
 
     # [GIT] Git internals
     ".git",
@@ -361,10 +366,10 @@ def copy_and_sanitize_file(src_path, dst_path):
 
 
 def clean_destination(dst_root):
-    """Remove everything in destination except .git/ directory."""
+    """Remove everything in destination except .git/ and .gitignore."""
     removed = 0
     for item in os.listdir(dst_root):
-        if item == ".git":
+        if item in (".git", ".gitignore"):
             continue
         path = os.path.join(dst_root, item)
         if os.path.isdir(path):
@@ -432,13 +437,20 @@ def main():
     print("  Copied: %d  Sanitized: %d  Skipped: %d  Private: %d" % (
         stats["copied"], stats["sanitized"], stats["skipped"], stats["private"]))
 
-    # Step 3: Write educational README (overwrites any synced README)
+    # Step 3: Write educational README + copy .gitignore
     print()
     print("  --- Step 3: Writing educational files ---")
     readme_path = os.path.join(DST_ROOT, "README.md")
     with open(readme_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(EDUCATIONAL_README)
     print("  [OK] README.md (educational version)")
+
+    # Copy .gitignore from source (keeps edu repo clean)
+    gitignore_src = os.path.join(SRC_ROOT, ".gitignore")
+    gitignore_dst = os.path.join(DST_ROOT, ".gitignore")
+    if os.path.exists(gitignore_src):
+        shutil.copy2(gitignore_src, gitignore_dst)
+        print("  [OK] .gitignore (copied from source)")
 
     # Write a template start script (no real paths)
     start_template = os.path.join(DST_ROOT, "start_hybridrag.ps1.template")
