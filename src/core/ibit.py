@@ -247,11 +247,11 @@ def _check_pipeline(query_engine):
             return IBITCheck("Pipeline", False,
                              "query engine not loaded", _elapsed(t0))
         missing = []
-        if getattr(query_engine, "store", None) is None:
+        if getattr(query_engine, "vector_store", None) is None:
             missing.append("VectorStore")
         if getattr(query_engine, "embedder", None) is None:
             missing.append("Embedder")
-        if getattr(query_engine, "router", None) is None:
+        if getattr(query_engine, "llm_router", None) is None:
             missing.append("Router")
         if missing:
             return IBITCheck("Pipeline", False,

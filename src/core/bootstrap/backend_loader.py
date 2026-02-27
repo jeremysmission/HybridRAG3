@@ -161,7 +161,7 @@ class BackendLoader:
         t_qe = time.perf_counter()
         if bundle.store and bundle.embedder:
             bundle.query_engine = GroundedQueryEngine(self.config, bundle.store, bundle.embedder, bundle.router)
-            chunker = Chunker(self.config)
+            chunker = Chunker(self.config.chunking)
             bundle.indexer = Indexer(self.config, bundle.store, bundle.embedder, chunker)
         bundle.timings_ms["assemble"] = (time.perf_counter() - t_qe) * 1000
 

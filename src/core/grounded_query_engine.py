@@ -146,17 +146,12 @@ class GroundedQueryEngine(QueryEngine):
         self._guard_available = False
         if self.guard_enabled:
             try:
-                from .hallucination_guard.prompt_hardener import harden_prompt
-                from .hallucination_guard.claim_extractor import (
-                    extract_claims,
-                )
+                from .hallucination_guard.hallucination_guard import harden_prompt
+                from .hallucination_guard.claim_extractor import ClaimExtractor
                 from .hallucination_guard.nli_verifier import NLIVerifier
-                from .hallucination_guard.response_scoring import (
-                    score_response,
-                )
                 self._harden_prompt = harden_prompt
-                self._extract_claims = extract_claims
-                self._score_response = score_response
+                self._extract_claims = ClaimExtractor.extract_claims
+                self._score_response = self._fallback_score
                 # NLI verifier is lazy-loaded (model is ~440MB)
                 self._nli_verifier = None
                 self._guard_available = True
@@ -339,7 +334,13 @@ class GroundedQueryEngine(QueryEngine):
         to stick to source material and cite chunks.
         """
         if self._guard_available:
-            return self._harden_prompt(user_query, context)
+            source_texts = [h.text for h in hits]
+            hardened = self._harden_prompt(context, user_query, source_texts)
+            # harden_prompt returns {"system": ..., "user": ...} dict.
+            # Flatten to a single prompt string for the LLM router.
+            if isinstance(hardened, dict):
+                return hardened.get("system", "") + "\n\n" + hardened.get("user", "")
+            return hardened
         else:
             # Fallback: basic grounding rules without full hardener
             return (
@@ -424,6 +425,32 @@ class GroundedQueryEngine(QueryEngine):
                 "method": "error",
                 "reason": str(e),
             }
+
+    @staticmethod
+    def _fallback_score(claims, source_texts, threshold):
+        """Lightweight claim-vs-source scoring when NLI model is not loaded.
+
+        Counts how many extracted claims have a substring match in any
+        source chunk.  This is less accurate than NLI but prevents the
+        guard from blocking everything when the heavy model is absent.
+        """
+        if not claims:
+            return 1.0, {"method": "fallback_no_claims"}
+        joined = " ".join(source_texts).lower()
+        supported = 0
+        for c in claims:
+            text = c.get("text", "") if isinstance(c, dict) else str(c)
+            # Grab first 60 chars of claim as search key
+            key = text[:60].strip().lower()
+            if key and key in joined:
+                supported += 1
+        total = len(claims)
+        score = supported / total if total > 0 else 0.0
+        return score, {
+            "method": "fallback_substring",
+            "total_claims": total,
+            "supported": supported,
+        }
 
     def _no_evidence_result(self, start_time: float) -> GroundedQueryResult:
         """Return result when no search results found."""
