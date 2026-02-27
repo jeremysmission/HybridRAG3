@@ -20,9 +20,9 @@
 #
 # WHY float16 INSTEAD OF float32?
 #   float32 = 4 bytes per number. float16 = 2 bytes per number.
-#   For 1 million chunks at 384 dimensions:
-#     float32: 1M x 384 x 4 = 1.5 GB
-#     float16: 1M x 384 x 2 = 0.75 GB (half the disk space)
+#   For 1 million chunks at 768 dimensions:
+#     float32: 1M x 768 x 4 = 3.0 GB
+#     float16: 1M x 768 x 2 = 1.5 GB (half the disk space)
 #   Quality loss is negligible for cosine similarity on normalized vectors.
 #
 # WHY FTS5 (Full-Text Search)?
@@ -53,6 +53,7 @@ from __future__ import annotations
 import os
 import json
 import sqlite3
+import threading
 from dataclasses import dataclass
 import re
 from typing import Optional, List, Dict, Any, Tuple
@@ -118,14 +119,26 @@ class EmbeddingMemmapStore:
                 return
             self.dim = int(meta.get("dim", self.dim))
             self.count = int(meta.get("count", 0))
+            # Reconcile meta count with actual .dat file size.
+            # If process crashed after memmap flush but before _save_meta(),
+            # the .dat file has more rows than meta records. Trust the file.
+            if os.path.exists(self.dat_path):
+                file_bytes = os.path.getsize(self.dat_path)
+                rows_from_file = file_bytes // (self.dim * 2)  # float16 = 2 bytes
+                if rows_from_file > self.count:
+                    self.count = rows_from_file
         else:
             self._save_meta()
 
     def _save_meta(self) -> None:
-        """Write metadata to disk (called after every append)."""
+        """Write metadata to disk (called after every append).
+        Uses atomic write (write to .tmp then os.replace) so a crash
+        mid-write never leaves a truncated/corrupt meta file."""
         meta = {"dim": int(self.dim), "count": int(self.count), "dtype": "float16"}
-        with open(self.meta_path, "w", encoding="utf-8") as f:
+        tmp_path = self.meta_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2)
+        os.replace(tmp_path, self.meta_path)
 
     def _expected_file_bytes(self, rows: int) -> int:
         """Calculate how many bytes the .dat file should be for N rows."""
@@ -213,6 +226,7 @@ class VectorStore:
         self.db_path = db_path
         self.embedding_dim = embedding_dim
         self.conn: Optional[sqlite3.Connection] = None
+        self._db_lock = threading.RLock()
         data_dir = os.path.dirname(db_path) or "."
         self.mem_store = EmbeddingMemmapStore(data_dir=data_dir, dim=embedding_dim)
 
@@ -223,30 +237,31 @@ class VectorStore:
 
     def connect(self) -> None:
         """Open SQLite connection and create tables if needed."""
-        db_dir = os.path.dirname(self.db_path)
-        if db_dir:
-            os.makedirs(db_dir, exist_ok=True)
+        with self._db_lock:
+            db_dir = os.path.dirname(self.db_path)
+            if db_dir:
+                os.makedirs(db_dir, exist_ok=True)
 
-        self.conn = sqlite3.connect(
-            self.db_path, check_same_thread=False
-        )
+            self.conn = sqlite3.connect(
+                self.db_path, check_same_thread=False
+            )
 
-        # SQLite performance tuning (safe for single-user desktop use).
-        # WHY THESE PRAGMAS:
-        #   WAL mode: allows reads while writes happen (no blocking during search)
-        #   NORMAL sync: 2x faster writes, safe because WAL protects against corruption
-        #   MEMORY temp_store: temp tables live in RAM, not on disk
-        #   cache_size -200000: use ~200MB of RAM for page cache (faster reads)
-        #   busy_timeout 5000: wait up to 5s for a lock instead of instant failure
-        #   foreign_keys ON: enforce referential integrity
-        self.conn.execute("PRAGMA journal_mode=WAL;")
-        self.conn.execute("PRAGMA synchronous=NORMAL;")
-        self.conn.execute("PRAGMA temp_store=MEMORY;")
-        self.conn.execute("PRAGMA cache_size=-200000;")
-        self.conn.execute("PRAGMA busy_timeout=5000;")
-        self.conn.execute("PRAGMA foreign_keys=ON;")
+            # SQLite performance tuning (safe for single-user desktop use).
+            # WHY THESE PRAGMAS:
+            #   WAL mode: allows reads while writes happen (no blocking during search)
+            #   NORMAL sync: 2x faster writes, safe because WAL protects against corruption
+            #   MEMORY temp_store: temp tables live in RAM, not on disk
+            #   cache_size -200000: use ~200MB of RAM for page cache (faster reads)
+            #   busy_timeout 5000: wait up to 5s for a lock instead of instant failure
+            #   foreign_keys ON: enforce referential integrity
+            self.conn.execute("PRAGMA journal_mode=WAL;")
+            self.conn.execute("PRAGMA synchronous=NORMAL;")
+            self.conn.execute("PRAGMA temp_store=MEMORY;")
+            self.conn.execute("PRAGMA cache_size=-200000;")
+            self.conn.execute("PRAGMA busy_timeout=5000;")
+            self.conn.execute("PRAGMA foreign_keys=ON;")
 
-        self._init_schema()
+            self._init_schema()
 
     # =================================================================
     # BUG-001 FIX: Schema now includes file_hash column
@@ -260,47 +275,47 @@ class VectorStore:
         to detect modified files. Includes safe migration for existing
         databases that don't have the column yet.
         """
-        self._ensure_connected()
+        with self._db_lock:
+            self._ensure_connected()
 
-        # file_hash stores "filesize:mtime_ns" for change detection.
-        # Empty string = "hash unknown, re-index to be safe".
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS chunks (
-                chunk_pk      INTEGER PRIMARY KEY AUTOINCREMENT,
-                chunk_id      TEXT UNIQUE,
-                source_path   TEXT NOT NULL,
-                chunk_index   INTEGER,
-                text          TEXT,
-                text_length   INTEGER,
-                created_at    TEXT,
-                embedding_row INTEGER,
-                file_hash     TEXT DEFAULT ''
-            );
-        """)
+            # file_hash stores "filesize:mtime_ns" for change detection.
+            # Empty string = "hash unknown, re-index to be safe".
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS chunks (
+                    chunk_pk      INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chunk_id      TEXT UNIQUE,
+                    source_path   TEXT NOT NULL,
+                    chunk_index   INTEGER,
+                    text          TEXT,
+                    text_length   INTEGER,
+                    created_at    TEXT,
+                    embedding_row INTEGER,
+                    file_hash     TEXT DEFAULT ''
+                );
+            """)
 
-        # Migration: add file_hash to existing databases that lack it.
-        # If column already exists, SQLite raises OperationalError with
-        # "duplicate column name" which we catch and ignore.
-        # Other exceptions (disk-full, permission denied) must propagate.
-        try:
+            # Migration: add file_hash to existing databases that lack it.
+            # Check if file_hash column already exists before attempting migration
+            cols = {row[1] for row in self.conn.execute(
+                "PRAGMA table_info(chunks)"
+            ).fetchall()}
+            if "file_hash" not in cols:
+                self.conn.execute(
+                    "ALTER TABLE chunks ADD COLUMN file_hash TEXT DEFAULT '';"
+                )
+                self.conn.commit()
+
             self.conn.execute(
-                "ALTER TABLE chunks ADD COLUMN file_hash TEXT DEFAULT '';"
+                "CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_path);"
             )
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chunks_emb_row ON chunks(embedding_row);"
+            )
+            self.conn.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts
+                USING fts5(text, content='chunks', content_rowid='chunk_pk');
+            """)
             self.conn.commit()
-        except sqlite3.OperationalError:
-            pass  # Column already exists -- expected and fine
-
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_path);"
-        )
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_chunks_emb_row ON chunks(embedding_row);"
-        )
-        self.conn.execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts
-            USING fts5(text, content='chunks', content_rowid='chunk_pk');
-        """)
-        self.conn.commit()
 
     # ------------------------------------------------------------------
     # Write path (used during indexing)
@@ -341,49 +356,50 @@ class VectorStore:
         if len(texts) != n:
             raise ValueError("Texts length must match metadata_list length")
 
-        # Step 1: Append embedding vectors to memmap file on disk
-        start_row, _ = self.mem_store.append_batch(embeddings)
+        with self._db_lock:
+            # Step 1: Append embedding vectors to memmap file on disk
+            start_row, _ = self.mem_store.append_batch(embeddings)
 
-        # Step 2: Build SQLite rows (one per chunk)
-        rows = []
-        for i, md in enumerate(metadata_list):
-            if chunk_ids and i < len(chunk_ids):
-                cid = chunk_ids[i]
-            else:
-                cid = f"{md.source_path}::{md.chunk_index}"
+            # Step 2: Build SQLite rows (one per chunk)
+            rows = []
+            for i, md in enumerate(metadata_list):
+                if chunk_ids and i < len(chunk_ids):
+                    cid = chunk_ids[i]
+                else:
+                    cid = f"{md.source_path}::{md.chunk_index}"
 
-            rows.append((
-                cid,
-                md.source_path,
-                int(md.chunk_index),
-                str(texts[i]),
-                int(md.text_length),
-                md.created_at,
-                int(start_row + i),
-                str(file_hash),       # NEW: file fingerprint
-            ))
+                rows.append((
+                    cid,
+                    md.source_path,
+                    int(md.chunk_index),
+                    str(texts[i]),
+                    int(md.text_length),
+                    md.created_at,
+                    int(start_row + i),
+                    str(file_hash),       # NEW: file fingerprint
+                ))
 
-        # Step 3: INSERT OR IGNORE (idempotent for crash restarts)
-        self.conn.executemany("""
-            INSERT OR IGNORE INTO chunks
-                (chunk_id, source_path, chunk_index, text, text_length,
-                 created_at, embedding_row, file_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
-        """, rows)
+            # Step 3: INSERT OR IGNORE (idempotent for crash restarts)
+            self.conn.executemany("""
+                INSERT OR IGNORE INTO chunks
+                    (chunk_id, source_path, chunk_index, text, text_length,
+                     created_at, embedding_row, file_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            """, rows)
 
-        # Step 4: Populate FTS5 keyword search index
-        for row_data in rows:
-            cid = row_data[0]
-            text_val = row_data[3]
-            pk_row = self.conn.execute(
-                "SELECT chunk_pk FROM chunks WHERE chunk_id = ?", (cid,)
-            ).fetchone()
-            if pk_row:
-                self.conn.execute(
-                    "INSERT OR REPLACE INTO chunks_fts(rowid, text) VALUES (?, ?)",
-                    (pk_row[0], text_val),
-                )
-        self.conn.commit()
+            # Step 4: Populate FTS5 keyword search index
+            for row_data in rows:
+                cid = row_data[0]
+                text_val = row_data[3]
+                pk_row = self.conn.execute(
+                    "SELECT chunk_pk FROM chunks WHERE chunk_id = ?", (cid,)
+                ).fetchone()
+                if pk_row:
+                    self.conn.execute(
+                        "INSERT OR REPLACE INTO chunks_fts(rowid, text) VALUES (?, ?)",
+                        (pk_row[0], text_val),
+                    )
+            self.conn.commit()
 
     # =================================================================
     # NEW: file_hash helpers for change detection (BUG-001/002 support)
@@ -398,24 +414,26 @@ class VectorStore:
         """
         if self.conn is None:
             return ""
-        try:
-            row = self.conn.execute(
-                "SELECT file_hash FROM chunks WHERE source_path = ? LIMIT 1",
-                (str(source_path),),
-            ).fetchone()
-            return str(row[0]) if row and row[0] else ""
-        except Exception:
-            return ""
+        with self._db_lock:
+            try:
+                row = self.conn.execute(
+                    "SELECT file_hash FROM chunks WHERE source_path = ? LIMIT 1",
+                    (str(source_path),),
+                ).fetchone()
+                return str(row[0]) if row and row[0] else ""
+            except Exception:
+                return ""
 
     def update_file_hash(self, source_path: str, file_hash: str) -> None:
         """Update the file_hash for all chunks from a specific source file."""
         if self.conn is None:
             return
-        self.conn.execute(
-            "UPDATE chunks SET file_hash = ? WHERE source_path = ?",
-            (str(file_hash), str(source_path)),
-        )
-        self.conn.commit()
+        with self._db_lock:
+            self.conn.execute(
+                "UPDATE chunks SET file_hash = ? WHERE source_path = ?",
+                (str(file_hash), str(source_path)),
+            )
+            self.conn.commit()
 
     def delete_chunks_by_source(self, source_path: str) -> int:
         """
@@ -426,16 +444,17 @@ class VectorStore:
         them because nothing in SQLite points to them.
         """
         self._ensure_connected()
-        self.conn.execute("""
-            DELETE FROM chunks_fts WHERE rowid IN (
-                SELECT chunk_pk FROM chunks WHERE source_path = ?
+        with self._db_lock:
+            self.conn.execute("""
+                DELETE FROM chunks_fts WHERE rowid IN (
+                    SELECT chunk_pk FROM chunks WHERE source_path = ?
+                )
+            """, (source_path,))
+            cursor = self.conn.execute(
+                "DELETE FROM chunks WHERE source_path = ?", (source_path,)
             )
-        """, (source_path,))
-        cursor = self.conn.execute(
-            "DELETE FROM chunks WHERE source_path = ?", (source_path,)
-        )
-        self.conn.commit()
-        return cursor.rowcount
+            self.conn.commit()
+            return cursor.rowcount
 
     # ------------------------------------------------------------------
     # Read path (used during search)
@@ -544,11 +563,12 @@ class VectorStore:
 
         # Look up text and metadata from SQLite using the memmap row indices
         placeholders = ",".join(["?"] * len(best_rows))
-        fetched = self.conn.execute(
-            f"SELECT embedding_row, source_path, chunk_index, text "
-            f"FROM chunks WHERE embedding_row IN ({placeholders})",
-            [int(r) for r in best_rows],
-        ).fetchall()
+        with self._db_lock:
+            fetched = self.conn.execute(
+                f"SELECT embedding_row, source_path, chunk_index, text "
+                f"FROM chunks WHERE embedding_row IN ({placeholders})",
+                [int(r) for r in best_rows],
+            ).fetchall()
 
         by_row: Dict[int, Tuple[str, int, str]] = {}
         for row in fetched:
@@ -592,17 +612,18 @@ class VectorStore:
             return []
         # OR logic: find chunks containing ANY of the search words
         fts_query = ' OR '.join(words)
-        try:
-            rows = self.conn.execute(
-                "SELECT c.source_path, c.chunk_index, c.text, rank "
-                "FROM chunks_fts "
-                "JOIN chunks c ON chunks_fts.rowid = c.chunk_pk "
-                "WHERE chunks_fts MATCH ? "
-                "ORDER BY rank LIMIT ?",
-                (fts_query, top_k),
-            ).fetchall()
-        except Exception:
-            return []
+        with self._db_lock:
+            try:
+                rows = self.conn.execute(
+                    "SELECT c.source_path, c.chunk_index, c.text, rank "
+                    "FROM chunks_fts "
+                    "JOIN chunks c ON chunks_fts.rowid = c.chunk_pk "
+                    "WHERE chunks_fts MATCH ? "
+                    "ORDER BY rank LIMIT ?",
+                    (fts_query, top_k),
+                ).fetchall()
+            except Exception:
+                return []
         hits = []
         for source_path, chunk_index, text, rank_score in rows:
             # FTS5 rank is negative (lower = better match). We negate it
@@ -626,17 +647,18 @@ class VectorStore:
             "embedding_count": self.mem_store.count,
             "embedding_dim": self.mem_store.dim,
         }
-        if self.conn:
-            try:
-                row = self.conn.execute("SELECT COUNT(*) FROM chunks").fetchone()
-                stats["chunk_count"] = row[0] if row else 0
-                row = self.conn.execute(
-                    "SELECT COUNT(DISTINCT source_path) FROM chunks"
-                ).fetchone()
-                stats["source_count"] = row[0] if row else 0
-            except Exception:
-                stats["chunk_count"] = "error"
-                stats["source_count"] = "error"
+        with self._db_lock:
+            if self.conn:
+                try:
+                    row = self.conn.execute("SELECT COUNT(*) FROM chunks").fetchone()
+                    stats["chunk_count"] = row[0] if row else 0
+                    row = self.conn.execute(
+                        "SELECT COUNT(DISTINCT source_path) FROM chunks"
+                    ).fetchone()
+                    stats["source_count"] = row[0] if row else 0
+                except Exception:
+                    stats["chunk_count"] = "error"
+                    stats["source_count"] = "error"
         return stats
 
     # =================================================================
@@ -653,17 +675,23 @@ class VectorStore:
         Safe to call multiple times. Call in a "finally" block after
         indexing completes or when shutting down the application.
         """
-        if self.conn is not None:
-            try:
-                self.conn.close()
-            except Exception:
-                pass
-            self.conn = None
+        with self._db_lock:
+            if self.conn is not None:
+                try:
+                    self.conn.close()
+                except Exception:
+                    pass
+                self.conn = None
 
     def __enter__(self):
+        self._was_connected = self.conn is not None
         self._ensure_connected()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
+        # Only close if WE opened the connection in __enter__.
+        # This prevents accidentally killing a shared server-wide
+        # instance when someone wraps it in a `with` block.
+        if not self._was_connected:
+            self.close()
         return False

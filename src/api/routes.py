@@ -180,11 +180,19 @@ async def query(req: QueryRequest):
         raise HTTPException(status_code=503, detail="Query engine not initialized")
 
     # Timeout: prevent hung LLM calls from blocking indefinitely.
-    # Uses the configured timeout (default 600s for Ollama) with a ceiling.
-    timeout_sec = min(
-        getattr(getattr(s.config, "ollama", None), "timeout_seconds", 600),
-        600,
-    )
+    # Online mode uses api.timeout_seconds (default 60s);
+    # Offline mode uses ollama.timeout_seconds (default 600s).
+    # Capped at 600s as an absolute ceiling.
+    if getattr(s.config, "mode", "offline") == "online":
+        timeout_sec = min(
+            getattr(getattr(s.config, "api", None), "timeout_seconds", 60),
+            600,
+        )
+    else:
+        timeout_sec = min(
+            getattr(getattr(s.config, "ollama", None), "timeout_seconds", 600),
+            600,
+        )
     try:
         result = await asyncio.wait_for(
             asyncio.to_thread(s.query_engine.query, req.question),
@@ -219,9 +227,10 @@ async def query(req: QueryRequest):
 
     # Return proper HTTP status when backend reports an error
     if result.error:
+        logger.error("Query returned error: %s", result.error)
         raise HTTPException(
             status_code=502,
-            detail=result.error,
+            detail="Query execution failed",
         )
 
     return QueryResponse(
@@ -323,9 +332,10 @@ async def start_indexing(req: IndexRequest = None):
     )
 
     if not source_folder or not os.path.isdir(source_folder):
+        logger.warning("Index request for missing folder: %s", source_folder)
         raise HTTPException(
             status_code=400,
-            detail=f"Source folder not found: {source_folder}",
+            detail="Source folder not found or not accessible",
         )
 
     # Path traversal prevention: the requested folder must be within
@@ -366,7 +376,7 @@ async def start_indexing(req: IndexRequest = None):
             # them would destroy the server-wide instances and crash all
             # subsequent queries until restart.
         except Exception as e:
-            logger.error("[FAIL] Indexing error: %s", e)
+            logger.error("[FAIL] Indexing error: %s", e, exc_info=True)
         finally:
             s.indexing_active = False
 

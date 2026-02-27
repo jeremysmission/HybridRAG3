@@ -72,6 +72,8 @@ class HybridRAGApp(tk.Tk):
         self.router = router
         self.cost_tracker = get_cost_tracker()
         self.shutdown = AppShutdownCoordinator()
+        self._poll_timer_id = None
+        self._backend_reload_thread = None
 
         # Apply initial theme
         self._theme = current_theme()
@@ -408,7 +410,12 @@ class HybridRAGApp(tk.Tk):
             logger.warning("[WARN] Index panel: backends never arrived "
                            "after 60s -- button stays disabled")
             return
-        self.after(500, self._poll_index_ready, attempts + 1)
+        try:
+            self._poll_timer_id = self.after(
+                500, self._poll_index_ready, attempts + 1,
+            )
+        except Exception:
+            pass  # App being destroyed -- stop polling
 
     # ----------------------------------------------------------------
     # THEME TOGGLE
@@ -514,6 +521,10 @@ class HybridRAGApp(tk.Tk):
 
     def reset_backends(self):
         """Tear down backends, show loading state, and reload in background."""
+        if getattr(self, "_backend_reload_thread", None) is not None:
+            if self._backend_reload_thread.is_alive():
+                logger.warning("Backend reload already in progress")
+                return
         self.query_engine = None
         self.indexer = None
         self.router = None
@@ -537,6 +548,8 @@ class HybridRAGApp(tk.Tk):
             daemon=True,
         )
         reload_thread.start()
+        self._backend_reload_thread = reload_thread
+        self.shutdown.register_thread("backend_reload", reload_thread)
         logger.info("Backend reset -- reloading in background")
 
     def set_ready(self, enabled):
@@ -639,6 +652,7 @@ class HybridRAGApp(tk.Tk):
             timer_ids.append(getattr(self.status_bar, "_cbit_timer_id", None))
         if hasattr(self, "query_panel"):
             timer_ids.append(getattr(self.query_panel, "_elapsed_timer_id", None))
+        timer_ids.append(getattr(self, "_poll_timer_id", None))
 
         # Register known threads for join
         if hasattr(self, "query_panel"):
@@ -650,6 +664,9 @@ class HybridRAGApp(tk.Tk):
             sf = getattr(self.index_panel, "_stop_flag", None)
             if it is not None:
                 self.shutdown.register_thread("indexing", it, sf)
+        rt = getattr(self, "_backend_reload_thread", None)
+        if rt is not None:
+            self.shutdown.register_thread("backend_reload", rt)
 
         # Signal + cancel + join (bounded)
         self.shutdown.request_shutdown(widget=self, timer_ids=timer_ids)

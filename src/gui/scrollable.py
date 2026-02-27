@@ -106,6 +106,12 @@ class ScrollableFrame(tk.Frame):
         if target is not None:
             target._canvas.yview_scroll(-1 * (event.delta // 120), "units")
 
+    def destroy(self):
+        """Clear active instance ref before destroying the widget."""
+        if ScrollableFrame._active_instance is self:
+            ScrollableFrame._active_instance = None
+        super().destroy()
+
     def apply_theme(self, t):
         """Re-apply theme colors to the canvas and inner frame."""
         bg = t.get("bg", "")

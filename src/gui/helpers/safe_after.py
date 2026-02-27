@@ -1,15 +1,16 @@
 # ============================================================================
 # safe_after -- schedule tkinter callbacks that survive widget destruction.
 #
-# Background threads that call widget.after() can race with app shutdown
-# or headless mode (no mainloop).  Instead of silently dropping callbacks,
-# this module enqueues them into a thread-safe queue that the main thread
-# drains during update() pumping.
+# Tkinter is NOT thread-safe.  Calling widget.after() from a background
+# thread can silently succeed but produce undefined behavior (buttons stop
+# working, intermittent Tcl errors).  This module guarantees that only the
+# main thread ever touches widget.after(); background-thread callers are
+# routed to a thread-safe queue drained by drain_ui_queue().
 #
 # Usage:
 #   from src.gui.helpers.safe_after import safe_after, drain_ui_queue
 #
-#   # Background thread:
+#   # Any thread (background or main):
 #   safe_after(widget, 0, callback, arg1, arg2)
 #
 #   # Main-thread pump loop (harness or app):
@@ -21,6 +22,7 @@
 import logging
 import os
 import queue as _queue_mod
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +42,12 @@ def _enqueue(fn, args):
 def safe_after(widget, ms, fn, *args):
     """Schedule fn on the tkinter main thread.
 
-    Normal GUI mode: uses widget.after() (processed by mainloop).
-    Headless mode (HYBRIDRAG_HEADLESS=1): always enqueues to a
-    thread-safe queue, drained by drain_ui_queue() during pump loops.
-    This avoids the unreliable after() path where bg-thread calls
-    may "succeed" but callbacks never fire without mainloop.
+    Routing logic (in order):
+      1. Headless mode (HYBRIDRAG_HEADLESS=1) -- enqueue; no mainloop.
+      2. Background thread -- enqueue; widget.after() is NOT safe off
+         the main thread (undefined behavior, silent Tcl corruption).
+      3. Main thread -- use widget.after() directly (processed by
+         mainloop).  RuntimeError/TclError still caught as safety net.
 
     Returns the after-ID on success, or None if enqueued/dropped.
     """
@@ -53,6 +56,12 @@ def safe_after(widget, ms, fn, *args):
         _enqueue(fn, args)
         return None
 
+    # Background threads must never call widget.after() -- enqueue instead
+    if threading.current_thread() is not threading.main_thread():
+        _enqueue(fn, args)
+        return None
+
+    # Main-thread path: widget.after() is safe here
     try:
         return widget.after(ms, fn, *args)
     except RuntimeError:
