@@ -44,7 +44,7 @@
 # NETWORK ACCESS: NONE (NLI model runs locally after first download)
 #
 # DEPENDENCIES: hallucination_guard/ package (already in src/core/)
-#               sentence-transformers (already pinned for embeddings)
+#               NLI verifier is DORMANT (sentence-transformers retired)
 #
 # LINE BUDGET: Target <300 lines (well under 500 limit)
 # ============================================================================

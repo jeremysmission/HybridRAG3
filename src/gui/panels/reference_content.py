@@ -237,7 +237,7 @@ STORAGE: SQLite + NumPy memmap (float16). No external DB server.
 RETRIEVAL: Hybrid vector + BM25 via RRF (k=60). Reranker available but OFF.
 CHUNKING: 1200 chars, 200 overlap, smart boundary detection, heading prepend.
 LLM OFFLINE: Ollama (phi4-mini default). vLLM on workstation.
-LLM ONLINE: OpenRouter / Azure OpenAI / OpenAI (openai SDK 1.51.2).
+LLM ONLINE: OpenRouter / Azure OpenAI / OpenAI (openai SDK 1.109.1).
 GUI: tkinter (stdlib, zero deps). REST API: FastAPI 0.115.0 + Uvicorn.
 PARSING: pdfplumber, python-docx, openpyxl, python-pptx, pytesseract, Pillow.
 CREDENTIALS: keyring (Windows Credential Manager, DPAPI encrypted).
@@ -323,18 +323,11 @@ HELP_GIT_RULES = """\
 GIT REPOSITORY RULES
 =====================
 
-THREE-REPO STRUCTURE:
-  1. Private development repo (home, full access)
-  2. Educational repo (public, sanitized for distribution)
-  3. Separate application repo
-
-TRANSFER RULES:
-  Home: git commit/push ONLY from here.
-  Work: browser ZIP download from Educational repo ONLY. No git.
-  Sync: tools/sync_to_educational.py (one-way, sanitized)
-
-SANITIZATION:
+REPOSITORY RULES:
+  Commits only from authorized development machine.
+  Distribution copies are sanitized before release.
   All commits checked for banned words before push.
+
   See docs/05_security/ for the full banned-word checklist.
 
 MACHINE-SPECIFIC (never sync):
@@ -511,9 +504,9 @@ RETRIEVAL_SETTINGS = [
 ]
 
 LLM_SETTINGS = [
-    ("model (offline)", "phi4-mini", "--",
+    ("model (offline)", "phi4:14b-q4_K_M", "--",
      "Primary Ollama model for offline queries.",
-     "3.8B params, MIT license, Microsoft/USA. Fast on CPU, 128K context window."),
+     "14B params, MIT license, Microsoft/USA. Quantized Q4_K_M for 12GB GPU."),
     ("temperature", "0.05", "0.0-2.0",
      "Randomness in LLM output.",
      "Lower = more focused/consistent. 0.05 tuned for factual accuracy. "
@@ -522,32 +515,32 @@ LLM_SETTINGS = [
      "Max wait time for Ollama response.",
      "600s (10min) allows slow hardware to finish long responses. "
      "Reduce to 120s on fast hardware."),
-    ("context_window", "8192", "2048-131072",
+    ("context_window", "16384", "2048-131072",
      "Max tokens the model sees at once.",
-     "8192 is safe for phi4-mini on 8GB RAM. Increase with more RAM/GPU."),
+     "16384 is the default for phi4:14b. Increase with more RAM/GPU."),
     ("max_tokens (online)", "2048", "256-8192",
      "Max output tokens for API mode responses.",
      "2048 is generous for most answers. Reduce to save cost on simple queries."),
 ]
 
 PROFILES = [
-    ("sw", "phi4-mini", "mistral:7b", "Software engineering"),
-    ("eng", "phi4-mini", "mistral:7b", "General engineering"),
-    ("pm", "phi4-mini", "gemma3:4b", "Project management"),
-    ("sys", "phi4-mini", "mistral:7b", "Systems engineering"),
-    ("log", "phi4:14b-q4_K_M", "phi4-mini", "Logistics (workstation)"),
-    ("draft", "phi4-mini", "mistral:7b", "Technical writing"),
-    ("fe", "phi4-mini", "mistral:7b", "Front-end development"),
-    ("cyber", "phi4-mini", "mistral:7b", "Cybersecurity"),
-    ("gen", "phi4-mini", "gemma3:4b", "General purpose"),
+    ("sw", "phi4:14b-q4_K_M", "mistral-nemo:12b", "Software engineering"),
+    ("eng", "phi4:14b-q4_K_M", "mistral-nemo:12b", "General engineering"),
+    ("pm", "phi4:14b-q4_K_M", "mistral-nemo:12b", "Project management"),
+    ("sys", "phi4:14b-q4_K_M", "mistral-nemo:12b", "Systems engineering"),
+    ("log", "phi4:14b-q4_K_M", "mistral-nemo:12b", "Logistics"),
+    ("draft", "phi4:14b-q4_K_M", "mistral-nemo:12b", "Technical writing"),
+    ("fe", "phi4:14b-q4_K_M", "mistral-nemo:12b", "Front-end development"),
+    ("cyber", "phi4:14b-q4_K_M", "mistral-nemo:12b", "Cybersecurity"),
+    ("gen", "mistral-nemo:12b", "phi4:14b-q4_K_M", "General purpose"),
 ]
 
 MODEL_RANKING = [
-    ("phi4-mini", "3.8B", "MIT", "Microsoft/USA", "2.3GB", "Primary for 7/9 profiles"),
-    ("mistral:7b", "7B", "Apache 2.0", "Mistral/France", "4.1GB", "Alt for eng-heavy"),
-    ("gemma3:4b", "4B", "Apache 2.0", "Google/USA", "3.3GB", "PM fast summarization"),
-    ("phi4:14b-q4_K_M", "14B", "MIT", "Microsoft/USA", "9.1GB", "Workstation primary"),
-    ("mistral-nemo:12b", "12B", "Apache 2.0", "Mistral/France", "7.1GB", "128K ctx upgrade"),
+    ("phi4:14b-q4_K_M", "14B", "MIT", "Microsoft/USA", "9.1GB", "Primary for 8/9 profiles"),
+    ("mistral-nemo:12b", "12B", "Apache 2.0", "Mistral/France", "7.1GB", "Gen primary, all alt"),
+    ("phi4-mini", "3.8B", "MIT", "Microsoft/USA", "2.3GB", "Laptop fallback"),
+    ("mistral:7b", "7B", "Apache 2.0", "Mistral/France", "4.1GB", "Gen fallback"),
+    ("gemma3:4b", "4B", "Apache 2.0", "Google/USA", "3.3GB", "PM fallback"),
 ]
 
 TUNING_LOG = """\

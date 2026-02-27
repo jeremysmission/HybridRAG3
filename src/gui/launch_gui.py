@@ -2,27 +2,25 @@
 # HybridRAG v3 -- GUI Launcher (src/gui/launch_gui.py)
 # ============================================================================
 # WHAT: Entry point that boots the system and opens the GUI window.
-# WHY:  Heavy imports (torch, sentence-transformers) take 10-16s.  If we
-#       loaded them before showing the window, the user would stare at
-#       nothing.  This module shows the window immediately and loads
-#       backends in the background, so the user sees progress.
+# WHY:  Backend initialization (Ollama connection, VectorStore, LLMRouter)
+#       takes a few seconds.  This module shows the window immediately
+#       and loads backends in the background, so the user sees progress.
 # HOW:  Three-phase launch:
-#       Phase 1 - Eager preload: starts loading the embedding model at
-#                 module import time (before boot/config/GUI).
+#       Phase 1 - Eager preload: starts connecting to Ollama embedding
+#                 API at module import time (before boot/config/GUI).
 #       Phase 2 - Boot + config + optional setup wizard (2-3s).
 #       Phase 3 - Open GUI window, load remaining backends in a thread.
-#       The preload runs in parallel with Phase 2, saving 2-3s of wall time.
+#       The preload runs in parallel with Phase 2.
 # USAGE: python src/gui/launch_gui.py
-#        or: from start_hybridrag.ps1 (PowerShell wrapper)
+#        or: .\tools\launch_gui.ps1 (PowerShell wrapper)
 #
-# PERFORMANCE: The Embedder is the cold-start bottleneck (~16s on 8GB
-# laptop). Three tricks to minimize perceived wait:
-#   1. Eager preload -- start building the Embedder at t=0, BEFORE
-#      boot/config/GUI, so the 16s overlaps with the 2s of setup.
+# PERFORMANCE: Three tricks to minimize perceived wait:
+#   1. Eager preload -- start connecting to Ollama embedder at t=0,
+#      BEFORE boot/config/GUI, so the HTTP handshake overlaps with setup.
 #   2. Embedder cache -- keep the Embedder across Reset clicks so the
-#      7.6s model-load is paid only once per process lifetime.
-#   3. Warm encode -- fire a dummy encode() after load so the first
-#      real query pays zero lazy-init cost.
+#      Ollama connection is paid only once per process lifetime.
+#   3. Warm encode -- fire a dummy embed_query() after connect so the
+#      first real query pays zero lazy-init cost.
 #
 # INTERNET ACCESS: Depends on boot result and user mode selection.
 # ============================================================================
@@ -32,9 +30,8 @@ import sys
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from src.core.constants import DEFAULT_EMBED_DIM
 
-# Ensure project root is on sys.path
+# Ensure project root is on sys.path BEFORE any src.* imports
 _project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
@@ -43,12 +40,13 @@ if _project_root not in sys.path:
 if not os.environ.get("HYBRIDRAG_PROJECT_ROOT"):
     os.environ["HYBRIDRAG_PROJECT_ROOT"] = _project_root
 
+from src.core.constants import DEFAULT_EMBED_DIM
+
 # ============================================================================
-# EAGER PRELOAD: start the heaviest work (import torch + sentence-transformers
-# + load model weights) immediately, before boot/config/GUI.  The result is
-# stashed in _preload_result and picked up by _load_backends() later.
-# On this laptop the overlap saves ~2s; on faster hardware the ratio is even
-# better because boot+config+GUI take longer relative to model-load time.
+# EAGER PRELOAD: start connecting to Ollama embedding API immediately,
+# before boot/config/GUI.  The result is stashed in _preload_result and
+# picked up by _load_backends() later.  The overlap saves ~1-2s of wall
+# time by running the HTTP handshake in parallel with boot+config.
 # ============================================================================
 
 _preload_result = {}   # {"embedder": Embedder | None, "error": str | None}
@@ -83,7 +81,7 @@ def _read_embedding_model_from_config():
 
 
 def _preload_embedder():
-    """Build the Embedder (torch + model weights) as early as possible."""
+    """Connect to Ollama embedding API as early as possible."""
     try:
         from src.core.embedder import Embedder
         model_name = _read_embedding_model_from_config()
@@ -391,8 +389,8 @@ def main():
     logger = logging.getLogger("gui_launcher")
 
     # NOTE: _preload_thread is already running (started at module load).
-    # While we boot + load config + build the GUI (~2s), torch and the
-    # embedding model are loading in parallel.
+    # While we boot + load config + build the GUI (~2s), the Ollama
+    # embedder connection is being established in parallel.
 
     # -- Step 1: Boot the system (lightweight -- config + creds + gate) --
     logger.info("Booting HybridRAG...")
