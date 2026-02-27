@@ -86,6 +86,17 @@ class StatusBar(tk.Frame):
         self.sep2 = tk.Frame(self, width=1, bg=t["separator"])
         self.sep2.pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=4)
 
+        # -- Active Model indicator --
+        self.sep3 = tk.Frame(self, width=1, bg=t["separator"])
+        self.sep3.pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=4)
+
+        model_name = self._read_active_model()
+        self.model_label = tk.Label(
+            self, text="Model: {}".format(model_name), anchor=tk.W,
+            padx=8, pady=4, bg=t["panel_bg"], fg=t["fg"], font=FONT,
+        )
+        self.model_label.pack(side=tk.LEFT)
+
         # -- Gate indicator (clickable) --
         self.gate_dot = tk.Label(self, text=" ", width=2, padx=4,
                                  bg=t["panel_bg"])
@@ -113,10 +124,12 @@ class StatusBar(tk.Frame):
         self.sep_loading.configure(bg=t["separator"])
         self.llm_label.configure(bg=t["panel_bg"])
         self.ollama_label.configure(bg=t["panel_bg"])
+        self.model_label.configure(bg=t["panel_bg"], fg=t["fg"])
         self.gate_label.configure(bg=t["panel_bg"])
         self.gate_dot.configure(bg=t["panel_bg"])
         self.sep1.configure(bg=t["separator"])
         self.sep2.configure(bg=t["separator"])
+        self.sep3.configure(bg=t["separator"])
         # Refresh status to set correct colors
         self._refresh_status()
 
@@ -130,6 +143,7 @@ class StatusBar(tk.Frame):
         """Update all status indicators from current state."""
         try:
             self._update_gate_display()
+            self._update_model_label()
             if self.router:
                 self._update_from_router()
             else:
@@ -465,9 +479,26 @@ class StatusBar(tk.Frame):
         self.loading_label.config(text=text, fg=fg, cursor="hand2")
         self.loading_label.bind("<Button-1>", self._show_ibit_detail)
 
+    def _read_active_model(self):
+        """Read config.ollama.model safely. Always returns a string."""
+        try:
+            ollama = getattr(self.config, "ollama", None)
+            if ollama:
+                return getattr(ollama, "model", "unknown") or "unknown"
+        except Exception:
+            pass
+        return "unknown"
+
+    def _update_model_label(self):
+        """Refresh the active model indicator from live config."""
+        t = current_theme()
+        model = self._read_active_model()
+        self.model_label.config(text="Model: {}".format(model), fg=t["fg"])
+
     def force_refresh(self):
         """Immediately refresh all indicators."""
         self._refresh_status()
+        self._update_model_label()
 
     def stop(self):
         """Stop the periodic refresh timer, dot animation, and CBIT timer."""
