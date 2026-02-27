@@ -24,7 +24,7 @@ class TestCredentialManagement:
     """Tests for the extended credential system (api_key, endpoint, deployment, api_version)."""
 
     def _clear_env(self):
-        """Remove all credential env vars to isolate keyring tests."""
+        """Remove all credential env vars and invalidate cache to isolate tests."""
         env_vars = [
             "HYBRIDRAG_API_KEY", "AZURE_OPENAI_API_KEY", "AZURE_OPEN_AI_KEY",
             "OPENAI_API_KEY", "HYBRIDRAG_API_ENDPOINT", "AZURE_OPENAI_ENDPOINT",
@@ -33,9 +33,16 @@ class TestCredentialManagement:
             "AZURE_OPENAI_DEPLOYMENT_NAME", "DEPLOYMENT_NAME", "AZURE_CHAT_DEPLOYMENT",
             "AZURE_OPENAI_API_VERSION", "AZURE_API_VERSION", "OPENAI_API_VERSION",
             "API_VERSION",
+            "HYBRIDRAG_API_PROVIDER", "AZURE_OPENAI_PROVIDER",
         ]
         for var in env_vars:
             os.environ.pop(var, None)
+        # Clear session credential cache so each test gets a fresh resolution
+        try:
+            from src.security.credentials import invalidate_credential_cache
+            invalidate_credential_cache()
+        except ImportError:
+            pass
 
     # ------------------------------------------------------------------
     # TEST 01: store_deployment() stores value in keyring successfully
@@ -66,10 +73,10 @@ class TestCredentialManagement:
             )
 
     # ------------------------------------------------------------------
-    # TEST 03: resolve_credentials() returns deployment from keyring (priority 1)
+    # TEST 03: resolve_credentials() returns deployment from env var (priority 1)
     # ------------------------------------------------------------------
-    def test_03_resolve_deployment_from_keyring_first(self):
-        """Keyring deployment takes priority over env var and URL extraction."""
+    def test_03_resolve_deployment_from_env_first(self):
+        """Env var deployment takes priority over keyring (fast path)."""
         self._clear_env()
         os.environ["AZURE_OPENAI_DEPLOYMENT"] = "env-deployment"
 
@@ -87,12 +94,12 @@ class TestCredentialManagement:
 
         with patch.dict("sys.modules", {"keyring": mock_keyring}):
             from src.security.credentials import resolve_credentials
-            result = resolve_credentials()
+            result = resolve_credentials(use_cache=False)
 
-        assert result.deployment == "keyring-deployment", (
-            f"Expected keyring value, got: {result.deployment}"
+        assert result.deployment == "env-deployment", (
+            "Expected env var value, got: {}".format(result.deployment)
         )
-        assert result.source_deployment == "keyring"
+        assert "env:" in result.source_deployment
         self._clear_env()
 
     # ------------------------------------------------------------------
@@ -111,7 +118,7 @@ class TestCredentialManagement:
 
         with patch.dict("sys.modules", {"keyring": mock_keyring}):
             from src.security.credentials import resolve_credentials
-            result = resolve_credentials()
+            result = resolve_credentials(use_cache=False)
 
         assert result.deployment == "env-deploy"
         assert "env:" in result.source_deployment
@@ -134,7 +141,7 @@ class TestCredentialManagement:
 
         with patch.dict("sys.modules", {"keyring": mock_keyring}):
             from src.security.credentials import resolve_credentials
-            result = resolve_credentials()
+            result = resolve_credentials(use_cache=False)
 
         assert result.deployment == "gpt-4o"
         assert result.source_deployment == "extracted_from_url"
@@ -259,7 +266,7 @@ class TestCredentialManagement:
 
         with patch.dict("sys.modules", {"keyring": mock_keyring}):
             from src.security.credentials import resolve_credentials
-            result = resolve_credentials()
+            result = resolve_credentials(use_cache=False)
 
         assert not result.has_key, "Empty string should not count as having a key"
         assert not result.has_endpoint, "Whitespace should not count as having an endpoint"

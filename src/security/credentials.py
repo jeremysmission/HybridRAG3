@@ -19,10 +19,11 @@
 #   Now there's ONE resolution order, ONE set of aliases, ONE place
 #   to debug credential problems.
 #
-# RESOLUTION ORDER (first match wins):
-#   1. Windows Credential Manager (via keyring) -- most secure
-#   2. Environment variables -- useful for CI/CD or session overrides
-#   3. Config file -- least preferred for secrets, but OK for endpoints
+# RESOLUTION ORDER (first match wins, fast paths first):
+#   1. Session cache (process lifetime, avoids repeated keyring lookups)
+#   2. Environment variables -- fast, no OS calls, demo day override
+#   3. Windows Credential Manager (via keyring) -- secure but slow
+#   4. Config file -- least preferred for secrets, but OK for endpoints
 #
 # ACCEPTED ENVIRONMENT VARIABLE ALIASES:
 #   API Key:
@@ -65,10 +66,23 @@ from __future__ import annotations
 import os
 import re
 import logging
+import threading
 from dataclasses import dataclass, field
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# SESSION CREDENTIAL CACHE
+# ---------------------------------------------------------------------------
+# Resolved credentials are cached for the process lifetime so that mode
+# switches and status checks do not re-query Windows Credential Manager
+# (each keyring lookup is ~100-200ms, and a mode switch triggers 10-20).
+# Cache is invalidated only by explicit user action (Settings save, etc.).
+# ---------------------------------------------------------------------------
+
+_credential_cache: Optional["ApiCredentials"] = None
+_credential_cache_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -268,8 +282,14 @@ def _read_keyring(key_name):
       We handle all cases gracefully.
     """
     try:
-        import keyring
-        value = keyring.get_password(_KEYRING_SERVICE, key_name)
+        # Suppress the "Keyring config file contains incorrect values" warning
+        # that fires when keyringrc.cfg doesn't exist or has stale entries.
+        # WinVaultKeyring works fine without it.
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*Keyring config.*")
+            import keyring
+            value = keyring.get_password(_KEYRING_SERVICE, key_name)
         if value and value.strip():
             return value.strip()
     except ImportError:
@@ -361,18 +381,25 @@ def validate_endpoint(url):
 # MAIN FUNCTION: Resolve all credentials
 # ---------------------------------------------------------------------------
 
-def resolve_credentials(config_dict=None):
+def resolve_credentials(config_dict=None, use_cache=True):
     """
     Resolve API credentials from all sources.
 
-    Resolution order (first match wins):
-      1. Windows Credential Manager (keyring)
-      2. Environment variables (checks all aliases)
+    Session cache: Results are cached for the process lifetime. Subsequent
+    calls return the cache unless use_cache=False or invalidate_credential_cache()
+    was called.  This eliminates repeated keyring lookups during mode switches
+    (each lookup is ~100-200ms; a mode switch was triggering 10-20 of them).
+
+    Resolution order (first match wins, fast paths first):
+      1. Environment variables (instant, no OS calls -- demo day override)
+      2. Windows Credential Manager (keyring, ~100-200ms per lookup)
       3. Config dictionary (if provided)
 
     Args:
         config_dict: Optional dict from config.yaml with keys like
             api.key, api.endpoint, api.deployment, api.api_version
+        use_cache: If True (default), return cached credentials if available.
+            Pass False to force a fresh resolution (e.g. after Settings save).
 
     Returns:
         ApiCredentials dataclass with all resolved values.
@@ -381,22 +408,28 @@ def resolve_credentials(config_dict=None):
     It returns whatever it finds and lets the caller (ApiClientFactory)
     decide whether that's enough to proceed.
     """
+    global _credential_cache
+
+    # Return cached credentials if available
+    if use_cache and _credential_cache is not None:
+        return _credential_cache
+
     creds = ApiCredentials()
 
     # --- Resolve API Key ---
-    # Priority 1: Keyring
-    key_from_keyring = _read_keyring(_KEYRING_KEY_NAME)
-    if key_from_keyring:
-        creds.api_key = key_from_keyring
-        creds.source_key = "keyring"
-        logger.debug("API key loaded from keyring")
+    # Priority 1: Environment variables (fast, no OS calls)
+    key_val, key_var = _resolve_env_var(_KEY_ENV_ALIASES)
+    if key_val:
+        creds.api_key = key_val
+        creds.source_key = "env:{}".format(key_var)
+        logger.debug("API key loaded from env: %s", key_var)
     else:
-        # Priority 2: Environment variables
-        key_val, key_var = _resolve_env_var(_KEY_ENV_ALIASES)
-        if key_val:
-            creds.api_key = key_val
-            creds.source_key = f"env:{key_var}"
-            logger.debug("API key loaded from env: %s", key_var)
+        # Priority 2: Keyring
+        key_from_keyring = _read_keyring(_KEYRING_KEY_NAME)
+        if key_from_keyring:
+            creds.api_key = key_from_keyring
+            creds.source_key = "keyring"
+            logger.debug("API key loaded from keyring")
         elif config_dict:
             # Priority 3: Config file
             cfg_key = _nested_get(config_dict, "api", "key")
@@ -406,19 +439,19 @@ def resolve_credentials(config_dict=None):
                 logger.debug("API key loaded from config file")
 
     # --- Resolve Endpoint ---
-    # Priority 1: Keyring
-    endpoint_from_keyring = _read_keyring(_KEYRING_ENDPOINT_NAME)
-    if endpoint_from_keyring:
-        creds.endpoint = endpoint_from_keyring
-        creds.source_endpoint = "keyring"
-        logger.debug("Endpoint loaded from keyring")
+    # Priority 1: Environment variables
+    ep_val, ep_var = _resolve_env_var(_ENDPOINT_ENV_ALIASES)
+    if ep_val:
+        creds.endpoint = ep_val
+        creds.source_endpoint = "env:{}".format(ep_var)
+        logger.debug("Endpoint loaded from env: %s", ep_var)
     else:
-        # Priority 2: Environment variables
-        ep_val, ep_var = _resolve_env_var(_ENDPOINT_ENV_ALIASES)
-        if ep_val:
-            creds.endpoint = ep_val
-            creds.source_endpoint = f"env:{ep_var}"
-            logger.debug("Endpoint loaded from env: %s", ep_var)
+        # Priority 2: Keyring
+        endpoint_from_keyring = _read_keyring(_KEYRING_ENDPOINT_NAME)
+        if endpoint_from_keyring:
+            creds.endpoint = endpoint_from_keyring
+            creds.source_endpoint = "keyring"
+            logger.debug("Endpoint loaded from keyring")
         elif config_dict:
             # Priority 3: Config file
             cfg_ep = _nested_get(config_dict, "api", "endpoint")
@@ -428,19 +461,19 @@ def resolve_credentials(config_dict=None):
                 logger.debug("Endpoint loaded from config file")
 
     # --- Resolve Deployment Name ---
-    # Priority 1: Keyring (most secure, IT-managed)
-    dep_from_keyring = _read_keyring(_KEYRING_DEPLOYMENT_NAME)
-    if dep_from_keyring:
-        creds.deployment = dep_from_keyring
-        creds.source_deployment = "keyring"
-        logger.debug("Deployment loaded from keyring")
+    # Priority 1: Environment variables
+    dep_val, dep_var = _resolve_env_var(_DEPLOYMENT_ENV_ALIASES)
+    if dep_val:
+        creds.deployment = dep_val
+        creds.source_deployment = "env:{}".format(dep_var)
+        logger.debug("Deployment loaded from env: %s", dep_var)
     else:
-        # Priority 2: Environment variables
-        dep_val, dep_var = _resolve_env_var(_DEPLOYMENT_ENV_ALIASES)
-        if dep_val:
-            creds.deployment = dep_val
-            creds.source_deployment = f"env:{dep_var}"
-            logger.debug("Deployment loaded from env: %s", dep_var)
+        # Priority 2: Keyring
+        dep_from_keyring = _read_keyring(_KEYRING_DEPLOYMENT_NAME)
+        if dep_from_keyring:
+            creds.deployment = dep_from_keyring
+            creds.source_deployment = "keyring"
+            logger.debug("Deployment loaded from keyring")
         else:
             # Priority 3: URL extraction (may contain /deployments/name)
             if creds.endpoint and "/deployments/" in creds.endpoint:
@@ -458,18 +491,18 @@ def resolve_credentials(config_dict=None):
                     creds.source_deployment = "config"
 
     # --- Resolve API Version ---
-    # Priority 1: Keyring (most secure, IT-managed)
-    ver_from_keyring = _read_keyring(_KEYRING_API_VERSION_NAME)
-    if ver_from_keyring:
-        creds.api_version = ver_from_keyring
-        creds.source_api_version = "keyring"
-        logger.debug("API version loaded from keyring")
+    # Priority 1: Environment variables
+    ver_val, ver_var = _resolve_env_var(_API_VERSION_ENV_ALIASES)
+    if ver_val:
+        creds.api_version = ver_val
+        creds.source_api_version = "env:{}".format(ver_var)
     else:
-        # Priority 2: Environment variables
-        ver_val, ver_var = _resolve_env_var(_API_VERSION_ENV_ALIASES)
-        if ver_val:
-            creds.api_version = ver_val
-            creds.source_api_version = f"env:{ver_var}"
+        # Priority 2: Keyring
+        ver_from_keyring = _read_keyring(_KEYRING_API_VERSION_NAME)
+        if ver_from_keyring:
+            creds.api_version = ver_from_keyring
+            creds.source_api_version = "keyring"
+            logger.debug("API version loaded from keyring")
         else:
             # Priority 3: URL extraction (may contain ?api-version=xxx)
             if creds.endpoint and "api-version=" in creds.endpoint:
@@ -486,19 +519,19 @@ def resolve_credentials(config_dict=None):
                     creds.source_api_version = "config"
 
     # --- Resolve Provider ---
-    # Priority 1: Keyring
-    prov_from_keyring = _read_keyring(_KEYRING_PROVIDER_NAME)
-    if prov_from_keyring:
-        creds.provider = prov_from_keyring
-        creds.source_provider = "keyring"
-        logger.debug("Provider loaded from keyring")
+    # Priority 1: Environment variables
+    prov_val, prov_var = _resolve_env_var(_PROVIDER_ENV_ALIASES)
+    if prov_val:
+        creds.provider = prov_val
+        creds.source_provider = "env:{}".format(prov_var)
+        logger.debug("Provider loaded from env: %s", prov_var)
     else:
-        # Priority 2: Environment variables
-        prov_val, prov_var = _resolve_env_var(_PROVIDER_ENV_ALIASES)
-        if prov_val:
-            creds.provider = prov_val
-            creds.source_provider = "env:" + prov_var
-            logger.debug("Provider loaded from env: %s", prov_var)
+        # Priority 2: Keyring
+        prov_from_keyring = _read_keyring(_KEYRING_PROVIDER_NAME)
+        if prov_from_keyring:
+            creds.provider = prov_from_keyring
+            creds.source_provider = "keyring"
+            logger.debug("Provider loaded from keyring")
         elif config_dict:
             # Priority 3: Config file
             cfg_prov = _nested_get(config_dict, "api", "provider")
@@ -516,7 +549,23 @@ def resolve_credentials(config_dict=None):
             # Don't clear endpoint -- let the caller decide what to do
             # The factory will re-validate and raise if needed
 
+    # Cache for future calls
+    with _credential_cache_lock:
+        _credential_cache = creds
+
     return creds
+
+
+def invalidate_credential_cache():
+    """Clear the session credential cache.
+
+    Call this when the user saves new credentials in Settings or runs
+    rag-store-key / rag-store-endpoint.  The next resolve_credentials()
+    call will do a fresh lookup.
+    """
+    global _credential_cache
+    with _credential_cache_lock:
+        _credential_cache = None
 
 
 # ---------------------------------------------------------------------------

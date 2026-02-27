@@ -7,20 +7,30 @@
 #       extraction has zero effect on query latency.
 # HOW:  Each function takes the app instance as its first parameter.
 #       The app class delegates to these functions via thin one-liners.
+#
+# PERFORMANCE:
+#   Mode switch runs in a background thread so the GUI never freezes.
+#   Credentials are cached for the session so keyring is queried once,
+#   not 10-20 times per switch.  Embedder and VectorStore are sticky --
+#   only the LLMRouter is rebuilt on mode change.
 # ============================================================================
 
 import tkinter as tk
 from tkinter import messagebox
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
+# Guard against concurrent mode switches (double-click protection)
+_switch_lock = threading.Lock()
 
-def _rebuild_router(app):
+
+def _rebuild_router(app, credentials=None):
     """Close old LLM router, build a new one, and propagate to query engine.
 
-    Returns True on success, False on failure.  On failure shows a
-    messagebox so the user knows why the mode switch didn't work.
+    Accepts pre-resolved credentials to avoid redundant keyring lookups.
+    Returns True on success, False on failure.
     """
     try:
         from src.core.llm_router import LLMRouter, invalidate_deployment_cache
@@ -28,7 +38,7 @@ def _rebuild_router(app):
         if old_router and hasattr(old_router, "close"):
             old_router.close()
         invalidate_deployment_cache()
-        new_router = LLMRouter(app.config)
+        new_router = LLMRouter(app.config, credentials=credentials)
         app.router = new_router
         if hasattr(app, "query_engine") and app.query_engine:
             app.query_engine.llm_router = new_router
@@ -37,12 +47,7 @@ def _rebuild_router(app):
         return True
     except Exception as e:
         logger.warning("Router rebuild failed: %s", e)
-        messagebox.showwarning(
-            "Router Rebuild Failed",
-            "Could not rebuild LLM router:\n\n{}\n\n"
-            "Check that Ollama is running.".format(e),
-        )
-        return False
+        return e
 
 
 def toggle_mode(app, new_mode):
@@ -51,40 +56,103 @@ def toggle_mode(app, new_mode):
 
     Online: checks credentials first, shows error if missing.
     Offline: always succeeds (safe operation).
+    Runs in a background thread so the GUI stays responsive.
     """
     if new_mode == "online":
-        switch_to_online(app)
+        _switch_async(app, _do_switch_to_online)
     else:
-        switch_to_offline(app)
+        _switch_async(app, _do_switch_to_offline)
 
 
+# Public aliases for app.py delegation
 def switch_to_online(app):
-    """Attempt to switch to online mode."""
-    try:
-        from src.security.credentials import credential_status
-        status = credential_status()
+    """Public entry point for online mode switch."""
+    _switch_async(app, _do_switch_to_online)
 
-        if not status.get("api_key_set") or not status.get("api_endpoint_set"):
+
+def switch_to_offline(app):
+    """Public entry point for offline mode switch."""
+    _switch_async(app, _do_switch_to_offline)
+
+
+def _switch_async(app, switch_fn):
+    """Run a mode switch function in a background thread with UI feedback."""
+    if not _switch_lock.acquire(blocking=False):
+        return  # Already switching -- ignore double-click
+
+    # Disable buttons and show status immediately (main thread)
+    try:
+        app.offline_btn.config(state=tk.DISABLED)
+        app.online_btn.config(state=tk.DISABLED)
+    except Exception:
+        pass
+    if hasattr(app, "status_bar"):
+        try:
+            app.status_bar.set_loading_stage("Switching mode...")
+        except Exception:
+            pass
+
+    def _worker():
+        try:
+            switch_fn(app)
+        except Exception as e:
+            logger.warning("Mode switch failed: %s", e)
+        finally:
+            _switch_lock.release()
+            # Re-enable UI on main thread
+            try:
+                app.after(0, _finish_switch, app)
+            except Exception:
+                pass
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
+def _finish_switch(app):
+    """Re-enable UI after mode switch completes (called on main thread)."""
+    update_mode_buttons(app)
+    if hasattr(app, "status_bar"):
+        app.status_bar.force_refresh()
+    if hasattr(app, "query_panel"):
+        app.query_panel._on_use_case_change()
+    # Refresh credential display in settings if it exists
+    settings = getattr(app, "_settings_view", None)
+    if settings is not None and hasattr(settings, "refresh_credential_status"):
+        settings.refresh_credential_status()
+    # Update API field state
+    if settings is not None and hasattr(settings, "_api_admin_tab"):
+        try:
+            settings._api_admin_tab._apply_mode_state()
+        except Exception:
+            pass
+
+
+def _do_switch_to_online(app):
+    """Switch to online mode (runs in background thread)."""
+    # Check credentials using cached resolution
+    try:
+        from src.security.credentials import resolve_credentials
+        creds = resolve_credentials(use_cache=True)
+
+        if not creds.has_key or not creds.has_endpoint:
             missing = []
-            if not status.get("api_key_set"):
+            if not creds.has_key:
                 missing.append("API key")
-            if not status.get("api_endpoint_set"):
+            if not creds.has_endpoint:
                 missing.append("API endpoint")
-            messagebox.showwarning(
-                "Credentials Missing",
-                "Cannot switch to online mode.\n\n"
-                "Missing: {}\n\n"
-                "Run rag-store-key and rag-store-endpoint from "
-                "PowerShell first, then try again.".format(", ".join(missing)),
-            )
+            app.after(0, messagebox.showwarning,
+                      "Credentials Missing",
+                      "Cannot switch to online mode.\n\n"
+                      "Missing: {}\n\n"
+                      "Run rag-store-key and rag-store-endpoint from "
+                      "PowerShell first, then try again.".format(", ".join(missing)))
             return
     except Exception as e:
-        messagebox.showwarning(
-            "Credential Check Failed",
-            "Could not verify credentials: {}\n\n"
-            "Run rag-store-key and rag-store-endpoint from "
-            "PowerShell first, then try again.".format(e),
-        )
+        app.after(0, messagebox.showwarning,
+                  "Credential Check Failed",
+                  "Could not verify credentials: {}\n\n"
+                  "Run rag-store-key and rag-store-endpoint from "
+                  "PowerShell first, then try again.".format(e))
         return
 
     if app.config:
@@ -93,8 +161,6 @@ def switch_to_online(app):
 
     try:
         from src.core.network_gate import configure_gate
-        from src.security.credentials import resolve_credentials
-        creds = resolve_credentials()
         configure_gate(
             mode="online",
             api_endpoint=creds.endpoint or "",
@@ -105,33 +171,22 @@ def switch_to_online(app):
         )
     except Exception as e:
         logger.warning("Gate reconfiguration failed: %s", e)
-        # Revert to offline -- gate is in inconsistent state
         if app.config:
             app.config.mode = "offline"
             persist_mode(app, "offline")
-        messagebox.showwarning(
-            "Gate Configuration Failed",
-            "Could not configure network gate for online mode:\n\n"
-            "{}\n\nReverted to offline mode.".format(e),
-        )
-        update_mode_buttons(app)
+        app.after(0, messagebox.showwarning,
+                  "Gate Configuration Failed",
+                  "Could not configure network gate for online mode:\n\n"
+                  "{}\n\nReverted to offline mode.".format(e))
         return
 
-    # Rebuild LLM router so online mode actually has API credentials
-    _rebuild_router(app)
-
-    update_mode_buttons(app)
-    app.status_bar.force_refresh()
-    if hasattr(app, "query_panel"):
-        app.query_panel._on_use_case_change()
-
-    # Refresh credential display in settings if it exists
-    settings = getattr(app, "_settings_view", None)
-    if settings is not None and hasattr(settings, "refresh_credential_status"):
-        settings.refresh_credential_status()
-    # Update API field state (enable for online)
-    if settings is not None and hasattr(settings, "_api_admin_tab"):
-        settings._api_admin_tab._apply_mode_state()
+    # Rebuild router with cached credentials (no keyring re-lookup)
+    result = _rebuild_router(app, credentials=creds)
+    if isinstance(result, Exception):
+        app.after(0, messagebox.showwarning,
+                  "Router Rebuild Failed",
+                  "Could not rebuild LLM router:\n\n{}\n\n"
+                  "Check that Ollama is running.".format(result))
 
     logger.info("Switched to ONLINE mode")
 
@@ -145,8 +200,8 @@ def persist_mode(app, new_mode):
         logger.warning("Could not persist mode to YAML: %s", e)
 
 
-def switch_to_offline(app):
-    """Switch to offline mode (always safe)."""
+def _do_switch_to_offline(app):
+    """Switch to offline mode (runs in background thread)."""
     if app.config:
         app.config.mode = "offline"
         persist_mode(app, "offline")
@@ -156,23 +211,21 @@ def switch_to_offline(app):
         configure_gate(mode="offline")
     except Exception as e:
         logger.warning("Gate reconfiguration failed: %s", e)
-        messagebox.showwarning(
-            "Gate Configuration Failed",
-            "Could not configure network gate:\n\n{}\n\n"
-            "Continuing in offline mode.".format(e),
-        )
+        app.after(0, messagebox.showwarning,
+                  "Gate Configuration Failed",
+                  "Could not configure network gate:\n\n{}\n\n"
+                  "Continuing in offline mode.".format(e))
 
-    # Rebuild LLM router for offline mode
-    _rebuild_router(app)
+    # Rebuild router with cached credentials (avoids 5+ keyring lookups)
+    from src.security.credentials import resolve_credentials
+    creds = resolve_credentials(use_cache=True)
+    result = _rebuild_router(app, credentials=creds)
+    if isinstance(result, Exception):
+        app.after(0, messagebox.showwarning,
+                  "Router Rebuild Failed",
+                  "Could not rebuild LLM router:\n\n{}\n\n"
+                  "Check that Ollama is running.".format(result))
 
-    update_mode_buttons(app)
-    app.status_bar.force_refresh()
-    if hasattr(app, "query_panel"):
-        app.query_panel._on_use_case_change()
-    # Update API field state (gray out for offline)
-    settings = getattr(app, "_settings_view", None)
-    if settings is not None and hasattr(settings, "_api_admin_tab"):
-        settings._api_admin_tab._apply_mode_state()
     logger.info("Switched to OFFLINE mode")
 
 
@@ -181,16 +234,17 @@ def update_mode_buttons(app):
 
     Disables the ONLINE button when no API credentials are stored,
     so users get a visual cue instead of a confusing error popup.
+    Uses cached credentials to avoid keyring lookups on every UI refresh.
     """
     t = app._theme
     mode = getattr(app.config, "mode", "offline") if app.config else "offline"
 
-    # Check if online mode is possible (credentials exist)
+    # Check if online mode is possible (use cached credentials)
     has_creds = False
     try:
-        from src.security.credentials import credential_status
-        status = credential_status()
-        has_creds = status.get("api_key_set") and status.get("api_endpoint_set")
+        from src.security.credentials import resolve_credentials
+        creds = resolve_credentials(use_cache=True)
+        has_creds = creds.has_key and creds.has_endpoint
     except Exception:
         pass
 
