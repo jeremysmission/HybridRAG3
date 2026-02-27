@@ -70,7 +70,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -170,8 +170,30 @@ class Indexer:
         self._file_validator = FileValidator(excluded_dirs=self._excluded_dirs)
 
     # ------------------------------------------------------------------
-    # Public API -- this is what you call to index a folder
+    # Public API
     # ------------------------------------------------------------------
+
+    def index_file(self, file_path: str) -> Dict[str, Any]:
+        """
+        Index a single file. Convenience method for debugging and testing.
+
+        Returns dict with: indexed (bool), chunks_added (int),
+        skipped_reason (str or None), elapsed_seconds (float).
+        """
+        start_time = time.time()
+        fp = Path(file_path)
+        if not fp.exists() or not fp.is_file():
+            raise FileNotFoundError("File not found: {}".format(file_path))
+
+        chunks_added, reason, _ = self._process_single_file(fp)
+        elapsed = time.time() - start_time
+        if reason:
+            return {"indexed": False, "chunks_added": 0,
+                    "skipped_reason": reason, "elapsed_seconds": elapsed}
+        logger.info("[OK] Indexed %s: %d chunks in %.1fs",
+                    fp.name, chunks_added, elapsed)
+        return {"indexed": True, "chunks_added": chunks_added,
+                "skipped_reason": None, "elapsed_seconds": elapsed}
 
     def index_folder(
         self,
@@ -257,186 +279,32 @@ class Indexer:
             if stop_flag is not None and stop_flag.is_set():
                 raise IndexCancelled("Cancelled before file {}".format(idx))
 
-            file_chunks_created = 0
             try:
                 progress_callback.on_file_start(
                     str(file_path), idx, len(supported_files)
                 )
-
-                # ==========================================================
-                # PRE-FLIGHT INTEGRITY CHECK (BUG-004b)
-                # ==========================================================
-                # Fast structural checks BEFORE parsing. Catches corrupt,
-                # incomplete, and junk files so the parser never wastes
-                # time on them and no garbage reaches the vector store.
-                #
-                # These checks cost <1ms per file (just stat + header read).
-                # ==========================================================
-                preflight_reason = self._preflight_check(file_path)
-                if preflight_reason:
-                    total_files_skipped += 1
-                    preflight_blocked.append(
-                        (str(file_path), preflight_reason)
-                    )
-                    progress_callback.on_file_skipped(
-                        str(file_path),
-                        f"preflight: {preflight_reason}"
-                    )
-                    logger.info(
-                        "BLOCKED: %s -- %s",
-                        file_path.name, preflight_reason,
-                    )
-                    continue
-
-                # ==========================================================
-                # BUG-002 FIX: Change detection now uses file hashes
-                # ==========================================================
-                # OLD behavior: just checked "do chunks exist?" -- if yes,
-                #   skip. This meant modified files were never re-indexed.
-                # NEW behavior: check hash. Three possible outcomes:
-                #   1. No chunks exist -> new file, index it
-                #   2. Chunks exist, hash matches -> unchanged, skip
-                #   3. Chunks exist, hash differs -> modified, re-index
-                # ==========================================================
-                current_hash = self._compute_file_hash(file_path)
-                stored_hash = self.vector_store.get_file_hash(str(file_path))
-
-                if stored_hash:
-                    # Chunks exist for this file -- check if it changed
-                    if stored_hash == current_hash:
-                        # File unchanged since last index -- skip it
-                        total_files_skipped += 1
-                        progress_callback.on_file_skipped(
-                            str(file_path), "unchanged (hash match)"
-                        )
-                        continue
-                    else:
-                        # File was modified -- delete old chunks, re-index
-                        deleted = self.vector_store.delete_chunks_by_source(
-                            str(file_path)
-                        )
-                        logger.info(
-                            "RE-INDEX: %s changed (deleted %d old chunks)",
-                            file_path.name, deleted,
-                        )
-                        total_files_reindexed += 1
-
-                # --- Parse the file into text ---
-                text = self._process_file_with_retry(file_path)
-                if not text or not text.strip():
-                    total_files_skipped += 1
-                    progress_callback.on_file_skipped(
-                        str(file_path), "no text extracted"
-                    )
-                    continue
-
-                # ==========================================================
-                # BUG-004 FIX: Validate text before chunking
-                # ==========================================================
-                # Check if the extracted text is actually readable words,
-                # not binary garbage from a corrupted file. If it fails
-                # validation, skip the file and log a warning.
-                #
-                # NOTE: The pre-flight check above catches most corrupt
-                # files before they reach this point. This is the second
-                # safety net for files that have valid structure but
-                # produce garbage text (e.g., encrypted PDFs, DRM files).
-                # ==========================================================
-                if not self._validate_text(text):
-                    total_files_skipped += 1
-                    progress_callback.on_file_skipped(
-                        str(file_path), "binary garbage detected"
-                    )
-                    logger.warning(
-                        "[WARN] %s -- text looks like binary garbage, skipping",
-                        file_path.name,
-                    )
-                    continue
-
-                # Safety: clamp oversized files
-                if len(text) > self.max_chars_per_file:
-                    logger.warning(
-                        "[WARN] Clamping %s from %s to %s chars",
-                        file_path.name, f"{len(text):,}", f"{self.max_chars_per_file:,}",
-                    )
-                    text = text[: self.max_chars_per_file]
-
-                # Get file modification time for deterministic chunk IDs
-                try:
-                    file_mtime_ns = file_path.stat().st_mtime_ns
-                except Exception:
-                    file_mtime_ns = 0
-
-                # --- Chunk + Embed + Store (in blocks for RAM safety) ---
-                char_offset = 0
-                for block in self._iter_text_blocks(text):
-                    if not block.strip():
-                        char_offset += len(block)
-                        continue
-
-                    chunks = self.chunker.chunk_text(block)
-                    if not chunks:
-                        char_offset += len(block)
-                        continue
-
-                    embeddings = self.embedder.embed_batch(chunks)
-
-                    metadata_list = []
-                    chunk_ids = []
-                    for i, chunk_text in enumerate(chunks):
-                        chunk_size = self.config.chunking.chunk_size
-                        chunk_overlap = self.config.chunking.overlap
-                        chunk_start = char_offset + (
-                            i * (chunk_size - chunk_overlap)
-                        )
-                        chunk_end = chunk_start + len(chunk_text)
-
-                        cid = make_chunk_id(
-                            file_path=str(file_path),
-                            file_mtime_ns=file_mtime_ns,
-                            chunk_start=chunk_start,
-                            chunk_end=chunk_end,
-                            chunk_text=chunk_text,
-                        )
-                        chunk_ids.append(cid)
-
-                        metadata_list.append(
-                            ChunkMetadata(
-                                source_path=str(file_path),
-                                chunk_index=file_chunks_created + i,
-                                text_length=len(chunk_text),
-                                created_at=datetime.utcnow().isoformat(),
-                            )
-                        )
-
-                    # BUG-001 FIX: Pass file_hash so it's stored with chunks
-                    self.vector_store.add_embeddings(
-                        embeddings, metadata_list,
-                        texts=chunks,
-                        chunk_ids=chunk_ids,
-                        file_hash=current_hash,
-                    )
-
-                    file_chunks_created += len(chunks)
-                    total_chunks += len(chunks)
-                    char_offset += len(block)
-
-                if file_chunks_created == 0:
-                    total_files_skipped += 1
-                    progress_callback.on_file_skipped(
-                        str(file_path), "no chunks produced"
-                    )
-                    continue
-
-                total_files_indexed += 1
-                gc.collect()  # Free RAM between files
-                progress_callback.on_file_complete(
-                    str(file_path), file_chunks_created
+                chunks_added, skip_reason, was_reindex = (
+                    self._process_single_file(file_path)
                 )
-
+                if skip_reason:
+                    total_files_skipped += 1
+                    if skip_reason.startswith("preflight:"):
+                        preflight_blocked.append(
+                            (str(file_path), skip_reason[11:])
+                        )
+                    progress_callback.on_file_skipped(
+                        str(file_path), skip_reason
+                    )
+                else:
+                    total_files_indexed += 1
+                    total_chunks += chunks_added
+                    if was_reindex:
+                        total_files_reindexed += 1
+                    progress_callback.on_file_complete(
+                        str(file_path), chunks_added
+                    )
             except Exception as e:
-                # Never crash on a single file -- log and continue
-                error_msg = f"{type(e).__name__}: {e}"
+                error_msg = "{}: {}".format(type(e).__name__, e)
                 logger.error("[FAIL] %s: %s", file_path.name, error_msg)
                 progress_callback.on_error(str(file_path), error_msg)
 
@@ -481,6 +349,113 @@ class Indexer:
     def _preflight_check(self, file_path: Path) -> Optional[str]:
         """Delegate to FileValidator. See file_validator.py for details."""
         return self._file_validator.preflight_check(file_path)
+
+    def _process_single_file(
+        self, file_path: Path,
+    ) -> Tuple[int, Optional[str], bool]:
+        """
+        Process one file: preflight -> hash check -> parse -> validate ->
+        chunk -> embed -> store.
+
+        Returns (chunks_added, skip_reason, was_reindex).
+        skip_reason is None on success. was_reindex is True when old
+        chunks were deleted before re-indexing a modified file.
+        """
+        was_reindex = False
+
+        preflight_reason = self._preflight_check(file_path)
+        if preflight_reason:
+            logger.info("BLOCKED: %s -- %s", file_path.name, preflight_reason)
+            return 0, "preflight: {}".format(preflight_reason), False
+
+        current_hash = self._compute_file_hash(file_path)
+        stored_hash = self.vector_store.get_file_hash(str(file_path))
+        if stored_hash:
+            if stored_hash == current_hash:
+                return 0, "unchanged (hash match)", False
+            deleted = self.vector_store.delete_chunks_by_source(
+                str(file_path)
+            )
+            logger.info(
+                "RE-INDEX: %s changed (deleted %d old chunks)",
+                file_path.name, deleted,
+            )
+            was_reindex = True
+
+        text = self._process_file_with_retry(file_path)
+        if not text or not text.strip():
+            return 0, "no text extracted", False
+
+        if not self._validate_text(text):
+            logger.warning(
+                "[WARN] %s -- text looks like binary garbage, skipping",
+                file_path.name,
+            )
+            return 0, "binary garbage detected", False
+
+        if len(text) > self.max_chars_per_file:
+            logger.warning(
+                "[WARN] Clamping %s from %s to %s chars",
+                file_path.name,
+                "{:,}".format(len(text)),
+                "{:,}".format(self.max_chars_per_file),
+            )
+            text = text[: self.max_chars_per_file]
+
+        try:
+            file_mtime_ns = file_path.stat().st_mtime_ns
+        except Exception:
+            file_mtime_ns = 0
+
+        chunks_added = 0
+        char_offset = 0
+        for block in self._iter_text_blocks(text):
+            if not block.strip():
+                char_offset += len(block)
+                continue
+            chunks = self.chunker.chunk_text(block)
+            if not chunks:
+                char_offset += len(block)
+                continue
+            embeddings = self.embedder.embed_batch(chunks)
+            metadata_list = []
+            chunk_ids = []
+            for i, chunk_text in enumerate(chunks):
+                chunk_size = self.config.chunking.chunk_size
+                chunk_overlap = self.config.chunking.overlap
+                chunk_start = char_offset + (
+                    i * (chunk_size - chunk_overlap)
+                )
+                chunk_end = chunk_start + len(chunk_text)
+                cid = make_chunk_id(
+                    file_path=str(file_path),
+                    file_mtime_ns=file_mtime_ns,
+                    chunk_start=chunk_start,
+                    chunk_end=chunk_end,
+                    chunk_text=chunk_text,
+                )
+                chunk_ids.append(cid)
+                metadata_list.append(
+                    ChunkMetadata(
+                        source_path=str(file_path),
+                        chunk_index=chunks_added + i,
+                        text_length=len(chunk_text),
+                        created_at=datetime.utcnow().isoformat(),
+                    )
+                )
+            self.vector_store.add_embeddings(
+                embeddings, metadata_list,
+                texts=chunks, chunk_ids=chunk_ids,
+                file_hash=current_hash,
+            )
+            chunks_added += len(chunks)
+            char_offset += len(block)
+
+        if chunks_added == 0:
+            return 0, "no chunks produced", was_reindex
+
+        gc.collect()
+        return chunks_added, None, was_reindex
 
     def _process_file_with_retry(self, file_path, max_retries=3):
         """Retry file processing up to max_retries times with backoff."""

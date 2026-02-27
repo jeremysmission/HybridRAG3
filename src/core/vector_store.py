@@ -216,6 +216,11 @@ class VectorStore:
         data_dir = os.path.dirname(db_path) or "."
         self.mem_store = EmbeddingMemmapStore(data_dir=data_dir, dim=embedding_dim)
 
+    def _ensure_connected(self) -> None:
+        """Auto-connect if not yet connected. Replaces bare asserts."""
+        if self.conn is None:
+            self.connect()
+
     def connect(self) -> None:
         """Open SQLite connection and create tables if needed."""
         db_dir = os.path.dirname(self.db_path)
@@ -255,7 +260,7 @@ class VectorStore:
         to detect modified files. Includes safe migration for existing
         databases that don't have the column yet.
         """
-        assert self.conn is not None
+        self._ensure_connected()
 
         # file_hash stores "filesize:mtime_ns" for change detection.
         # Empty string = "hash unknown, re-index to be safe".
@@ -326,7 +331,7 @@ class VectorStore:
             Fingerprint of the source file, e.g. "284519:132720938471230000".
             Stored with every chunk so the indexer can detect file changes.
         """
-        assert self.conn is not None
+        self._ensure_connected()
         n = len(metadata_list)
         if n == 0:
             return
@@ -419,7 +424,7 @@ class VectorStore:
         NOTE: Orphaned memmap rows are harmless -- search() never returns
         them because nothing in SQLite points to them.
         """
-        assert self.conn is not None
+        self._ensure_connected()
         self.conn.execute("""
             DELETE FROM chunks_fts WHERE rowid IN (
                 SELECT chunk_pk FROM chunks WHERE source_path = ?
@@ -467,7 +472,7 @@ class VectorStore:
           one is longer than the other. Score ranges from -1 to +1
           where +1 means identical meaning.
         """
-        assert self.conn is not None
+        self._ensure_connected()
         if self.mem_store.count == 0:
             return []
 
@@ -577,7 +582,7 @@ class VectorStore:
         The BM25 score is normalized to 0.0-1.0 range so it can be merged
         with semantic scores in the Retriever's hybrid ranking.
         """
-        assert self.conn is not None
+        self._ensure_connected()
         # Extract words of 3+ characters for keyword matching.
         # Short words (a, an, of, to) create too many false matches.
         words = re.findall(r'[A-Za-z0-9]+', query_text or '')

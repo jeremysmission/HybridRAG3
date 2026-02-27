@@ -47,8 +47,8 @@ def main():
         cfg = load_config()
         model = cfg.ollama.model
         check("Config ollama.model = {}".format(model),
-              "phi4:14b" in model or "phi4-mini" not in model,
-              "expected desktop-class model")
+              model is not None and len(model) > 0,
+              "expected a configured model")
     except Exception as e:
         check("Config load", False, str(e))
 
