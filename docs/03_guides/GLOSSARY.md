@@ -1,6 +1,6 @@
 # HybridRAG3 -- Glossary of Terms and Acronyms
 
-Last Updated: 2026-02-21
+Last Updated: 2026-02-27
 
 ---
 
@@ -58,7 +58,7 @@ Last Updated: 2026-02-21
 | **Deterministic** | Producing the same output every time given the same input. HybridRAG uses deterministic chunk IDs so re-indexing the same file produces the same IDs |
 | **Dot product** | A mathematical operation that multiplies corresponding elements of two vectors and sums the results. Used for fast similarity comparison |
 | **Embedding** | A list of numbers (vector) that represents the meaning of a piece of text. Texts with similar meanings have similar embeddings |
-| **Embedding model** | An AI model that converts text into embeddings. HybridRAG uses nomic-embed-text (768 dimensions, 274 MB, served by Ollama) |
+| **Embedding model** | An AI model that converts text into embeddings. HybridRAG uses nomic-embed-text (768 dimensions, 274 MB, served by Ollama on localhost:11434) |
 | **Endpoint** | A specific URL that a service listens on for requests (e.g., `http://localhost:8000/query`) |
 | **FAISS** | Facebook AI Similarity Search -- a library for fast approximate nearest-neighbor search on large vector collections |
 | **FastAPI** | A modern Python web framework for building REST APIs |
@@ -89,13 +89,13 @@ Last Updated: 2026-02-21
 | **Retriever** | The component that searches the indexed database and returns the most relevant chunks for a given query |
 | **Run tracker** | A logging system that records metadata about each indexing run (start time, file counts, errors) for auditing |
 | **Semantic search** | Searching by meaning rather than exact keywords. "RF operating band" matches "antenna frequency range" because they mean similar things |
-| **Sentence-transformers** | A Python library that provides pre-trained embedding models for converting text to vectors |
+| **Sentence-transformers** | A Python library that provides pre-trained embedding models (RETIRED in Session 15 -- embeddings now served by Ollama) |
 | **Source-bounded generation** | The requirement that an LLM must only use information from the retrieved source documents, never its pre-trained knowledge |
 | **Structured logging** | Logging where each entry is a data object with typed fields (timestamp, level, module, message) rather than plain text |
 | **Tkinter** | Python's built-in GUI toolkit. Included with Python, no additional installation needed |
 | **Token** | The smallest unit of text that an LLM processes. Roughly 1 token = 0.75 words. Used for cost estimation |
 | **Top-K** | The number of highest-scoring search results to return. top_k=12 means the 12 most relevant chunks are sent to the LLM |
-| **Vector** | An ordered list of numbers. In RAG, a 384-dimensional vector represents the meaning of a text chunk |
+| **Vector** | An ordered list of numbers. In RAG, a 768-dimensional vector represents the meaning of a text chunk |
 | **Vector store** | A database optimized for storing and searching embedding vectors |
 | **Virtual environment** | An isolated Python installation that keeps project dependencies separate from the system Python |
 | **Zero-trust** | A security model that assumes no network connection is safe by default. Everything must be explicitly allowed |

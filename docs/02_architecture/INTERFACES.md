@@ -4,7 +4,7 @@ This document defines the public APIs that the GUI and external tools may
 depend on. Interfaces marked **STABLE** will not change without a version
 bump. Interfaces marked **UNSTABLE** may change between sessions.
 
-Last updated: 2026-02-21
+Last updated: 2026-02-27
 
 ---
 
@@ -102,7 +102,7 @@ result: dict = indexer.index_folder(
 ```python
 from src.core.vector_store import VectorStore, ChunkMetadata
 
-store = VectorStore(db_path="path/to/db.sqlite3", embedding_dim=384)
+store = VectorStore(db_path="path/to/db.sqlite3", embedding_dim=768)
 store.connect()
 
 # Write
@@ -138,13 +138,13 @@ embedder = Embedder(model_name="nomic-embed-text")
 
 # Batch embedding (for indexing)
 vectors: np.ndarray = embedder.embed_batch(texts)
-# Shape: (N, 384), dtype: float32
+# Shape: (N, 768), dtype: float32
 
 # Single query embedding (for search)
 vector: np.ndarray = embedder.embed_query(text)
-# Shape: (384,), dtype: float32
+# Shape: (768,), dtype: float32
 
-embedder.close()  # Release ~100MB model from RAM
+embedder.close()  # Release HTTP client
 ```
 
 ---
@@ -427,7 +427,7 @@ table: dict = get_routing_table(["gpt-4o", "gpt-4o-mini"])
 ## 15. Hallucination Guard
 
 **Module:** `src/core/hallucination_guard/__init__.py`
-**Status:** STABLE
+**Status:** STABLE (NLI verifier DORMANT -- guard disabled by default)
 
 ```python
 from src.core.hallucination_guard import (

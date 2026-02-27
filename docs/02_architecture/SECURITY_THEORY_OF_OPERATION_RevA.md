@@ -35,9 +35,8 @@ HybridRAG3 follows a zero-trust model where no component is assumed to be safe:
   connection does not happen -- there is no "try anyway" path.
 
 - **Embedding models run locally, always.** The embedding pipeline has no
-  online mode. The model weights are cached locally and the HuggingFace Hub
-  is locked out at the environment variable level before any ML library is
-  imported.
+  online mode. Embeddings are served by Ollama nomic-embed-text (768-dim)
+  running on localhost:11434. No HuggingFace dependency at runtime.
 
 ```
                          +---------------------------+
@@ -62,9 +61,9 @@ HybridRAG3 follows a zero-trust model where no component is assumed to be safe:
                                       |
                          +---------------------------+
                          |   LAYER 3: EMBEDDER LOCK  |
-                         |  HF_HUB_OFFLINE=1         |
-                         |  TRANSFORMERS_OFFLINE=1    |
-                         |  No telemetry, no tokens   |
+                         |  Ollama nomic-embed-text   |
+                         |  localhost:11434 only      |
+                         |  No HuggingFace dependency |
                          +---------------------------+
                                       |
                          +---------------------------+
@@ -204,42 +203,35 @@ boot.
 
 ### What It Does
 
-The embedding model (sentence-transformers) converts document text into
-vector representations. This model runs **exclusively offline** -- there is
-no online mode for embedding, ever.
+The embedding model (nomic-embed-text, served by Ollama) converts document
+text into 768-dimensional vector representations. This model runs
+**exclusively offline** on localhost:11434 -- there is no online mode for
+embedding, ever.
 
-### Three-Layer Lockdown
+### Lockdown Mechanism
 
-| Layer | Location                  | Mechanism                          |
-|-------|---------------------------|------------------------------------|
-| 1     | PowerShell start script   | Sets HF_HUB_OFFLINE=1 in session   |
-| 2     | embedder.py (import time) | Sets env vars before torch import   |
-| 3     | config.py SEC-001         | API endpoint defaults to empty      |
+| Property | Value |
+|----------|-------|
+| Model | nomic-embed-text (Apache 2.0, Nomic AI/USA) |
+| Serving | Ollama on localhost:11434 |
+| Dimensions | 768 (detected at startup, never hardcoded) |
+| Transport | httpx persistent HTTP client, 120s timeout |
+| Network | localhost only -- Ollama serves from local disk |
 
-Layer 2 uses `os.environ.setdefault()` -- it preserves any stronger restriction
-already set by Layer 1, but guarantees minimum lockdown if nothing was set.
-These environment variables MUST be set before `sentence_transformers` is
-imported, because HuggingFace libraries read `os.environ` at import time.
-
-### What Gets Blocked
-
-- `HF_HUB_OFFLINE=1` -- Prevents any model download or update check
-- `TRANSFORMERS_OFFLINE=1` -- Redundant safety net for the transformers library
-- `HF_HUB_DISABLE_TELEMETRY=1` -- Prevents usage statistics reporting
-- `HF_HUB_DISABLE_IMPLICIT_TOKEN=1` -- Prevents automatic token transmission
+HuggingFace libraries (sentence-transformers, torch, transformers) were
+retired in Session 15. Embeddings are now served entirely by Ollama with no
+Python ML dependencies at runtime.
 
 ### Loud Failure
 
-If a model is not cached locally, the SentenceTransformer constructor raises
-an error immediately. There is no silent download fallback. This is
-intentional: a missing model is a configuration error that should be fixed by
-the administrator, not silently resolved by reaching out to the internet.
+If Ollama is not running, the embedder raises `RuntimeError("Ollama is not
+running...")` at startup. If the model is not pulled, it raises
+`RuntimeError("Embedding model not found...")`. There is no silent fallback.
 
-### trust_remote_code Safety
+### Model Pre-Requirement
 
-The `trust_remote_code=True` flag is safe in this context because
-`HF_HUB_OFFLINE=1` prevents downloading new code. Only pre-cached, pre-vetted
-code executes.
+The model must be pre-pulled via `ollama pull nomic-embed-text` (274 MB)
+before first use. No automatic downloads occur at runtime.
 
 ---
 
@@ -468,14 +460,12 @@ All models in the system are vetted for:
 
 | Model | Publisher | License | Use |
 |-------|-----------|---------|-----|
-| phi4-mini (3.8B) | Microsoft (USA) | MIT | Default offline LLM |
-| mistral:7b (7B) | Mistral (France) | Apache 2.0 | Alt offline LLM |
-| phi4:14b-q4_K_M (14B) | Microsoft (USA) | MIT | Workstation LLM |
-| gemma3:4b (4B) | Google (USA) | Apache 2.0 | Fast summarization |
+| phi4:14b-q4_K_M (14B) | Microsoft (USA) | MIT | Default offline LLM |
+| phi4-mini (3.8B) | Microsoft (USA) | MIT | Laptop fallback LLM |
+| mistral:7b (7B) | Mistral (France) | Apache 2.0 | Gen fallback LLM |
+| gemma3:4b (4B) | Google (USA) | Apache 2.0 | PM fallback |
 | mistral-nemo:12b (12B) | Mistral (France) | Apache 2.0 | 128K context LLM |
 | nomic-embed-text | Nomic (USA) | Apache 2.0 | Embedder (all deployments) |
-| snowflake-arctic-embed-l-v2.0 | Snowflake (USA) | Apache 2.0 | Server embedder |
-| nli-deberta-v3-base | Cross-encoder | MIT | Hallucination guard NLI |
 
 ### Profile-Based Model Selection
 
@@ -484,9 +474,9 @@ selections:
 
 | Profile | RAM | GPU | Embedder | LLM |
 |---------|-----|-----|----------|-----|
-| laptop_safe | 8-16GB | None | MiniLM (384d, CPU) | phi4-mini (3.8B) |
-| desktop_power | 32-64GB | 12GB+ VRAM | nomic (768d, CUDA) | mistral-nemo:12b |
-| server_max | 64GB+ | 24GB+ VRAM | snowflake (1024d, CUDA) | phi4:14b-q4_K_M |
+| laptop_safe | 8-16GB | None | nomic-embed-text (768d) | phi4-mini (3.8B) |
+| desktop_power | 32-64GB | 12GB+ VRAM | nomic-embed-text (768d) | phi4:14b-q4_K_M |
+| server_max | 64GB+ | 24GB+ VRAM | nomic-embed-text (768d) | phi4:14b-q4_K_M |
 
 Profile switching is configuration-driven -- the embedding model, LLM model,
 batch sizes, and concurrency settings all change together. Switching to a
@@ -662,7 +652,7 @@ Current scores: 100% injection resistance, 98% overall pass rate.
 | Are LLM responses verified? | 5-stage hallucination guard with NLI + zero-contradiction policy. |
 | Is there an audit trail? | Structured JSON logging for app events, errors, security events, cost, and verification results. |
 | Are the AI models trustworthy? | All models MIT/Apache 2.0 from US/EU publishers. Full audit trail for each model decision. |
-| Can the embedding model phone home? | No. HF_HUB_OFFLINE=1 set before import. Loud failure if cache missing. |
+| Can the embedding model phone home? | No. Ollama serves nomic-embed-text on localhost:11434 only. No HuggingFace dependency. |
 | What about the public/educational repo? | One-way sync with 31 text replacements + 22-word banned scan. |
 
 ### Design Principles

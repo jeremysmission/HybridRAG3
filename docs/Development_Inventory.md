@@ -1,6 +1,6 @@
 # Development Inventory -- HybridRAG v3
 
-**Date:** 2026-02-23
+**Date:** 2026-02-27
 **Status:** Living document -- updated each development session
 
 This inventory categorizes all software, models, and infrastructure into
@@ -77,11 +77,11 @@ three tiers:
 
 | Model | Parameters | Size (GB) | VRAM (GB) | License | Origin | Status |
 |-------|-----------|----------|----------|---------|--------|--------|
-| phi4-mini | 3.8B | 2.3 | 5.5 | MIT | Microsoft/USA | INSTALLED -- primary for 7/9 profiles |
-| mistral:7b | 7B | 4.1 | 5.5 | Apache 2.0 | Mistral/France | INSTALLED -- alt for eng/sys/fe/cyber |
-| phi4:14b-q4_K_M | 14B | 9.1 | 11.0 | MIT | Microsoft/USA | DOWNLOADING -- logistics primary, CAD alt |
-| gemma3:4b | 4B | 3.3 | 4.0 | Apache 2.0 | Google/USA | DOWNLOADING -- PM fast summarization |
-| mistral-nemo:12b | 12B | 7.1 | 10.0 | Apache 2.0 | Mistral+NVIDIA | DOWNLOADING -- upgrade path (128K ctx) |
+| phi4:14b-q4_K_M | 14B | 9.1 | 11.0 | MIT | Microsoft/USA | INSTALLED -- primary for 8/9 profiles |
+| mistral-nemo:12b | 12B | 7.1 | 10.0 | Apache 2.0 | Mistral+NVIDIA | INSTALLED -- gen primary, alt for all |
+| phi4-mini | 3.8B | 2.3 | 5.5 | MIT | Microsoft/USA | INSTALLED -- laptop fallback |
+| mistral:7b | 7B | 4.1 | 5.5 | Apache 2.0 | Mistral/France | INSTALLED -- gen fallback |
+| gemma3:4b | 4B | 3.3 | 4.0 | Apache 2.0 | Google/USA | INSTALLED -- PM fallback |
 
 **Total approved stack: ~26 GB**
 
@@ -93,7 +93,7 @@ three tiers:
 | Full-text search | SQLite FTS5 (BM25) | Built-in, no extra dependency |
 | Hybrid retrieval | Vector + BM25 via Reciprocal Rank Fusion (RRF) | k=60 |
 | Reranker | cross-encoder/ms-marco-MiniLM-L-6-v2 | Available, disabled for eval stability |
-| Embeddings | float16 memmap (~50% storage vs float32) | 78.83 MB for 39,602 chunks |
+| Embeddings | float16 memmap, 768-dim (~50% storage vs float32) | Ollama nomic-embed-text |
 
 ### GUI
 
@@ -194,9 +194,9 @@ Use-case scoring and ranking are fully wired. Activation requires:
 
 | Profile | RAM | GPU | Default LLM | Embedding | Status |
 |---------|-----|-----|-------------|-----------|--------|
-| laptop_safe | 8-16 GB | None/iGPU | phi4-mini (CPU) | MiniLM-L6 (384d, CPU) | ACTIVE |
-| desktop_power | 64 GB | 12 GB VRAM | mistral-nemo:12b | nomic-embed (768d, CUDA) | DESIGNED |
-| server_max | 64+ GB | 24+ GB VRAM | phi4:14b-q4_K_M | arctic-embed-l (1024d, CUDA) | DESIGNED |
+| laptop_safe | 8-16 GB | None/iGPU | phi4-mini (CPU) | nomic-embed-text (768d) | ACTIVE |
+| desktop_power | 64 GB | 12 GB VRAM | phi4:14b-q4_K_M | nomic-embed-text (768d) | ACTIVE |
+| server_max | 64+ GB | 24+ GB VRAM | phi4:14b-q4_K_M | nomic-embed-text (768d) | DESIGNED |
 
 Profile switching is wired in `scripts/_set_model.py` and the GUI TuningTab.
 
@@ -218,15 +218,16 @@ These appear on the roadmap or in architecture docs but have no code paths yet.
 | Dependencies | None (stdlib re module only) |
 | Tests | tests/test_pii_scrubber.py (16 tests, all passing) |
 
-### Hallucination Guard (Full Implementation)
+### Hallucination Guard (DORMANT)
 
 | Item | Detail |
 |------|--------|
-| Config | hallucination_guard section exists with all parameters |
-| Stub | guard_config.py has dataclass, but NLI model inference is not wired |
-| Model | cross-encoder/nli-deberta-v3-base (config reference) |
-| Features defined | Dual-path verification, chunk pruning, short-circuit thresholds |
-| Blocker | NLI model adds 200+ MB download + inference latency |
+| Config | hallucination_guard.enabled: false (default_config.yaml) |
+| Code | Full 6-file implementation exists in src/core/hallucination_guard/ |
+| NLI Model | Requires sentence-transformers (retired Session 15) |
+| Active layers | Prompt hardening + claim extraction + response scoring still functional |
+| Dormant layer | NLI verifier degrades gracefully without sentence-transformers |
+| Reactivation | Load a compatible NLI model and set enabled: true |
 
 ### Enterprise Credential Store (HashiCorp Vault)
 
@@ -319,13 +320,11 @@ does not re-evaluate them.
 
 ---
 
-## Test Baseline (as of 2026-02-23)
+## Test Baseline (as of 2026-02-27)
 
 | Suite | Pass | Fail | Skip | Duration |
 |-------|------|------|------|----------|
-| Regression (pytest) | 199 | 0 | 2 | 30s |
-| Virtual tests | 540 | 4 | -- | -- |
-| Diagnostics | 15 | 0 | -- | 20s |
+| Regression (pytest) | 409 | 0 | 1 | ~67s |
 | FastAPI server | 17 | 0 | -- | separate |
 
 **Indexed corpus:** 39,602 chunks from 1,345 source files (78.83 MB)
@@ -428,7 +427,7 @@ projection. ROI calculator uses BLS and McKinsey benchmarks.
 | GPU VRAM | 512 MB (iGPU) | 48 GB (dual 3090) | 96x |
 | System RAM | 8 GB | 64 GB | 8x |
 | LLM model size | 3.8B (phi4-mini, CPU) | 14B (phi4:14b, GPU) | 3.7x params |
-| Embedding model | MiniLM-L6 (384d, 80MB) | Arctic-embed-L (1024d, 1.1GB) | 2.7x dims |
+| Embedding model | nomic-embed-text (768d, 274MB) | nomic-embed-text (768d, 274MB) | Same model |
 | Embedding batch | 16 | 128 | 8x throughput |
 | Context window | 8,192 tokens | 16,384+ tokens | 2x |
 | Inference engine | Ollama (single model) | vLLM (batched, 2-GPU parallel) | ~3x speed |

@@ -413,6 +413,7 @@ Active only in online mode.
 
 | Setting | Default | Purpose |
 |---------|---------|---------|
+| `enabled` | false | Guard is DORMANT (NLI model unavailable) |
 | `threshold` | 0.80 | Minimum faithfulness score |
 | `failure_action` | "block" | "block" replaces with safe response, "warn" flags |
 | `shortcircuit_pass` | 5 | Skip remaining checks after N consecutive passes |
@@ -811,7 +812,7 @@ Full audit: `docs/05_security/MODEL_AUDIT.md`.
 - Meta/Llama: License restrictions (ITAR ban)
 
 Model definitions: `scripts/_model_meta.py`, `scripts/_set_model.py`.
-Default offline model: `phi4-mini` (`config/default_config.yaml`).
+Default offline model: `phi4:14b-q4_K_M` (`config/default_config.yaml`).
 Waiver reference: `docs/05_security/waiver_reference_sheet.md`.
 
 ---

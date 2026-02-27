@@ -105,12 +105,12 @@
 <body>
 
 <div class="page-title">HybridRAG v3 — System Block Diagram</div>
-<div class="page-subtitle">Two-Phase Pipeline: Indexing (Offline, $0) → Query-Time RAG (Firewalled GPT-3.5 Turbo)</div>
+<div class="page-subtitle">Two-Phase Pipeline: Indexing (Offline, $0) → Query-Time RAG (Offline Ollama or Firewalled API)</div>
 
 <div class="diagram-container">
   <div class="diagram-header">
     <h1>FUNCTIONAL BLOCK DIAGRAM</h1>
-    <span class="meta">UNCLASSIFIED · FEB 2026 · REV A</span>
+    <span class="meta">UNCLASSIFIED · FEB 2026 · REV B</span>
   </div>
 
   <svg viewBox="0 0 1060 820" xmlns="http://www.w3.org/2000/svg">
@@ -222,7 +222,7 @@
     <text x="388" y="510" text-anchor="middle"
       font-family="IBM Plex Sans, sans-serif" font-size="12" fill="#1a2332" font-weight="600">NumPy Memmap</text>
     <text x="388" y="527" text-anchor="middle"
-      font-family="IBM Plex Mono, monospace" font-size="9" fill="#5a6a7a">float16 vectors · 384-dim</text>
+      font-family="IBM Plex Mono, monospace" font-size="9" fill="#5a6a7a">float16 vectors · 768-dim</text>
     <text x="388" y="542" text-anchor="middle"
       font-family="IBM Plex Mono, monospace" font-size="9" fill="#5a6a7a">Disk-backed · RAM-safe</text>
 
@@ -320,9 +320,9 @@
     <rect x="620" y="573" width="340" height="80" rx="4"
       fill="#dc2626" stroke="#991b1b" stroke-width="2" filter="url(#shadow)"/>
     <text x="790" y="600" text-anchor="middle"
-      font-family="IBM Plex Sans, sans-serif" font-size="14" fill="#fff" font-weight="700">FIREWALLED GPT-3.5 TURBO</text>
+      font-family="IBM Plex Sans, sans-serif" font-size="14" fill="#fff" font-weight="700">LLM ROUTER (OFFLINE / ONLINE)</text>
     <text x="790" y="617" text-anchor="middle"
-      font-family="IBM Plex Mono, monospace" font-size="10" fill="#fecaca">Company API · ~$0.002/query [P7]</text>
+      font-family="IBM Plex Mono, monospace" font-size="10" fill="#fecaca">Ollama (phi4:14b, $0) or Firewalled API</text>
     <text x="790" y="634" text-anchor="middle"
       font-family="IBM Plex Sans, sans-serif" font-size="9" fill="#fca5a5">Receives ONLY curated context · Never touches network drive</text>
     <text x="790" y="646" text-anchor="middle"
@@ -395,9 +395,9 @@
     <text x="291" y="722" text-anchor="middle"
       font-family="IBM Plex Sans, sans-serif" font-size="12" fill="#fff" font-weight="700">COST SUMMARY</text>
     <text x="291" y="740" text-anchor="middle"
-      font-family="IBM Plex Mono, monospace" font-size="10" fill="#86efac">Phase 1 (Indexing): $0 -- Phi-4 Mini local, no API, no internet</text>
+      font-family="IBM Plex Mono, monospace" font-size="10" fill="#86efac">Phase 1 (Indexing): $0 -- nomic-embed-text (768-dim) via Ollama</text>
     <text x="291" y="756" text-anchor="middle"
-      font-family="IBM Plex Mono, monospace" font-size="10" fill="#93c5fd">Phase 2 (Query): ~$0.002/query — GPT-3.5 Turbo firewalled API</text>
+      font-family="IBM Plex Mono, monospace" font-size="10" fill="#93c5fd">Phase 2 (Query): $0 offline (Ollama) or ~$0.002 online (API)</text>
     <text x="291" y="768" text-anchor="middle"
       font-family="IBM Plex Mono, monospace" font-size="9" fill="#fde68a">Team of 10, 20 queries/day = ~$6-$24/month</text>
   </svg>
