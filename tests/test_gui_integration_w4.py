@@ -771,6 +771,8 @@ def test_18_data_paths_panel_reads_and_saves(tmp_path):
     cfg_file = os.path.join(cfg_dir, "default_config.yaml")
     with open(cfg_file, "w") as f:
         f.write("paths: {}\n")
+    # save_config_field now writes to user_overrides.yaml
+    overrides_file = os.path.join(cfg_dir, "user_overrides.yaml")
 
     with patch("src.gui.panels.api_admin_tab.resolve_credentials", return_value=mock_creds), \
          patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": str(tmp_path)}):
@@ -796,9 +798,9 @@ def test_18_data_paths_panel_reads_and_saves(tmp_path):
         expected_db = os.path.join(idx_dir, "hybridrag.sqlite3")
         assert config.paths.database == expected_db
 
-        # Verify YAML was written
+        # Verify user_overrides.yaml was written (not default_config)
         import yaml
-        with open(cfg_file, "r") as f:
+        with open(overrides_file, "r") as f:
             saved = yaml.safe_load(f)
         assert saved["paths"]["source_folder"] == src_dir
         assert saved["paths"]["database"] == expected_db

@@ -15,6 +15,7 @@ Exit code 1 = at least one check failed.
 
 from __future__ import annotations
 
+import os
 import sys
 import io
 import inspect
@@ -75,10 +76,14 @@ def main():
         from src.gui.panels.panel_registry import get_panels
         panels = get_panels()
         keys = [p.key for p in panels]
+        labels = {p.key: p.label for p in panels}
         check("Panel registry has 'data'", "data" in keys,
               "registered: {}".format(keys))
         check("Panel registry has 'index'", "index" in keys,
               "registered: {}".format(keys))
+        check("Data tab label = '{}'".format(labels.get("data", "?")),
+              "Downloader" in labels.get("data", ""),
+              "should contain 'Downloader' for discoverability")
     except Exception as e:
         check("Panel registry", False, str(e))
 
@@ -120,6 +125,43 @@ def main():
               "phi4:14b" in vl.model or vl.model == "")
     except Exception as e:
         check("VLLMConfig", False, str(e))
+
+    # 8. Config overlay: save_config_field targets user_overrides.yaml
+    try:
+        from src.core.config import save_config_field
+        sig = inspect.signature(save_config_field)
+        default_file = sig.parameters["config_filename"].default
+        check("save_config_field default target = {}".format(default_file),
+              default_file == "user_overrides.yaml",
+              "should be user_overrides.yaml, not default_config.yaml")
+    except Exception as e:
+        check("save_config_field signature", False, str(e))
+
+    # 9. Config overlay: _deep_merge exists
+    try:
+        from src.core.config import _deep_merge
+        merged = _deep_merge({"a": {"x": 1}}, {"a": {"y": 2}})
+        check("_deep_merge works",
+              merged == {"a": {"x": 1, "y": 2}},
+              "got: {}".format(merged))
+    except Exception as e:
+        check("_deep_merge", False, str(e))
+
+    # 10. default_config.yaml is NOT dirty (no runtime writes)
+    try:
+        root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
+        cfg_path = os.path.join(root, "config", "default_config.yaml")
+        import subprocess
+        result = subprocess.run(
+            ["git", "diff", "--name-only", "--", cfg_path],
+            capture_output=True, text=True, cwd=root,
+        )
+        dirty = "default_config.yaml" in result.stdout
+        check("default_config.yaml is clean (no runtime writes)",
+              not dirty,
+              "git diff shows modifications")
+    except Exception as e:
+        check("default_config.yaml git check", False, str(e))
 
     # Summary
     print()

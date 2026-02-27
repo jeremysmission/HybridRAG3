@@ -55,7 +55,7 @@ def _safe_panel(
 
 _PANEL_DEFS: List[Dict[str, Any]] = [
     {"key": "query",   "label": "Query",     "module": "src.gui.panels.query_panel",      "cls": "QueryPanel"},
-    {"key": "data",    "label": "Data",      "module": "src.gui.panels.data_panel",        "cls": "DataPanel",     "optional": True},
+    {"key": "data",    "label": "Downloader (Data)", "module": "src.gui.panels.data_panel", "cls": "DataPanel", "optional": True},
     {"key": "index",   "label": "Index",     "module": "src.gui.panels.index_panel",       "cls": "IndexPanel"},
     {"key": "tuning",  "label": "Tuning",    "module": "src.gui.panels.tuning_tab",        "cls": "TuningTab"},
     {"key": "cost",    "label": "Cost",      "module": "src.gui.panels.cost_dashboard",    "cls": "CostDashboard"},

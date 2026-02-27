@@ -634,6 +634,21 @@ def _dict_to_dataclass(cls, data: dict):
 
 
 # -------------------------------------------------------------------
+# Deep merge helper for config overlay
+# -------------------------------------------------------------------
+
+def _deep_merge(base: dict, overlay: dict) -> dict:
+    """Recursively merge overlay into base. overlay wins on conflicts."""
+    merged = dict(base)
+    for k, v in overlay.items():
+        if k in merged and isinstance(merged[k], dict) and isinstance(v, dict):
+            merged[k] = _deep_merge(merged[k], v)
+        else:
+            merged[k] = v
+    return merged
+
+
+# -------------------------------------------------------------------
 # Main entry point: load_config()
 # -------------------------------------------------------------------
 
@@ -674,6 +689,17 @@ def load_config(
                 yaml_data = raw
 
     yaml_data.pop("setup_complete", None)  # Wizard flag, not a runtime setting
+
+    # --- Overlay: merge user_overrides.yaml on top of defaults ---
+    # User overrides are written by the GUI (model selection, path changes,
+    # mode switches) and persist across restarts without modifying the
+    # shipped default_config.yaml.
+    overrides_path = Path(project_dir) / "config" / "user_overrides.yaml"
+    if overrides_path.exists():
+        with open(overrides_path, "r", encoding="utf-8") as f:
+            overrides = yaml.safe_load(f)
+            if isinstance(overrides, dict):
+                yaml_data = _deep_merge(yaml_data, overrides)
 
     # Build the Config object from YAML sections
     # Each section (like "paths", "embedding") maps to a sub-dataclass.
@@ -793,13 +819,13 @@ def validate_config(config: Config) -> List[str]:
     return errors
 
 
-def save_config_field(key: str, value, config_filename: str = "default_config.yaml") -> None:
+def save_config_field(key: str, value, config_filename: str = "user_overrides.yaml") -> None:
     """
-    Persist a config key to the YAML file on disk.
+    Persist a config key to user_overrides.yaml (NOT default_config.yaml).
 
-    Reads the existing YAML, updates one key, writes back.  This is
-    used by the GUI to persist mode changes, path changes, etc.
-    without overwriting the entire file or losing comments.
+    Reads the existing overrides YAML, updates one key, writes back.
+    This keeps shipped defaults pristine -- runtime changes live in
+    config/user_overrides.yaml which is loaded on top of defaults.
 
     Supports dotted key paths for nested updates.  For example,
     ``save_config_field("paths.source_folder", "/data")`` will set
@@ -814,7 +840,8 @@ def save_config_field(key: str, value, config_filename: str = "default_config.ya
     value
         New value for the key (str, int, dict, etc.).
     config_filename : str
-        YAML file inside config/ to update.
+        YAML file inside config/ to update.  Defaults to
+        user_overrides.yaml to protect shipped defaults.
     """
     root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
     cfg_path = os.path.join(root, "config", config_filename)

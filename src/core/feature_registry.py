@@ -267,36 +267,18 @@ class FeatureRegistry:
 
     def _set_state(self, feature: FeatureDefinition, enabled: bool):
         """
-        Write the on/off state to YAML config file.
+        Write the on/off state to user_overrides.yaml (not default_config).
 
-        Reads the full YAML, updates the specific key, writes back.
-        Preserves all other settings and comments structure.
+        Uses save_config_field() so shipped defaults stay pristine.
         """
-        import yaml
-
-        # Read current file content
-        if self.config_path.exists():
-            content = self.config_path.read_text(encoding="utf-8")
-            data = yaml.safe_load(content) or {}
-        else:
-            data = {}
-
-        # Ensure section exists
-        if feature.config_section not in data:
-            data[feature.config_section] = {}
-
-        # Set the key
-        data[feature.config_section][feature.config_key] = enabled
-
-        # Write back
-        # NOTE: This loses YAML comments. For production, use ruamel.yaml
-        # which preserves comments. For now, the simple approach works.
-        self.config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        from src.core.config import save_config_field
+        dotted_key = "{}.{}".format(feature.config_section, feature.config_key)
+        save_config_field(dotted_key, enabled)
 
         # Update in-memory cache
-        self._yaml_data = data
+        if feature.config_section not in self._yaml_data:
+            self._yaml_data[feature.config_section] = {}
+        self._yaml_data[feature.config_section][feature.config_key] = enabled
 
     # -----------------------------------------------------------------
     # PUBLIC API (used by CLI and future GUI)

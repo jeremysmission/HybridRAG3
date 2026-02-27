@@ -453,16 +453,6 @@ async def set_mode(req: ModeRequest):
 # Helper: update mode in YAML config
 # -------------------------------------------------------------------
 def _update_yaml_mode(new_mode: str) -> None:
-    """Write mode change to config/default_config.yaml."""
-    _project_root = Path(__file__).resolve().parent.parent.parent
-    config_path = _project_root / "config" / "default_config.yaml"
-    if not config_path.exists():
-        return
-
-    with open(config_path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-
-    data["mode"] = new_mode
-
-    with open(config_path, "w", encoding="utf-8") as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    """Write mode change to config/user_overrides.yaml (not defaults)."""
+    from src.core.config import save_config_field
+    save_config_field("mode", new_mode)

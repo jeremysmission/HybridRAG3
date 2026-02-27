@@ -474,24 +474,13 @@ class SetupWizard(tk.Toplevel):
         os.makedirs(idx, exist_ok=True)
         os.makedirs(emb_path, exist_ok=True)
 
-        # Read-modify-write the YAML config
-        cfg_path = os.path.join(self._project_root, "config", "default_config.yaml")
-        try:
-            with open(cfg_path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-        except Exception:
-            data = {}
-
-        if "paths" not in data:
-            data["paths"] = {}
-        data["paths"]["database"] = db_path
-        data["paths"]["embeddings_cache"] = emb_path
-        data["paths"]["source_folder"] = src
-        data["mode"] = mode
-        data["setup_complete"] = True
-
-        with open(cfg_path, "w", encoding="utf-8") as f:
-            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        # Write user settings to user_overrides.yaml (not default_config)
+        from src.core.config import save_config_field
+        save_config_field("paths.database", db_path)
+        save_config_field("paths.embeddings_cache", emb_path)
+        save_config_field("paths.source_folder", src)
+        save_config_field("mode", mode)
+        save_config_field("setup_complete", True)
 
         self.completed = True
         self.grab_release()

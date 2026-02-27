@@ -68,7 +68,14 @@ def _read_embedding_model_from_config():
         import yaml
         cfg_path = os.path.join(_project_root, "config", "default_config.yaml")
         with open(cfg_path, "r") as f:
-            cfg = yaml.safe_load(f)
+            cfg = yaml.safe_load(f) or {}
+        # Overlay user_overrides.yaml on top of defaults
+        ovr_path = os.path.join(_project_root, "config", "user_overrides.yaml")
+        if os.path.isfile(ovr_path):
+            with open(ovr_path, "r") as f:
+                ovr = yaml.safe_load(f) or {}
+            from src.core.config import _deep_merge
+            cfg = _deep_merge(cfg, ovr)
         _preloaded_yaml_cfg = cfg
         return cfg.get("embedding", {}).get("model_name") or None
     except Exception:

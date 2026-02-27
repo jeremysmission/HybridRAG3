@@ -232,25 +232,12 @@ class DataPathsPanel(tk.LabelFrame):
                 paths.embeddings_cache = emb_path
 
         try:
-            import yaml
-            root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
-            cfg_path = os.path.join(root, "config", "default_config.yaml")
-            if os.path.isfile(cfg_path):
-                with open(cfg_path, "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f) or {}
-            else:
-                data = {}
-
-            if "paths" not in data:
-                data["paths"] = {}
+            from src.core.config import save_config_field
             if source:
-                data["paths"]["source_folder"] = source
+                save_config_field("paths.source_folder", source)
             if index:
-                data["paths"]["database"] = db_path
-                data["paths"]["embeddings_cache"] = emb_path
-
-            with open(cfg_path, "w", encoding="utf-8") as f:
-                yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+                save_config_field("paths.database", db_path)
+                save_config_field("paths.embeddings_cache", emb_path)
 
             if hasattr(self._app, "index_panel"):
                 ip = self._app.index_panel
@@ -1359,21 +1346,10 @@ class ApiAdminTab(tk.Frame):
         if security:
             security.pii_sanitization = value
 
-        # Persist to YAML
+        # Persist to user_overrides.yaml (not default_config)
         try:
-            import yaml
-            root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
-            cfg_path = os.path.join(root, "config", "default_config.yaml")
-            if os.path.isfile(cfg_path):
-                with open(cfg_path, "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f) or {}
-            else:
-                data = {}
-            if "security" not in data:
-                data["security"] = {}
-            data["security"]["pii_sanitization"] = value
-            with open(cfg_path, "w", encoding="utf-8") as f:
-                yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+            from src.core.config import save_config_field
+            save_config_field("security.pii_sanitization", value)
         except Exception as e:
             logger.warning("pii_toggle_save_failed: %s", e)
 
