@@ -66,14 +66,18 @@ SKIP_PATTERNS = [
     # [BUILD] Build artifacts and caches
     ".venv",
     "__pycache__",
+    ".pytest_cache",
     ".model_cache",
     ".hf_cache",
     "wheels",
     "*.bak",
     "*.pyc",
     "*.pyo",
+    "*.log",
     "data",                        # indexed data
     "logs",                        # runtime logs
+    "output",                      # troubleshooter, diagnostics, downloads
+    "claude_diag",                 # claude_diag, claude_diag_gui, claude_diag_run (substring)
     "temp_diag",                   # temp diagnostic output
     "releases",                    # zip transfers
 
