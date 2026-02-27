@@ -121,10 +121,6 @@ SKIP_PATTERNS = [
     "rebuilt_rag_commands.ps1",
     "new_commands_for_start_hybridrag.ps1",
     "write_llm_router_fix.ps1",
-    "hallucination_guard",         # entire src/core/hallucination_guard/ subfolder
-    "feature_registry.py",         # feature toggle (guard dependency)
-    "grounded_query_engine.py",    # guard wrapper for query engine
-    "guard_diagnostic.py",         # guard health check
     "rag-features.ps1",           # guard PowerShell commands
     "01_knowledge_distillation_finetuning_tutorial.md",  # heavy defense refs
     "02_vscode_ai_completion_comparison.md",              # defense environment refs
