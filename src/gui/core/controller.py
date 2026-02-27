@@ -1,0 +1,136 @@
+from __future__ import annotations
+import os
+import uuid
+from dataclasses import dataclass
+from typing import Any, Dict, Optional
+
+from .actions import ImportSourceAction, IndexAction, QueryAction, ExportCsvAction, SaveNoteAction
+from .diagnostics import Diagnostics
+from .downloads import DownloadsRegistry
+from .events import GuiEvent, make_event
+from .job_runner import JobRunner
+from .paths import AppPaths, dated_download_dir, make_download_filename
+
+
+@dataclass
+class AppState:
+    mode: str = "offline"
+    last_error: Optional[str] = None
+    last_query_answer: Optional[str] = None
+
+
+class Controller:
+    def __init__(self, paths: AppPaths) -> None:
+        run_id = f"run_{uuid.uuid4()}"
+        run_dir = paths.new_run_folder(run_id)
+        self.paths = paths
+        self.diag = Diagnostics.create(run_id, run_dir)
+        self.downloads = DownloadsRegistry()
+        self.state = AppState()
+        self.runner = JobRunner(self.diag, self._on_event)
+
+        # baseline manifest
+        self.diag.write_env()
+        self._manifest: Dict[str, Any] = {
+            "run_id": run_id,
+            "run_dir": run_dir,
+            "downloads_root": paths.downloads_root,
+            "diagnostics_root": paths.diagnostics_root,
+            "mode": self.state.mode,
+            "stage_counts": {},
+            "downloads": [],
+        }
+        self.diag.write_manifest(self._manifest)
+        self._emit(make_event("gui_ready", self.diag.run_id, message="GUI core ready"))
+
+    def _emit(self, ev: GuiEvent) -> None:
+        self.diag.write_event(ev)
+        self.diag.log(f"{ev.timestamp} {ev.event} job_id={ev.job_id or ''} {ev.message}")
+        # keep manifest updated for downloads
+        self._manifest["downloads"] = self.downloads.list()
+        self.diag.write_manifest(self._manifest)
+
+    def _on_event(self, ev: GuiEvent) -> None:
+        # store last error for UI
+        if ev.event == "job_failed":
+            self.state.last_error = ev.message
+        self._emit(ev)
+
+    def dispatch_import_source(self, act: ImportSourceAction) -> None:
+        def _work() -> None:
+            from src.tools.bulk_transfer_v2 import BulkTransferV2
+            from src.core.config import load_config
+            cfg = load_config()
+            self._emit(make_event("data_scan_started", self.diag.run_id, message=act.source_folder))
+            bt = BulkTransferV2()
+            bt.run(source_folder=act.source_folder)
+            self._emit(make_event("data_import_completed", self.diag.run_id, message=act.source_folder,
+                                  mode=getattr(cfg, "mode", "unknown")))
+        self.runner.run_bg("import_source", _work)
+
+    def dispatch_index(self, act: IndexAction) -> None:
+        def _work() -> None:
+            from src.core.config import load_config
+            from src.core.embedder import Embedder
+            from src.core.vector_store import VectorStore
+            cfg = load_config()
+            embedder = Embedder(cfg.embedding.model_name)
+            vs = VectorStore(db_path=str(cfg.paths.database),
+                             embedding_dim=int(cfg.embedding.dimension))
+            self._emit(make_event("index_ready", self.diag.run_id, message="index components ready",
+                                  embedding_model=cfg.embedding.model_name,
+                                  embedding_dim=int(cfg.embedding.dimension),
+                                  db_path=str(cfg.paths.database)))
+        self.runner.run_bg("index", _work)
+
+    def dispatch_query(self, act: QueryAction) -> None:
+        def _work() -> None:
+            from src.core.config import load_config
+            from src.core.query_engine import QueryEngine
+            cfg = load_config()
+            qe = QueryEngine(cfg)
+            ans = qe.answer(act.query, top_k=act.top_k)
+            self.state.last_query_answer = ans
+            self._emit(make_event("query_completed", self.diag.run_id, message="query ok",
+                                  query=act.query, top_k=act.top_k))
+        self.runner.run_bg("query", _work)
+
+    def dispatch_export_csv(self, act: ExportCsvAction) -> None:
+        def _work() -> None:
+            out_dir = dated_download_dir(self.paths.downloads_root)
+            os.makedirs(out_dir, exist_ok=True)
+            filename = make_download_filename(act.suggested_name, "csv")
+            out_path = os.path.join(out_dir, filename)
+            job_id = "export_" + str(uuid.uuid4())
+            self.downloads.register(job_id=job_id, kind=act.kind, path=out_path, status="pending")
+
+            if act.kind == "cost":
+                from src.core.cost_tracker import get_cost_tracker
+                ct = get_cost_tracker()
+                ct.export_csv(out_path)
+            elif act.kind == "eval":
+                raise RuntimeError("eval export wiring not yet mapped; locate eval exporter and call it here")
+            else:
+                raise ValueError(f"Unknown export kind: {act.kind}")
+
+            self.downloads.update_status(job_id, "complete")
+            self._emit(make_event("download_written", self.diag.run_id, job_id=job_id, message=out_path,
+                                  kind=act.kind, path=out_path))
+
+        self.runner.run_bg(f"export_csv:{act.kind}", _work)
+
+    def dispatch_save_note(self, act: SaveNoteAction) -> None:
+        def _work() -> None:
+            out_dir = dated_download_dir(self.paths.downloads_root)
+            os.makedirs(out_dir, exist_ok=True)
+            filename = make_download_filename(f"note_{act.note_id}", "txt")
+            out_path = os.path.join(out_dir, filename)
+            job_id = "note_" + str(uuid.uuid4())
+            self.downloads.register(job_id=job_id, kind="note", path=out_path, status="pending",
+                                    note_id=act.note_id)
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write(act.content)
+            self.downloads.update_status(job_id, "complete")
+            self._emit(make_event("download_written", self.diag.run_id, job_id=job_id, message=out_path,
+                                  kind="note", path=out_path))
+        self.runner.run_bg("save_note", _work)
