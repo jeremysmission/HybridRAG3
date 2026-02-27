@@ -467,8 +467,18 @@ class DataPanel(tk.Frame):
         self._poll_stats()
 
     def _run_transfer(self, source, dest):
-        """Background thread: create engine and run transfer."""
+        """Background thread: create engine and run transfer with diagnostics."""
         try:
+            # Emit start event for observability
+            try:
+                from src.gui.app_context import get_controller
+                from src.gui.core.events import make_event
+                ctrl = get_controller()
+                ctrl._emit(make_event("data_transfer_started", ctrl.diag.run_id,
+                                      message=source, source=source, dest=dest))
+            except Exception:
+                pass
+
             from src.tools.bulk_transfer_v2 import BulkTransferV2, TransferConfig
 
             cfg = TransferConfig(
@@ -478,8 +488,34 @@ class DataPanel(tk.Frame):
             )
             self._engine = BulkTransferV2(cfg)
             self._engine.run()
+
+            # Emit completion event
+            try:
+                from src.gui.app_context import get_controller
+                from src.gui.core.events import make_event
+                ctrl = get_controller()
+                stats = self._engine.stats
+                ctrl._emit(make_event("data_transfer_completed", ctrl.diag.run_id,
+                                      message=source, source=source, dest=dest,
+                                      files_copied=getattr(stats, "files_copied", 0),
+                                      files_skipped=getattr(stats, "files_skipped", 0)))
+            except Exception:
+                pass
+
             self.after(0, self._on_transfer_done)
         except Exception as e:
+            # Emit error event with full traceback
+            try:
+                from src.gui.app_context import get_controller
+                from src.gui.core.events import make_event
+                ctrl = get_controller()
+                err_path = ctrl.diag.write_error("data_transfer", e)
+                ctrl._emit(make_event("data_transfer_failed", ctrl.diag.run_id,
+                                      message=str(e), source=source, dest=dest,
+                                      error_path=err_path))
+            except Exception:
+                pass
+
             msg = "[FAIL] {}: {}".format(type(e).__name__, str(e)[:80])
             self.after(0, self._on_transfer_error, msg)
 

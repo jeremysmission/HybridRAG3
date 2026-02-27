@@ -696,15 +696,61 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
         )
 
     def _on_select(self, event=None):
-        """Write selected model to config.ollama.model."""
+        """Write selected model to config.ollama.model with Ollama health check."""
         sel = self.tree.selection()
         if not sel:
             return
         model_name = sel[0]
+        t = current_theme()
+
+        # Verify model exists in Ollama before accepting
+        try:
+            import httpx
+            r = httpx.get("http://127.0.0.1:11434/api/tags", timeout=5)
+            r.raise_for_status()
+            available = [m.get("name") for m in r.json().get("models", [])]
+            if model_name not in available:
+                # Check for partial tag match (e.g. "mistral:7b" vs "mistral:latest")
+                base = model_name.split(":")[0]
+                matching = [m for m in available if m.startswith(base)]
+                if matching:
+                    fallback = matching[0]
+                    self.status_label.config(
+                        text="[WARN] {} not found, using {}".format(model_name, fallback),
+                        fg=t["orange"])
+                    try:
+                        from src.gui.app_context import get_controller
+                        from src.gui.core.events import make_event
+                        ctrl = get_controller()
+                        ctrl._emit(make_event("model_fallback", ctrl.diag.run_id,
+                                              requested=model_name, fallback=fallback,
+                                              reason="exact tag not in Ollama"))
+                    except Exception:
+                        pass
+                    model_name = fallback
+                else:
+                    self.status_label.config(
+                        text="[FAIL] {} not in Ollama. Run: ollama pull {}".format(
+                            model_name, model_name), fg=t["red"])
+                    try:
+                        from src.gui.app_context import get_controller
+                        from src.gui.core.events import make_event
+                        ctrl = get_controller()
+                        ctrl._emit(make_event("model_missing", ctrl.diag.run_id,
+                                              requested=model_name,
+                                              available=available,
+                                              reason="not found in Ollama /api/tags"))
+                    except Exception:
+                        pass
+                    return
+        except Exception as e:
+            self.status_label.config(
+                text="[WARN] Ollama check failed: {}. Setting anyway.".format(str(e)[:60]),
+                fg=t["orange"])
+
         ollama = getattr(self.config, "ollama", None)
         if ollama:
             ollama.model = model_name
-        t = current_theme()
         self.status_label.config(
             text="Selected: {}".format(model_name), fg=t["fg"])
 
