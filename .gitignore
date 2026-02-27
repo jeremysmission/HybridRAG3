@@ -94,14 +94,14 @@ gui_e2e_report.json
 eval_baseline_*.jsonl
 eval_v2_*.jsonl
 
+# Log files (runtime output, not source)
+*.log
+
 # Diagnostic run artifacts (generated, not source)
 claude_diag/
 claude_diag_gui/
 claude_diag_run/
 claude_diag_run_tmp_gui_e2e.json
-compile_stderr.log
-gui_stderr_trace.log
-gui_stdout_trace.log
 runtime_traces_after.json
 demo_transcript.json
 gui_e2e_report_mock.json

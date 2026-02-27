@@ -92,7 +92,7 @@ class StatusBar(tk.Frame):
 
         model_name = self._read_active_model()
         self.model_label = tk.Label(
-            self, text="Model: {}".format(model_name), anchor=tk.W,
+            self, text="Offline model: {}".format(model_name), anchor=tk.W,
             padx=8, pady=4, bg=t["panel_bg"], fg=t["fg"], font=FONT,
         )
         self.model_label.pack(side=tk.LEFT)
@@ -493,7 +493,7 @@ class StatusBar(tk.Frame):
         """Refresh the active model indicator from live config."""
         t = current_theme()
         model = self._read_active_model()
-        self.model_label.config(text="Model: {}".format(model), fg=t["fg"])
+        self.model_label.config(text="Offline model: {}".format(model), fg=t["fg"])
 
     def force_refresh(self):
         """Immediately refresh all indicators."""
