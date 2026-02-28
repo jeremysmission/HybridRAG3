@@ -40,7 +40,7 @@ ollama:
   base_url: http://127.0.0.1:11434
   context_window: 8192
   keep_alive: -1
-  model: phi4-mini
+  model: phi4:14b-q4_K_M
   num_predict: 512
   num_thread: 0
   timeout_seconds: 600
