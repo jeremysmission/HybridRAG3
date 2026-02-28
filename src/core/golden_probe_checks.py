@@ -241,7 +241,7 @@ def check_ollama_connectivity(config: Any) -> ProbeResult:
 
         get_gate().check_allowed(base_url, "ollama_probe", "fault_analysis")
 
-        with httpx.Client(timeout=5) as client:
+        with httpx.Client(timeout=5, proxy=None) as client:
             resp = client.get(base_url)
 
         latency = (time.time() - start) * 1000

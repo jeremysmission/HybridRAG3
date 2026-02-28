@@ -296,10 +296,15 @@ def boot_hybridrag(config_path=None) -> BootResult:
             get_gate().check_allowed(
                 f"{ollama_host}/api/tags", "ollama_boot_check", "boot",
             )
+            # ProxyHandler({}) bypasses corporate proxy for loopback.
+            # Without this, transparent proxy intercepts 127.0.0.1.
+            opener = urllib.request.build_opener(
+                urllib.request.ProxyHandler({})
+            )
             req = urllib.request.Request(
                 f"{ollama_host}/api/tags", method="GET",
             )
-            response = urllib.request.urlopen(req, timeout=3)
+            response = opener.open(req, timeout=3)
             if response.status == 200:
                 result.offline_available = True
                 logger.info("BOOT Step 4: Ollama is running")

@@ -93,10 +93,13 @@ class Embedder:
         self._validate_host()
 
         # Persistent HTTP client -- never follow redirects (a redirect
-        # from localhost means a proxy is intercepting our traffic)
+        # from localhost means a proxy is intercepting our traffic).
+        # proxy=None forces direct connection, bypassing corporate proxy
+        # that intercepts even 127.0.0.1 via transparent interception.
         self._client = httpx.Client(
             timeout=httpx.Timeout(120),
             follow_redirects=False,
+            proxy=None,
         )
 
         # Detect dimension by embedding a probe string.
