@@ -45,9 +45,9 @@ ollama:
   num_thread: 0
   timeout_seconds: 600
 paths:
-  database: D:\RAG Indexed Data\hybridrag.sqlite3
-  embeddings_cache: D:\RAG Indexed Data\_embeddings
-  source_folder: D:\RAG Source Data
+  database: "D:\\RAG Indexed Data\\hybridrag.sqlite3"
+  embeddings_cache: "D:\\RAG Indexed Data\\_embeddings"
+  source_folder: "D:\\RAG Source Data"
 performance:
   gc_between_blocks: true
   gc_between_files: true
@@ -79,4 +79,3 @@ vllm:
   enabled: false
   model: phi4:14b-q4_K_M
   timeout_seconds: 120
-seconds: 120
