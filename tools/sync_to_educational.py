@@ -302,11 +302,45 @@ FORCE_INCLUDE = [
 ]
 
 
+def _has_passthrough_marker(path):
+    """Check if a file has the Waiver marker as a standalone comment.
+
+    Matches lines like:
+        # Waiver
+        <!-- Waiver -->
+        // Waiver
+        ; Waiver
+
+    Does NOT match:
+        # Software Waiver Reference Sheet
+        waiver_reference_sheet.md
+    """
+    try:
+        with open(path, "r", encoding="utf-8-sig") as f:
+            for _ in range(5):
+                line = f.readline()
+                if not line:
+                    break
+                # Strip comment prefixes and whitespace
+                stripped = line.strip()
+                for prefix in ("#", "//", ";", "<!--", "-->", "REM"):
+                    stripped = stripped.strip().removeprefix(prefix)
+                stripped = stripped.replace("-->", "").strip()
+                if stripped.lower() == _PASSTHROUGH_MARKER:
+                    return True
+        return False
+    except Exception:
+        return False
+
+
 def should_skip(path):
     """Check if a file/folder should be skipped."""
     basename = os.path.basename(path)
     # Force-include overrides all skip patterns
     if basename in FORCE_INCLUDE:
+        return False
+    # Waiver marker overrides all skip patterns
+    if os.path.isfile(path) and _has_passthrough_marker(path):
         return False
     for pattern in SKIP_PATTERNS:
         if pattern.startswith("*."):
@@ -338,11 +372,16 @@ def sanitize_text(text):
     return text
 
 
-# Content-based private document marker.  If this word appears in the
-# first 5 lines of any text file, the file is skipped entirely (not
-# sanitized, not copied).  Innocuous by design -- means nothing outside
-# this project.
+# Content-based document markers (checked in the first 5 lines).
+# Innocuous by design -- mean nothing outside this project.
+#
+#   "Bond"   = PRIVATE.  File is skipped entirely (not copied).
+#   "Waiver" = PASS-THROUGH.  File overrides all skip patterns AND all
+#              sanitization.  Copied verbatim, as-is.  Must appear as a
+#              standalone comment (e.g. "# Waiver" or "<!-- Waiver -->"),
+#              not inside other text like "Waiver Reference Sheet".
 _PRIVATE_DOC_MARKER = "Bond"
+_PASSTHROUGH_MARKER = "waiver"
 
 
 def copy_and_sanitize_file(src_path, dst_path):
@@ -364,10 +403,15 @@ def copy_and_sanitize_file(src_path, dst_path):
         shutil.copy2(src_path, dst_path)
         return "copied (binary)"
 
-    # Private doc marker -- check first 5 lines for kill switch
+    # Check first 5 lines for content markers
     head = "\n".join(text.split("\n")[:5])
     if _PRIVATE_DOC_MARKER in head:
         return "skipped:private"
+    if _has_passthrough_marker(src_path):
+        # Waiver: copy verbatim, no sanitization
+        with open(dst_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        return "waiver-pass"
 
     sanitized = sanitize_text(text)
 

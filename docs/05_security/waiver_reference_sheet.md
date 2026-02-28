@@ -1,3 +1,4 @@
+<!-- Waiver -->
 # Software Applications Waiver Reference Sheet
 
 **Project:** HybridRAG v3 -- Offline-First RAG System

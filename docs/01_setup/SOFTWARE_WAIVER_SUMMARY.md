@@ -1,3 +1,4 @@
+<!-- Waiver -->
 # Software Waiver Request Summary
 
 **Date:** 2026-02-28
