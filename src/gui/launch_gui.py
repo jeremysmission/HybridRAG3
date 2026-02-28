@@ -452,14 +452,24 @@ def main():
         import tkinter as _tk
         from src.gui.theme import apply_ttk_styles, current_theme
         _tmp_root = _tk.Tk()
-        _tmp_root.withdraw()
+        # DO NOT withdraw() -- a withdrawn parent makes transient
+        # Toplevels invisible on corporate Windows builds.
+        # Instead: make the host window tiny + transparent.
+        _tmp_root.title("HybridRAG (Setup Host)")
+        _tmp_root.geometry("1x1+0+0")
+        try:
+            _tmp_root.attributes("-alpha", 0.0)
+        except Exception:
+            pass
+        _tmp_root.deiconify()
+        _tmp_root.update_idletasks()
         apply_ttk_styles(current_theme())
 
         from src.gui.panels.setup_wizard import SetupWizard
         from src.gui.tk_utils import force_foreground
         wiz = SetupWizard(_tmp_root, _project_root)
-        wiz.grab_set()
         force_foreground(wiz, parent=_tmp_root)
+        wiz.grab_set()
         _step("Step 2.5: wizard open -- WAITING FOR USER TO CLOSE IT")
         _tmp_root.wait_window(wiz)
         _tmp_root.destroy()

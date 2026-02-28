@@ -76,14 +76,21 @@ def needs_setup(project_root):
     if not source or not database:
         return True
 
-    # Source folder must exist on disk
+    # Paths configured but dirs missing: create them instead of
+    # blocking the user with a wizard.  This handles synced configs
+    # from a different machine (home -> work laptop).
     if not os.path.isdir(source):
-        return True
+        try:
+            os.makedirs(source, exist_ok=True)
+        except OSError:
+            return True
 
-    # Database parent directory must exist (or be creatable)
     db_parent = os.path.dirname(database)
     if db_parent and not os.path.isdir(db_parent):
-        return True
+        try:
+            os.makedirs(db_parent, exist_ok=True)
+        except OSError:
+            return True
 
     return False
 
