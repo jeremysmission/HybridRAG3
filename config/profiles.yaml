@@ -22,7 +22,7 @@
 #   server_max    -- RAM 64GB+, 24GB+ VRAM GPU
 #
 # WHAT EACH PROFILE CONTROLS:
-#   - Embedding model (nomic 768d / snowflake 1024d)
+#   - Embedding model (nomic-embed-text 768d, served by Ollama)
 #   - Embedding device (cpu / cuda)
 #   - LLM model (phi4-mini / mistral-nemo:12b / phi4:14b-q4_K_M)
 #   - Batch size, top_k, block_chars, concurrency
@@ -101,10 +101,10 @@ desktop_power:
 # Batch size 128 uses ~8GB peak RAM during indexing.
 server_max:
   embedding:
-    model_name: "snowflake-arctic-embed-l-v2.0"   # 1.1GB, 1024d, Snowflake/USA, Apache 2.0
-    dimension: 1024
+    model_name: "nomic-embed-text"   # 274MB, 768d, served by Ollama, Apache 2.0
+    dimension: 768
     batch_size: 128              # 8x laptop = maximum throughput
-    device: "cuda"               # 24GB+ VRAM for large embedder
+    device: "cuda"               # 24GB+ VRAM
   ollama:
     model: "phi4:14b-q4_K_M"    # 14B, 9.1GB, MIT, strongest reasoning
     context_window: 16384
@@ -123,5 +123,5 @@ server_max:
     gc_between_blocks: false
   notes: >
     Maximum settings for servers or high-end workstations.
-    Embedding: snowflake-arctic (1024d, CUDA). LLM: phi4:14b (14B).
+    Embedding: nomic-embed-text (768d, Ollama). LLM: phi4:14b (14B).
     8x faster than laptop_safe. Requires 64GB+ RAM, 24GB+ VRAM.

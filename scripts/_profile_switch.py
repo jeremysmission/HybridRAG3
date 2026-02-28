@@ -26,7 +26,7 @@
 #     - batch_size=64, top_k=10, block=500K
 #
 #   server_max (64GB+ RAM, 24GB+ VRAM):
-#     - Embedder: snowflake-arctic-embed-l-v2.0 (1024d, CUDA)
+#     - Embedder: nomic-embed-text (768d, Ollama)
 #     - LLM: phi4:14b-q4_K_M (14B, 16K context)
 #     - batch_size=128, top_k=15, block=1M
 #
@@ -112,8 +112,8 @@ profiles = {
     },
     'server_max': {
         'embedding': {
-            'model_name': 'snowflake-arctic-embed-l-v2.0',
-            'dimension': 1024,
+            'model_name': 'nomic-embed-text',
+            'dimension': 768,
             'batch_size': 128,
             'device': 'cuda',
         },
@@ -184,7 +184,7 @@ desc = {
     ),
     'server_max': (
         'Server (64GB+ RAM, 24GB+ VRAM)\n'
-        '  Embedder: snowflake-arctic-embed-l-v2.0 (1024d, cuda)\n'
+        '  Embedder: nomic-embed-text (768d, Ollama)\n'
         '  Default LLM: phi4:14b-q4_K_M (14B, 16K ctx)'
     ),
 }

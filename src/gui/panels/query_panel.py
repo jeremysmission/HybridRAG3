@@ -246,8 +246,7 @@ class QueryPanel(tk.LabelFrame):
     # MODEL LIST + SELECTION
     # ----------------------------------------------------------------
 
-    _EMBED_MODELS = {"nomic-embed-text", "all-minilm", "mxbai-embed",
-                     "snowflake-arctic-embed"}
+    _EMBED_MODELS = {"nomic-embed-text", "all-minilm", "mxbai-embed"}
 
     def _init_model_list(self):
         """Fetch installed Ollama models in background, then apply defaults."""

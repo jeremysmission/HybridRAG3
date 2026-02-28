@@ -542,6 +542,10 @@ def main():
 
     print()
     print("  =============================================")
+    print("  CHECKPOINT: Has GUI button-smash test passed?")
+    print("    python tools/test_button_smash.py")
+    print("  =============================================")
+    print()
     print("  Sync complete. Next steps:")
     print("    cd D:\\HybridRAG3_Educational")
     print("    git add -A")
