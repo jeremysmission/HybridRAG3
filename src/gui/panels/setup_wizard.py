@@ -68,6 +68,12 @@ def needs_setup(project_root):
     except Exception:
         return True
 
+    # If the user already completed setup once, trust it.
+    # Paths may differ across machines (home vs work laptop)
+    # but that is not a reason to re-run the wizard.
+    if data.get("setup_complete"):
+        return False
+
     paths = data.get("paths", {})
     source = paths.get("source_folder", "")
     database = paths.get("database", "")
