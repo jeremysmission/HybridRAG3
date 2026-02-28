@@ -1,8 +1,8 @@
 # Software Applications Waiver Reference Sheet
 
 **Project:** HybridRAG v3 -- Offline-First RAG System
-**Updated:** 2026-02-25
-**Revision:** v5a (openai bump 1.45.1->1.51.2, database upgrade candidates added)
+**Updated:** 2026-02-28
+**Revision:** v5c (openai 1.109.1 httpx compat fix, 410 tests, wizard auto-setup)
 
 ---
 
@@ -159,20 +159,20 @@ These are installed and working but need waiver approval.
 | Field | Detail |
 |-------|--------|
 | Package | openai |
-| Version | 1.51.2 (PINNED -- never upgrade to 2.x) |
+| Version | 1.109.1 (PINNED v1.x -- never upgrade to 2.x) |
 | License | MIT |
 | Publisher | OpenAI / USA |
 | Purpose | API client for Azure OpenAI cloud queries |
 | Data Flow | HTTPS to single configured Azure endpoint only |
 | Network | One outbound connection per query (when online mode enabled) |
 | Justification | Industry-standard SDK for OpenAI-compatible APIs. Used by Azure Government OpenAI service. MIT licensed, zero telemetry, USA publisher. |
-| Note | Bumped from 1.45.1 to 1.51.2 on 2026-02-25 (older version purged from mirror) |
+| Note | Bumped 1.45.1 -> 1.51.2 (2026-02-25, mirror purged old version), then 1.51.2 -> 1.109.1 (2026-02-26, 1.51.2 passed removed `proxies=` kwarg to httpx 0.28.1) |
 
 ### Waiver Request: Testing Tools
 
 | Package | Version | License | Publisher / Origin | Purpose |
 |---------|---------|---------|-------------------|---------|
-| pytest | 9.0.2 | MIT | Holger Krekel / Germany | Test framework (373 regression tests) |
+| pytest | 9.0.2 | MIT | Holger Krekel / Germany | Test framework (410 regression tests) |
 | psutil | 7.2.2 | BSD-3 | Giampaolo Rodola / USA | Process monitoring for indexing |
 
 Transitive dependencies of pytest (apply together):
@@ -185,7 +185,7 @@ Transitive dependencies of pytest (apply together):
 | zipp | 3.23.0 | MIT | importlib_metadata |
 
 **Justification:** pytest is the standard Python test framework used by 90%+ of
-Python projects. All 373 regression tests depend on it. psutil monitors system
+Python projects. All 410 regression tests depend on it. psutil monitors system
 resources during index builds. Both are MIT/BSD licensed, zero network activity.
 
 ### Waiver Request: Ollama (Offline LLM Server)
@@ -265,7 +265,7 @@ LanceDB transitive dependencies requiring approval:
 | Publisher | UC Berkeley / USA |
 | Purpose | GPU-optimized model serving (batching, prefix caching, tensor parallelism) |
 | Requirement | Dual RTX 3090 workstation (48 GB VRAM) |
-| Package 2 | openai>=1.99.1 (upgrade from current 1.51.2) |
+| Package 2 | openai>=1.99.1 (upgrade from current 1.109.1) |
 | License | MIT |
 | Publisher | OpenAI / USA |
 | Purpose | Required dependency for vLLM; API client for cloud models |
@@ -335,7 +335,7 @@ served by Ollama (nomic-embed-text) instead of HuggingFace/PyTorch.
 
 | Package | Version | License | Action |
 |---------|---------|---------|--------|
-| openai | 1.51.2 | MIT | Apply for approval (bumped from 1.45.1) |
+| openai | 1.109.1 | MIT | Apply for approval (bumped from 1.51.2 for httpx 0.28 compat) |
 | pytest | 9.0.2 | MIT | Apply for approval (test framework) |
 | psutil | 7.2.2 | BSD-3 | Apply for approval (process monitoring) |
 | Ollama | latest | MIT | Apply for approval (offline LLM server) |
@@ -383,7 +383,7 @@ has zero known CVEs on the NVD and is not on the CISA KEV list.
 
 Example for openai:
 ```
-openai v1.51.2 is an MIT-licensed Python package published by OpenAI (USA).
+openai v1.109.1 is an MIT-licensed Python package published by OpenAI (USA).
 It is used by HybridRAG v3 as the API client for Azure OpenAI cloud queries.
 Zero telemetry. Network activity limited to one HTTPS request per user query
 (online mode only; offline mode uses no network). openai has zero known CVEs

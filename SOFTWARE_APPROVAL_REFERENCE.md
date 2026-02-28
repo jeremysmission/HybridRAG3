@@ -1,8 +1,8 @@
 # Software Applications Waiver Reference Sheet
 
 **Project:** HybridRAG v3 -- Offline-First RAG System
-**Updated:** 2026-02-27
-**Revision:** v5b (QA hardening, model stack finalized, guard dormant)
+**Updated:** 2026-02-28
+**Revision:** v5c (openai 1.109.1, 410 tests, wizard auto-setup)
 
 ---
 
@@ -126,19 +126,19 @@ ship with already-approved software. **No new waiver needed.**
 | Field | Detail |
 |-------|--------|
 | Package | openai |
-| Version | 1.51.2 (PINNED -- never upgrade to 2.x) |
+| Version | 1.109.1 (PINNED v1.x -- never upgrade to 2.x) |
 | License | MIT |
 | Publisher | OpenAI / USA |
-| Purpose | API client for OpenAI-compatible cloud queries |
-| Data Flow | HTTPS to single configured endpoint only |
+| Purpose | API client for Azure OpenAI cloud queries |
+| Data Flow | HTTPS to single configured Azure endpoint only |
 | Network | One outbound connection per query (when online mode enabled) |
-| Note | Bumped from 1.45.1 to 1.51.2 on 2026-02-25 |
+| Note | Bumped 1.45.1 -> 1.51.2 (2026-02-25), then 1.51.2 -> 1.109.1 (2026-02-26: 1.51.2 passed removed `proxies=` kwarg to httpx 0.28) |
 
 ### Waiver Request: Testing Tools
 
 | Package | Version | License | Publisher / Origin | Purpose |
 |---------|---------|---------|-------------------|---------|
-| pytest | 9.0.2 | MIT | Holger Krekel / Germany | Test framework (409 regression tests) |
+| pytest | 9.0.2 | MIT | Holger Krekel / Germany | Test framework (410 regression tests) |
 | psutil | 7.2.2 | BSD-3 | Giampaolo Rodola / USA | Process monitoring for indexing |
 
 ### Waiver Request: Ollama (Offline LLM Server)
@@ -198,7 +198,7 @@ Models to run on Ollama (all open-source, all USA/EU/Allied origin):
 | License | Apache 2.0 |
 | Publisher | UC Berkeley / USA |
 | Purpose | GPU-optimized model serving (batching, prefix caching, tensor parallelism) |
-| Package 2 | openai>=1.99.1 (upgrade from current 1.51.2) |
+| Package 2 | openai>=1.99.1 (upgrade from current 1.109.1) |
 | Note | These two MUST be approved together |
 | Timeline | Not needed until workstation hardware arrives |
 

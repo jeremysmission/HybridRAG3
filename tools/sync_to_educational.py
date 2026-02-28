@@ -182,7 +182,7 @@ TEXT_REPLACEMENTS = [
     (r"DoD CJCSM 6510\.01B", "industry security framework"),
     (r"DoD", "industry"),
     (r"CJCSM", "framework"),
-    (r"ITAR", "regulatory"),
+    (r"\bITAR\b", "regulatory"),
     (r"\bCUI\b", "sensitive data"),
     (r"CMMC", "compliance framework"),
     (r"CAT I\b", "Critical"),

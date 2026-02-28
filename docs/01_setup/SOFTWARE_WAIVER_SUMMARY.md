@@ -1,7 +1,7 @@
 # Software Waiver Request Summary
 
-**Date:** 2026-02-24
-**Revision:** v5 (post-HuggingFace retirement, fresh deploy validated)
+**Date:** 2026-02-28
+**Revision:** v5c (openai 1.109.1, 410 tests, corporate proxy fixes)
 **Project:** HybridRAG v3 -- Offline-First RAG System
 **Requested By:** Jeremy Randa
 
@@ -14,8 +14,8 @@ waiver/approval for the HybridRAG v3 knowledge retrieval system. The
 system is designed for offline-first operation with zero telemetry and
 no external data transmission.
 
-Cross-referenced against waiver cheat sheet v4b on 2026-02-24.
-Fresh deployment test: 373/374 tests passed (1 skipped -- Tk display).
+Cross-referenced against waiver cheat sheet v5c on 2026-02-28.
+Fresh deployment test: 410/410 tests passed (225 warnings, 0 failures).
 
 ---
 
@@ -23,6 +23,7 @@ Fresh deployment test: 373/374 tests passed (1 skipped -- Tk display).
 
 | Date | Change |
 |------|--------|
+| 2026-02-28 | v5c: openai bumped 1.51.2 -> 1.109.1 (httpx 0.28 compat), 410 tests, corporate proxy fixes |
 | 2026-02-24 | v5: Removed 8 retired HuggingFace packages, added pytest/psutil, added all transitive deps, categorized by approval status |
 | 2026-02-24 | Cross-referenced pip install against waiver_cheat_sheet_v4b.xlsx |
 | 2026-02-21 | v4b: Initial waiver summary with 35 approved packages |
@@ -40,7 +41,7 @@ These are installed, working, and appear on the approved software list.
 | Python | 3.11.9 | PSF-2.0 | Python.org/USA | Runtime |
 | pip | 26.0.1 | MIT | PyPA/USA | Package installer |
 | numpy | 1.26.4 | BSD-3 | NumFOCUS/USA | Vector math |
-| openai | 1.51.2 | MIT | OpenAI/USA | API client (PINNED v1.x) |
+| openai | 1.109.1 | MIT | OpenAI/USA | API client (PINNED v1.x) |
 | tiktoken | 0.8.0 | MIT | OpenAI/USA | Token counting (offline) |
 | httpx | 0.28.1 | BSD-3 | Encode/UK | HTTP client |
 | requests | 2.32.5 | Apache 2.0 | PSF/USA | HTTP client |
@@ -125,7 +126,7 @@ software list. Waiver applications in progress.
 | zipp | 3.23.0 | MIT | USA | importlib_metadata dependency | Applying (transitive) |
 
 **Justification:** pytest is the standard Python test framework. All
-373 regression tests depend on it. psutil is used by the live indexing
+410 regression tests depend on it. psutil is used by the live indexing
 test to monitor system resources during index builds. Both are MIT/BSD
 licensed, USA origin, zero network activity.
 
@@ -171,7 +172,7 @@ depends on openai>=1.99.1 and cannot install without it.
 | Publisher | UC Berkeley / USA |
 | Purpose | GPU-optimized model serving with batching and caching |
 | Requirement | Dual RTX 3090 workstation (on order) |
-| Package 2 | openai>=1.99.1 (upgrade from current 1.51.2) |
+| Package 2 | openai>=1.99.1 (upgrade from current 1.109.1) |
 | License | MIT |
 | Publisher | OpenAI / USA |
 | Purpose | Required dependency for vLLM; API client for cloud models |
