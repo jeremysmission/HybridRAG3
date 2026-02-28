@@ -284,23 +284,15 @@ class QueryPanel(tk.LabelFrame):
 
         # If config already has a model that isn't the recommendation
         # default, pre-select it (user's persisted choice).
+        # Names are already canonical (no ':latest' suffixes).
         cfg_model = getattr(
             getattr(self.config, "ollama", None), "model", ""
         ) or ""
-        # Strip ":latest" for comparison
-        cfg_base = cfg_model.replace(":latest", "")
-        # Check if user previously chose a non-default model
         uc_key = self._uc_keys[0]
         rec_primary = RECOMMENDED_OFFLINE.get(uc_key, {}).get("primary", "")
-        if cfg_base and cfg_base != rec_primary and cfg_base in [
-            n.replace(":latest", "") for n in names
-        ]:
-            # Find the matching full name in installed list
-            for n in names:
-                if n.replace(":latest", "") == cfg_base:
-                    self.model_var.set(n)
-                    self._model_auto = False
-                    break
+        if cfg_model and cfg_model != rec_primary and cfg_model in names:
+            self.model_var.set(cfg_model)
+            self._model_auto = False
 
         self._on_use_case_change()
 
@@ -321,7 +313,7 @@ class QueryPanel(tk.LabelFrame):
         """Update the score/info label for the given model."""
         idx = self._uc_labels.index(self.uc_var.get()) if self.uc_var.get() in self._uc_labels else 0
         uc_key = self._uc_keys[idx]
-        meta = WORK_ONLY_MODELS.get(model_name.replace(":latest", ""), {})
+        meta = WORK_ONLY_MODELS.get(model_name, {})
         if meta:
             score = use_case_score(
                 meta.get("tier_eng", 30), meta.get("tier_gen", 30), uc_key,
@@ -357,8 +349,7 @@ class QueryPanel(tk.LabelFrame):
                 best_model = None
                 best_score = -1
                 for name in self._installed_models:
-                    base = name.replace(":latest", "")
-                    meta = WORK_ONLY_MODELS.get(base, {})
+                    meta = WORK_ONLY_MODELS.get(name, {})
                     if meta:
                         s = use_case_score(
                             meta.get("tier_eng", 30),

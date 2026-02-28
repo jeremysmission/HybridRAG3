@@ -186,6 +186,20 @@ WORK_ONLY_MODELS = {
                          "note": "Desktop alt for all profiles, gen primary (Apache 2.0, Mistral+NVIDIA, 128K ctx)"},
 }
 
+def canonicalize_model_name(name):
+    """Map raw Ollama model name (e.g. 'phi4:latest') to canonical key."""
+    if name in WORK_ONLY_MODELS:
+        return name
+    base = name.replace(":latest", "")
+    if base in WORK_ONLY_MODELS:
+        return base
+    # Base-name prefix match: 'phi4' -> 'phi4:14b-q4_K_M'
+    hits = [k for k in WORK_ONLY_MODELS if k.startswith(base + ":")]
+    if len(hits) == 1:
+        return hits[0]
+    return base if base else name
+
+
 PERSONAL_FUTURE = {
     # Tier 2: 24 GB VRAM unlocks these (approved vendors)
     "mistral-small3.1:24b": {"min_vram_gb": 24, "download_gb": 14,
@@ -510,7 +524,11 @@ def _dual_tier(name_lower, params, quant):
 # ============================================================================
 
 def get_offline_models_with_specs():
-    """Get installed Ollama models sorted by tier_eng (best first)."""
+    """Get installed Ollama models sorted by tier_eng (best first).
+
+    Names are canonicalized to WORK_ONLY_MODELS keys so all GUI panels
+    display identical labels (e.g. 'phi4:14b-q4_K_M' not 'phi4:latest').
+    """
     try:
         result = subprocess.run(["ollama","list"], capture_output=True,
                                 text=True, timeout=10)
@@ -519,11 +537,16 @@ def get_offline_models_with_specs():
         lines = result.stdout.strip().split("\n")
         if len(lines) < 2:
             return []
+        seen = set()
         models = []
         for line in lines[1:]:
             parts = line.split()
             if len(parts) >= 4:
-                name = parts[0]
+                raw_name = parts[0]
+                name = canonicalize_model_name(raw_name)
+                if name in seen:
+                    continue
+                seen.add(name)
                 size_str = "unknown"
                 for i, p in enumerate(parts):
                     if p in ("GB","MB","KB") and i > 0:
