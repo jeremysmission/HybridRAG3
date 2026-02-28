@@ -456,8 +456,10 @@ def main():
         apply_ttk_styles(current_theme())
 
         from src.gui.panels.setup_wizard import SetupWizard
+        from src.gui.tk_utils import force_foreground
         wiz = SetupWizard(_tmp_root, _project_root)
         wiz.grab_set()
+        force_foreground(wiz, parent=_tmp_root)
         _step("Step 2.5: wizard open -- WAITING FOR USER TO CLOSE IT")
         _tmp_root.wait_window(wiz)
         _tmp_root.destroy()

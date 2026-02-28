@@ -148,13 +148,13 @@ class SetupWizard(tk.Toplevel):
         # Show first page
         self._show_page(_PAGE_WELCOME)
 
-        # Center on screen
+        # Force visible, centered, focused (Tk on Windows can hide behind
+        # console when launched from .bat -- see tk_utils.py for details)
         self.update_idletasks()
-        sw = self.winfo_screenwidth()
-        sh = self.winfo_screenheight()
-        w = self.winfo_width()
-        h = self.winfo_height()
-        self.geometry("+{}+{}".format((sw - w) // 2, (sh - h) // 2))
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+        self.after(50, self.lift)
 
     # ------------------------------------------------------------------
     # Page builders
