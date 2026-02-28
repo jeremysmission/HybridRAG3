@@ -110,7 +110,7 @@ SKIP_PATTERNS = [
     "sync_to_educational.py",      # [SELF] this script (contains banned terms)
 
     # [SECURITY] Directories too dense with defense content to sanitize cleanly
-    "05_security",                 # defense audit, NIST docs, waiver sheets, git rules
+    "05_security",                 # defense audit, NIST docs, git rules (waiver docs excepted below)
     "07_career",                   # personal career details
     "09_project_mgmt",            # internal project management
 
@@ -294,9 +294,20 @@ Educational and research use.
 # HELPERS
 # ---------------------------------------------------------------------------
 
+# Files that override SKIP_PATTERNS.  These live inside skipped directories
+# (e.g. 05_security/) but must travel with the Educational repo.
+FORCE_INCLUDE = [
+    "waiver_reference_sheet.md",       # software approval justifications (needed for waiver email)
+    "CORPORATE_PROXY_NOTES.md",        # proxy research notes (useful for work laptop debugging)
+]
+
+
 def should_skip(path):
     """Check if a file/folder should be skipped."""
     basename = os.path.basename(path)
+    # Force-include overrides all skip patterns
+    if basename in FORCE_INCLUDE:
+        return False
     for pattern in SKIP_PATTERNS:
         if pattern.startswith("*."):
             # Glob: match file extension
@@ -413,8 +424,19 @@ def main():
     stats = {"copied": 0, "sanitized": 0, "skipped": 0, "private": 0}
 
     for root, dirs, files in os.walk(SRC_ROOT):
-        # Filter out skipped directories (in-place to prevent os.walk descent)
-        dirs[:] = sorted(d for d in dirs if not should_skip(os.path.join(root, d)))
+        # Filter out skipped directories (in-place to prevent os.walk descent).
+        # Keep a directory if any FORCE_INCLUDE file lives inside it.
+        def _keep_dir(d):
+            full = os.path.join(root, d)
+            if not should_skip(full):
+                return True
+            # Check if any force-include file lives under this dir
+            for _r, _ds, _fs in os.walk(full):
+                for _f in _fs:
+                    if _f in FORCE_INCLUDE:
+                        return True
+            return False
+        dirs[:] = sorted(d for d in dirs if _keep_dir(d))
 
         for fname in sorted(files):
             src_path = os.path.join(root, fname)
