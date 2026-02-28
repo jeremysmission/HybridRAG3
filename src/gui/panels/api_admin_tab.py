@@ -718,7 +718,7 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
                 "http://127.0.0.1:11434/api/tags",
                 "ollama_model_verify", "gui_admin",
             )
-            r = httpx.get("http://127.0.0.1:11434/api/tags", timeout=5)
+            r = httpx.get("http://127.0.0.1:11434/api/tags", timeout=5, proxy=None, trust_env=False)
             r.raise_for_status()
             available = [m.get("name") for m in r.json().get("models", [])]
             if model_name not in available:
@@ -801,7 +801,7 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
                 "{}/api/tags".format(base),
                 "ollama_tags_query", "gui_admin",
             )
-            r = httpx.get("{}/api/tags".format(base), timeout=5)
+            r = httpx.get("{}/api/tags".format(base), timeout=5, proxy=None, trust_env=False)
             r.raise_for_status()
             return [m.get("name", "") for m in r.json().get("models", [])]
         except Exception as e:

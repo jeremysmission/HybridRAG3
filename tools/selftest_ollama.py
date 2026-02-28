@@ -6,7 +6,7 @@ import httpx
 OLLAMA = "http://127.0.0.1:11434"
 
 def main() -> int:
-    c = httpx.Client(timeout=httpx.Timeout(120.0, connect=10.0))
+    c = httpx.Client(timeout=httpx.Timeout(120.0, connect=10.0), proxy=None, trust_env=False)
     try:
         tags = c.get(f"{OLLAMA}/api/tags")
         tags.raise_for_status()

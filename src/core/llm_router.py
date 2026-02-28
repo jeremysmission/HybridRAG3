@@ -129,9 +129,12 @@ def _build_httpx_client(
 
     # -- Proxy detection --
     # Localhost traffic must NEVER go through a proxy. Corporate proxies
-    # intercept localhost connections and return garbage (502, HTML error pages).
+    # intercept localhost connections and return garbage (301/502, HTML).
+    # trust_env=False is REQUIRED in addition to proxy=None because
+    # httpx still reads HTTP_PROXY env vars when trust_env=True (default).
     if localhost_only:
         kwargs["proxy"] = None
+        kwargs["trust_env"] = False
     else:
         proxy_url = (
             os.environ.get("HTTPS_PROXY")

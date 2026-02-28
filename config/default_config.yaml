@@ -18,8 +18,8 @@ cost:
   output_cost_per_1k: 0.002
   track_enabled: true
 embedding:
-  batch_size: 128
-  device: cuda
+  batch_size: 16
+  device: cpu
   dimension: 768
   model_name: nomic-embed-text
 hallucination_guard:
@@ -33,14 +33,14 @@ hallucination_guard:
   shortcircuit_pass: 5
   threshold: 0.8
 indexing:
-  block_chars: 1000000
-  max_chars_per_file: 10000000
+  block_chars: 200000
+  max_chars_per_file: 2000000
 mode: offline
 ollama:
   base_url: http://127.0.0.1:11434
-  context_window: 16384
+  context_window: 8192
   keep_alive: -1
-  model: phi4:14b-q4_K_M
+  model: phi4-mini
   num_predict: 512
   num_thread: 0
   timeout_seconds: 600
@@ -49,18 +49,18 @@ paths:
   embeddings_cache: D:\RAG Indexed Data\_embeddings
   source_folder: D:\RAG Source Data
 performance:
-  gc_between_blocks: false
-  gc_between_files: false
-  max_concurrent_files: 4
+  gc_between_blocks: true
+  gc_between_files: true
+  max_concurrent_files: 1
 retrieval:
   hybrid_search: true
   min_chunks: 1
   min_score: 0.1
   reranker_enabled: false
   reranker_model: cross-encoder/ms-marco-MiniLM-L-6-v2
-  reranker_top_n: 60
+  reranker_top_n: 20
   rrf_k: 60
-  top_k: 15
+  top_k: 5
 security:
   audit_logging: true
   pii_sanitization: true
@@ -79,3 +79,4 @@ vllm:
   enabled: false
   model: phi4:14b-q4_K_M
   timeout_seconds: 120
+seconds: 120

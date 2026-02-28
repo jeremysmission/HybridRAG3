@@ -87,12 +87,20 @@ class Embedder:
 
         self._validate_host()
 
-        # proxy=None forces direct connection, bypassing corporate proxy
-        # that intercepts even 127.0.0.1 via transparent interception.
+        # Corporate proxy bypass for localhost Ollama connections.
+        # proxy=None: do not configure an explicit proxy.
+        # trust_env=False: ignore HTTP_PROXY / HTTPS_PROXY env vars
+        #   entirely. proxy=None alone is NOT enough -- httpx still
+        #   reads proxy env vars when trust_env=True (the default).
+        #   On work machines with corporate proxy, HTTP_PROXY causes
+        #   httpx to route 127.0.0.1 traffic through the proxy, which
+        #   returns HTTP 301 Moved Permanently instead of reaching Ollama.
+        # follow_redirects=False: fail-fast if a proxy does intercept.
         self._client = httpx.Client(
             timeout=httpx.Timeout(120),
             follow_redirects=False,
             proxy=None,
+            trust_env=False,
         )
 
         if dimension > 0:
