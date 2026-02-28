@@ -59,10 +59,11 @@ class TestBuildHttpxClient:
             client.close()
 
     # ------------------------------------------------------------------
-    # Test P-02: HTTPS_PROXY env var flows to client
+    # Test P-02: non-localhost client uses trust_env=True so httpx
+    # picks up HTTPS_PROXY AND honours NO_PROXY natively.
     # ------------------------------------------------------------------
     def test_p02_proxy_from_env(self):
-        """HTTPS_PROXY env var should be passed to httpx.Client."""
+        """Non-localhost client should use trust_env=True (httpx reads proxy env natively)."""
         factory = self._get_factory()
         import httpx
         with patch.dict(os.environ, {
@@ -73,9 +74,11 @@ class TestBuildHttpxClient:
                 client = factory(timeout=30)
                 call_kwargs = mock_client_cls.call_args
                 assert call_kwargs is not None
-                # proxy kwarg should be the proxy URL
                 kwargs = call_kwargs[1] if call_kwargs[1] else {}
-                assert kwargs.get("proxy") == "http://proxy.corp.internal:8080"
+                # trust_env=True lets httpx read proxy env AND NO_PROXY
+                assert kwargs.get("trust_env") is True
+                # proxy= must NOT be set explicitly (bypasses NO_PROXY)
+                assert "proxy" not in kwargs
 
     # ------------------------------------------------------------------
     # Test P-03: localhost_only=True forces proxy=None

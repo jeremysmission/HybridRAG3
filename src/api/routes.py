@@ -341,9 +341,11 @@ async def start_indexing(req: IndexRequest = None):
     # Path traversal prevention: the requested folder must be within
     # the configured source directory.  This blocks "../../../etc/passwd"
     # style attacks via the source_folder parameter.
+    # SECURITY: use os.sep suffix to prevent prefix collision
+    # (e.g. D:\data_evil passing for allowed root D:\data).
     allowed_root = os.path.realpath(s.config.paths.source_folder)
     requested = os.path.realpath(source_folder)
-    if not requested.startswith(allowed_root):
+    if requested != allowed_root and not requested.startswith(allowed_root + os.sep):
         raise HTTPException(
             status_code=403,
             detail="Source folder must be within the configured source directory.",

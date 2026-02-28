@@ -378,17 +378,27 @@ class StatusBar(tk.Frame):
             font=("Segoe UI", 9), bg=t["panel_bg"], fg=t["label_fg"],
         ).pack(anchor="e", pady=(6, 0))
 
-        # Position above the status bar
+        # Position above the status bar, clamped to visible screen area
         popup.update_idletasks()
         x = self.loading_label.winfo_rootx()
         y = self.loading_label.winfo_rooty() - popup.winfo_reqheight() - 4
+        # Clamp Y to stay on-screen (minimum 0)
+        if y < 0:
+            y = self.loading_label.winfo_rooty() + self.loading_label.winfo_height() + 4
+        # Clamp X to stay on-screen
+        screen_w = self.winfo_screenwidth()
+        popup_w = popup.winfo_reqwidth()
+        if x + popup_w > screen_w:
+            x = max(0, screen_w - popup_w - 8)
         popup.geometry("+{}+{}".format(x, y))
 
-        # Auto-close on click anywhere or after 8 seconds
+        # Auto-close on click or after 8 seconds.
+        # FocusOut is intentionally NOT bound -- it caused the popup
+        # to self-destruct before the user could read it on corporate
+        # Windows where focus is aggressively managed.
         popup.bind("<Button-1>", lambda e: popup.destroy())
         popup.after(8000, lambda: popup.destroy() if popup.winfo_exists() else None)
         popup.focus_set()
-        popup.bind("<FocusOut>", lambda e: popup.destroy() if popup.winfo_exists() else None)
 
     @staticmethod
     def _render_check_rows(parent, results, t):

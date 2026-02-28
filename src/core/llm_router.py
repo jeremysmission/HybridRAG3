@@ -136,14 +136,12 @@ def _build_httpx_client(
         kwargs["proxy"] = None
         kwargs["trust_env"] = False
     else:
-        proxy_url = (
-            os.environ.get("HTTPS_PROXY")
-            or os.environ.get("https_proxy")
-            or os.environ.get("HTTP_PROXY")
-            or os.environ.get("http_proxy")
-        )
-        if proxy_url:
-            kwargs["proxy"] = proxy_url
+        # Let httpx handle proxy via trust_env=True (default).
+        # httpx natively reads HTTP_PROXY/HTTPS_PROXY AND respects
+        # NO_PROXY.  Setting an explicit proxy= bypasses NO_PROXY
+        # semantics, which breaks corporate environments where
+        # NO_PROXY is used to exempt internal/local targets.
+        kwargs["trust_env"] = True
 
     return httpx.Client(**kwargs)
 
@@ -1790,7 +1788,10 @@ class LLMRouter:
             "transformers_available": (
                 self.transformers_rt.is_available() if self.transformers_rt else False
             ),
-            "api_configured": self.api is not None,
+            "api_configured": (
+                self.api is not None
+                and getattr(self.api, "client", None) is not None
+            ),
             "sdk_available": _openai_sdk_available(),
         }
 

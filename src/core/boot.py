@@ -109,6 +109,17 @@ class BootResult:
         return "\n".join(lines)
 
 
+def _deep_merge_dict(base: dict, overlay: dict) -> dict:
+    """Recursively merge overlay into base. overlay wins on conflicts."""
+    merged = dict(base)
+    for k, v in overlay.items():
+        if k in merged and isinstance(merged[k], dict) and isinstance(v, dict):
+            merged[k] = _deep_merge_dict(merged[k], v)
+        else:
+            merged[k] = v
+    return merged
+
+
 def load_config(config_path=None) -> dict:
     """
     Load configuration from YAML file.
@@ -138,15 +149,31 @@ def load_config(config_path=None) -> dict:
         project_root / "config.yaml",
     ])
 
+    config = {}
     for path in search_paths:
         if path.exists():
             logger.info("Loading config from: %s", path)
             with open(path, "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f) or {}
-            return config
+            break
 
-    logger.warning("No config file found -- using defaults")
-    return {}
+    if not config:
+        logger.warning("No config file found -- using defaults")
+        return {}
+
+    # Merge user_overrides.yaml on top, matching src.core.config.load_config
+    overrides_path = project_root / "config" / "user_overrides.yaml"
+    if overrides_path.exists():
+        try:
+            with open(overrides_path, "r", encoding="utf-8") as f:
+                overrides = yaml.safe_load(f)
+            if isinstance(overrides, dict):
+                config = _deep_merge_dict(config, overrides)
+                logger.info("Boot config: merged user_overrides.yaml")
+        except Exception as exc:
+            logger.warning("Boot config: failed to merge user_overrides.yaml: %s", exc)
+
+    return config
 
 
 def _boot_step(msg):
@@ -271,7 +298,12 @@ def boot_hybridrag(config_path=None) -> BootResult:
             factory = ApiClientFactory(config)
             client = factory.build(result.credentials)
             result.api_client = client
-            result.online_available = True
+            # Only report online_available if the gate actually allows
+            # online traffic.  Creating the client proves the credentials
+            # are valid, but if the gate is in offline mode the client
+            # won't be usable until mode is switched.
+            from src.core.network_gate import get_gate, NetworkMode
+            result.online_available = get_gate().mode != NetworkMode.OFFLINE
             logger.info("BOOT Step 3: API client created successfully")
 
             # Log diagnostic info (safe -- no secrets)
@@ -355,8 +387,13 @@ def boot_hybridrag(config_path=None) -> BootResult:
             get_gate().check_allowed(
                 f"{vllm_url}/health", "vllm_boot_check", "boot",
             )
+            # ProxyHandler({}) bypasses corporate proxy for loopback,
+            # matching the Ollama boot check pattern above.
+            opener = urllib.request.build_opener(
+                urllib.request.ProxyHandler({})
+            )
             req = urllib.request.Request(f"{vllm_url}/health", method="GET")
-            response = urllib.request.urlopen(req, timeout=3)
+            response = opener.open(req, timeout=3)
             if response.status == 200:
                 logger.info("[OK] vLLM available at %s", vllm_url)
             else:

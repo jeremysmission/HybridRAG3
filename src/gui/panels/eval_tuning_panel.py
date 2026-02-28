@@ -494,8 +494,10 @@ class EvalTuningPanel(tk.Frame):
         """
         Background thread: run eval_runner.py then score_results.py.
 
+        All GUI updates use safe_after() to avoid Tk cross-thread crashes.
         Progress is tracked by polling the output JSONL file size.
         """
+        from src.gui.helpers.safe_after import safe_after
         results_jsonl = os.path.join(self._eval_outdir, "results.jsonl")
         t0 = time.monotonic()
 
@@ -523,16 +525,16 @@ class EvalTuningPanel(tk.Frame):
             self._eval_process = None
 
             if self._stop_flag.is_set():
-                self.after(0, self._on_stopped)
+                safe_after(self, 0, self._on_stopped)
                 return
 
             if returncode != 0:
-                self.after(0, self._on_error,
+                safe_after(self, 0, self._on_error,
                            "[FAIL] eval_runner exited with code {}".format(returncode))
                 return
 
             # --- Phase 2: Score results ---
-            self.after(0, self._update_status, "Phase 2: Scoring results...")
+            safe_after(self, 0, self._update_status, "Phase 2: Scoring results...")
 
             score_cmd = [
                 sys.executable, "tools/score_results.py",
@@ -546,7 +548,7 @@ class EvalTuningPanel(tk.Frame):
                 timeout=120,
             )
             if score_proc.returncode != 0:
-                self.after(0, self._on_error,
+                safe_after(self, 0, self._on_error,
                            "[FAIL] score_results exited with code {}".format(
                                score_proc.returncode))
                 return
@@ -572,14 +574,15 @@ class EvalTuningPanel(tk.Frame):
             elapsed = time.monotonic() - t0
             self._summary = summary
             self._scored_rows = scored_rows
-            self.after(0, self._on_eval_done, summary, scored_rows, elapsed)
+            safe_after(self, 0, self._on_eval_done, summary, scored_rows, elapsed)
 
         except Exception as e:
-            self.after(0, self._on_error,
+            safe_after(self, 0, self._on_error,
                        "[FAIL] {}: {}".format(type(e).__name__, e))
 
     def _poll_progress(self, jsonl_path, total, t0):
         """Poll results.jsonl line count for progress updates."""
+        from src.gui.helpers.safe_after import safe_after
         last_count = 0
         throttle = 0.5  # seconds between polls
 
@@ -609,8 +612,8 @@ class EvalTuningPanel(tk.Frame):
                     eta_str = format_eta(eta_sec)
                 else:
                     eta_str = ""
-                self.after(
-                    0, self._update_progress, count, total, eta_str,
+                safe_after(
+                    self, 0, self._update_progress, count, total, eta_str,
                 )
 
             time.sleep(throttle)
@@ -623,7 +626,7 @@ class EvalTuningPanel(tk.Frame):
                     count = sum(1 for _ in f)
             except (OSError, IOError):
                 pass
-        self.after(0, self._update_progress, count, total, "")
+        safe_after(self, 0, self._update_progress, count, total, "")
 
     # ==================================================================
     # MAIN-THREAD CALLBACKS

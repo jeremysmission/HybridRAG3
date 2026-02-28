@@ -162,9 +162,15 @@ def clear_embedder_cache():
 
 
 def _set_stage(app, stage_text):
-    """Schedule a loading-stage update on the GUI main thread."""
+    """Schedule a loading-stage update on the GUI main thread.
+
+    Uses safe_after() because this is called from background threads.
+    Direct app.after() from a non-main thread raises RuntimeError
+    on some Tk builds (especially corporate Windows).
+    """
     try:
-        app.after(0, lambda: (
+        from src.gui.helpers.safe_after import safe_after
+        safe_after(app, 0, lambda: (
             app.status_bar.set_loading_stage(stage_text)
             if hasattr(app, "status_bar") else None
         ))
@@ -331,9 +337,10 @@ def _load_backends(app, logger):
         app.after(90_000, _loading_timeout)
 
     try:
-        app.after(0, _attach)
+        from src.gui.helpers.safe_after import safe_after
+        safe_after(app, 0, _attach)
     except Exception as e:
-        logger.debug("after() failed during backend attach: %s", e)
+        logger.debug("safe_after() failed during backend attach: %s", e)
 
 
 def _run_ibit_sequence(app, config, query_engine, indexer, router, logger):
@@ -350,15 +357,17 @@ def _run_ibit_sequence(app, config, query_engine, indexer, router, logger):
     STEP_DELAY_MS = 150  # Per-check display hold (ms)
 
     def _do_ibit():
+        from src.gui.helpers.safe_after import safe_after
         try:
             results = run_ibit(config, query_engine, indexer, router)
-            # Schedule stepped display on main thread
-            app.after(0, lambda: _step_display(app, results, 0, STEP_DELAY_MS))
+            # Schedule stepped display on main thread (safe_after
+            # because _do_ibit runs in a daemon thread)
+            safe_after(app, 0, lambda: _step_display(app, results, 0, STEP_DELAY_MS))
         except Exception as e:
             logger.warning("[WARN] IBIT failed: %s", e)
             # Safety net: clear loading state even on crash
             try:
-                app.after(0, lambda: app.status_bar.set_ibit_result(0, 0, []))
+                safe_after(app, 0, lambda: app.status_bar.set_ibit_result(0, 0, []))
             except Exception:
                 pass
 

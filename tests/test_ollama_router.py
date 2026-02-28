@@ -394,7 +394,9 @@ class TestLLMRouter:
         assert "sdk_available" in status
         assert status["mode"] == "offline"
         assert status["ollama_available"] is True
-        assert status["api_configured"] is True
+        # In offline mode the network gate blocks client creation,
+        # so api_configured is correctly False (client=None).
+        assert status["api_configured"] is False
 
 
 # ============================================================================

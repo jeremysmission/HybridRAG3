@@ -215,15 +215,22 @@ class NetworkGate:
         # Resolve mode string to enum
         mode_lower = mode.strip().lower()
 
-        # -- Legacy environment variable override (security-in-depth) --
-        # If HYBRIDRAG_OFFLINE is set, force offline mode regardless of
-        # what the config says. This consolidates the kill switch that
-        # was previously duplicated in http_client.py into the single
-        # authoritative gate. One place, one check, one audit trail.
-        if os.environ.get("HYBRIDRAG_OFFLINE", "").strip() in ("1", "true", "yes"):
+        # -- Environment variable override (security-in-depth) --
+        # If either kill-switch env var is set, force offline mode
+        # regardless of what the config says.  Two variable names exist
+        # for historical reasons:
+        #   HYBRIDRAG_OFFLINE              (legacy, from http_client.py era)
+        #   HYBRIDRAG_NETWORK_KILL_SWITCH  (set by start_gui.bat / start_hybridrag.ps1)
+        _truthy = ("1", "true", "yes")
+        _offline_env = os.environ.get("HYBRIDRAG_OFFLINE", "").strip() in _truthy
+        _kill_env = os.environ.get(
+            "HYBRIDRAG_NETWORK_KILL_SWITCH", ""
+        ).strip() in _truthy
+        if _offline_env or _kill_env:
             mode_lower = "offline"
+            which = "HYBRIDRAG_OFFLINE" if _offline_env else "HYBRIDRAG_NETWORK_KILL_SWITCH"
             logger.info(
-                "NETWORK GATE: HYBRIDRAG_OFFLINE env var set -- forcing offline mode"
+                "NETWORK GATE: %s env var set -- forcing offline mode", which
             )
 
         if mode_lower == "online":
@@ -349,11 +356,31 @@ class NetworkGate:
                 self._log_access(url, host, purpose, caller, True, "allowed_host")
                 return
 
-            # Check against allowed URL prefixes
+            # Check against allowed URL prefixes.
+            # SECURITY: naive startswith() allows bypass via host
+            # confusion (e.g. good.example.com.evil.com passes for
+            # good.example.com).  Parse both URLs and compare scheme +
+            # hostname + port explicitly, then check the path prefix.
             for prefix in self._allowed_prefixes:
-                if url.lower().startswith(prefix.lower()):
-                    self._log_access(url, host, purpose, caller, True, "allowed_prefix")
-                    return
+                try:
+                    p_parsed = urlparse(prefix)
+                    p_host = (p_parsed.hostname or "").lower()
+                    p_scheme = (p_parsed.scheme or "").lower()
+                    p_port = p_parsed.port
+                    p_path = p_parsed.path or "/"
+
+                    if scheme != p_scheme:
+                        continue
+                    if host != p_host:
+                        continue
+                    if parsed.port != p_port:
+                        continue
+                    req_path = parsed.path or "/"
+                    if req_path.startswith(p_path):
+                        self._log_access(url, host, purpose, caller, True, "allowed_prefix")
+                        return
+                except Exception:
+                    continue
 
             # Not in any allowlist
             self._log_access(url, host, purpose, caller, False, "host_not_in_allowlist")
@@ -435,7 +462,9 @@ class NetworkGate:
 
     def get_audit_log(self, last_n: int = 50) -> List[NetworkAuditEntry]:
         """Get the most recent audit log entries."""
-        return self._audit_log[-last_n:]
+        # deque does not support slicing -- convert to list first
+        entries = list(self._audit_log)
+        return entries[-last_n:]
 
     def get_audit_summary(self) -> dict:
         """

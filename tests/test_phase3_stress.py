@@ -376,7 +376,10 @@ class TestNetworkGateIntegration:
         gate.configure(mode="offline")
         assert gate.mode == NetworkMode.OFFLINE
 
-    def test_online_mode_allows_configured_endpoint(self):
+    def test_online_mode_allows_configured_endpoint(self, monkeypatch):
+        # Clear kill-switch env vars so configure() honours "online"
+        monkeypatch.delenv("HYBRIDRAG_NETWORK_KILL_SWITCH", raising=False)
+        monkeypatch.delenv("HYBRIDRAG_OFFLINE", raising=False)
         from src.core.network_gate import NetworkGate
         gate = NetworkGate()
         gate.configure(
@@ -386,7 +389,9 @@ class TestNetworkGateIntegration:
         # check_allowed returns None on success (does not raise)
         gate.check_allowed("https://myapi.example.com/v1/chat")
 
-    def test_online_mode_blocks_unconfigured(self):
+    def test_online_mode_blocks_unconfigured(self, monkeypatch):
+        monkeypatch.delenv("HYBRIDRAG_NETWORK_KILL_SWITCH", raising=False)
+        monkeypatch.delenv("HYBRIDRAG_OFFLINE", raising=False)
         from src.core.network_gate import NetworkGate, NetworkBlockedError
         gate = NetworkGate()
         gate.configure(mode="online", api_endpoint="https://myapi.example.com/v1")

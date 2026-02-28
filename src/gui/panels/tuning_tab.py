@@ -368,6 +368,7 @@ class TuningTab(tk.Frame):
 
     def _do_profile_switch(self, profile):
         """Background thread: run subprocess, reload config, reset backends."""
+        from src.gui.helpers.safe_after import safe_after
         root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
 
         old_embed_model = getattr(
@@ -383,18 +384,18 @@ class TuningTab(tk.Frame):
                 cwd=root,
             )
             if proc.returncode != 0:
-                self.after(0, self._profile_switch_failed,
+                safe_after(self, 0, self._profile_switch_failed,
                            proc.stderr.strip()[:80])
                 return
         except Exception as e:
-            self.after(0, self._profile_switch_failed, str(e)[:80])
+            safe_after(self, 0, self._profile_switch_failed, str(e)[:80])
             return
 
         try:
             from src.core.config import load_config
             new_config = load_config(root)
         except Exception as e:
-            self.after(0, self._profile_switch_failed,
+            safe_after(self, 0, self._profile_switch_failed,
                        "Config reload: {}".format(str(e)[:60]))
             return
 
@@ -450,7 +451,7 @@ class TuningTab(tk.Frame):
                 self._app.reset_backends()
         except Exception as e:
             logger.warning("Profile apply failed during backend reset: %s", e)
-            self.after(0, self._profile_switch_failed,
+            safe_after(self, 0, self._profile_switch_failed,
                        "Backend reset: {}".format(str(e)[:60]))
             return
 

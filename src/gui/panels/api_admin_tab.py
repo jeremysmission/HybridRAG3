@@ -421,6 +421,7 @@ class ModelSelectionPanel(tk.LabelFrame):
 
     def _do_fetch(self, endpoint, key):
         """Background thread: call the API's /models endpoint and parse the result."""
+        from src.gui.helpers.safe_after import safe_after
         try:
             from scripts._model_meta import fetch_online_models_with_meta
             by_provider, total = fetch_online_models_with_meta(endpoint, key)
@@ -428,11 +429,11 @@ class ModelSelectionPanel(tk.LabelFrame):
             for pmodels in by_provider.values():
                 flat.extend(pmodels)
             if total > 0:
-                self.after(0, self._fetch_done, flat, total)
+                safe_after(self, 0, self._fetch_done, flat, total)
             else:
-                self.after(0, self._fetch_failed, "No models returned")
+                safe_after(self, 0, self._fetch_failed, "No models returned")
         except Exception as e:
-            self.after(0, self._fetch_failed, str(e)[:80])
+            safe_after(self, 0, self._fetch_failed, str(e)[:80])
 
     def _fetch_done(self, models, total):
         """Main-thread callback: populate the treeview after a successful fetch."""
@@ -910,10 +911,11 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
 
                 def _worker():
                     import subprocess
+                    from src.gui.helpers.safe_after import safe_after
                     results = []
                     for i, model in enumerate(missing):
                         try:
-                            dlg.after(0, lambda m=model, n=i: pull_status.config(
+                            safe_after(dlg, 0, lambda m=model, n=i: pull_status.config(
                                 text="Pulling {}/{}: {}...".format(
                                     n + 1, len(missing), m)))
                             subprocess.run(
@@ -942,7 +944,7 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
                                         text="Pull All Missing")
                         self._populate()  # refresh treeview
 
-                    dlg.after(0, _finish)
+                    safe_after(dlg, 0, _finish)
 
                 threading.Thread(target=_worker, daemon=True).start()
 
@@ -1262,6 +1264,7 @@ class ApiAdminTab(tk.Frame):
         forwarded to the model selection panel so the admin sees them
         immediately without clicking Refresh again.
         """
+        from src.gui.helpers.safe_after import safe_after
         try:
             from scripts._model_meta import fetch_online_models_with_meta
             by_provider, total = fetch_online_models_with_meta(endpoint, key)
@@ -1269,12 +1272,12 @@ class ApiAdminTab(tk.Frame):
                 flat = []
                 for pmodels in by_provider.values():
                     flat.extend(pmodels)
-                self.after(0, self._test_done, flat, total)
+                safe_after(self, 0, self._test_done, flat, total)
             else:
-                self.after(0, self._test_failed,
+                safe_after(self, 0, self._test_failed,
                            "No models returned (check endpoint/key)")
         except Exception as e:
-            self.after(0, self._test_failed, str(e)[:80])
+            safe_after(self, 0, self._test_failed, str(e)[:80])
 
     def _test_done(self, models, total):
         """Main-thread callback: connection test succeeded."""

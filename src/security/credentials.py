@@ -361,6 +361,33 @@ def validate_endpoint(url):
             url=url,
         )
 
+    # Parse and validate hostname using urlparse
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+
+    if not parsed.hostname:
+        raise InvalidEndpointError(
+            "Endpoint URL has no hostname (e.g. bare 'https://' is invalid).",
+            url=url,
+        )
+
+    # Reject userinfo (user:pass@host) -- credentials do not belong in URLs
+    if parsed.username or parsed.password:
+        raise InvalidEndpointError(
+            "Endpoint URL must not contain credentials (user:pass@). "
+            "Store API keys via rag-store-key instead.",
+            url=url,
+        )
+
+    # Reject host-confusion patterns (@ in netloc without userinfo
+    # parsed, e.g. good.example.com@evil.com)
+    if "@" in (parsed.netloc or ""):
+        raise InvalidEndpointError(
+            "Endpoint URL contains '@' in the host -- this is ambiguous "
+            "and could route to an unintended server.",
+            url=url,
+        )
+
     # Check for double slashes in path (after scheme)
     scheme_end = url.index("://") + 3
     path_part = url[scheme_end:]
