@@ -82,8 +82,8 @@ class EmbeddingMemmapStore:
     Disk-backed embedding store using numpy memory-mapped files.
 
     Files created:
-      embeddings.f16.dat   -- raw float16 matrix, shape [N, 384]
-      embeddings_meta.json -- bookkeeping: {"dim": 384, "count": 12345}
+      embeddings.f16.dat   -- raw float16 matrix, shape [N, dim]
+      embeddings_meta.json -- bookkeeping: {"dim": 768, "count": N, "embedding_model": "..."}
 
     How memmap works (plain English):
       A normal numpy array lives entirely in RAM. A memmap array lives
@@ -97,9 +97,11 @@ class EmbeddingMemmapStore:
       never returns them because nothing in SQLite points to them.
     """
 
-    def __init__(self, data_dir: str, dim: int = 768):
+    def __init__(self, data_dir: str, dim: int = 768,
+                 embedding_model: str = ""):
         self.data_dir = data_dir
         self.dim = int(dim)
+        self.embedding_model = embedding_model  # e.g. "nomic-embed-text"
         self.dat_path = os.path.join(self.data_dir, "embeddings.f16.dat")
         self.meta_path = os.path.join(self.data_dir, "embeddings_meta.json")
         self.count = 0
@@ -119,6 +121,12 @@ class EmbeddingMemmapStore:
                 return
             self.dim = int(meta.get("dim", self.dim))
             self.count = int(meta.get("count", 0))
+            # Preserve the model that created this index. If the caller
+            # provided a model name AND the file has a different one,
+            # the mismatch is logged by VectorStore after connect().
+            stored_model = meta.get("embedding_model", "")
+            if stored_model and not self.embedding_model:
+                self.embedding_model = stored_model
             # Reconcile meta count with actual .dat file size.
             # If process crashed after memmap flush but before _save_meta(),
             # the .dat file has more rows than meta records. Trust the file.
@@ -134,7 +142,12 @@ class EmbeddingMemmapStore:
         """Write metadata to disk (called after every append).
         Uses atomic write (write to .tmp then os.replace) so a crash
         mid-write never leaves a truncated/corrupt meta file."""
-        meta = {"dim": int(self.dim), "count": int(self.count), "dtype": "float16"}
+        meta = {
+            "dim": int(self.dim),
+            "count": int(self.count),
+            "dtype": "float16",
+            "embedding_model": self.embedding_model,
+        }
         tmp_path = self.meta_path + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2)
@@ -222,13 +235,18 @@ class VectorStore:
         vs.close()   # Always close when done (BUG-003 fix)
     """
 
-    def __init__(self, db_path: str, embedding_dim: int = 768):
+    def __init__(self, db_path: str, embedding_dim: int = 768,
+                 embedding_model: str = ""):
         self.db_path = db_path
         self.embedding_dim = embedding_dim
+        self.embedding_model = embedding_model
         self.conn: Optional[sqlite3.Connection] = None
         self._db_lock = threading.RLock()
         data_dir = os.path.dirname(db_path) or "."
-        self.mem_store = EmbeddingMemmapStore(data_dir=data_dir, dim=embedding_dim)
+        self.mem_store = EmbeddingMemmapStore(
+            data_dir=data_dir, dim=embedding_dim,
+            embedding_model=embedding_model,
+        )
 
     def _ensure_connected(self) -> None:
         """Auto-connect if not yet connected. Replaces bare asserts."""
@@ -262,6 +280,10 @@ class VectorStore:
             self.conn.execute("PRAGMA foreign_keys=ON;")
 
             self._init_schema()
+            # Warn on embedding model mismatch (index vs config)
+            stored = self.mem_store.embedding_model
+            if stored and self.embedding_model and stored != self.embedding_model:
+                logger.warning("[WARN] Embedding model mismatch: index='%s' config='%s'", stored, self.embedding_model)
 
     # =================================================================
     # BUG-001 FIX: Schema now includes file_hash column
@@ -646,6 +668,7 @@ class VectorStore:
         stats: Dict[str, Any] = {
             "embedding_count": self.mem_store.count,
             "embedding_dim": self.mem_store.dim,
+            "embedding_model": self.mem_store.embedding_model,
         }
         with self._db_lock:
             if self.conn:

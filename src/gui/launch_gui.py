@@ -206,6 +206,9 @@ def _load_backends(app, logger):
                 embedding_dim=getattr(
                     getattr(config, "embedding", None), "dimension", DEFAULT_EMBED_DIM
                 ),
+                embedding_model=getattr(
+                    getattr(config, "embedding", None), "model_name", ""
+                ),
             )
             s.connect()
             logger.info("[OK] Vector store connected")

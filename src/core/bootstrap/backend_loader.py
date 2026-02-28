@@ -97,6 +97,7 @@ class BackendLoader:
             s = VectorStore(
                 db_path=db_path,
                 embedding_dim=getattr(getattr(self.config, "embedding", None), "dimension", DEFAULT_EMBED_DIM),
+                embedding_model=getattr(getattr(self.config, "embedding", None), "model_name", ""),
             )
             s.connect()
             bundle.timings_ms["vector_store"] = (time.perf_counter() - t0) * 1000
