@@ -113,7 +113,7 @@ _cached_embedder = None
 _cached_embedder_lock = threading.Lock()
 
 
-def _get_or_build_embedder(model_name, logger):
+def _get_or_build_embedder(model_name, logger, dimension=0):
     """Return a cached Embedder if model_name matches, else build a new one."""
     global _cached_embedder
 
@@ -142,7 +142,7 @@ def _get_or_build_embedder(model_name, logger):
 
         # Fallback: build fresh (different model_name or preload failed)
         from src.core.embedder import Embedder
-        e = Embedder(model_name=model_name)
+        e = Embedder(model_name=model_name, dimension=dimension)
         e.embed_query("warmup")
         _cached_embedder = e
         logger.info("[OK] Embedder loaded (fresh build)")
@@ -219,7 +219,10 @@ def _load_backends(app, logger):
 
         def _init_embedder():
             _set_stage(app, "Embedder...")
-            return _get_or_build_embedder(model_name, logger)
+            embed_dim = getattr(
+                getattr(config, "embedding", None), "dimension", 0
+            )
+            return _get_or_build_embedder(model_name, logger, dimension=embed_dim)
 
         def _init_router():
             _set_stage(app, "LLM Router...")
