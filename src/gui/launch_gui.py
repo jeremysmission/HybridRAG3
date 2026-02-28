@@ -460,6 +460,10 @@ def main():
         wiz = SetupWizard(_tmp_root, _project_root)
         wiz.grab_set()
         force_foreground(wiz, parent=_tmp_root)
+        try:
+            wiz.wait_visibility()
+        except Exception:
+            pass
         _step("Step 2.5: wizard open -- WAITING FOR USER TO CLOSE IT")
         _tmp_root.wait_window(wiz)
         _tmp_root.destroy()
