@@ -123,5 +123,5 @@ server_max:
     gc_between_blocks: false
   notes: >
     Maximum settings for servers or high-end workstations.
-    Embedding: nomic-embed-text (768d, Ollama). LLM: phi4:14b (14B).
+    Embedding: nomic-embed-text (768d, Ollama). LLM: phi4:14b-q4_K_M (14B).
     8x faster than laptop_safe. Requires 64GB+ RAM, 24GB+ VRAM.

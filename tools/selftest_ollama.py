@@ -16,7 +16,7 @@ def main() -> int:
 
         # pick mistral if available, else fail with clear message
         mistral = None
-        for cand in ("mistral:7b", "mistral-nemo:12b", "mistral:latest", "mistral"):
+        for cand in ("mistral:7b", "mistral-nemo:12b", "mistral"):
             if cand in models:
                 mistral = cand
                 break
@@ -30,7 +30,7 @@ def main() -> int:
         print("MISTRAL_GENERATE_OK:", r.json().get("response", "")[:80])
 
         # embeddings test (required for Data menu)
-        emb_model = "nomic-embed-text:latest"
+        emb_model = "nomic-embed-text"
         r2 = c.post(f"{OLLAMA}/api/embeddings", json={"model": emb_model, "prompt": "hello"})
         r2.raise_for_status()
         j = r2.json()

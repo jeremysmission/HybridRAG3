@@ -512,7 +512,7 @@ def phase_5_model_selection():
         mock_resp.status_code = 200
         mock_resp.json.return_value = {
             "models": [
-                {"name": "phi4-mini:latest"},
+                {"name": "phi4-mini"},
                 {"name": "mistral:7b"},
                 {"name": "phi4:14b-q4_K_M"},
                 {"name": "gemma3:4b"},

@@ -585,10 +585,10 @@ while (-not $stepDone) {
         } else {
             Write-Warn "nomic-embed-text NOT found -- run: ollama pull nomic-embed-text"
         }
-        if ($models -contains "phi4-mini:latest" -or $models -contains "phi4-mini") {
-            Write-Ok "phi4-mini model found"
+        if ($models -contains "phi4:14b-q4_K_M" -or $models -contains "phi4-mini") {
+            Write-Ok "Ollama LLM model found"
         } else {
-            Write-Warn "phi4-mini NOT found -- run: ollama pull phi4-mini"
+            Write-Warn "No LLM model found -- run: ollama pull phi4:14b-q4_K_M"
         }
         $stepDone = $true
     } else {

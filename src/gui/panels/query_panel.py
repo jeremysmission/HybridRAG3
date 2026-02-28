@@ -344,7 +344,7 @@ class QueryPanel(tk.LabelFrame):
             if self._model_auto:
                 # Auto mode: score ALL installed models for this use case
                 # and pick the highest-scoring one.  This ensures the best
-                # available hardware is used (e.g., phi4:14b on 48GB GPU).
+                # available hardware is used (e.g., phi4:14b-q4_K_M on 48GB GPU).
                 best_model = None
                 best_score = -1
                 for name in self._installed_models:

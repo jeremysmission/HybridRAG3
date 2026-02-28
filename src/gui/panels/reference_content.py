@@ -347,7 +347,7 @@ APPROVED MODELS (5-model stack, ~26 GB total):
   phi4-mini     3.8B  MIT        Microsoft/USA  2.3GB  Primary
   mistral:7b    7B    Apache 2.0 Mistral/France 4.1GB  Alt (eng-heavy)
   gemma3:4b     4B    Apache 2.0 Google/USA     3.3GB  PM summarization
-  phi4:14b      14B   MIT        Microsoft/USA  9.1GB  Workstation
+  phi4:14b-q4_K_M  14B  MIT       Microsoft/USA  9.1GB  Workstation
   mistral-nemo  12B   Apache 2.0 Mistral/France 7.1GB  128K ctx upgrade
 
 BANNED MODELS:
@@ -517,7 +517,7 @@ LLM_SETTINGS = [
      "Reduce to 120s on fast hardware."),
     ("context_window", "16384", "2048-131072",
      "Max tokens the model sees at once.",
-     "16384 is the default for phi4:14b. Increase with more RAM/GPU."),
+     "16384 is the default for phi4:14b-q4_K_M. Increase with more RAM/GPU."),
     ("max_tokens (online)", "2048", "256-8192",
      "Max output tokens for API mode responses.",
      "2048 is generous for most answers. Reduce to save cost on simple queries."),

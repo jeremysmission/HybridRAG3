@@ -722,7 +722,7 @@ def main():
     for n in user_counts:
         r = simulate_query(hw, idx_700, n, "offline", "phi4:14b-q4_K_M", reranker=True)
         phi4_results.append(r)
-    _print_results_table("OFFLINE (phi4:14b) -- 700 GB", phi4_results)
+    _print_results_table("OFFLINE (phi4:14b-q4_K_M) -- 700 GB", phi4_results)
 
     # Show larger models that dual 3090 enables
     if hw.gpu_vram_gb >= 24:
@@ -772,7 +772,7 @@ def main():
     for n in user_counts:
         r = simulate_query(hw, idx_700, n, "vllm", "phi4:14b-q4_K_M", reranker=True)
         vllm_phi4_results.append(r)
-    _print_results_table("vLLM SERVER (phi4:14b) -- 700 GB", vllm_phi4_results)
+    _print_results_table("vLLM SERVER (phi4:14b-q4_K_M) -- 700 GB", vllm_phi4_results)
 
     # Show larger models via vLLM on dual 3090
     if hw.gpu_vram_gb >= 24:
@@ -886,12 +886,12 @@ def main():
     _print_results_table("LAPTOP OLLAMA (phi4-mini Blackwell) -- 700 GB", laptop_offline_results)
 
     print()
-    print("  phi4:14b on Blackwell (logistics profile):")
+    print("  phi4:14b-q4_K_M on Blackwell (logistics profile):")
     laptop_phi4_results = []
     for n in laptop_counts:
         r = simulate_query(hw_laptop, idx_demo, n, "offline", "phi4:14b-q4_K_M", reranker=True)
         laptop_phi4_results.append(r)
-    _print_results_table("LAPTOP OLLAMA (phi4:14b Blackwell) -- 700 GB", laptop_phi4_results)
+    _print_results_table("LAPTOP OLLAMA (phi4:14b-q4_K_M Blackwell) -- 700 GB", laptop_phi4_results)
 
     # vLLM on Blackwell GPU
     print()
@@ -1283,9 +1283,9 @@ def _write_report(path, hw, idx700, idx2000,
 
     for title, results in [
         ("Offline/Ollama (phi4-mini) -- 700 GB", off700),
-        ("Offline/Ollama (phi4:14b) -- 700 GB", phi4),
+        ("Offline/Ollama (phi4:14b-q4_K_M) -- 700 GB", phi4),
         ("vLLM Server (phi4-mini) -- 700 GB", vllm700),
-        ("vLLM Server (phi4:14b) -- 700 GB", vllm_phi4),
+        ("vLLM Server (phi4:14b-q4_K_M) -- 700 GB", vllm_phi4),
         ("Online (gpt-4o) -- 700 GB", on700),
         ("Online (gpt-4o-mini) -- 700 GB", mini),
         ("Offline/Ollama (phi4-mini) -- 2 TB", off2000),
