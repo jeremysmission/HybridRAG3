@@ -63,37 +63,30 @@ class Embedder:
     # Hostnames considered safe for embedding traffic (no gate check needed)
     _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "[::1]"})
 
-    def __init__(self, model_name: str | None = None):
+    def __init__(self, model_name: str | None = None, dimension: int = 0):
         """
-        Initialize the embedder and verify the Ollama model is available.
+        Initialize the embedder.
 
         Parameters
         ----------
         model_name : str or None
             Name of the Ollama embedding model. When None, falls back to
             DEFAULT_MODEL. Must be pre-pulled via "ollama pull <model>".
-
-            Set via config/default_config.yaml -> embedding.model_name.
+        dimension : int
+            If >0, skip the startup probe and use this dimension.
+            Pass from config to avoid blocking GUI startup.
         """
         import httpx
 
         self.model_name = model_name or self.DEFAULT_MODEL
         self.logger = get_app_logger("embedder")
 
-        # Ollama base URL -- default to 127.0.0.1 (NOT "localhost") to
-        # prevent corporate proxy/DNS interception. On work networks,
-        # "localhost" can resolve through corporate DNS and get redirected
-        # to a proxy IP (e.g. 301 -> 10.x.x.x), silently sending
-        # embedding text off-machine.
         self.base_url = os.getenv(
             "OLLAMA_HOST", "http://127.0.0.1:11434"
         ).rstrip("/")
 
-        # Enforce localhost-only unless NetworkGate explicitly allows
         self._validate_host()
 
-        # Persistent HTTP client -- never follow redirects (a redirect
-        # from localhost means a proxy is intercepting our traffic).
         # proxy=None forces direct connection, bypassing corporate proxy
         # that intercepts even 127.0.0.1 via transparent interception.
         self._client = httpx.Client(
@@ -102,9 +95,17 @@ class Embedder:
             proxy=None,
         )
 
-        # Detect dimension by embedding a probe string.
-        # This also verifies Ollama is running and the model is pulled.
-        self.dimension = self._detect_dimension()
+        if dimension > 0:
+            self.dimension = dimension
+            self.logger.info(
+                "embedder_ready",
+                model=self.model_name,
+                dimension=dimension,
+                base_url=self.base_url,
+                note="dimension from config (no probe)",
+            )
+        else:
+            self.dimension = self._detect_dimension()
 
     def _validate_host(self) -> None:
         """

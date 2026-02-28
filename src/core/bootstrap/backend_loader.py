@@ -116,7 +116,8 @@ class BackendLoader:
                 except Exception:
                     pass
             from src.core.embedder import Embedder
-            e = Embedder(model_name=model_name)
+            dim = getattr(getattr(self.config, "embedding", None), "dimension", 0)
+            e = Embedder(model_name=model_name, dimension=dim)
             # Warm encode to avoid first-query latency spikes
             try:
                 e.embed_query("warmup")

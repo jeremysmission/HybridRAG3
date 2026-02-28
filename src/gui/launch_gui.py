@@ -85,7 +85,10 @@ def _preload_embedder():
     try:
         from src.core.embedder import Embedder
         model_name = _read_embedding_model_from_config()
-        e = Embedder(model_name=model_name)
+        dim = 0
+        if _preloaded_yaml_cfg:
+            dim = _preloaded_yaml_cfg.get("embedding", {}).get("dimension", 0)
+        e = Embedder(model_name=model_name, dimension=dim)
         # Warm encode: force any lazy init (tokenizer buffers, etc.)
         e.embed_query("warmup")
         _preload_result["embedder"] = e
