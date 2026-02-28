@@ -386,8 +386,21 @@ def _step_display(app, results, idx, delay_ms):
         app.status_bar.start_cbit(query_engine=app.query_engine)
 
 
+def _step(msg):
+    """Print a startup step to console immediately (no logging dependency).
+
+    Guaranteed visible in the terminal even if logging is not configured yet.
+    Use this to diagnose startup hangs -- the last printed step is the one
+    that is stuck.
+    """
+    import time
+    ts = time.strftime("%H:%M:%S")
+    print("[STARTUP {}] {}".format(ts, msg), flush=True)
+
+
 def main():
     """Boot config, open GUI immediately, load backends in background."""
+    _step("main() entered")
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -399,36 +412,40 @@ def main():
     # embedder connection is being established in parallel.
 
     # -- Step 1: Boot the system (lightweight -- config + creds + gate) --
-    logger.info("Booting HybridRAG...")
+    _step("Step 1: boot_hybridrag()...")
     boot_result = None
     config = None
 
     try:
         from src.core.boot import boot_hybridrag
+        _step("Step 1a: boot module imported")
         boot_result = boot_hybridrag()
-        if boot_result.success:
-            logger.info("[OK] Boot succeeded")
-        else:
-            logger.warning("[WARN] Boot completed with errors")
+        _step("Step 1b: boot complete (success={})".format(
+            boot_result.success if boot_result else "None"))
+        if boot_result and not boot_result.success:
             for err in boot_result.errors:
-                logger.warning("  %s", err)
+                _step("  boot error: {}".format(err))
     except Exception as e:
-        logger.error("[FAIL] Boot failed: %s", e)
+        _step("Step 1 FAILED: {}".format(e))
 
     # -- Step 2: Load config --
+    _step("Step 2: load_config()...")
     try:
         from src.core.config import load_config
         config = load_config(_project_root)
-        logger.info("[OK] Config loaded (mode=%s)", config.mode)
+        _step("Step 2 done (mode={})".format(config.mode))
     except Exception as e:
-        logger.warning("[WARN] Config load failed, using defaults: %s", e)
+        _step("Step 2 FAILED: {}".format(e))
         from src.core.config import Config
         config = Config()
 
     # -- Step 2.5: First-run setup wizard --
+    _step("Step 2.5: checking needs_setup()...")
     from src.gui.panels.setup_wizard import needs_setup
-    if needs_setup(_project_root):
-        logger.info("First run detected -- launching setup wizard")
+    wizard_needed = needs_setup(_project_root)
+    _step("Step 2.5: needs_setup = {}".format(wizard_needed))
+    if wizard_needed:
+        _step("Step 2.5: launching setup wizard...")
         import tkinter as _tk
         from src.gui.theme import apply_ttk_styles, current_theme
         _tmp_root = _tk.Tk()
@@ -438,38 +455,44 @@ def main():
         from src.gui.panels.setup_wizard import SetupWizard
         wiz = SetupWizard(_tmp_root, _project_root)
         wiz.grab_set()
+        _step("Step 2.5: wizard open -- WAITING FOR USER TO CLOSE IT")
         _tmp_root.wait_window(wiz)
         _tmp_root.destroy()
 
         if not wiz.completed:
-            logger.info("Setup wizard cancelled -- exiting")
+            _step("Step 2.5: wizard cancelled -- exiting")
             sys.exit(0)
 
         # Reload config with wizard-written values
-        logger.info("Reloading config after setup wizard...")
+        _step("Step 2.5: reloading config after wizard...")
         try:
             config = load_config(_project_root)
-            logger.info("[OK] Config reloaded (mode=%s)", config.mode)
+            _step("Step 2.5: config reloaded (mode={})".format(config.mode))
         except Exception as e:
-            logger.warning("[WARN] Config reload failed: %s", e)
+            _step("Step 2.5: config reload FAILED: {}".format(e))
 
     # -- Step 3: Open GUI immediately --
-    logger.info("Opening GUI window...")
+    _step("Step 3: creating HybridRAGApp...")
     from src.gui.app import HybridRAGApp
 
     app = HybridRAGApp(
         boot_result=boot_result,
         config=config,
     )
+    _step("Step 3 done: GUI window created")
 
     # -- Step 4: Load backends in background thread --
+    _step("Step 4: starting backend thread...")
     backend_thread = threading.Thread(
         target=_load_backends, args=(app, logger), daemon=True,
     )
     backend_thread.start()
+    _step("Step 4 done: backend thread running")
 
     # -- Step 5: Run the GUI event loop --
+    _step("Step 5: entering mainloop() -- GUI should be visible now")
     app.mainloop()
+    _step("Step 5 done: mainloop exited")
 
 
 def _detach_and_exit():

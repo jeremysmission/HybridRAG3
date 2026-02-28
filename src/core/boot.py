@@ -149,6 +149,13 @@ def load_config(config_path=None) -> dict:
     return {}
 
 
+def _boot_step(msg):
+    """Print boot step to console for startup hang diagnosis."""
+    import time
+    ts = time.strftime("%H:%M:%S")
+    print("[BOOT    {}] {}".format(ts, msg), flush=True)
+
+
 def boot_hybridrag(config_path=None) -> BootResult:
     """
     Run the complete boot pipeline.
@@ -170,23 +177,24 @@ def boot_hybridrag(config_path=None) -> BootResult:
     Returns:
         BootResult with all status information.
     """
+    _boot_step("boot_hybridrag() entered")
     result = BootResult(
         boot_timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     )
 
     # === STEP 1: Load Configuration ===
-    logger.info("BOOT Step 1: Loading configuration...")
+    _boot_step("Step 1: loading config...")
     try:
         config = load_config(config_path)
         result.config = config
-        logger.info("BOOT Step 1: Configuration loaded")
+        _boot_step("Step 1 done")
     except Exception as e:
         result.errors.append(f"Config load failed: {e}")
-        logger.error("BOOT Step 1 FAILED: %s", e)
+        _boot_step("Step 1 FAILED: {}".format(e))
         return result
 
     # === STEP 2: Resolve Credentials ===
-    logger.info("BOOT Step 2: Resolving credentials...")
+    _boot_step("Step 2: resolving credentials...")
     try:
         from src.security.credentials import resolve_credentials
         creds = resolve_credentials(config)
@@ -202,15 +210,16 @@ def boot_hybridrag(config_path=None) -> BootResult:
         else:
             result.warnings.append("No API key configured -- online mode unavailable")
 
+        _boot_step("Step 2 done")
     except Exception as e:
         result.warnings.append(f"Credential resolution failed: {e}")
-        logger.warning("BOOT Step 2 WARNING: %s", e)
+        _boot_step("Step 2 WARNING: {}".format(e))
 
     # === STEP 2.5: Configure Network Gate ===
     # The gate must be configured BEFORE any network calls (Steps 3-4).
     # It reads the mode from config and the endpoint from credentials
     # to build the access control policy.
-    logger.info("BOOT Step 2.5: Configuring network gate...")
+    _boot_step("Step 2.5: configuring network gate...")
     try:
         from src.core.network_gate import configure_gate
 
@@ -247,14 +256,15 @@ def boot_hybridrag(config_path=None) -> BootResult:
             "BOOT Step 2.5: Network gate configured (mode=%s, endpoint=%s)",
             boot_mode, boot_endpoint[:50] if boot_endpoint else "(none)",
         )
+        _boot_step("Step 2.5 done")
     except Exception as e:
         # If the gate fails to configure, we continue with it in OFFLINE
         # mode (the safe default). This is fail-closed behavior.
         result.warnings.append(f"Network gate configuration failed: {e}")
-        logger.warning("BOOT Step 2.5: Gate config failed, defaulting to OFFLINE: %s", e)
+        _boot_step("Step 2.5 WARNING: {}".format(e))
 
     # === STEP 3: Build API Client (Online Mode) ===
-    logger.info("BOOT Step 3: Building API client...")
+    _boot_step("Step 3: building API client...")
     if result.credentials and result.credentials.is_online_ready:
         try:
             from src.core.api_client_factory import ApiClientFactory
@@ -275,15 +285,16 @@ def boot_hybridrag(config_path=None) -> BootResult:
             if fix:
                 result.errors.append(f"  Fix: {fix}")
             logger.error("BOOT Step 3 FAILED: %s", e)
+        _boot_step("Step 3 done")
     else:
         result.warnings.append("Skipping API client -- credentials incomplete")
-        logger.info("BOOT Step 3: Skipped (credentials incomplete)")
+        _boot_step("Step 3 skipped (no credentials)")
 
     # === STEP 4: Check Ollama (non-blocking) ===
     # Ollama is localhost -- responds in <50ms when running. Run the check
     # in a daemon thread with a short join timeout so boot is not blocked
     # for 3s if Ollama is down or slow to respond.
-    logger.info("BOOT Step 4: Checking Ollama (non-blocking)...")
+    _boot_step("Step 4: checking Ollama (2s timeout)...")
 
     def _check_ollama():
         try:
@@ -359,6 +370,8 @@ def boot_hybridrag(config_path=None) -> BootResult:
             logger.info("BOOT Step 4.5: vLLM not reachable, Ollama fallback active")
     else:
         logger.info("BOOT Step 4.5: vLLM disabled in config, skipping")
+
+    _boot_step("Step 4 done (offline={})".format(result.offline_available))
 
     # === FINAL: Determine overall success ===
     result.success = result.online_available or result.offline_available
