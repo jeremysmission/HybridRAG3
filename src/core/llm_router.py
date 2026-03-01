@@ -1749,6 +1749,13 @@ class LLMRouter:
                     "model": result.model,
                     "latency_ms": result.latency_ms,
                 }
+            else:
+                # Query failed -- must still yield "done" or UI hangs
+                yield {
+                    "done": True,
+                    "tokens_in": 0, "tokens_out": 0,
+                    "model": "unknown", "latency_ms": 0.0,
+                }
 
     def close(self):
         """Release HTTP clients held by backend routers.

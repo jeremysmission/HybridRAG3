@@ -326,8 +326,10 @@ class QueryEngine:
             answer = "".join(full_text)
             elapsed_ms = (time.time() - start_time) * 1000
 
-            if not answer:
+            if not answer or not answer.strip():
                 answer = "Error calling LLM. Please try again."
+                # Yield fallback as tokens so UI shows the message
+                yield {"token": answer}
 
             from .llm_router import LLMResponse
             llm_response = LLMResponse(
