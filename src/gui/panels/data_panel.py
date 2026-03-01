@@ -608,12 +608,12 @@ class DataPanel(tk.Frame):
         self._stats_hint.pack(fill=tk.X)
 
         self._stats_label = tk.Label(
-            frame, text="", anchor=tk.W,
+            frame, text="--/s | ETA -- | copied: 0 | dedup: 0 | skip: 0 | err: 0", anchor=tk.W,
             bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
         )
         self._stats_label.pack(fill=tk.X)
         self._stats_detail_label = tk.Label(
-            frame, text="", anchor=tk.W,
+            frame, text="Elapsed 0s | Data 0 B / 0 B | discovered 0", anchor=tk.W,
             bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
         )
         self._stats_detail_label.pack(fill=tk.X)
@@ -651,8 +651,12 @@ class DataPanel(tk.Frame):
         self._stop_btn.config(state=tk.NORMAL)
         self._progress_bar["value"] = 0
         self._progress_label.config(text="0 / 0")
-        self._stats_label.config(text="")
-        self._stats_detail_label.config(text="")
+        self._stats_label.config(
+            text="--/s | ETA -- | copied: 0 | dedup: 0 | skip: 0 | err: 0"
+        )
+        self._stats_detail_label.config(
+            text="Elapsed 0s | Data 0 B / 0 B | discovered 0"
+        )
         if resume:
             self._transfer_status.config(
                 text="Resuming transfer from saved state...", fg=t["orange"])
