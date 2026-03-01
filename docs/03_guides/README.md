@@ -46,7 +46,7 @@ rag-diag
 
 After initial setup, steps 2-4 are never needed again. Daily use starts at step 5.
 
-See `docs/INSTALL_AND_SETUP.md` for detailed first-time installation instructions.
+See `docs/01_setup/INSTALL_AND_SETUP.md` for detailed first-time installation instructions.
 
 ## Daily Use
 
