@@ -97,6 +97,7 @@ class PathsConfig:
     database: str = ""             # Full path to hybridrag.sqlite3
     embeddings_cache: str = ""     # Folder where memmap files live
     source_folder: str = ""        # Folder containing documents to index
+    download_folder: str = ""      # Folder where downloads/transfers land
 
     def __post_init__(self) -> None:
         # __post_init__ runs automatically after the dataclass is created.
@@ -115,6 +116,10 @@ class PathsConfig:
         if source_env and not self.source_folder:
             self.source_folder = source_env
 
+        # download_folder defaults to source_folder if not set explicitly
+        if not self.download_folder and self.source_folder:
+            self.download_folder = self.source_folder
+
         # Clean up paths: expand %VARIABLES% and normalize slashes
         if self.database:
             self.database = os.path.normpath(os.path.expandvars(self.database))
@@ -122,6 +127,8 @@ class PathsConfig:
             self.embeddings_cache = os.path.normpath(os.path.expandvars(self.embeddings_cache))
         if self.source_folder:
             self.source_folder = os.path.normpath(os.path.expandvars(self.source_folder))
+        if self.download_folder:
+            self.download_folder = os.path.normpath(os.path.expandvars(self.download_folder))
 
 
 @dataclass

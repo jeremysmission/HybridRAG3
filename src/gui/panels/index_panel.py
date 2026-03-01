@@ -14,8 +14,11 @@ import time
 import logging
 from datetime import datetime
 
+from tkinter import filedialog
+
 from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_SMALL, FONT_MONO, bind_hover
 from src.gui.helpers.safe_after import safe_after
+from src.core.config import save_config_field
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +49,7 @@ class IndexPanel(tk.LabelFrame):
 
     def _build_widgets(self, t):
         """Build all child widgets with theme colors."""
-        # -- Row 0: Source folder (read-only display) --
+        # -- Row 0: Source folder (changeable independently of downloader) --
         row0 = tk.Frame(self, bg=t["panel_bg"])
         row0.pack(fill=tk.X, pady=(0, 4))
 
@@ -66,6 +69,16 @@ class IndexPanel(tk.LabelFrame):
         )
         self.folder_display.pack(side=tk.LEFT, fill=tk.X, expand=True,
                                  padx=(8, 0))
+
+        self._change_source_btn = tk.Button(
+            row0, text="Change...", command=self._on_change_source, width=10,
+            bg=t["accent"], fg=t["accent_fg"], font=FONT,
+            relief=tk.FLAT, bd=0, padx=12, pady=4,
+            activebackground=t.get("accent_hover", t["accent"]),
+            activeforeground=t["accent_fg"],
+        )
+        self._change_source_btn.pack(side=tk.RIGHT, padx=(8, 0))
+        bind_hover(self._change_source_btn)
 
         # -- Row 0b: Index folder (read-only display) --
         row0b = tk.Frame(self, bg=t["panel_bg"])
@@ -90,7 +103,7 @@ class IndexPanel(tk.LabelFrame):
                                 padx=(8, 0))
 
         self.paths_hint = tk.Label(
-            row0b, text="(change in Settings > API & Admin)",
+            row0b, text="",
             bg=t["panel_bg"], fg=t["gray"], font=("Segoe UI", 8),
         )
         self.paths_hint.pack(side=tk.RIGHT)
@@ -213,6 +226,29 @@ class IndexPanel(tk.LabelFrame):
         if hasattr(self, "_status_var"):
             self._status_var.set(text)
             self._status_label.configure(fg=color)
+
+    def _on_change_source(self):
+        """Open folder picker to change the indexer source folder."""
+        current = self.folder_var.get().strip()
+        initial = current if current and os.path.isdir(current) else ""
+        folder = filedialog.askdirectory(
+            title="Select Source Folder to Index From",
+            initialdir=initial,
+        )
+        if folder:
+            norm = os.path.normpath(folder)
+            self.folder_var.set(norm)
+
+            # Update live config
+            paths = getattr(self.config, "paths", None)
+            if paths:
+                paths.source_folder = norm
+
+            # Persist to YAML
+            try:
+                save_config_field("paths.source_folder", norm)
+            except Exception as e:
+                logger.warning("Could not persist source path: %s", e)
 
     def _diagnose_disabled_reason(self):
         """Return a human-readable reason why indexing is disabled."""

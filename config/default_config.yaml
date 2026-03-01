@@ -48,6 +48,7 @@ paths:
   database: "D:\\RAG Indexed Data\\hybridrag.sqlite3"
   embeddings_cache: "D:\\RAG Indexed Data\\_embeddings"
   source_folder: "D:\\RAG Source Data"
+  download_folder: "D:\\RAG Source Data"
 performance:
   gc_between_blocks: true
   gc_between_files: true

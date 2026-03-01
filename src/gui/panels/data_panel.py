@@ -180,7 +180,7 @@ class DataPanel(tk.Frame):
         tk.Label(
             self,
             text="Transfer files from network drives or local folders "
-                 "into your RAG source folder for indexing.",
+                 "into your download folder. Indexer source is set separately.",
             bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
             anchor=tk.W, wraplength=600, justify=tk.LEFT,
         ).pack(fill=tk.X, padx=16, pady=(0, 4))
@@ -197,9 +197,9 @@ class DataPanel(tk.Frame):
     # ================================================================
 
     def _build_source_path_section(self, t):
-        """Info bar showing the current config source folder."""
+        """Info bar showing where downloads/transfers land."""
         frame = tk.LabelFrame(
-            self, text="Current Source Path", padx=16, pady=8,
+            self, text="Download Destination", padx=16, pady=8,
             bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD,
         )
         frame.pack(fill=tk.X, padx=16, pady=(8, 4))
@@ -208,10 +208,12 @@ class DataPanel(tk.Frame):
         row = tk.Frame(frame, bg=t["panel_bg"])
         row.pack(fill=tk.X)
 
-        source = getattr(
+        dl_folder = getattr(
+            getattr(self.config, "paths", None), "download_folder", ""
+        ) or getattr(
             getattr(self.config, "paths", None), "source_folder", ""
         ) or "(not set)"
-        self._source_path_var = tk.StringVar(value=source)
+        self._source_path_var = tk.StringVar(value=dl_folder)
 
         self._source_path_label = tk.Label(
             row, textvariable=self._source_path_var, anchor=tk.W,
@@ -230,31 +232,27 @@ class DataPanel(tk.Frame):
         bind_hover(self._change_source_btn)
 
     def _on_change_source(self):
-        """Open folder picker for the destination source folder."""
+        """Open folder picker for the download destination folder."""
         current = self._source_path_var.get().strip()
         initial = current if current and os.path.isdir(current) else ""
         folder = filedialog.askdirectory(
-            title="Select Source Documents Folder (Transfer Destination)",
+            title="Select Download Destination Folder",
             initialdir=initial,
         )
         if folder:
             norm = os.path.normpath(folder)
             self._source_path_var.set(norm)
 
-            # Update live config
+            # Update live config (download_folder only, not source_folder)
             paths = getattr(self.config, "paths", None)
             if paths:
-                paths.source_folder = norm
+                paths.download_folder = norm
 
             # Persist to YAML
             try:
-                save_config_field("paths.source_folder", norm)
+                save_config_field("paths.download_folder", norm)
             except Exception as e:
-                logger.warning("Could not persist source path: %s", e)
-
-            # Sync to Index Panel
-            if hasattr(self._app, "index_panel"):
-                self._app.index_panel.folder_var.set(norm)
+                logger.warning("Could not persist download path: %s", e)
 
     # ================================================================
     # SECTION B: Transfer Source Browser
