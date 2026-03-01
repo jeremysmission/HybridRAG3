@@ -92,7 +92,7 @@ class StatusBar(tk.Frame):
 
         model_name = self._read_active_model()
         self.model_label = tk.Label(
-            self, text="Offline model: {}".format(model_name), anchor=tk.W,
+            self, text="Active model: {}".format(model_name), anchor=tk.W,
             padx=8, pady=4, bg=t["panel_bg"], fg=t["fg"], font=FONT,
         )
         self.model_label.pack(side=tk.LEFT)
@@ -484,8 +484,26 @@ class StatusBar(tk.Frame):
         self.loading_label.bind("<Button-1>", self._show_ibit_detail)
 
     def _read_active_model(self):
-        """Read config.ollama.model safely. Always returns a string."""
+        """Return active model/deployment based on current mode."""
         try:
+            mode = getattr(self.config, "mode", "offline")
+            if mode == "online":
+                # Prefer live router status when available.
+                if self.router:
+                    try:
+                        status = self.router.get_status()
+                        dep = status.get("api_deployment", "")
+                        if dep:
+                            return dep
+                    except Exception:
+                        pass
+                api = getattr(self.config, "api", None)
+                if api:
+                    dep = getattr(api, "deployment", "")
+                    if dep:
+                        return dep
+                return "online (not set)"
+
             ollama = getattr(self.config, "ollama", None)
             if ollama:
                 return getattr(ollama, "model", "unknown") or "unknown"
@@ -494,10 +512,10 @@ class StatusBar(tk.Frame):
         return "unknown"
 
     def _update_model_label(self):
-        """Refresh the active model indicator from live config."""
+        """Refresh the active model indicator from live config/router."""
         t = current_theme()
         model = self._read_active_model()
-        self.model_label.config(text="Offline model: {}".format(model), fg=t["fg"])
+        self.model_label.config(text="Active model: {}".format(model), fg=t["fg"])
 
     def force_refresh(self):
         """Immediately refresh all indicators."""

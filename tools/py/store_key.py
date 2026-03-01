@@ -20,12 +20,28 @@
 #   - It never appears in git, logs, or config files
 #   - Only your Windows user account can read it back
 # ============================================================================
+import argparse
 import os
 import sys
 import keyring
 
-# BUG 7 fix: prefer env var (hides key from process list), fall back to argv
-key = os.environ.get('HYBRIDRAG_API_KEY') or (sys.argv[1] if len(sys.argv) > 1 else None)
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Store HybridRAG Azure API key in Windows Credential Manager."
+    )
+    parser.add_argument(
+        "api_key",
+        nargs="?",
+        help="API key value (optional if HYBRIDRAG_API_KEY is set).",
+    )
+    return parser.parse_args()
+
+
+args = parse_args()
+
+# Prefer env var (hides key from process list), then explicit CLI arg.
+key = os.environ.get("HYBRIDRAG_API_KEY") or args.api_key
 if not key:
     print("  [ERROR] No API key provided (set HYBRIDRAG_API_KEY or pass as argument).")
     sys.exit(1)

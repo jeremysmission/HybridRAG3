@@ -36,6 +36,8 @@ sys.path.insert(0, os.getcwd())
 import keyring
 endpoint = keyring.get_password("hybridrag", "azure_endpoint")
 api_key = keyring.get_password("hybridrag", "azure_api_key")
+deployment = keyring.get_password("hybridrag", "azure_deployment")
+api_version = keyring.get_password("hybridrag", "azure_api_version")
 
 if not endpoint or not api_key:
     print("  [ERROR] Missing credentials. Run rag-store-endpoint and rag-store-key.")
@@ -47,31 +49,40 @@ is_azure = ("azure" in url_lower or ".openai.azure.com" in url_lower
             or "cognitiveservices" in url_lower)
 
 base = endpoint.rstrip("/")
+d = "(not-applicable)"
+v = (
+    os.environ.get("AZURE_OPENAI_API_VERSION")
+    or api_version
+    or "2024-02-01"
+)
 
 if is_azure:
     if "/chat/completions" in endpoint:
         final_url = base
         if "api-version" not in base:
-            final_url += "?api-version=" + os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-01")
+            final_url += "?api-version=" + v
+        d = "(from endpoint URL)"
     elif "/deployments/" in endpoint:
-        v = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-01")
         final_url = f"{base}/chat/completions?api-version={v}"
+        d = "(from endpoint URL)"
     else:
-        d = None
-        for var in ["AZURE_OPENAI_DEPLOYMENT", "AZURE_DEPLOYMENT", "OPENAI_DEPLOYMENT",
-                     "AZURE_OPENAI_DEPLOYMENT_NAME", "DEPLOYMENT_NAME"]:
-            val = os.environ.get(var)
-            if val:
-                d = val
-                break
+        d = (
+            os.environ.get("AZURE_OPENAI_DEPLOYMENT")
+            or os.environ.get("AZURE_DEPLOYMENT")
+            or os.environ.get("OPENAI_DEPLOYMENT")
+            or os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME")
+            or os.environ.get("DEPLOYMENT_NAME")
+            or deployment
+        )
         if not d:
             d = "gpt-35-turbo"
-        v = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-01")
         final_url = f"{base}/openai/deployments/{d}/chat/completions?api-version={v}"
     
     headers = {"api-key": api_key, "Content-Type": "application/json"}
     print(f"  Provider:  AZURE")
     print(f"  Auth:      api-key header")
+    print(f"  Deployment: {d}")
+    print(f"  API Ver:    {v}")
 else:
     if "/chat/completions" in endpoint:
         final_url = base

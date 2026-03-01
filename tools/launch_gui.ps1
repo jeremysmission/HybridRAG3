@@ -10,5 +10,11 @@ $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $env:HYBRIDRAG_PROJECT_ROOT = $ProjectRoot
 
-Write-Host '[OK] Launching HybridRAG GUI...' -ForegroundColor Green
-python "$ProjectRoot\src\gui\launch_gui.py"
+$VenvPython = Join-Path $ProjectRoot '.venv\Scripts\python.exe'
+if (Test-Path $VenvPython) {
+    Write-Host "[OK] Launching HybridRAG GUI via venv: $VenvPython" -ForegroundColor Green
+    & $VenvPython "$ProjectRoot\src\gui\launch_gui.py"
+} else {
+    Write-Host "[WARN] .venv python not found; falling back to system python" -ForegroundColor Yellow
+    python "$ProjectRoot\src\gui\launch_gui.py"
+}

@@ -300,8 +300,7 @@ class QueryPanel(tk.LabelFrame):
     def _apply_model_list(self, names):
         """Set combobox values and trigger initial model selection."""
         self._installed_models = names
-        values = ["Auto"] + names
-        self.model_combo["values"] = values
+        self._set_model_combo_for_mode()
 
         # If config already has a model that isn't the recommendation
         # default, pre-select it (user's persisted choice).
@@ -316,6 +315,27 @@ class QueryPanel(tk.LabelFrame):
             self._model_auto = False
 
         self._on_use_case_change()
+
+    def _set_model_combo_for_mode(self):
+        """Keep model combobox semantics aligned with offline/online mode."""
+        mode = getattr(self.config, "mode", "offline")
+        if mode == "online":
+            # Online model comes from API deployment selection, not Ollama list.
+            deployment = (
+                getattr(getattr(self.config, "api", None), "deployment", "")
+                or "Auto (online)"
+            )
+            label = f"Online: {deployment}"
+            self.model_combo["values"] = [label]
+            self.model_var.set(label)
+            self.model_combo.config(state=tk.DISABLED)
+            return
+
+        values = ["Auto"] + self._installed_models
+        self.model_combo["values"] = values
+        self.model_combo.config(state="readonly")
+        if self._model_auto or self.model_var.get() not in values:
+            self.model_var.set("Auto")
 
     def _on_model_select(self, event=None):
         """Handle user selecting a model from the dropdown."""
@@ -369,6 +389,7 @@ class QueryPanel(tk.LabelFrame):
         uc_key = self._uc_keys[idx]
 
         mode = getattr(self.config, "mode", "offline")
+        self._set_model_combo_for_mode()
         if mode == "offline":
             rec = RECOMMENDED_OFFLINE.get(uc_key, {})
 
@@ -457,14 +478,40 @@ class QueryPanel(tk.LabelFrame):
             deployments = get_available_deployments()
             best = select_best_model(uc_key, deployments)
             if best:
+                safe_after(self, 0, self.model_var.set, f"Online: {best}")
+                safe_after(self, 0, lambda: self.model_combo.config(state=tk.DISABLED))
                 safe_after(self, 0, self.model_info_var.set, best)
             else:
-                safe_after(self, 0, self.model_info_var.set, "(no model)")
+                configured = (
+                    getattr(getattr(self.config, "api", None), "deployment", "")
+                    or ""
+                ).strip()
+                if configured:
+                    safe_after(self, 0, self.model_var.set, f"Online: {configured}")
+                    safe_after(self, 0, lambda: self.model_combo.config(state=tk.DISABLED))
+                    safe_after(
+                        self, 0, self.model_info_var.set,
+                        f"{configured} (configured fallback)",
+                    )
+                else:
+                    safe_after(self, 0, self.model_info_var.set, "(no model)")
         except RuntimeError:
             pass  # Widget destroyed before thread finished -- safe to ignore
         except Exception:
             try:
-                safe_after(self, 0, self.model_info_var.set, "(discovery failed)")
+                configured = (
+                    getattr(getattr(self.config, "api", None), "deployment", "")
+                    or ""
+                ).strip()
+                if configured:
+                    safe_after(self, 0, self.model_var.set, f"Online: {configured}")
+                    safe_after(self, 0, lambda: self.model_combo.config(state=tk.DISABLED))
+                    safe_after(
+                        self, 0, self.model_info_var.set,
+                        f"{configured} (configured fallback)",
+                    )
+                else:
+                    safe_after(self, 0, self.model_info_var.set, "(discovery failed)")
             except RuntimeError:
                 pass  # Widget destroyed
 

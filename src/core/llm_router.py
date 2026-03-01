@@ -994,6 +994,7 @@ class APIRouter:
         self.logger = get_app_logger("api_router")
         self.last_error = ""
         self.provider = provider_override or ""
+        self.http_api_client = None
 
         # Store the raw endpoint for diagnostics/status reporting
         self.base_endpoint = endpoint.rstrip("/") if endpoint else config.api.endpoint.rstrip("/")
@@ -1126,6 +1127,47 @@ class APIRouter:
         except Exception as e:
             self.client = None
             self.logger.error("api_router_init_failed", error=str(e))
+            self._init_http_fallback_client()
+
+        # If SDK import/init failed, try the internal HTTP client as fallback.
+        if self.client is None and self.http_api_client is None:
+            self._init_http_fallback_client()
+
+    def _init_http_fallback_client(self):
+        """Initialize internal HTTP client fallback when SDK path is unavailable."""
+        try:
+            from src.core.api_client_factory import ApiClientFactory
+            from src.security.credentials import ApiCredentials
+
+            config_dict = (
+                self.config.to_dict()
+                if hasattr(self.config, "to_dict")
+                else {
+                    "api": {
+                        "provider": "azure" if self.is_azure else "openai",
+                        "endpoint": self.base_endpoint,
+                        "deployment": self.deployment,
+                        "api_version": self.api_version,
+                        "model": getattr(self.config.api, "model", ""),
+                    }
+                }
+            )
+            factory = ApiClientFactory(config_dict)
+            creds = ApiCredentials(
+                api_key=self.api_key,
+                endpoint=self.base_endpoint,
+                deployment=self.deployment,
+                api_version=self.api_version,
+                provider=("azure" if self.is_azure else "openai"),
+            )
+            self.http_api_client = factory.build(creds)
+            self.logger.info(
+                "api_router_http_fallback_ready",
+                provider=("azure" if self.is_azure else "openai"),
+            )
+        except Exception as e:
+            self.http_api_client = None
+            self.logger.error("api_router_http_fallback_init_failed", error=str(e))
 
     def _extract_azure_base(self, url: str) -> str:
         """
@@ -1190,11 +1232,11 @@ class APIRouter:
         The only difference is which client we created in __init__.
         """
         self.last_error = ""
-        if self.client is None:
+        if self.client is None and self.http_api_client is None:
             self.last_error = "API client not ready (SDK missing or init failed)"
             self.logger.error(
                 "api_client_not_ready",
-                hint="openai SDK not installed or client init failed",
+                hint="openai SDK not installed and HTTP fallback unavailable",
             )
             return None
 
@@ -1245,26 +1287,30 @@ class APIRouter:
                 model=model_name,
             )
 
-            response = self.client.chat.completions.create(
-                model=model_name,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=self.config.api.max_tokens,
-                temperature=self.config.api.temperature,
-            )
-
-            # -- Parse the SDK response --
-            # The SDK returns a typed object, not raw JSON.
-            # response.choices[0].message.content = the AI's answer
-            # response.usage.prompt_tokens = tokens in our prompt
-            # response.usage.completion_tokens = tokens the AI generated
-            # response.model = which model actually answered
-
-            answer_text = response.choices[0].message.content
-            tokens_in = response.usage.prompt_tokens if response.usage else 0
-            tokens_out = response.usage.completion_tokens if response.usage else 0
-            actual_model = response.model or model_name
+            if self.client is not None:
+                response = self.client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=self.config.api.max_tokens,
+                    temperature=self.config.api.temperature,
+                )
+                answer_text = response.choices[0].message.content
+                tokens_in = response.usage.prompt_tokens if response.usage else 0
+                tokens_out = response.usage.completion_tokens if response.usage else 0
+                actual_model = response.model or model_name
+            else:
+                fallback = self.http_api_client.chat(
+                    user_message=prompt,
+                    max_tokens=self.config.api.max_tokens,
+                    temperature=self.config.api.temperature,
+                )
+                answer_text = fallback.get("answer", "")
+                usage = fallback.get("usage", {}) or {}
+                tokens_in = usage.get("prompt_tokens", 0)
+                tokens_out = usage.get("completion_tokens", 0)
+                actual_model = fallback.get("model", model_name) or model_name
             latency_ms = (time.time() - start_time) * 1000
 
             self.logger.info(
@@ -1368,9 +1414,9 @@ class APIRouter:
         status = {
             "provider": detected_provider,
             "endpoint": self.base_endpoint,
-            "api_configured": self.client is not None,
+            "api_configured": (self.client is not None or self.http_api_client is not None),
             "sdk_available": _openai_sdk_available(),
-            "sdk": "openai_official",
+            "sdk": "openai_official" if self.client is not None else "http_fallback",
         }
         if self.is_azure:
             status["deployment"] = self.deployment

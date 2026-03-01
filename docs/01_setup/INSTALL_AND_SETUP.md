@@ -4,6 +4,18 @@ Last Updated: 2026-02-24
 
 ---
 
+## Online API Quick Link
+
+If you are setting up Azure/OpenAI online mode on a new machine, use:
+
+- `docs/01_setup/ONLINE_API_SETUP_FROM_SCRATCH.md`
+
+It includes both:
+- one-command setup (`tools/py/setup_online_api.py`)
+- manual setup + verification flow
+
+---
+
 ## Prerequisites
 
 | Requirement | Details |
