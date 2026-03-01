@@ -1211,14 +1211,30 @@ class ApiAdminTab(tk.Frame):
         self.save_cred_btn.pack(side=tk.LEFT, padx=(0, 8))
         bind_hover(self.save_cred_btn)
 
+        # Safety-first default: hide manual connection test button to prevent
+        # accidental clicks that can disrupt live demo state.
+        #
+        # To re-enable intentionally, set:
+        #   HYBRIDRAG_ENABLE_CONN_TEST=1
+        allow_conn_test = os.environ.get(
+            "HYBRIDRAG_ENABLE_CONN_TEST", ""
+        ).strip().lower() in ("1", "true", "yes")
         self.test_btn = tk.Button(
             btn_row, text="Test Connection", command=self._on_test_connection,
             bg=t["accent"], fg=t["accent_fg"], font=FONT,
             relief=tk.FLAT, bd=0, padx=12, pady=6,
             activebackground=t["accent_hover"], activeforeground=t["accent_fg"],
         )
-        self.test_btn.pack(side=tk.LEFT, padx=(0, 8))
-        bind_hover(self.test_btn)
+        if allow_conn_test:
+            self.test_btn.pack(side=tk.LEFT, padx=(0, 8))
+            bind_hover(self.test_btn)
+        else:
+            self.test_btn.config(state=tk.DISABLED)
+            self.test_disabled_label = tk.Label(
+                btn_row, text="Connection test hidden (safety mode)",
+                anchor=tk.W, bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+            )
+            self.test_disabled_label.pack(side=tk.LEFT, padx=(0, 8))
 
         self.clear_cred_btn = tk.Button(
             btn_row, text="Clear Credentials", command=self._on_clear_credentials,
