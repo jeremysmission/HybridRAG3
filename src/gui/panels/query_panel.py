@@ -109,6 +109,19 @@ class QueryPanel(tk.LabelFrame):
         self.uc_dropdown.pack(side=tk.LEFT, padx=(8, 0))
         self.uc_dropdown.bind("<<ComboboxSelected>>", self._on_use_case_change)
 
+        self.uc_apply_btn = tk.Button(
+            row0, text="Apply", command=self._on_use_case_change, width=6,
+            font=FONT, bg=t["accent"], fg="white", relief=tk.FLAT,
+        )
+        self.uc_apply_btn.pack(side=tk.LEFT, padx=(8, 0))
+
+        self.uc_status_var = tk.StringVar(value="")
+        self.uc_status_label = tk.Label(
+            row0, textvariable=self.uc_status_var, bg=t["panel_bg"],
+            fg=t["green"], font=FONT,
+        )
+        self.uc_status_label.pack(side=tk.LEFT, padx=(8, 0))
+
         # -- Row 1: Model selector (Auto + installed Ollama models) --
         row1 = tk.Frame(self, bg=t["panel_bg"])
         row1.pack(fill=tk.X, pady=(0, 8))
@@ -179,19 +192,27 @@ class QueryPanel(tk.LabelFrame):
         )
         self.answer_text.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
 
-        # -- Sources line --
+        # -- Sources line (wraps when wider than panel) --
         self.sources_label = tk.Label(
             self, text="Sources: (none)", anchor=tk.W, fg=t["gray"],
-            bg=t["panel_bg"], font=FONT,
+            bg=t["panel_bg"], font=FONT, justify=tk.LEFT, wraplength=1,
         )
         self.sources_label.pack(fill=tk.X, pady=(8, 0))
+        self.sources_label.bind(
+            "<Configure>",
+            lambda e: e.widget.config(wraplength=max(1, e.width - 4)),
+        )
 
-        # -- Metrics line (monospace for aligned numbers) --
+        # -- Metrics line (monospace for aligned numbers, wraps if needed) --
         self.metrics_label = tk.Label(
             self, text="", anchor=tk.W, fg=t["gray"],
-            bg=t["panel_bg"], font=FONT_MONO,
+            bg=t["panel_bg"], font=FONT_MONO, justify=tk.LEFT, wraplength=1,
         )
         self.metrics_label.pack(fill=tk.X)
+        self.metrics_label.bind(
+            "<Configure>",
+            lambda e: e.widget.config(wraplength=max(1, e.width - 4)),
+        )
 
         # -- Vector field overlay (animated, hidden until query starts) --
         self._overlay = VectorFieldOverlay(self.answer_text, theme=t)
@@ -406,6 +427,10 @@ class QueryPanel(tk.LabelFrame):
                     # Standing rule: reranker destroys unanswerable/injection/
                     # ambiguous eval scores. Reranker is controlled ONLY via
                     # config YAML, never by use-case switching.
+
+            # Flash confirmation so user knows the change took effect
+            self.uc_status_var.set("[OK] Applied")
+            self.after(3000, lambda: self.uc_status_var.set(""))
         else:
             # Online: resolve deployments off the main thread to avoid
             # freezing the GUI on a 1-3s network call.
@@ -599,6 +624,15 @@ class QueryPanel(tk.LabelFrame):
         """
         self._streaming = False
         self._stop_elapsed_timer()
+
+        # Fallback: if streaming produced no visible tokens, populate
+        # from result.answer so the answer box is never blank.
+        current = self.answer_text.get("1.0", tk.END).strip()
+        if not current and result.answer:
+            self.answer_text.config(state=tk.NORMAL)
+            self.answer_text.delete("1.0", tk.END)
+            self.answer_text.insert("1.0", result.answer)
+
         self.answer_text.config(state=tk.DISABLED)
         self.ask_btn.config(state=tk.NORMAL)
         self.network_label.config(text="")
@@ -608,6 +642,21 @@ class QueryPanel(tk.LabelFrame):
         if result.error:
             self._show_error("[FAIL] {}".format(result.error))
             return
+
+        # Display grounding status if available
+        g_score = getattr(result, "grounding_score", -1.0)
+        g_blocked = getattr(result, "grounding_blocked", False)
+        if g_blocked:
+            self.network_label.config(
+                text="Grounding: BLOCKED (score {:.0%})".format(g_score),
+                fg=t["red"],
+            )
+        elif g_score >= 0:
+            color = t["green"] if g_score >= 0.8 else t["orange"] if g_score >= 0.5 else t["red"]
+            self.network_label.config(
+                text="Grounding: {:.0%} verified".format(g_score),
+                fg=color,
+            )
 
         if result.sources:
             source_strs = []
@@ -653,11 +702,36 @@ class QueryPanel(tk.LabelFrame):
             self._show_error("[FAIL] {}".format(result.error))
             return
 
-        # Display answer
+        # Display answer -- never leave the box blank
+        answer = result.answer or ""
+        if not answer.strip():
+            if result.sources:
+                answer = (
+                    "Search found relevant documents but the LLM returned "
+                    "an empty response. This may indicate the model is still "
+                    "loading or the context was too large. Try again."
+                )
+            else:
+                answer = "No relevant information found in knowledge base."
         self.answer_text.config(state=tk.NORMAL)
         self.answer_text.delete("1.0", tk.END)
-        self.answer_text.insert("1.0", result.answer)
+        self.answer_text.insert("1.0", answer)
         self.answer_text.config(state=tk.DISABLED)
+
+        # Display grounding status if available
+        g_score = getattr(result, "grounding_score", -1.0)
+        g_blocked = getattr(result, "grounding_blocked", False)
+        if g_blocked:
+            self.network_label.config(
+                text="Grounding: BLOCKED (score {:.0%})".format(g_score),
+                fg=t["red"],
+            )
+        elif g_score >= 0:
+            color = t["green"] if g_score >= 0.8 else t["orange"] if g_score >= 0.5 else t["red"]
+            self.network_label.config(
+                text="Grounding: {:.0%} verified".format(g_score),
+                fg=color,
+            )
 
         # Display sources
         if result.sources:
