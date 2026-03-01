@@ -454,13 +454,7 @@ class StatusBar(tk.Frame):
             self._cbit_timer_id = self.after(self.CBIT_MS, self._run_cbit)
 
     def _apply_cbit(self, results):
-        """Update badge if CBIT detects degradation.
-
-        Color logic:
-          - All CBIT pass  -> keep IBIT badge (green or red)
-          - Some CBIT fail -> orange (degraded) with CBIT detail
-          - All CBIT fail  -> red (critical)
-        """
+        """Update badge if CBIT detects degradation."""
         t = current_theme()
         self._cbit_results = results
         passed = sum(1 for r in results if r.ok)

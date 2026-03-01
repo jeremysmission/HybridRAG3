@@ -68,7 +68,7 @@ from src.core.exceptions import (
     ConnectionFailedError,
     TLSValidationError,
     ProxyError,
-    TimeoutError,
+    RequestTimeoutError,
     AuthRejectedError,
     ForbiddenError,
     DeploymentNotFoundError,
@@ -119,7 +119,7 @@ def _():
         (ConnectionFailedError(), "NET-001"),
         (TLSValidationError(), "NET-002"),
         (ProxyError(), "NET-003"),
-        (TimeoutError(), "NET-004"),
+        (RequestTimeoutError(), "NET-004"),
     ]
     for exc, code in exceptions:
         assert exc.error_code == code
@@ -195,7 +195,7 @@ def _():
 
 @test("TimeoutError includes timeout_seconds when provided")
 def _():
-    e = TimeoutError(timeout_seconds=30)
+    e = RequestTimeoutError(timeout_seconds=30)
     assert "30" in str(e)
 
 @test("OllamaModelNotFoundError includes model name when provided")
@@ -258,7 +258,7 @@ def _():
         InvalidEndpointError, DeploymentNotConfiguredError,
         ProviderConfigError, ApiVersionNotConfiguredError,
         ConnectionFailedError, TLSValidationError, ProxyError,
-        TimeoutError, AuthRejectedError, ForbiddenError,
+        RequestTimeoutError, AuthRejectedError, ForbiddenError,
         DeploymentNotFoundError, RateLimitedError, ServerError,
         UnexpectedResponseError, OllamaNotRunningError,
         OllamaModelNotFoundError, IndexNotFoundError, IndexCorruptedError,
