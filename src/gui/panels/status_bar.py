@@ -116,7 +116,7 @@ class StatusBar(tk.Frame):
             padx=8, pady=4, bg=t["panel_bg"], fg=t["fg"], font=FONT,
             justify=tk.LEFT, wraplength=1,
         )
-        self.model_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.model_label.pack(side=tk.LEFT)
         self.model_label.bind(
             "<Configure>",
             lambda e: e.widget.config(wraplength=max(120, e.width - 10)),
@@ -237,12 +237,12 @@ class StatusBar(tk.Frame):
                     creds_present = False
                 if creds_present:
                     self.ollama_label.config(
-                        text="Backend Health: Application Programming Interface (API) Credentials Present (Initialization Pending)",
+                        text="Backend Health: API Init Pending",
                         fg=t["orange"],
                     )
                 else:
                     self.ollama_label.config(
-                        text="Backend Health: Application Programming Interface (API) Not Configured",
+                        text="Backend Health: API Not Configured",
                         fg=t["orange"],
                     )
         elif mode == "offline":
@@ -599,8 +599,11 @@ class StatusBar(tk.Frame):
         t = current_theme()
         mode = getattr(self.config, "mode", "offline")
         model = self._read_active_model()
+        model_text = str(model)
+        if len(model_text) > 36:
+            model_text = model_text[:33] + "..."
         self.model_label.config(
-            text="Active Model ({}): {}".format(mode, model),
+            text="Active Model ({}): {}".format(mode, model_text),
             fg=t["fg"],
         )
 

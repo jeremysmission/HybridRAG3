@@ -1441,8 +1441,11 @@ class ApiAdminTab(tk.Frame):
                             chat_msg + " | Deployment listing unavailable",
                         )
                         return
+                    # Keep this as a warning, not a hard fail. In many
+                    # enterprise Azure environments, deployment listing
+                    # returns 500 while chat calls remain the real signal.
                     safe_after(
-                        self, 0, self._test_failed,
+                        self, 0, self._test_warn,
                         "{} | {}".format(probe_msg, chat_msg),
                     )
                     return
@@ -1594,6 +1597,12 @@ class ApiAdminTab(tk.Frame):
         """Main-thread callback: connection test failed."""
         t = current_theme()
         self.cred_status_label.config(text="[FAIL] {}".format(msg), fg=t["red"])
+        self.test_btn.config(state=tk.NORMAL)
+
+    def _test_warn(self, msg):
+        """Main-thread callback: connection test has non-fatal warnings."""
+        t = current_theme()
+        self.cred_status_label.config(text="[WARN] {}".format(msg), fg=t["orange"])
         self.test_btn.config(state=tk.NORMAL)
 
     def _on_clear_credentials(self):
