@@ -36,6 +36,7 @@ import os
 import threading
 import logging
 import re
+import time
 from datetime import datetime
 
 from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_SMALL, FONT_MONO, bind_hover
@@ -1111,6 +1112,7 @@ class ApiAdminTab(tk.Frame):
         # Build sections
         self._build_credentials_section(t)
         self._build_security_section(t)
+        self._build_troubleshoot_section(t)
         self._paths_panel = DataPathsPanel(self._inner, config, app_ref)
         self._paths_panel.pack(fill=tk.X, padx=16, pady=8)
         self._offline_model_panel = OfflineModelSelectionPanel(
@@ -1232,15 +1234,21 @@ class ApiAdminTab(tk.Frame):
             if creds.api_key:
                 self.key_var.set(creds.api_key)
 
+            def _source_label(raw):
+                src = (raw or "?").strip()
+                if src.lower() == "keyring":
+                    return "Credential Manager"
+                return src
+
             parts = []
             if creds.has_key:
                 parts.append("Key: {} (from {})".format(
-                    creds.key_preview, creds.source_key or "?"))
+                    creds.key_preview, _source_label(creds.source_key)))
             else:
                 parts.append("Key: NOT SET")
             if creds.has_endpoint:
                 parts.append("Endpoint: SET (from {})".format(
-                    creds.source_endpoint or "?"))
+                    _source_label(creds.source_endpoint)))
             else:
                 parts.append("Endpoint: NOT SET")
 
@@ -1341,6 +1349,16 @@ class ApiAdminTab(tk.Frame):
                 _is_azure_endpoint,
             )
             if not probe_ok:
+                if "HTTP 500" in probe_msg:
+                    # Some Azure environments block/alter deployment listing
+                    # but still allow chat completions. Try a direct model call.
+                    chat_ok, chat_msg = self._probe_online_chat(creds)
+                    if chat_ok:
+                        safe_after(
+                            self, 0, self._test_done, [], 0,
+                            chat_msg + " | Deployment listing unavailable",
+                        )
+                        return
                 safe_after(self, 0, self._test_failed, probe_msg)
                 return
 
@@ -1403,6 +1421,33 @@ class ApiAdminTab(tk.Frame):
             return False, f"Probe failed (HTTP {resp.status_code})"
         except Exception as e:
             return False, f"Connection probe error: {type(e).__name__}: {e}"
+
+    def _probe_online_chat(self, creds):
+        """Fallback probe: run one minimal online completion call."""
+        try:
+            from src.core.llm_router import APIRouter
+
+            api = APIRouter(
+                self.config,
+                creds.api_key or "",
+                endpoint=creds.endpoint or "",
+                deployment_override=creds.deployment or "",
+                api_version_override=creds.api_version or "",
+                provider_override=creds.provider or "",
+            )
+
+            # Azure requires a deployment name for chat completions.
+            if getattr(api, "is_azure", False) and not getattr(api, "deployment", ""):
+                return False, "Azure chat probe needs deployment name (not set)"
+
+            resp = api.query("Reply with OK.")
+            if resp and (resp.text or "").strip():
+                return True, "Connected (chat completion probe succeeded)"
+
+            err = getattr(api, "last_error", "") or "unknown error"
+            return False, "Chat probe failed: {}".format(str(err)[:120])
+        except Exception as e:
+            return False, "Chat probe error: {}: {}".format(type(e).__name__, str(e)[:80])
 
     def _deployments_to_models(self, deployments):
         """Convert deployment names into ModelSelectionPanel row dicts."""
@@ -1510,6 +1555,188 @@ class ApiAdminTab(tk.Frame):
             save_config_field("security.pii_sanitization", value)
         except Exception as e:
             logger.warning("pii_toggle_save_failed: %s", e)
+
+    # ================================================================
+    # SECTION A3: QUICK TROUBLESHOOT
+    # ================================================================
+
+    def _build_troubleshoot_section(self, t):
+        """Build quick verification controls (manual, on-demand)."""
+        frame = tk.LabelFrame(
+            self._inner, text="Quick Troubleshoot", padx=16, pady=8,
+            bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD,
+        )
+        frame.pack(fill=tk.X, padx=16, pady=8)
+        self._trouble_frame = frame
+
+        row = tk.Frame(frame, bg=t["panel_bg"])
+        row.pack(fill=tk.X, pady=(0, 4))
+
+        self._verify_btn = tk.Button(
+            row, text="Run Quick Verification",
+            command=self._on_run_quick_verify,
+            bg=t["accent"], fg=t["accent_fg"], font=FONT,
+            relief=tk.FLAT, bd=0, padx=12, pady=6,
+            activebackground=t["accent_hover"], activeforeground=t["accent_fg"],
+        )
+        self._verify_btn.pack(side=tk.LEFT)
+        bind_hover(self._verify_btn)
+
+        self._verify_status = tk.Label(
+            row, text="", anchor=tk.W,
+            bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+        )
+        self._verify_status.pack(side=tk.LEFT, padx=(8, 0), fill=tk.X, expand=True)
+
+        self._verify_text = tk.Text(
+            frame, height=7, wrap=tk.WORD, font=FONT_MONO,
+            bg=t["input_bg"], fg=t["input_fg"], relief=tk.FLAT, bd=1,
+            state=tk.DISABLED,
+        )
+        self._verify_text.pack(fill=tk.X)
+
+    def _on_run_quick_verify(self):
+        """Start quick verification in a background thread."""
+        t = current_theme()
+        self._verify_btn.config(state=tk.DISABLED)
+        self._verify_status.config(text="Running checks...", fg=t["gray"])
+        self._set_verify_text("Running quick verification...\n")
+        threading.Thread(target=self._do_quick_verify, daemon=True).start()
+
+    def _do_quick_verify(self):
+        """Background thread: run fast wiring checks used for troubleshooting."""
+        from src.gui.helpers.safe_after import safe_after
+
+        checks = []
+        started = time.time()
+
+        def _ok(msg):
+            checks.append(("OK", msg))
+
+        def _warn(msg):
+            checks.append(("WARN", msg))
+
+        def _fail(msg):
+            checks.append(("FAIL", msg))
+
+        try:
+            mode = getattr(self.config, "mode", "offline")
+            _ok("Mode: {}".format(mode))
+
+            # Path integrity checks
+            paths = getattr(self.config, "paths", None)
+            source = getattr(paths, "source_folder", "") if paths else ""
+            db = getattr(paths, "database", "") if paths else ""
+            dl = getattr(paths, "download_folder", "") if paths else ""
+
+            if source and os.path.isdir(source):
+                _ok("Source path exists")
+            else:
+                _warn("Source path missing or not set")
+
+            if db:
+                db_dir = os.path.dirname(db)
+                if os.path.isdir(db_dir):
+                    _ok("Index directory exists")
+                else:
+                    _warn("Index directory missing")
+                if os.path.isfile(db):
+                    _ok("Index DB file exists")
+                else:
+                    _warn("Index DB file missing")
+            else:
+                _warn("Index DB path not set")
+
+            emb = getattr(paths, "embeddings_cache", "") if paths else ""
+            if emb and os.path.isdir(emb):
+                _ok("Embeddings cache exists")
+            elif emb:
+                _warn("Embeddings cache folder missing")
+
+            if dl:
+                if os.path.isdir(dl):
+                    _ok("Download folder exists")
+                else:
+                    _warn("Download folder missing")
+
+            # Credential + endpoint checks
+            invalidate_credential_cache()
+            creds = resolve_credentials(use_cache=False)
+            if creds.has_key:
+                _ok("API key resolved ({})".format(creds.source_key or "unknown"))
+            else:
+                _warn("API key not resolved")
+            if creds.has_endpoint:
+                _ok("API endpoint resolved ({})".format(creds.source_endpoint or "unknown"))
+            else:
+                _warn("API endpoint not resolved")
+
+            # Backend checks by mode
+            if mode == "online":
+                if creds.has_key and creds.has_endpoint:
+                    try:
+                        from src.core.llm_router import (
+                            invalidate_deployment_cache,
+                            refresh_deployments,
+                        )
+                        invalidate_deployment_cache()
+                        deps = refresh_deployments()
+                        _ok("Online discovery returned {} deployments/models".format(len(deps)))
+                    except Exception as e:
+                        _fail("Online discovery failed: {}".format(str(e)[:80]))
+                else:
+                    _fail("Online mode active but credentials are incomplete")
+            else:
+                try:
+                    from src.core.llm_router import _build_httpx_client
+                    base = sanitize_ollama_base_url(
+                        getattr(getattr(self.config, "ollama", None), "base_url", "")
+                    )
+                    with _build_httpx_client(timeout=5, localhost_only=True) as client:
+                        resp = client.get(base, timeout=5)
+                    if resp.status_code == 200:
+                        _ok("Ollama reachable at {}".format(base))
+                    else:
+                        _warn("Ollama probe HTTP {}".format(resp.status_code))
+                except Exception as e:
+                    _warn("Ollama probe failed: {}".format(str(e)[:80]))
+
+        except Exception as e:
+            _fail("Verifier error: {}: {}".format(type(e).__name__, str(e)[:80]))
+
+        elapsed_ms = int((time.time() - started) * 1000)
+        safe_after(self, 0, self._on_quick_verify_done, checks, elapsed_ms)
+
+    def _on_quick_verify_done(self, checks, elapsed_ms):
+        """Render quick verification results in the admin tab."""
+        t = current_theme()
+        ok_n = sum(1 for c, _ in checks if c == "OK")
+        warn_n = sum(1 for c, _ in checks if c == "WARN")
+        fail_n = sum(1 for c, _ in checks if c == "FAIL")
+        if fail_n > 0:
+            color = t["red"]
+        elif warn_n > 0:
+            color = t["orange"]
+        else:
+            color = t["green"]
+        self._verify_status.config(
+            text="{} OK | {} WARN | {} FAIL | {} ms".format(
+                ok_n, warn_n, fail_n, elapsed_ms,
+            ),
+            fg=color,
+        )
+        lines = []
+        for level, msg in checks:
+            lines.append("[{}] {}".format(level, msg))
+        self._set_verify_text("\n".join(lines))
+        self._verify_btn.config(state=tk.NORMAL)
+
+    def _set_verify_text(self, text):
+        """Set troubleshoot text box content safely."""
+        self._verify_text.config(state=tk.NORMAL)
+        self._verify_text.delete("1.0", tk.END)
+        self._verify_text.insert("1.0", text)
+        self._verify_text.config(state=tk.DISABLED)
 
     # ================================================================
     # MODE-AWARE FIELD STATE
