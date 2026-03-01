@@ -181,6 +181,14 @@ class IndexPanel(tk.LabelFrame):
         )
         self.last_run_label.pack(fill=tk.X)
 
+        # -- Row 4: Live telemetry (indexing) --
+        self.index_stats_label = tk.Label(
+            self,
+            text="Telemetry: chunks 0 | skipped 0 | errors 0 | rate -- f/s | ETA --",
+            anchor=tk.W, fg=t["gray"], bg=t["panel_bg"], font=FONT_SMALL,
+        )
+        self.index_stats_label.pack(fill=tk.X, pady=(2, 0))
+
     def apply_theme(self, t):
         """Re-apply theme colors to all widgets."""
         self.configure(bg=t["panel_bg"], fg=t["accent"])
@@ -217,6 +225,8 @@ class IndexPanel(tk.LabelFrame):
             self.last_run_label.configure(fg=t["gray"])
         else:
             self.last_run_label.configure(fg=t["fg"])
+        if hasattr(self, "index_stats_label"):
+            self.index_stats_label.configure(bg=t["panel_bg"], fg=t["gray"])
         self.progress_count_label.configure(bg=t["panel_bg"], fg=t["fg"])
 
     def set_ready(self, enabled, reason=""):
@@ -316,6 +326,11 @@ class IndexPanel(tk.LabelFrame):
         self.progress_bar["value"] = 0
         self.progress_count_label.config(text="0 / 0 files")
         self.progress_file_label.config(text="Starting...", fg=t["gray"])
+        if hasattr(self, "index_stats_label"):
+            self.index_stats_label.config(
+                text="Telemetry: chunks 0 | skipped 0 | errors 0 | rate -- f/s | ETA --",
+                fg=t["gray"],
+            )
 
         # Public testing state (main thread, before thread starts)
         self.is_indexing = True
@@ -508,8 +523,12 @@ class _GUIProgressCallback:
 
     def __init__(self, panel):
         self.panel = panel
+        self._start_time = time.monotonic()
         self._file_count = 0
         self._total_files = 0
+        self._chunks_total = 0
+        self._skipped_count = 0
+        self._error_count = 0
         self._last_gui_update = 0.0
         self._pending_fname = None
         self._pending_file_num = 0
@@ -549,6 +568,7 @@ class _GUIProgressCallback:
 
         if self._should_update():
             safe_after(self.panel, 0, self._update_file_start, fname, file_num, total_files)
+            safe_after(self.panel, 0, self._update_telemetry)
 
     def _update_file_start(self, fname, file_num, total_files):
         t = current_theme()
@@ -565,21 +585,56 @@ class _GUIProgressCallback:
     def on_file_complete(self, file_path, chunks_created):
         """Called when a file finishes processing."""
         self._file_count += 1
+        self._chunks_total += int(chunks_created or 0)
         if self._should_update():
             safe_after(self.panel, 0, self._update_file_complete)
+            safe_after(self.panel, 0, self._update_telemetry)
 
     def _update_file_complete(self):
         self.panel.progress_bar["value"] = self._file_count
 
+    def _update_telemetry(self):
+        """Update live indexing telemetry line."""
+        if not hasattr(self.panel, "index_stats_label"):
+            return
+        elapsed = max(0.001, time.monotonic() - self._start_time)
+        rate = self._file_count / elapsed
+        eta_txt = "--"
+        if self._total_files > 0 and rate > 0:
+            remaining = max(0, self._total_files - self._file_count)
+            eta_s = remaining / rate
+            if eta_s < 60:
+                eta_txt = "{:.0f}s".format(eta_s)
+            elif eta_s < 3600:
+                m, s = divmod(int(eta_s), 60)
+                eta_txt = "{}m {}s".format(m, s)
+            else:
+                h, rem = divmod(int(eta_s), 3600)
+                m = rem // 60
+                eta_txt = "{}h {}m".format(h, m)
+        self.panel.index_stats_label.config(
+            text=(
+                "Telemetry: chunks {:,} | skipped {:,} | errors {:,} | "
+                "rate {:.2f} f/s | ETA {}"
+            ).format(
+                self._chunks_total, self._skipped_count,
+                self._error_count, rate, eta_txt,
+            )
+        )
+
     def on_file_skipped(self, file_path, reason):
         """Called when a file is skipped."""
         self._file_count += 1
+        self._skipped_count += 1
         if self._should_update():
             safe_after(self.panel, 0, self._update_file_complete)
+            safe_after(self.panel, 0, self._update_telemetry)
 
     def on_indexing_complete(self, total_chunks, elapsed_seconds):
         """Called when indexing finishes. Flush final state to GUI."""
+        self._chunks_total = max(self._chunks_total, int(total_chunks or 0))
         self._flush_pending()
+        safe_after(self.panel, 0, self._update_telemetry)
 
     def on_discovery_progress(self, files_found):
         """Called periodically during folder discovery (before indexing starts)."""
@@ -597,6 +652,8 @@ class _GUIProgressCallback:
         """Called when a file has an error -- always shown (errors are rare)."""
         t = current_theme()
         fname = os.path.basename(file_path)
+        self._error_count += 1
+        safe_after(self.panel, 0, self._update_telemetry)
         safe_after(
             self.panel, 0,
             lambda: self.panel.progress_file_label.config(
