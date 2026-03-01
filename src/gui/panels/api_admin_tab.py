@@ -44,6 +44,7 @@ from src.core.ollama_endpoint_resolver import sanitize_ollama_base_url
 from src.security.credentials import (
     resolve_credentials, validate_endpoint,
     store_api_key, store_endpoint, clear_credentials,
+    invalidate_credential_cache,
 )
 
 logger = logging.getLogger(__name__)
@@ -166,6 +167,29 @@ class DataPathsPanel(tk.LabelFrame):
         )
         self.index_label.pack(fill=tk.X)
 
+        # Default persistence toggles (checked by default).
+        # If unchecked, edits apply to this session only.
+        persist_row = tk.Frame(self, bg=t["panel_bg"])
+        persist_row.pack(fill=tk.X, pady=(4, 0))
+        self.persist_source_var = tk.BooleanVar(value=True)
+        self.persist_index_var = tk.BooleanVar(value=True)
+        self.persist_source_cb = tk.Checkbutton(
+            persist_row, text="Set source as default",
+            variable=self.persist_source_var,
+            bg=t["panel_bg"], fg=t["fg"],
+            selectcolor=t["input_bg"], activebackground=t["panel_bg"],
+            activeforeground=t["fg"], font=FONT_SMALL,
+        )
+        self.persist_source_cb.pack(side=tk.LEFT, padx=(0, 12))
+        self.persist_index_cb = tk.Checkbutton(
+            persist_row, text="Set index as default",
+            variable=self.persist_index_var,
+            bg=t["panel_bg"], fg=t["fg"],
+            selectcolor=t["input_bg"], activebackground=t["panel_bg"],
+            activeforeground=t["fg"], font=FONT_SMALL,
+        )
+        self.persist_index_cb.pack(side=tk.LEFT)
+
         # Detection info
         self.info_label = tk.Label(
             self, text="", anchor=tk.W,
@@ -205,6 +229,8 @@ class DataPathsPanel(tk.LabelFrame):
         t = current_theme()
         source = self.source_var.get().strip()
         index = self.index_var.get().strip()
+        persist_source = bool(self.persist_source_var.get())
+        persist_index = bool(self.persist_index_var.get())
 
         if not source and not index:
             self.status_label.config(
@@ -235,9 +261,9 @@ class DataPathsPanel(tk.LabelFrame):
 
         try:
             from src.core.config import save_config_field
-            if source:
+            if source and persist_source:
                 save_config_field("paths.source_folder", source)
-            if index:
+            if index and persist_index:
                 save_config_field("paths.database", db_path)
                 save_config_field("paths.embeddings_cache", emb_path)
 
@@ -249,8 +275,11 @@ class DataPathsPanel(tk.LabelFrame):
                     ip.index_var.set(index)
                 ip.config = self.config
 
-            self.status_label.config(
-                text="[OK] Paths saved to config.", fg=t["green"])
+            if (source and persist_source) or (index and persist_index):
+                status = "[OK] Paths saved to config."
+            else:
+                status = "[OK] Paths updated for this session only."
+            self.status_label.config(text=status, fg=t["green"])
             self._refresh_info()
             logger.info("Data paths saved: source=%s, index=%s", source, index)
         except Exception as e:
@@ -1281,18 +1310,52 @@ class ApiAdminTab(tk.Frame):
         """
         from src.gui.helpers.safe_after import safe_after
         try:
-            from scripts._model_meta import fetch_online_models_with_meta
-            by_provider, total = fetch_online_models_with_meta(endpoint, key)
-            if total > 0:
-                flat = []
-                for pmodels in by_provider.values():
-                    flat.extend(pmodels)
-                safe_after(self, 0, self._test_done, flat, total)
+            # Test what the app will really use: persist creds, resolve fresh,
+            # then run provider-aware discovery (Azure deployments or /models).
+            from src.core.llm_router import (
+                invalidate_deployment_cache,
+                refresh_deployments,
+            )
+            endpoint = validate_endpoint(endpoint)
+            store_endpoint(endpoint)
+            store_api_key(key)
+            invalidate_credential_cache()
+            creds = resolve_credentials(use_cache=False)
+
+            if not creds.has_endpoint or not creds.has_key:
+                safe_after(
+                    self, 0, self._test_failed,
+                    "Credentials not stored/resolved correctly",
+                )
+                return
+
+            invalidate_deployment_cache()
+            deployments = refresh_deployments()
+            if deployments:
+                models = self._deployments_to_models(deployments)
+                safe_after(self, 0, self._test_done, models, len(deployments))
             else:
                 safe_after(self, 0, self._test_failed,
-                           "No models returned (check endpoint/key)")
+                           "No models/deployments returned (check endpoint/provider/key)")
         except Exception as e:
             safe_after(self, 0, self._test_failed, str(e)[:80])
+
+    def _deployments_to_models(self, deployments):
+        """Convert deployment names into ModelSelectionPanel row dicts."""
+        from scripts._model_meta import lookup_known_model
+        out = []
+        for dep in deployments:
+            kb = lookup_known_model(dep) or {}
+            out.append({
+                "id": dep,
+                "ctx": kb.get("ctx", 0),
+                "price_in": kb.get("price_in", 0),
+                "price_out": kb.get("price_out", 0),
+                "tier_eng": kb.get("tier_eng", 45),
+                "tier_gen": kb.get("tier_gen", 45),
+                "source": "discovery",
+            })
+        return out
 
     def _test_done(self, models, total):
         """Main-thread callback: connection test succeeded."""

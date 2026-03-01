@@ -227,10 +227,19 @@ class Retriever:
         # If reranker is on, we fetch more candidates so it has a bigger
         # pool to rerank from. Otherwise, just fetch top_k directly.
         candidate_k = self.reranker_top_n if self.reranker_enabled else self.top_k
+        structured_query = self._is_structured_lookup_query(query)
+        fts_query = query
+        min_score = self.min_score
+        if structured_query:
+            # Parts/BOM/serial queries are usually table-heavy and spread
+            # across neighboring chunks, so pull a wider candidate set.
+            candidate_k = max(candidate_k, min(self.top_k * 4, 48))
+            fts_query = self._expand_structured_fts_query(query)
+            min_score = max(0.05, self.min_score * 0.5)
 
         # --- Step 1: Retrieve candidates ---
         if self.hybrid_search:
-            hits = self._hybrid_search(query, candidate_k)
+            hits = self._hybrid_search(query, candidate_k, fts_query=fts_query)
         else:
             hits = self._vector_search(query, candidate_k)
 
@@ -239,7 +248,10 @@ class Retriever:
             hits = self._rerank(query, hits)
 
         # --- Step 3: Filter by minimum score ---
-        hits = [h for h in hits if h.score >= self.min_score]
+        hits = [h for h in hits if h.score >= min_score]
+
+        if structured_query:
+            hits = self._augment_with_adjacent_chunks(hits)
 
         # --- Step 4: Trim to final top_k ---
         hits = hits[:self.top_k]
@@ -259,7 +271,7 @@ class Retriever:
         self._embed_cache.put(query, q_vec)
         return q_vec
 
-    def _hybrid_search(self, query, candidate_k):
+    def _hybrid_search(self, query, candidate_k, fts_query=None):
         """
         Run both vector search and keyword search, then merge results
         using Reciprocal Rank Fusion (RRF).
@@ -271,7 +283,10 @@ class Retriever:
         vector_hits = self.vector_store.search(q_vec, top_k=candidate_k, block_rows=self.block_rows)
 
         # Keyword search: use SQLite FTS5 full-text index
-        fts_hits = self.vector_store.fts_search(query, top_k=candidate_k)
+        fts_hits = self.vector_store.fts_search(
+            fts_query if fts_query is not None else query,
+            top_k=candidate_k,
+        )
 
         # Merge the two ranked lists using RRF
         return self._reciprocal_rank_fusion(vector_hits, fts_hits)
@@ -502,6 +517,88 @@ class Retriever:
         """
         terms = re.findall(r"[A-Za-z0-9]+", (query or "").lower())
         return [t for t in terms if len(t) >= 3]
+
+    def _is_structured_lookup_query(self, query):
+        """
+        Detect list/spec queries that are commonly answered from tables.
+
+        These need broader retrieval than simple factoid questions.
+        """
+        q = (query or "").lower()
+        patterns = [
+            r"\bpart(?:s)?\b",
+            r"\bpart\s*(?:#|number|no\.?|numbers)\b",
+            r"\bserial(?:\s*(?:#|number|no\.?))?\b",
+            r"\bbom\b",
+            r"\bbill of materials\b",
+            r"\bbreakdown\b",
+            r"\blist\b.*\bparts?\b",
+        ]
+        return any(re.search(p, q) for p in patterns)
+
+    def _expand_structured_fts_query(self, query):
+        """
+        Expand FTS terms for parts/serial queries.
+
+        Keeps behavior deterministic: no model inference, just explicit terms.
+        """
+        base_terms = self._query_terms(query)
+        extra_terms = [
+            "part", "parts", "number", "numbers", "serial", "list",
+            "table", "item", "items", "bom", "materials", "assembly",
+            "component", "components", "spare", "replacement",
+        ]
+        seen = set()
+        ordered = []
+        for term in base_terms + extra_terms:
+            t = term.lower().strip()
+            if len(t) >= 3 and t not in seen:
+                ordered.append(t)
+                seen.add(t)
+        return " ".join(ordered)
+
+    def _augment_with_adjacent_chunks(self, hits):
+        """
+        Add neighboring chunks for top hits to recover split tables.
+        """
+        if not hits:
+            return hits
+        conn = getattr(self.vector_store, "conn", None)
+        lock = getattr(self.vector_store, "_db_lock", None)
+        if conn is None or lock is None:
+            return hits
+
+        by_key = {(h.source_path, h.chunk_index): h for h in hits}
+        seeds = hits[: min(len(hits), 6)]
+        try:
+            with lock:
+                for seed in seeds:
+                    lo = max(0, int(seed.chunk_index) - 1)
+                    hi = int(seed.chunk_index) + 1
+                    rows = conn.execute(
+                        "SELECT source_path, chunk_index, text "
+                        "FROM chunks WHERE source_path = ? "
+                        "AND chunk_index BETWEEN ? AND ? "
+                        "ORDER BY chunk_index",
+                        (seed.source_path, lo, hi),
+                    ).fetchall()
+                    for source_path, chunk_index, text in rows:
+                        key = (str(source_path), int(chunk_index))
+                        if key in by_key:
+                            continue
+                        score = max(0.0, float(seed.score) - 0.03)
+                        by_key[key] = SearchHit(
+                            score=score,
+                            source_path=str(source_path),
+                            chunk_index=int(chunk_index),
+                            text=str(text or ""),
+                        )
+        except Exception:
+            return hits
+
+        out = list(by_key.values())
+        out.sort(key=lambda h: h.score, reverse=True)
+        return out
 
     def _lexical_boost(self, chunk_text, q_terms):
         """

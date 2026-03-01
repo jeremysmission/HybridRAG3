@@ -231,6 +231,17 @@ class DataPanel(tk.Frame):
         self._change_source_btn.pack(side=tk.RIGHT, padx=(8, 0))
         bind_hover(self._change_source_btn)
 
+        # Default persistence toggle (checked by default).
+        self._persist_download_var = tk.BooleanVar(value=True)
+        self._persist_download_cb = tk.Checkbutton(
+            frame, text="Set downloader path as default",
+            variable=self._persist_download_var,
+            bg=t["panel_bg"], fg=t["fg"],
+            selectcolor=t["input_bg"], activebackground=t["panel_bg"],
+            activeforeground=t["fg"], font=FONT_SMALL,
+        )
+        self._persist_download_cb.pack(anchor=tk.W, pady=(4, 0))
+
     def _on_change_source(self):
         """Open folder picker for the download destination folder."""
         current = self._source_path_var.get().strip()
@@ -249,10 +260,11 @@ class DataPanel(tk.Frame):
                 paths.download_folder = norm
 
             # Persist to YAML
-            try:
-                save_config_field("paths.download_folder", norm)
-            except Exception as e:
-                logger.warning("Could not persist download path: %s", e)
+            if bool(self._persist_download_var.get()):
+                try:
+                    save_config_field("paths.download_folder", norm)
+                except Exception as e:
+                    logger.warning("Could not persist download path: %s", e)
 
     # ================================================================
     # SECTION B: Transfer Source Browser
