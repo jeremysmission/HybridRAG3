@@ -455,6 +455,7 @@ class GroundedQueryEngine(QueryEngine):
                 "- If the context does not contain the answer, say so\n"
                 "- Cite [Source N] for each claim\n"
                 "- Do NOT add information beyond what the sources state\n"
+                "- Format the answer in short readable paragraphs; use bullets for lists\n"
                 "\n"
                 f"{context}\n\n"
                 f"User Question:\n{user_query}\n\n"
