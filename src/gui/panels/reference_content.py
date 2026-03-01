@@ -324,6 +324,33 @@ Full cheat sheet:
   docs/03_guides/LIGHT_MODE_COLOR_CHEATSHEET.md
 """
 
+HELP_ACRONYM_GUIDE = """\
+ACRONYM GUIDE (PLAIN LANGUAGE)
+==============================
+
+AI   = Artificial Intelligence
+API  = Application Programming Interface
+RAG  = Retrieval-Augmented Generation
+LLM  = Large Language Model
+GUI  = Graphical User Interface
+CLI  = Command-Line Interface
+SDK  = Software Development Kit
+URL  = Uniform Resource Locator
+OCR  = Optical Character Recognition
+RBAC = Role-Based Access Control
+
+IBIT = Initial Built-In Test
+CBIT = Continuous Built-In Test
+
+Policy terms in this app:
+  Offline Mode  = Localhost Only (internet blocked)
+  Online Mode   = Whitelist Only (approved endpoint + localhost)
+
+Rule used by this project:
+  If an acronym appears in user-facing text, define it the first time
+  or keep it documented in this Reference section.
+"""
+
 
 # ---------------------------------------------------------------------------
 # Security & Compliance
@@ -631,6 +658,7 @@ CATEGORIES = [
         ("Software Stack", HELP_SOFTWARE_STACK),
         ("Interfaces", HELP_INTERFACES),
         ("GUI Color Scheme Settings", HELP_GUI_COLOR_SCHEME),
+        ("Acronym Guide", HELP_ACRONYM_GUIDE),
     ]),
     ("Security and Compliance", [
         ("Security Overview", HELP_SECURITY),

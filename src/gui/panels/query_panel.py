@@ -368,18 +368,7 @@ class QueryPanel(tk.LabelFrame):
         mode = getattr(self.config, "mode", "offline")
         if mode == "online":
             # Online model comes from API deployment selection, not Ollama list.
-            deployment = (
-                getattr(getattr(self.config, "api", None), "deployment", "") or ""
-            ).strip()
-            if not deployment:
-                # Fallback: credential manager may have deployment even if
-                # config object hasn't been refreshed yet.
-                try:
-                    from src.security.credentials import resolve_credentials
-                    creds = resolve_credentials(use_cache=False)
-                    deployment = (getattr(creds, "deployment", "") or "").strip()
-                except Exception:
-                    deployment = ""
+            deployment = self._get_configured_online_deployment()
             if not deployment:
                 deployment = "Auto (online)"
             label = f"Online: {deployment}"
@@ -401,6 +390,21 @@ class QueryPanel(tk.LabelFrame):
         self.model_combo.config(state="readonly")
         if self._model_auto or self.model_var.get() not in values:
             self.model_var.set("Auto")
+
+    def _get_configured_online_deployment(self):
+        """Best-effort deployment from live config, then credential manager."""
+        deployment = (
+            getattr(getattr(self.config, "api", None), "deployment", "") or ""
+        ).strip()
+        if deployment:
+            return deployment
+        try:
+            from src.security.credentials import resolve_credentials
+            creds = resolve_credentials(use_cache=False)
+            deployment = (getattr(creds, "deployment", "") or "").strip()
+            return deployment
+        except Exception:
+            return ""
 
     def _on_model_select(self, event=None):
         """Handle user selecting a model from the dropdown."""
@@ -698,10 +702,7 @@ class QueryPanel(tk.LabelFrame):
                 safe_after(self, 0, self._set_model_combo_for_mode)
                 safe_after(self, 0, self._set_auto_note, best, best, False, "online")
             else:
-                configured = (
-                    getattr(getattr(self.config, "api", None), "deployment", "")
-                    or ""
-                ).strip()
+                configured = self._get_configured_online_deployment()
                 if configured:
                     self._online_models = [configured]
                     safe_after(self, 0, self.model_var.set, f"Online: {configured}")
@@ -716,10 +717,7 @@ class QueryPanel(tk.LabelFrame):
             pass  # Widget destroyed before thread finished -- safe to ignore
         except Exception:
             try:
-                configured = (
-                    getattr(getattr(self.config, "api", None), "deployment", "")
-                    or ""
-                ).strip()
+                configured = self._get_configured_online_deployment()
                 if configured:
                     self._online_models = [configured]
                     safe_after(self, 0, self.model_var.set, f"Online: {configured}")

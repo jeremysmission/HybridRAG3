@@ -1235,6 +1235,19 @@ class ApiAdminTab(tk.Frame):
         )
         self.cred_status_label.pack(fill=tk.X, pady=(2, 0))
 
+        # Plain-English network policy line for non-technical users.
+        self.network_policy_label = tk.Label(
+            frame, text="", anchor=tk.W,
+            bg=t["panel_bg"], fg=t["label_fg"], font=FONT_SMALL,
+            justify=tk.LEFT, wraplength=1,
+        )
+        self.network_policy_label.pack(fill=tk.X, pady=(2, 0))
+        self.network_policy_label.bind(
+            "<Configure>",
+            lambda e: e.widget.config(wraplength=max(200, e.width - 8)),
+        )
+        self._refresh_network_policy_label()
+
     def _toggle_key_visibility(self):
         """Toggle between masked (****) and plain-text API key display."""
         self._key_visible = not self._key_visible
@@ -1275,12 +1288,26 @@ class ApiAdminTab(tk.Frame):
             t = current_theme()
             color = t["green"] if creds.is_online_ready else t["orange"]
             self.cred_status_label.config(text="  |  ".join(parts), fg=color)
+            self._refresh_network_policy_label()
         except Exception as e:
             logger.warning("Could not load credential status: %s", e)
             self.cred_status_label.config(
                 text="[WARN] Could not load status: {}".format(str(e)[:60]),
                 fg=current_theme()["red"],
             )
+            self._refresh_network_policy_label()
+
+    def _refresh_network_policy_label(self):
+        """Show current gate policy in plain language."""
+        t = current_theme()
+        mode = getattr(self.config, "mode", "offline") if self.config else "offline"
+        if mode == "online":
+            text = "Network Policy: Online Mode = Whitelist Only (approved endpoint + localhost)"
+            color = t["green"]
+        else:
+            text = "Network Policy: Offline Mode = Localhost Only (internet blocked)"
+            color = t["gray"]
+        self.network_policy_label.config(text=text, fg=color)
 
     def _on_save_credentials(self):
         """Save endpoint and API key to credential manager."""
@@ -1352,6 +1379,11 @@ class ApiAdminTab(tk.Frame):
             store_api_key(key)
             invalidate_credential_cache()
             creds = resolve_credentials(use_cache=False)
+            cfg_api = getattr(self.config, "api", None)
+            cfg_dep = (getattr(cfg_api, "deployment", "") or "").strip() if cfg_api else ""
+            cfg_model = (getattr(cfg_api, "model", "") or "").strip() if cfg_api else ""
+            cfg_ver = (getattr(cfg_api, "api_version", "") or "").strip() if cfg_api else ""
+            cfg_provider = (getattr(cfg_api, "provider", "") or "").strip() if cfg_api else ""
 
             if not creds.has_endpoint or not creds.has_key:
                 safe_after(
@@ -1372,13 +1404,23 @@ class ApiAdminTab(tk.Frame):
                 if "HTTP 500" in probe_msg:
                     # Some Azure environments block/alter deployment listing
                     # but still allow chat completions. Try a direct model call.
-                    chat_ok, chat_msg = self._probe_online_chat(creds)
+                    chat_ok, chat_msg = self._probe_online_chat(
+                        creds,
+                        deployment_override=(cfg_dep or cfg_model),
+                        api_version_override=cfg_ver,
+                        provider_override=cfg_provider,
+                    )
                     if chat_ok:
                         safe_after(
                             self, 0, self._test_done, [], 0,
                             chat_msg + " | Deployment listing unavailable",
                         )
                         return
+                    safe_after(
+                        self, 0, self._test_failed,
+                        "{} | {}".format(probe_msg, chat_msg),
+                    )
+                    return
                 safe_after(self, 0, self._test_failed, probe_msg)
                 return
 
@@ -1442,18 +1484,43 @@ class ApiAdminTab(tk.Frame):
         except Exception as e:
             return False, f"Connection probe error: {type(e).__name__}: {e}"
 
-    def _probe_online_chat(self, creds):
+    def _probe_online_chat(
+        self,
+        creds,
+        deployment_override="",
+        api_version_override="",
+        provider_override="",
+    ):
         """Fallback probe: run one minimal online completion call."""
         try:
             from src.core.llm_router import APIRouter
 
+            dep = (
+                deployment_override
+                or getattr(creds, "deployment", "")
+                or getattr(getattr(self.config, "api", None), "deployment", "")
+                or getattr(getattr(self.config, "api", None), "model", "")
+                or ""
+            )
+            ver = (
+                api_version_override
+                or getattr(creds, "api_version", "")
+                or getattr(getattr(self.config, "api", None), "api_version", "")
+                or ""
+            )
+            provider = (
+                provider_override
+                or getattr(creds, "provider", "")
+                or getattr(getattr(self.config, "api", None), "provider", "")
+                or ""
+            )
             api = APIRouter(
                 self.config,
                 creds.api_key or "",
                 endpoint=creds.endpoint or "",
-                deployment_override=creds.deployment or "",
-                api_version_override=creds.api_version or "",
-                provider_override=creds.provider or "",
+                deployment_override=dep,
+                api_version_override=ver,
+                provider_override=provider,
             )
 
             # Azure requires a deployment name for chat completions.
@@ -1796,6 +1863,7 @@ class ApiAdminTab(tk.Frame):
             if hasattr(self, "_offline_model_panel"):
                 self._offline_model_panel.uc_dropdown.config(state="readonly")
                 self._offline_model_panel._populate()
+            self._refresh_network_policy_label()
         else:
             # Enable online API fields
             for widget in (self.endpoint_entry, self.key_entry):
@@ -1808,6 +1876,7 @@ class ApiAdminTab(tk.Frame):
             # Gray out offline model panel in online mode
             if hasattr(self, "_offline_model_panel"):
                 self._offline_model_panel.uc_dropdown.config(state=tk.DISABLED)
+            self._refresh_network_policy_label()
 
     # ================================================================
     # SECTION D: ADMIN DEFAULTS

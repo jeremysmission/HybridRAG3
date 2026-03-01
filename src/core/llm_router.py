@@ -1323,7 +1323,18 @@ class APIRouter:
                 self.base_endpoint, "api_query", "api_router",
             )
         except NetworkBlockedError as e:
-            self.last_error = f"NetworkBlockedError: {e}"
+            # User-facing guidance should reference GUI actions, not YAML edits.
+            gate_mode = getattr(get_gate(), "mode_name", "offline")
+            if gate_mode == "offline":
+                self.last_error = (
+                    "Network access is blocked because the app is in Offline Mode. "
+                    "Switch to Online Mode, then verify Admin > API Credentials."
+                )
+            else:
+                self.last_error = (
+                    "Network access blocked by endpoint allowlist. "
+                    "Verify Admin > API Credentials and approved endpoint settings."
+                )
             self.logger.error("api_query_blocked_by_gate", error=str(e))
             return None
 
@@ -1913,6 +1924,28 @@ class LLMRouter:
                     hint="Run rag-store-key and rag-store-endpoint first",
                 )
                 return None
+
+            # Self-heal gate state for GUI mode/race inconsistencies:
+            # if mode is online but gate still carries offline policy,
+            # re-apply online config using the active API endpoint.
+            try:
+                from .network_gate import configure_gate
+                endpoint = (
+                    getattr(self.api, "base_endpoint", "")
+                    or getattr(getattr(self.config, "api", None), "endpoint", "")
+                    or ""
+                )
+                configure_gate(
+                    mode="online",
+                    api_endpoint=endpoint,
+                    allowed_prefixes=getattr(
+                        getattr(self.config, "api", None),
+                        "allowed_endpoint_prefixes", [],
+                    ) if self.config else [],
+                )
+            except Exception as e:
+                self.logger.warning("online_gate_self_heal_failed", error=str(e))
+
             result = self.api.query(prompt)
             if result is None:
                 self.last_error = (

@@ -74,12 +74,17 @@ class StatusBar(tk.Frame):
         self.sep_alert = tk.Frame(self, width=1, bg=t["separator"])
         self.sep_alert.pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=4)
 
-        # -- Mode/Selector indicator --
+        # -- Mode/Selection indicator --
         self.llm_label = tk.Label(
-            self, text="Mode/Selector: Unknown", anchor=tk.W,
+            self, text="Mode/Selection: Unknown", anchor=tk.W,
             padx=8, pady=4, bg=t["panel_bg"], fg=t["fg"], font=FONT,
+            justify=tk.LEFT, wraplength=1,
         )
         self.llm_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.llm_label.bind(
+            "<Configure>",
+            lambda e: e.widget.config(wraplength=max(120, e.width - 10)),
+        )
 
         # -- Separator --
         self.sep1 = tk.Frame(self, width=1, bg=t["separator"])
@@ -89,8 +94,13 @@ class StatusBar(tk.Frame):
         self.ollama_label = tk.Label(
             self, text="Backend Health: Unknown", anchor=tk.W,
             padx=8, pady=4, bg=t["panel_bg"], fg=t["fg"], font=FONT,
+            justify=tk.LEFT, wraplength=1,
         )
         self.ollama_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.ollama_label.bind(
+            "<Configure>",
+            lambda e: e.widget.config(wraplength=max(120, e.width - 10)),
+        )
 
         # -- Separator --
         self.sep2 = tk.Frame(self, width=1, bg=t["separator"])
@@ -104,8 +114,13 @@ class StatusBar(tk.Frame):
         self.model_label = tk.Label(
             self, text="Active Model: {}".format(model_name), anchor=tk.W,
             padx=8, pady=4, bg=t["panel_bg"], fg=t["fg"], font=FONT,
+            justify=tk.LEFT, wraplength=1,
         )
-        self.model_label.pack(side=tk.LEFT)
+        self.model_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.model_label.bind(
+            "<Configure>",
+            lambda e: e.widget.config(wraplength=max(120, e.width - 10)),
+        )
 
         # -- Gate indicator (clickable) --
         self.gate_dot = tk.Label(self, text=" ", width=2, padx=4,
@@ -116,8 +131,13 @@ class StatusBar(tk.Frame):
             self, text="Gate: OFFLINE", anchor=tk.W,
             padx=4, pady=4, cursor="hand2",
             bg=t["panel_bg"], fg=t["gray"], font=FONT,
+            justify=tk.LEFT, wraplength=1,
         )
         self.gate_label.pack(side=tk.LEFT, padx=(0, 8))
+        self.gate_label.bind(
+            "<Configure>",
+            lambda e: e.widget.config(wraplength=max(120, e.width - 10)),
+        )
         self.gate_label.bind("<Button-1>", self._on_gate_click)
 
     def apply_theme(self, t):
@@ -186,24 +206,45 @@ class StatusBar(tk.Frame):
             status = self.router.get_status()
         except Exception as e:
             logger.debug("Router status error: %s", e)
-            self.llm_label.config(text="Mode/Selector: Status Error", fg=t["fg"])
+            self.llm_label.config(text="Mode/Selection: Status Error", fg=t["fg"])
             self.ollama_label.config(text="Backend Health: Unknown", fg=t["fg"])
             return
 
-        # Mode/Selector summary line
+        # Mode/Selection summary line
         mode = status.get("mode", "offline")
         selector = self._read_selector_mode(mode)
         self.llm_label.config(
-            text="Mode/Selector: {} | {}".format(mode.upper(), selector),
+            text="Mode/Selection: {} | {}".format(mode.upper(), selector),
             fg=t["fg"],
         )
 
         # Backend health line (mode-aware)
         if mode == "online":
             if status.get("api_configured"):
-                self.ollama_label.config(text="Backend Health: API Ready", fg=t["green"])
+                self.ollama_label.config(
+                    text="Backend Health: Application Programming Interface (API) Ready",
+                    fg=t["green"],
+                )
             else:
-                self.ollama_label.config(text="Backend Health: API Not Configured", fg=t["orange"])
+                # If creds are present but runtime client isn't attached yet,
+                # avoid a hard "not configured" false alarm.
+                creds_present = False
+                try:
+                    from src.security.credentials import resolve_credentials
+                    c = resolve_credentials(use_cache=True)
+                    creds_present = bool(getattr(c, "has_key", False) and getattr(c, "has_endpoint", False))
+                except Exception:
+                    creds_present = False
+                if creds_present:
+                    self.ollama_label.config(
+                        text="Backend Health: Application Programming Interface (API) Credentials Present (Initialization Pending)",
+                        fg=t["orange"],
+                    )
+                else:
+                    self.ollama_label.config(
+                        text="Backend Health: Application Programming Interface (API) Not Configured",
+                        fg=t["orange"],
+                    )
         elif mode == "offline":
             ollama_up = status.get("ollama_available", False)
             if ollama_up:
@@ -236,16 +277,16 @@ class StatusBar(tk.Frame):
         """Display when no router is available."""
         t = current_theme()
         if self._loading:
-            self.llm_label.config(text="Mode/Selector: Loading...", fg=t["gray"])
+            self.llm_label.config(text="Mode/Selection: Loading...", fg=t["gray"])
             self.ollama_label.config(text="Backend Health: Loading...", fg=t["gray"])
         elif self._init_error:
             self.llm_label.config(
-                text="Mode/Selector: Init Failed",
+                text="Mode/Selection: Init Failed",
                 fg=t["red"],
             )
             self.ollama_label.config(text="Backend Health: Unknown", fg=t["gray"])
         else:
-            self.llm_label.config(text="Mode/Selector: Not Initialized", fg=t["fg"])
+            self.llm_label.config(text="Mode/Selection: Not Initialized", fg=t["fg"])
             self.ollama_label.config(text="Backend Health: Unknown", fg=t["gray"])
 
     def _update_gate_display(self):
@@ -253,10 +294,16 @@ class StatusBar(tk.Frame):
         t = current_theme()
         mode = getattr(self.config, "mode", "offline")
         if mode == "online":
-            self.gate_label.config(text="Gate: ONLINE", fg=t["green"])
+            self.gate_label.config(
+                text="Gate: ONLINE | Policy: Whitelist Only",
+                fg=t["green"],
+            )
             self.gate_dot.config(bg=t["green"])
         else:
-            self.gate_label.config(text="Gate: OFFLINE", fg=t["gray"])
+            self.gate_label.config(
+                text="Gate: OFFLINE | Policy: Localhost Only",
+                fg=t["gray"],
+            )
             self.gate_dot.config(bg=t["gray"])
 
     def _on_gate_click(self, event=None):

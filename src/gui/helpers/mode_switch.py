@@ -111,6 +111,13 @@ def _finish_switch(app):
     """Re-enable UI after mode switch completes (called on main thread)."""
     update_mode_buttons(app)
     if hasattr(app, "status_bar"):
+        # Clear transient mode-switch loading text without clobbering IBIT.
+        try:
+            txt = str(app.status_bar.loading_label.cget("text"))
+            if txt.startswith("Loading:"):
+                app.status_bar.set_ready()
+        except Exception:
+            pass
         app.status_bar.force_refresh()
     if hasattr(app, "query_panel"):
         app.query_panel._on_use_case_change()
