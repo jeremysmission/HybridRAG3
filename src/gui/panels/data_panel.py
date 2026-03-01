@@ -330,7 +330,15 @@ class DataPanel(tk.Frame):
             title="Select Folder to Transfer FROM", initialdir=initial,
         )
         if folder:
-            self._selected_path_var.set(os.path.normpath(folder))
+            norm = os.path.normpath(folder)
+            self._selected_path_var.set(norm)
+            # Update drive combo to match the selected folder's drive
+            # so the display stays consistent (e.g. user browses to E:\)
+            folder_drive = os.path.splitdrive(norm)[0]
+            if folder_drive:
+                folder_drive = folder_drive + os.sep
+                if folder_drive != self._drive_var.get():
+                    self._drive_var.set(folder_drive)
             self._on_preview()
 
     # ================================================================

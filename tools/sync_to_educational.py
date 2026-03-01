@@ -145,6 +145,7 @@ SKIP_PATTERNS = [
 
     # [HOME-ONLY] Files that only belong in the personal repo
     "requirements.txt",            # personal reqs (Educational uses requirements_approved.txt)
+    "user_overrides.yaml",         # machine-specific config (paths, model selection)
 ]
 
 # Text replacements (case-insensitive where noted)
@@ -195,18 +196,23 @@ TEXT_REPLACEMENTS = [
     (r"\bclearance\b", "authorization"),
 
     # Personal/machine paths
-    (r"C:\\Users\\randaje\\OneDrive - NGC\\Desktop\\HybridRAG3", "{PROJECT_ROOT}"),
-    (r"C:\\Users\\randaje", "{USER_HOME}"),
+    # NOTE: YAML files store backslashes as \\ (two literal chars).
+    # Python regex \\\\  = match two literal backslashes (YAML form).
+    # Python regex \\    = match one literal backslash (plain text form).
+    # We use [\\\\]{1,2} to match either form.  The colon after the
+    # drive letter (D:) must be included explicitly.
+    (r"C:[\\]{1,2}Users[\\]{1,2}randaje[\\]{1,2}OneDrive - NGC[\\]{1,2}Desktop[\\]{1,2}HybridRAG3", "{PROJECT_ROOT}"),
+    (r"C:[\\]{1,2}Users[\\]{1,2}randaje", "{USER_HOME}"),
     (r"\brandaje\b", "{USERNAME}"),
-    (r"C:\\Users\\jerem\\OneDrive[^\"]*", "{USER_HOME}"),
-    (r"C:\\Users\\jerem", "{USER_HOME}"),
+    (r"C:[\\]{1,2}Users[\\]{1,2}jerem[\\]{1,2}OneDrive[^\"]*", "{USER_HOME}"),
+    (r"C:[\\]{1,2}Users[\\]{1,2}jerem", "{USER_HOME}"),
     (r"\bjerem\b", "{USERNAME}"),
     (r"OneDrive - NGC", "OneDrive"),
-    (r"D:\\KnowledgeBase", "{KNOWLEDGE_BASE}"),
-    (r"D:\\RAG Indexed Data", "{DATA_DIR}"),
-    (r"D:\\RAG Source Data", "{SOURCE_DIR}"),
-    (r"D:\\HybridRAG3", "{PROJECT_ROOT}"),
-    (r"D:\\HybridRAG2", "{PROJECT_ROOT}"),
+    (r"D:[\\]{1,2}KnowledgeBase", "{KNOWLEDGE_BASE}"),
+    (r"D:[\\]{1,2}RAG Indexed Data", "{DATA_DIR}"),
+    (r"D:[\\]{1,2}RAG Source Data", "{SOURCE_DIR}"),
+    (r"D:[\\]{1,2}HybridRAG3", "{PROJECT_ROOT}"),
+    (r"D:[\\]{1,2}HybridRAG2", "{PROJECT_ROOT}"),
 
     # Personal references (ORDER MATTERS: specific before generic)
     (r"jeremysmission", "{GITHUB_USER}"),
