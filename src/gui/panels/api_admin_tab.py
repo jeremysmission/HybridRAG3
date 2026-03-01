@@ -1085,6 +1085,10 @@ def _capture_config_snapshot(config):
             "hybrid_search": getattr(retrieval, "hybrid_search", True) if retrieval else True,
             "reranker_enabled": getattr(retrieval, "reranker_enabled", False) if retrieval else False,
         },
+        "chunking": {
+            "chunk_size": getattr(getattr(config, "chunking", None), "chunk_size", 1200),
+            "overlap": getattr(getattr(config, "chunking", None), "overlap", 200),
+        },
         "api": {
             "model": getattr(api, "model", "") if api else "",
             "max_tokens": getattr(api, "max_tokens", 2048) if api else 2048,
@@ -1135,6 +1139,7 @@ class ApiAdminTab(tk.Frame):
         self._build_troubleshoot_section(t)
         self._paths_panel = DataPathsPanel(self._inner, config, app_ref)
         self._paths_panel.pack(fill=tk.X, padx=16, pady=8)
+        self._build_chunking_section(t)
         self._offline_model_panel = OfflineModelSelectionPanel(
             self._inner, config, app_ref)
         self._offline_model_panel.pack(fill=tk.X, padx=16, pady=8)
@@ -1191,9 +1196,19 @@ class ApiAdminTab(tk.Frame):
         self.key_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
 
         self._key_visible = False
+        # Security-first default: do not allow API key reveal in an
+        # unprotected Admin screen. To intentionally re-enable reveal:
+        #   HYBRIDRAG_ALLOW_KEY_REVEAL=1
+        allow_key_reveal = os.environ.get(
+            "HYBRIDRAG_ALLOW_KEY_REVEAL", ""
+        ).strip().lower() in ("1", "true", "yes")
         self.toggle_key_btn = tk.Button(
-            row_key, text="Show", width=5, font=FONT_SMALL,
-            command=self._toggle_key_visibility,
+            row_key,
+            text="Show" if allow_key_reveal else "Reveal Locked",
+            width=11,
+            font=FONT_SMALL,
+            command=self._toggle_key_visibility if allow_key_reveal else None,
+            state=tk.NORMAL if allow_key_reveal else tk.DISABLED,
             bg=t["input_bg"], fg=t["fg"], relief=tk.FLAT, bd=0,
         )
         self.toggle_key_btn.pack(side=tk.LEFT, padx=(4, 0))
@@ -1929,6 +1944,122 @@ class ApiAdminTab(tk.Frame):
             self._refresh_network_policy_label()
 
     # ================================================================
+    # SECTION C1: CHUNKING (RE-INDEX REQUIRED)
+    # ================================================================
+
+    def _build_chunking_section(self, t):
+        """Build chunking controls kept separate from query-time tuning.
+
+        Chunking changes affect indexing output (future chunks), not live
+        query behavior. Re-index is required for changes to take effect.
+        """
+        frame = tk.LabelFrame(
+            self._inner, text="Chunking (Re-Index Required)", padx=16, pady=8,
+            bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD,
+        )
+        frame.pack(fill=tk.X, padx=16, pady=(4, 8))
+        self._chunking_frame = frame
+
+        tk.Label(
+            frame,
+            text="These settings apply to future indexing only. Re-index after changes.",
+            anchor=tk.W, justify=tk.LEFT, wraplength=760,
+            bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+        ).pack(fill=tk.X, pady=(0, 6))
+
+        chunking = getattr(self.config, "chunking", None)
+        self.chunk_size_var = tk.StringVar(
+            value=str(getattr(chunking, "chunk_size", 1200))
+        )
+        self.overlap_var = tk.StringVar(
+            value=str(getattr(chunking, "overlap", 200))
+        )
+
+        row_cs = tk.Frame(frame, bg=t["panel_bg"])
+        row_cs.pack(fill=tk.X, pady=3)
+        tk.Label(
+            row_cs, text="Chunk size:", width=14, anchor=tk.W,
+            bg=t["panel_bg"], fg=t["fg"], font=FONT,
+        ).pack(side=tk.LEFT)
+        tk.Entry(
+            row_cs, textvariable=self.chunk_size_var, width=10, font=FONT,
+            bg=t["input_bg"], fg=t["input_fg"], relief=tk.FLAT, bd=2,
+        ).pack(side=tk.LEFT, padx=(4, 0))
+
+        row_ov = tk.Frame(frame, bg=t["panel_bg"])
+        row_ov.pack(fill=tk.X, pady=3)
+        tk.Label(
+            row_ov, text="Overlap:", width=14, anchor=tk.W,
+            bg=t["panel_bg"], fg=t["fg"], font=FONT,
+        ).pack(side=tk.LEFT)
+        tk.Entry(
+            row_ov, textvariable=self.overlap_var, width=10, font=FONT,
+            bg=t["input_bg"], fg=t["input_fg"], relief=tk.FLAT, bd=2,
+        ).pack(side=tk.LEFT, padx=(4, 0))
+
+        btn_row = tk.Frame(frame, bg=t["panel_bg"])
+        btn_row.pack(fill=tk.X, pady=(6, 2))
+        self.save_chunking_btn = tk.Button(
+            btn_row, text="Save Chunking", command=self._on_save_chunking,
+            bg=t["accent"], fg=t["accent_fg"], font=FONT,
+            relief=tk.FLAT, bd=0, padx=12, pady=6,
+            activebackground=t["accent_hover"], activeforeground=t["accent_fg"],
+        )
+        self.save_chunking_btn.pack(side=tk.LEFT)
+        bind_hover(self.save_chunking_btn)
+
+        self.chunking_status_label = tk.Label(
+            frame, text="", anchor=tk.W,
+            bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+        )
+        self.chunking_status_label.pack(fill=tk.X, pady=(2, 0))
+
+    def _on_save_chunking(self):
+        """Validate + persist chunking fields to config and YAML."""
+        t = current_theme()
+        try:
+            chunk_size = int(self.chunk_size_var.get().strip())
+            overlap = int(self.overlap_var.get().strip())
+        except Exception:
+            self.chunking_status_label.config(
+                text="[FAIL] Chunk size and overlap must be integers.",
+                fg=t["red"],
+            )
+            return
+
+        if chunk_size < 200 or chunk_size > 4000:
+            self.chunking_status_label.config(
+                text="[FAIL] chunk_size must be between 200 and 4000.",
+                fg=t["red"],
+            )
+            return
+        if overlap < 0 or overlap >= chunk_size:
+            self.chunking_status_label.config(
+                text="[FAIL] overlap must be >= 0 and less than chunk_size.",
+                fg=t["red"],
+            )
+            return
+
+        chunking = getattr(self.config, "chunking", None)
+        if chunking:
+            chunking.chunk_size = chunk_size
+            chunking.overlap = overlap
+
+        try:
+            from src.core.config import save_config_field
+            save_config_field("chunking.chunk_size", chunk_size)
+            save_config_field("chunking.overlap", overlap)
+            self.chunking_status_label.config(
+                text="[OK] Chunking saved (re-index required).",
+                fg=t["green"],
+            )
+        except Exception as e:
+            self.chunking_status_label.config(
+                text="[FAIL] {}".format(str(e)[:80]),
+                fg=t["red"],
+            )
+
+    # ================================================================
     # SECTION D: ADMIN DEFAULTS
     # ================================================================
 
@@ -2026,6 +2157,12 @@ class ApiAdminTab(tk.Frame):
                 retrieval.hybrid_search = r_snap.get("hybrid_search", retrieval.hybrid_search)
                 retrieval.reranker_enabled = r_snap.get("reranker_enabled", retrieval.reranker_enabled)
 
+            c_snap = snapshot.get("chunking", {})
+            chunking = getattr(self.config, "chunking", None)
+            if chunking and c_snap:
+                chunking.chunk_size = c_snap.get("chunk_size", chunking.chunk_size)
+                chunking.overlap = c_snap.get("overlap", chunking.overlap)
+
             a_snap = snapshot.get("api", {})
             if api:
                 api.model = a_snap.get("model", api.model)
@@ -2049,6 +2186,12 @@ class ApiAdminTab(tk.Frame):
                 db = p_snap.get("database", "")
                 pp.index_var.set(os.path.dirname(db) if db else "")
                 pp._refresh_info()
+
+            if hasattr(self, "chunk_size_var") and hasattr(self, "overlap_var"):
+                c_snap = snapshot.get("chunking", {})
+                if c_snap:
+                    self.chunk_size_var.set(str(c_snap.get("chunk_size", "")))
+                    self.overlap_var.set(str(c_snap.get("overlap", "")))
 
             saved_at = snapshot.get("saved_at", "?")
             self.defaults_status_label.config(
@@ -2088,7 +2231,10 @@ class ApiAdminTab(tk.Frame):
         if hasattr(self, "_offline_model_panel"):
             self._offline_model_panel.apply_theme(t)
         self._model_panel.apply_theme(t)
-        for frame_attr in ("_cred_frame", "_security_frame", "_defaults_frame"):
+        for frame_attr in (
+            "_cred_frame", "_security_frame", "_chunking_frame",
+            "_defaults_frame",
+        ):
             frame = getattr(self, frame_attr, None)
             if frame:
                 frame.configure(bg=t["panel_bg"], fg=t["accent"])
