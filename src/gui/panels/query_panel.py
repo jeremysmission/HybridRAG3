@@ -35,6 +35,7 @@ from scripts._model_meta import (
     use_case_score,
 )
 from src.core.llm_router import get_available_deployments
+from src.core.model_identity import canonicalize_model_name
 from src.core.cost_tracker import get_cost_tracker
 from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_MONO, bind_hover
 from src.gui.helpers.safe_after import safe_after
@@ -326,7 +327,7 @@ class QueryPanel(tk.LabelFrame):
             # Manual selection -- lock this model
             self._model_auto = False
             if hasattr(self.config, "ollama"):
-                self.config.ollama.model = chosen
+                self.config.ollama.model = canonicalize_model_name(chosen)
             self._update_model_info(chosen)
 
     def _update_model_info(self, model_name):
@@ -412,12 +413,12 @@ class QueryPanel(tk.LabelFrame):
 
                 self.model_var.set("Auto")
                 if hasattr(self.config, "ollama"):
-                    self.config.ollama.model = ollama_model
+                    self.config.ollama.model = canonicalize_model_name(ollama_model)
             else:
                 # Manual mode: keep user's chosen model
                 ollama_model = self.model_var.get()
                 if hasattr(self.config, "ollama"):
-                    self.config.ollama.model = ollama_model
+                    self.config.ollama.model = canonicalize_model_name(ollama_model)
 
             self._update_model_info(ollama_model)
 

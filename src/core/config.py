@@ -54,6 +54,8 @@ import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
+from .model_identity import canonicalize_model_name
+from .ollama_endpoint_resolver import sanitize_ollama_base_url
 
 # Guard config lives in its own file to keep config.py under 500 lines.
 # Re-exported here so callers can do: from src.core.config import HallucinationGuardConfig
@@ -191,6 +193,10 @@ class OllamaConfig:
     num_predict: int = 512         # Max output tokens per generation
     num_thread: int = 0            # CPU threads (0 = auto-detect)
     temperature: float = 0.05      # Generation temperature (0=deterministic)
+
+    def __post_init__(self) -> None:
+        self.base_url = sanitize_ollama_base_url(self.base_url)
+        self.model = canonicalize_model_name(self.model)
 
 
 @dataclass

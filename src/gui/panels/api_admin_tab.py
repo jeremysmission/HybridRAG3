@@ -39,6 +39,8 @@ from datetime import datetime
 
 from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_SMALL, FONT_MONO, bind_hover
 from src.gui.scrollable import ScrollableFrame
+from src.core.model_identity import canonicalize_model_name, resolve_ollama_model_name
+from src.core.ollama_endpoint_resolver import sanitize_ollama_base_url
 from src.security.credentials import (
     resolve_credentials, validate_endpoint,
     store_api_key, store_endpoint, clear_credentials,
@@ -712,26 +714,31 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
         sel = self.tree.selection()
         if not sel:
             return
-        model_name = sel[0]
+        model_name = canonicalize_model_name(sel[0])
         t = current_theme()
+        base = sanitize_ollama_base_url(
+            getattr(getattr(self.config, "ollama", None), "base_url", "")
+        )
 
         # Verify model exists in Ollama before accepting
         try:
             import httpx
             from src.core.network_gate import get_gate
             get_gate().check_allowed(
-                "http://127.0.0.1:11434/api/tags",
+                "{}/api/tags".format(base),
                 "ollama_model_verify", "gui_admin",
             )
-            r = httpx.get("http://127.0.0.1:11434/api/tags", timeout=5, proxy=None, trust_env=False)
+            r = httpx.get(
+                "{}/api/tags".format(base),
+                timeout=5,
+                proxy=None,
+                trust_env=False,
+            )
             r.raise_for_status()
             available = [m.get("name") for m in r.json().get("models", [])]
             if model_name not in available:
-                # Check for partial tag match (e.g. "mistral:7b" vs "mistral:latest")
-                base = model_name.split(":")[0]
-                matching = [m for m in available if m.startswith(base)]
-                if matching:
-                    fallback = matching[0]
+                fallback = resolve_ollama_model_name(model_name, available)
+                if fallback in available:
                     self.status_label.config(
                         text="[WARN] {} not found, using {}".format(model_name, fallback),
                         fg=t["orange"])
@@ -744,7 +751,7 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
                                               reason="exact tag not in Ollama"))
                     except Exception:
                         pass
-                    model_name = fallback
+                    model_name = canonicalize_model_name(fallback)
                 else:
                     self.status_label.config(
                         text="[FAIL] {} not in Ollama. Run: ollama pull {}".format(
@@ -769,11 +776,13 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
         ollama = getattr(self.config, "ollama", None)
         if ollama:
             ollama.model = model_name
+            ollama.base_url = base
 
         # Persist to YAML so it survives restart
         try:
             from src.core.config import save_config_field
             save_config_field("ollama.model", model_name)
+            save_config_field("ollama.base_url", base)
             logger.info("[OK] Offline model persisted: %s", model_name)
         except Exception as e:
             logger.warning("[WARN] Could not persist model to YAML: %s", e)
@@ -798,9 +807,11 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
         try:
             import httpx
             from src.core.network_gate import get_gate
-            base = getattr(
-                getattr(self.config, "ollama", None), "base_url",
-                "http://127.0.0.1:11434",
+            base = sanitize_ollama_base_url(
+                getattr(
+                    getattr(self.config, "ollama", None), "base_url",
+                    "http://127.0.0.1:11434",
+                )
             )
             get_gate().check_allowed(
                 "{}/api/tags".format(base),

@@ -156,7 +156,9 @@ def _openai_sdk_available():
 
 # -- Import HybridRAG internals ---------------------------------------------
 from .config import Config
+from .model_identity import canonicalize_model_name, resolve_ollama_model_name
 from .network_gate import get_gate, NetworkBlockedError
+from .ollama_endpoint_resolver import sanitize_ollama_base_url
 from ..monitoring.logger import get_app_logger
 
 
@@ -210,8 +212,14 @@ class OllamaRouter:
         self.logger = get_app_logger("ollama_router")
         self.last_error = ""
 
-        # Base URL for the local Ollama server
-        self.base_url = config.ollama.base_url.rstrip("/")
+        # Base URL for the local Ollama server (sanitize typo-prone inputs)
+        self.base_url = sanitize_ollama_base_url(config.ollama.base_url)
+        self._tags_cache = None
+        self._tags_ttl = 30
+        try:
+            self.config.ollama.base_url = self.base_url
+        except Exception:
+            pass
 
         # Persistent HTTP client -- localhost only, never proxied
         self._client = _build_httpx_client(
@@ -242,6 +250,31 @@ class OllamaRouter:
         if num_thread > 0:
             opts["num_thread"] = num_thread
         return opts
+
+    def _available_models(self) -> list[str]:
+        """Query /api/tags with short cache to avoid repeated roundtrips."""
+        now = time.time()
+        if self._tags_cache and (now - self._tags_cache[1]) < self._tags_ttl:
+            return self._tags_cache[0]
+        try:
+            r = self._client.get(f"{self.base_url}/api/tags", timeout=5)
+            r.raise_for_status()
+            data = r.json()
+            if not isinstance(data, dict):
+                return []
+            models = data.get("models", [])
+            if not isinstance(models, list):
+                return []
+            names = [m.get("name", "") for m in models if isinstance(m, dict) and m.get("name")]
+            self._tags_cache = (names, now)
+            return names
+        except Exception:
+            return []
+
+    def _resolve_model_name(self, requested: str) -> str:
+        """Resolve requested model to an installed Ollama tag when possible."""
+        req = canonicalize_model_name(requested)
+        return resolve_ollama_model_name(req, self._available_models())
 
     def is_available(self) -> bool:
         """
@@ -296,8 +329,9 @@ class OllamaRouter:
             return None
 
         # Build the request body for Ollama's /api/generate endpoint
+        model_name = self._resolve_model_name(self.config.ollama.model)
         payload = {
-            "model": self.config.ollama.model,
+            "model": model_name,
             "prompt": prompt,
             "stream": False,
             "keep_alive": getattr(self.config.ollama, "keep_alive", -1),
@@ -320,7 +354,7 @@ class OllamaRouter:
 
             self.logger.info(
                 "ollama_query_success",
-                model=self.config.ollama.model,
+                model=model_name,
                 tokens_in=prompt_eval_count,
                 tokens_out=eval_count,
                 latency_ms=latency_ms,
@@ -330,7 +364,7 @@ class OllamaRouter:
                 text=response_text,
                 tokens_in=prompt_eval_count,
                 tokens_out=eval_count,
-                model=self.config.ollama.model,
+                model=model_name,
                 latency_ms=latency_ms,
             )
 
@@ -368,8 +402,9 @@ class OllamaRouter:
             yield {"error": self.last_error, "backend": "ollama"}
             return
 
+        model_name = self._resolve_model_name(self.config.ollama.model)
         payload = {
-            "model": self.config.ollama.model,
+            "model": model_name,
             "prompt": prompt,
             "stream": True,
             "keep_alive": getattr(self.config.ollama, "keep_alive", -1),
@@ -401,7 +436,7 @@ class OllamaRouter:
             latency_ms = (time.time() - start_time) * 1000
             self.logger.info(
                 "ollama_stream_complete",
-                model=self.config.ollama.model,
+                model=model_name,
                 tokens_in=tokens_in,
                 tokens_out=tokens_out,
                 latency_ms=latency_ms,
@@ -410,7 +445,7 @@ class OllamaRouter:
                 "done": True,
                 "tokens_in": tokens_in,
                 "tokens_out": tokens_out,
-                "model": self.config.ollama.model,
+                "model": model_name,
                 "latency_ms": latency_ms,
             }
 
