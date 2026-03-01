@@ -1092,13 +1092,21 @@ class AtomicTransferWorker:
                     _buffered_copy(
                         source, str(tmp_path),
                         cfg.copy_buffer_size, cfg.bandwidth_limit,
-                        timeout=copy_timeout,
+                        timeout=copy_timeout, stop_event=self._stop,
                     )
                     copied = True
                     break
                 except Exception as e:
                     last_err = f"{type(e).__name__}: {e}"
                     retries = attempt - 1
+                    if isinstance(e, InterruptedError) or self._stop.is_set():
+                        self.manifest.record_transfer(
+                            self.run_id, source, result="stopped",
+                            hash_source=hash_src, retry_count=retries,
+                            error_message="Stopped by user during copy",
+                            transfer_start=t_start,
+                        )
+                        return
                     # TimeoutError with an errno (e.g., ETIMEDOUT) is a
                     # network timeout -- retryable. TimeoutError without
                     # an errno is our copy-stall detector -- NOT retryable
@@ -1677,7 +1685,7 @@ def _can_read_file(path: str, timeout: float = 5.0) -> bool:
 
 def _buffered_copy(
     src: str, dst: str, buf_size: int = 1_048_576,
-    bw_limit: int = 0, timeout: float = 0,
+    bw_limit: int = 0, timeout: float = 0, stop_event: threading.Event = None,
 ) -> None:
     """
     Copy a file using buffered reads with optional bandwidth limiting.
@@ -1692,7 +1700,7 @@ def _buffered_copy(
 
         def _do_copy():
             try:
-                _buffered_copy_inner(src, dst, buf_size, bw_limit)
+                _buffered_copy_inner(src, dst, buf_size, bw_limit, stop_event=stop_event)
             except Exception as e:
                 error_holder[0] = e
 
@@ -1706,24 +1714,24 @@ def _buffered_copy(
         if error_holder[0] is not None:
             raise error_holder[0]
     else:
-        _buffered_copy_inner(src, dst, buf_size, bw_limit)
+        _buffered_copy_inner(src, dst, buf_size, bw_limit, stop_event=stop_event)
 
 
 def _buffered_copy_inner(
     src: str, dst: str, buf_size: int = 1_048_576,
-    bw_limit: int = 0,
+    bw_limit: int = 0, stop_event: threading.Event = None,
 ) -> None:
     """Inner copy logic (no timeout wrapper)."""
     with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
-        if bw_limit <= 0:
-            shutil.copyfileobj(fsrc, fdst, length=buf_size)
-        else:
-            while True:
-                t0 = time.monotonic()
-                data = fsrc.read(buf_size)
-                if not data:
-                    break
-                fdst.write(data)
+        while True:
+            if stop_event is not None and stop_event.is_set():
+                raise InterruptedError("copy cancelled by stop request")
+            t0 = time.monotonic()
+            data = fsrc.read(buf_size)
+            if not data:
+                break
+            fdst.write(data)
+            if bw_limit > 0:
                 elapsed = time.monotonic() - t0
                 expected = len(data) / bw_limit
                 if expected > elapsed:
