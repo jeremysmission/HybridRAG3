@@ -179,17 +179,21 @@ class SettingsView(tk.Frame):
         super().__init__(parent, bg=t["bg"])
         self.config = config
         self._app = app_ref
+        self._dev_ui_enabled = os.environ.get(
+            "HYBRIDRAG_DEV_UI", ""
+        ).strip().lower() in ("1", "true", "yes")
 
         # Build notebook with two tabs
         self._notebook = ttk.Notebook(self)
         self._notebook.pack(fill=tk.BOTH, expand=True)
 
-        # Tab 1: Tuning (existing functionality)
+        # Dev-only tuning tab (hidden by default in production-style runs).
         from src.gui.panels.tuning_tab import TuningTab
         self._tuning_tab = TuningTab(self._notebook, config=config, app_ref=app_ref)
-        self._notebook.add(self._tuning_tab, text="  Tuning  ")
+        if self._dev_ui_enabled:
+            self._notebook.add(self._tuning_tab, text="  Development Tuning  ")
 
-        # Tab 2: API & Admin (new functionality)
+        # Main operations/admin tab (always visible).
         from src.gui.panels.api_admin_tab import ApiAdminTab
         self._api_admin_tab = ApiAdminTab(self._notebook, config=config, app_ref=app_ref)
         self._notebook.add(self._api_admin_tab, text="  API & Admin  ")

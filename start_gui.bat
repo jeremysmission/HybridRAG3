@@ -35,10 +35,12 @@ REM Start unlocked for app-managed mode switching (offline/online).
 REM The GUI mode switch will set/clear this at runtime.
 set "HYBRIDRAG_NETWORK_KILL_SWITCH=0"
 set "HYBRIDRAG_OFFLINE=0"
+REM Development UI controls (chunking/tuning). Set to 0 for production view.
+set "HYBRIDRAG_DEV_UI=1"
 
 REM ---- LAUNCH GUI ----
 echo [INFO] Launching HybridRAG GUI...
-"%PY%" src\gui\launch_gui.py
+"%PY%" src\gui\launch_gui.py --detach
 if %errorlevel% NEQ 0 (
   echo.
   echo  [FAIL] GUI exited with code %errorlevel%

@@ -1126,6 +1126,9 @@ class ApiAdminTab(tk.Frame):
         super().__init__(parent, bg=t["panel_bg"])
         self.config = config
         self._app = app_ref
+        self._dev_tuning_enabled = os.environ.get(
+            "HYBRIDRAG_DEV_UI", ""
+        ).strip().lower() in ("1", "true", "yes")
 
         # Scrollable container -- needed because all four sections together
         # are taller than the window.
@@ -1139,7 +1142,10 @@ class ApiAdminTab(tk.Frame):
         self._build_troubleshoot_section(t)
         self._paths_panel = DataPathsPanel(self._inner, config, app_ref)
         self._paths_panel.pack(fill=tk.X, padx=16, pady=8)
-        self._build_chunking_section(t)
+        if self._dev_tuning_enabled:
+            self._build_chunking_section(t)
+        else:
+            self._build_dev_hidden_notice(t)
         self._offline_model_panel = OfflineModelSelectionPanel(
             self._inner, config, app_ref)
         self._offline_model_panel.pack(fill=tk.X, padx=16, pady=8)
@@ -1153,6 +1159,23 @@ class ApiAdminTab(tk.Frame):
 
         # Gray out API fields if starting in offline mode
         self._apply_mode_state()
+
+    def _build_dev_hidden_notice(self, t):
+        """Show a small notice when dev-only tuning controls are hidden."""
+        frame = tk.LabelFrame(
+            self._inner, text="Development Controls", padx=16, pady=8,
+            bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD,
+        )
+        frame.pack(fill=tk.X, padx=16, pady=(4, 8))
+        tk.Label(
+            frame,
+            text=(
+                "Advanced tuning is hidden in standard mode. "
+                "Set HYBRIDRAG_DEV_UI=1 to show Development-only controls."
+            ),
+            anchor=tk.W, justify=tk.LEFT, wraplength=760,
+            bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+        ).pack(fill=tk.X)
 
     # ================================================================
     # SECTION A: API CREDENTIALS

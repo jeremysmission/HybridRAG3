@@ -34,6 +34,17 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Tuple, Dict, Any
+from datetime import datetime, date
+
+
+def _cell_to_text(value: Any) -> str:
+    """Normalize Excel cell values into stable searchable text."""
+    if value is None:
+        return ""
+    if isinstance(value, (datetime, date)):
+        # ISO style is compact, sortable, and unambiguous for retrieval.
+        return value.isoformat(sep=" ", timespec="seconds") if isinstance(value, datetime) else value.isoformat()
+    return str(value).strip()
 
 
 class XlsxParser:
@@ -75,21 +86,39 @@ class XlsxParser:
                 ws = wb[sheet_name]
                 sheets += 1
                 parts.append(f"[SHEET] {sheet_name}")
+                header = None
+                header_row_idx = None
 
-                for row in ws.iter_rows(values_only=True):
-                    # Convert row values to strings, skip empty rows
-                    vals = []
-                    for v in row:
-                        if v is None:
-                            vals.append("")
-                        else:
-                            vals.append(str(v).strip())
-
+                for ridx, row in enumerate(ws.iter_rows(values_only=True), start=1):
+                    vals = [_cell_to_text(v) for v in row]
                     if all(x == "" for x in vals):
                         continue
 
+                    # First non-empty row is treated as header if it looks tabular.
+                    if header is None and any(x != "" for x in vals[1:]):
+                        header = [v if v else f"col_{i+1}" for i, v in enumerate(vals)]
+                        header_row_idx = ridx
+                        parts.append(f"[HEADER row={ridx}] " + " | ".join(header))
+                        continue
+
                     rows_emitted += 1
-                    parts.append(" | ".join(vals))
+                    # Always include raw row for exact matching.
+                    parts.append(f"[ROW {ridx}] " + " | ".join(vals))
+
+                    # Header-aware representation improves retrieval for
+                    # "part number for X" style queries.
+                    if header:
+                        keyed = []
+                        for i, cell in enumerate(vals):
+                            if cell == "":
+                                continue
+                            col_name = header[i] if i < len(header) else f"col_{i+1}"
+                            keyed.append(f"{col_name}: {cell}")
+                        if keyed:
+                            parts.append(f"[ROW_KV {ridx}] " + " ; ".join(keyed))
+
+                if header_row_idx is not None:
+                    parts.append(f"[SHEET_SUMMARY] header_row={header_row_idx}")
 
             full = "\n".join(parts).strip()
             details["total_len"] = len(full)

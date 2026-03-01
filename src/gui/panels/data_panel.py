@@ -26,6 +26,8 @@ import ctypes
 import os
 import string
 import threading
+import json
+from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, filedialog
 import logging
@@ -114,6 +116,12 @@ def _theme_widget(widget, t):
         _theme_widget(child, t)
 
 
+def _resume_state_path():
+    """Return path to persisted transfer resume state JSON."""
+    root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
+    return os.path.join(root, "config", "transfer_resume_state.json")
+
+
 def _scan_folder_summary(path):
     """Walk *path* and return a human-readable file/extension summary.
 
@@ -175,6 +183,7 @@ class DataPanel(tk.Frame):
         self._transfer_thread = None
         self._stop_event = threading.Event()
         self._poll_id = None
+        self._resume_attempted = False
 
         # Public testing state (same pattern as IndexPanel/QueryPanel)
         self.transfer_done_event = threading.Event()
@@ -201,6 +210,95 @@ class DataPanel(tk.Frame):
         self._build_preview_section(t)
         self._build_transfer_section(t)
         self._build_post_transfer_section(t)
+        self.after(600, self._maybe_resume_transfer)
+
+    # ================================================================
+    # RESUME STATE (persist + auto-resume on next GUI launch)
+    # ================================================================
+
+    def _load_resume_state(self):
+        """Load persisted transfer resume state, or None if unavailable."""
+        path = _resume_state_path()
+        try:
+            if not os.path.isfile(path):
+                return None
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                return data
+        except Exception as e:
+            logger.warning("resume_state_load_failed: %s", e)
+        return None
+
+    def _save_resume_state(self, source, dest, status="running"):
+        """Persist current transfer state for crash-safe resume."""
+        path = _resume_state_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            payload = {
+                "status": status,
+                "source": source,
+                "dest": dest,
+                "updated_at": datetime.utcnow().isoformat() + "Z",
+            }
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+        except Exception as e:
+            logger.warning("resume_state_save_failed: %s", e)
+
+    def _clear_resume_state(self):
+        """Remove persisted transfer state so next launch does not auto-resume."""
+        path = _resume_state_path()
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+        except Exception as e:
+            logger.warning("resume_state_clear_failed: %s", e)
+
+    def _maybe_resume_transfer(self):
+        """Auto-resume interrupted transfer from persisted state."""
+        if self._resume_attempted:
+            return
+        self._resume_attempted = True
+        if self.is_transferring:
+            return
+
+        state = self._load_resume_state()
+        if not state:
+            return
+        state_status = str(state.get("status", "")).lower()
+        if state_status not in ("running", "retry_pending", "interrupted"):
+            return
+
+        source = str(state.get("source", "")).strip()
+        dest = str(state.get("dest", "")).strip()
+        t = current_theme()
+
+        if not source or not os.path.isdir(source):
+            self._transfer_status.config(
+                text="[WARN] Saved resume source missing; auto-resume skipped.",
+                fg=t["orange"],
+            )
+            self._clear_resume_state()
+            return
+        if not dest:
+            self._transfer_status.config(
+                text="[WARN] Saved resume destination missing; auto-resume skipped.",
+                fg=t["orange"],
+            )
+            self._clear_resume_state()
+            return
+
+        self._selected_path_var.set(source)
+        self._source_path_var.set(dest)
+        if state_status == "retry_pending":
+            msg = "Resuming transfer after previous failure..."
+        elif state_status == "interrupted":
+            msg = "Resuming interrupted transfer..."
+        else:
+            msg = "Resuming previous transfer..."
+        self._transfer_status.config(text=msg, fg=t["orange"])
+        self._start_transfer(source=source, dest=dest, resume=True)
 
     # ================================================================
     # SECTION A: Current Source Path
@@ -503,18 +601,32 @@ class DataPanel(tk.Frame):
         self._progress_label.pack(side=tk.LEFT)
 
         # Stats line
+        self._stats_hint = tk.Label(
+            frame, text="Live telemetry: rate | ETA | copied | dedup | skip | err",
+            anchor=tk.W, bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+        )
+        self._stats_hint.pack(fill=tk.X)
+
         self._stats_label = tk.Label(
             frame, text="", anchor=tk.W,
             bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
         )
         self._stats_label.pack(fill=tk.X)
+        self._stats_detail_label = tk.Label(
+            frame, text="", anchor=tk.W,
+            bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+        )
+        self._stats_detail_label.pack(fill=tk.X)
 
     def _on_start_transfer(self):
-        """Validate inputs and launch transfer in background thread."""
-        t = current_theme()
+        """Start transfer using values from current UI fields."""
         source = self._selected_path_var.get().strip()
         dest = self._source_path_var.get().strip()
+        self._start_transfer(source=source, dest=dest, resume=False)
 
+    def _start_transfer(self, source, dest, resume=False):
+        """Validate inputs and launch transfer in background thread."""
+        t = current_theme()
         if not source or not os.path.isdir(source):
             self._transfer_status.config(
                 text="[FAIL] Select a source folder first", fg=t["red"])
@@ -540,12 +652,18 @@ class DataPanel(tk.Frame):
         self._progress_bar["value"] = 0
         self._progress_label.config(text="0 / 0")
         self._stats_label.config(text="")
-        self._transfer_status.config(text="Starting transfer...", fg=t["gray"])
+        self._stats_detail_label.config(text="")
+        if resume:
+            self._transfer_status.config(
+                text="Resuming transfer from saved state...", fg=t["orange"])
+        else:
+            self._transfer_status.config(text="Starting transfer...", fg=t["gray"])
 
         # Public testing state (main thread, before thread starts)
         self.is_transferring = True
         self.transfer_done_event.clear()
         self.last_transfer_status = ""
+        self._save_resume_state(source=source, dest=dest, status="running")
 
         # Launch in background
         self._transfer_thread = threading.Thread(
@@ -611,6 +729,12 @@ class DataPanel(tk.Frame):
                 pass
 
             msg = "[FAIL] {}: {}".format(type(e).__name__, str(e)[:80])
+            try:
+                self._save_resume_state(
+                    source=source, dest=dest, status="retry_pending",
+                )
+            except Exception:
+                pass
             self.is_transferring = False
             self.last_transfer_status = msg
             self.transfer_done_event.set()
@@ -622,6 +746,7 @@ class DataPanel(tk.Frame):
         self._stop_event.set()
         if self._engine is not None:
             self._engine._stop.set()
+        self._clear_resume_state()
         self._stop_btn.config(state=tk.DISABLED)
         self._transfer_status.config(
             text="Stopping after current file...", fg=t["orange"])
@@ -660,6 +785,15 @@ class DataPanel(tk.Frame):
             ),
             fg=t["gray"],
         )
+        self._stats_detail_label.config(
+            text="Elapsed {} | Data {} / {} | discovered {:,}".format(
+                _fmt_dur(stats.elapsed),
+                _fmt_size(stats.bytes_copied),
+                _fmt_size(stats.bytes_source_total),
+                stats.files_discovered,
+            ),
+            fg=t["gray"],
+        )
 
         # Continue polling if transfer is still running
         if self._transfer_thread is not None and self._transfer_thread.is_alive():
@@ -676,12 +810,22 @@ class DataPanel(tk.Frame):
 
         if self._engine is not None:
             stats = self._engine.stats
-            self._transfer_status.config(
-                text="[OK] Transfer complete -- {:,} files copied, {} transferred".format(
-                    stats.files_copied, _fmt_size(stats.bytes_copied),
-                ),
-                fg=t["green"],
-            )
+            if self._stop_event.is_set():
+                self._transfer_status.config(
+                    text="[WARN] Transfer stopped -- {:,} files copied, {} transferred".format(
+                        stats.files_copied, _fmt_size(stats.bytes_copied),
+                    ),
+                    fg=t["orange"],
+                )
+                self._clear_resume_state()
+            else:
+                self._transfer_status.config(
+                    text="[OK] Transfer complete -- {:,} files copied, {} transferred".format(
+                        stats.files_copied, _fmt_size(stats.bytes_copied),
+                    ),
+                    fg=t["green"],
+                )
+                self._clear_resume_state()
             # Final progress update
             total = stats.files_manifest
             self._progress_bar["maximum"] = max(total, 1)
@@ -691,13 +835,17 @@ class DataPanel(tk.Frame):
         else:
             self._transfer_status.config(
                 text="[OK] Transfer complete", fg=t["green"])
+            self._clear_resume_state()
 
     def _on_transfer_error(self, msg):
         """Transfer failed -- update UI."""
         t = current_theme()
         self._start_btn.config(state=tk.NORMAL)
         self._stop_btn.config(state=tk.DISABLED)
-        self._transfer_status.config(text=msg, fg=t["red"])
+        self._transfer_status.config(
+            text=msg + " | Resume is armed for next launch.",
+            fg=t["red"],
+        )
 
     # ================================================================
     # SECTION E: Post-Transfer Actions
