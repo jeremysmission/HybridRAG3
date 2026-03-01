@@ -213,7 +213,10 @@ $env:NO_PROXY = "localhost,127.0.0.1"
 $env:SENTENCE_TRANSFORMERS_HOME = "$PROJECT_ROOT\.model_cache"
 $env:HF_HOME = "$PROJECT_ROOT\.hf_cache"
 $env:TORCH_HOME = "$PROJECT_ROOT\.torch_cache"
-$env:HYBRIDRAG_NETWORK_KILL_SWITCH = "true"
+# Start unlocked so app/CLI mode controls (offline/online) can work.
+# Use rag-mode-offline or GUI OFFLINE toggle to force local-only runtime.
+$env:HYBRIDRAG_NETWORK_KILL_SWITCH = "0"
+$env:HYBRIDRAG_OFFLINE = "0"
 
 Write-Host ""
 Write-Host "Network lockdown:" -ForegroundColor Yellow

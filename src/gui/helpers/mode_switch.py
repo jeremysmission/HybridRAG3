@@ -19,6 +19,7 @@ import tkinter as tk
 from tkinter import messagebox
 import logging
 import threading
+import os
 
 from src.gui.helpers.safe_after import safe_after
 
@@ -135,6 +136,10 @@ def _finish_switch(app):
 
 def _do_switch_to_online(app):
     """Switch to online mode (runs in background thread)."""
+    # Clear process-level offline overrides so GUI online mode can take effect.
+    os.environ["HYBRIDRAG_OFFLINE"] = "0"
+    os.environ["HYBRIDRAG_NETWORK_KILL_SWITCH"] = "0"
+
     # Check credentials using cached resolution
     try:
         from src.security.credentials import resolve_credentials
@@ -220,6 +225,10 @@ def _do_switch_to_offline(app):
     Offline switch is inherently safer (no credentials needed), but we still
     defer the commit for consistency.
     """
+    # Keep explicit offline override in-process while app runs in offline mode.
+    os.environ["HYBRIDRAG_OFFLINE"] = "1"
+    os.environ["HYBRIDRAG_NETWORK_KILL_SWITCH"] = "1"
+
     try:
         from src.core.network_gate import configure_gate
         configure_gate(mode="offline")
