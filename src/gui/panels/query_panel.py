@@ -333,14 +333,23 @@ class QueryPanel(tk.LabelFrame):
         """Update the score/info label for the given model."""
         idx = self._uc_labels.index(self.uc_var.get()) if self.uc_var.get() in self._uc_labels else 0
         uc_key = self._uc_keys[idx]
+        mode = getattr(self.config, "mode", "offline")
+        mode_label = "Offline Mode" if mode == "offline" else "Online Mode"
         meta = WORK_ONLY_MODELS.get(model_name, {})
         if meta:
             score = use_case_score(
                 meta.get("tier_eng", 30), meta.get("tier_gen", 30), uc_key,
             )
-            self.model_info_var.set("score {}, offline".format(score))
+            if self._model_auto:
+                self.model_info_var.set(
+                    "{} | Score: {} | {}".format(model_name, score, mode_label)
+                )
+            else:
+                self.model_info_var.set(
+                    "Score: {} | {}".format(score, mode_label)
+                )
         else:
-            self.model_info_var.set("offline")
+            self.model_info_var.set(mode_label)
 
     # ----------------------------------------------------------------
     # USE CASE CHANGE

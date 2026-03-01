@@ -104,7 +104,7 @@ rag-profile server_max        64GB+ RAM, batch=128, maximum throughput
 - Uses Ollama running locally (localhost:11434)
 - No internet required after setup
 - Response time: ~5-10 seconds (GPU) or ~180 seconds (CPU only)
-- Best for: Air-gapped environments, SCIFs, field use
+- Best for: Air-gapped environments (e.g. hospital networks protecting HIPAA data), restricted networks, field use
 
 ### Online Mode
 - Routes queries to a cloud LLM API (OpenRouter, Azure, or compatible endpoint)
