@@ -286,6 +286,44 @@ CREDENTIALS: resolve_credentials(config_dict) -> ApiCredentials
   api_key, endpoint, has_key, has_endpoint, is_online_ready, key_preview
 """
 
+HELP_GUI_COLOR_SCHEME = """\
+GUI COLOR SCHEME SETTINGS
+=========================
+
+Quick location:
+  src/gui/theme.py
+
+Main light-mode palette:
+  LIGHT = {
+    bg, panel_bg, fg, input_bg, input_fg,
+    border, separator, label_fg, gray,
+    accent, accent_hover, inactive_btn_bg, inactive_btn_fg
+  }
+
+Most important white-on-white fix:
+  Do NOT keep both panel_bg and input_bg pure white.
+  Use:
+    panel_bg = slightly off-white
+    input_bg = white
+    border/separator = medium contrast
+
+Recommended baseline:
+  bg = #eef1f5
+  panel_bg = #f8fafc
+  input_bg = #ffffff
+  border = #b8c0cc
+  separator = #bcc5d3
+  label_fg = #3f4a5a
+  gray = #5a6472
+
+ttk note:
+  Combobox and other ttk widgets are styled in apply_ttk_styles(theme_dict),
+  not just by direct tk widget bg/fg settings.
+
+Full cheat sheet:
+  docs/03_guides/LIGHT_MODE_COLOR_CHEATSHEET.md
+"""
+
 
 # ---------------------------------------------------------------------------
 # Security & Compliance
@@ -592,6 +630,7 @@ CATEGORIES = [
         ("Architecture", HELP_ARCHITECTURE),
         ("Software Stack", HELP_SOFTWARE_STACK),
         ("Interfaces", HELP_INTERFACES),
+        ("GUI Color Scheme Settings", HELP_GUI_COLOR_SCHEME),
     ]),
     ("Security and Compliance", [
         ("Security Overview", HELP_SECURITY),

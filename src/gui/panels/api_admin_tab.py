@@ -694,6 +694,21 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
         current_model = getattr(
             getattr(self.config, "ollama", None), "model", ""
         ) or ""
+        current_model = canonicalize_model_name(current_model)
+
+        # Legacy cleanup: older sessions stored phi4-mini as the default
+        # offline model. Normalize to the approved primary default so the
+        # admin panel does not appear to regress to a stale baseline.
+        if current_model in ("phi4-mini", "phi4-mini:latest"):
+            current_model = "phi4:14b-q4_K_M"
+            try:
+                ollama = getattr(self.config, "ollama", None)
+                if ollama:
+                    ollama.model = current_model
+                from src.core.config import save_config_field
+                save_config_field("ollama.model", current_model)
+            except Exception:
+                pass
 
         scored = []
         for name, meta in WORK_ONLY_MODELS.items():
@@ -734,9 +749,14 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
             self.tree.see(current_model)
 
         t = current_theme()
+        mode = getattr(self.config, "mode", "offline")
+        if mode == "online":
+            suffix = " (offline catalog; inactive in online mode)"
+        else:
+            suffix = ""
         self.status_label.config(
-            text="{} approved models. Current: {}".format(
-                len(scored), current_model or "(none)"),
+            text="{} approved models. Current: {}{}".format(
+                len(scored), current_model or "(none)", suffix),
             fg=t["fg"],
         )
 

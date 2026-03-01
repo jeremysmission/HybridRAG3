@@ -74,6 +74,11 @@ class QueryPanel(tk.LabelFrame):
         self._elapsed_timer_id = None    # after() id for the elapsed time display
         self._model_auto = True          # True = recommendation picks model
         self._installed_models = []      # names from `ollama list`
+        self._online_models = []         # discovered API deployments/models
+        self._auto_fallback_note = ""    # user-visible primary/secondary note
+        self._auto_fallback_active = False
+        self._auto_selected_model = ""
+        self._auto_primary_model = ""
 
         # Public testing state -- poll these from harness/tools.
         # Event is the thread-safe completion signal; plain attrs are
@@ -122,6 +127,45 @@ class QueryPanel(tk.LabelFrame):
             fg=t["green"], font=FONT,
         )
         self.uc_status_label.pack(side=tk.LEFT, padx=(8, 0))
+
+        # Persistent operator-facing warning for degraded auto routing.
+        self.primary_alert_row = tk.Frame(self, bg=t["panel_bg"])
+        self.primary_alert_row.pack(fill=tk.X, pady=(0, 8))
+        self.primary_alert_var = tk.StringVar(value="")
+        self.primary_alert_label = tk.Label(
+            self.primary_alert_row,
+            textvariable=self.primary_alert_var,
+            bg=t["panel_bg"],
+            fg=t["red"],
+            font=FONT_BOLD,
+            anchor=tk.W,
+            justify=tk.LEFT,
+        )
+        self.primary_alert_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self.primary_check_var = tk.StringVar(value="")
+        self.primary_check_label = tk.Label(
+            self.primary_alert_row,
+            textvariable=self.primary_check_var,
+            bg=t["panel_bg"],
+            fg=t["gray"],
+            font=FONT,
+            anchor=tk.W,
+        )
+        self.primary_check_label.pack(side=tk.LEFT, padx=(8, 0))
+
+        self.primary_check_btn = tk.Button(
+            self.primary_alert_row,
+            text="Check Primary & Switch",
+            command=self._on_check_primary,
+            width=22,
+            font=FONT,
+            bg=t["inactive_btn_bg"],
+            fg=t["inactive_btn_fg"],
+            relief=tk.FLAT,
+            state=tk.DISABLED,
+        )
+        self.primary_check_btn.pack(side=tk.RIGHT)
 
         # -- Row 1: Model selector (Auto + installed Ollama models) --
         row1 = tk.Frame(self, bg=t["panel_bg"])
@@ -250,6 +294,9 @@ class QueryPanel(tk.LabelFrame):
                                    selectbackground=t["accent"])
         self.sources_label.configure(bg=t["panel_bg"])
         self.metrics_label.configure(bg=t["panel_bg"])
+        self.primary_alert_row.configure(bg=t["panel_bg"])
+        self.primary_alert_label.configure(bg=t["panel_bg"])
+        self.primary_check_label.configure(bg=t["panel_bg"], fg=t["gray"])
         # Preserve gray/colored state of sources/metrics
         if "none" in self.sources_label.cget("text"):
             self.sources_label.configure(fg=t["gray"])
@@ -322,13 +369,31 @@ class QueryPanel(tk.LabelFrame):
         if mode == "online":
             # Online model comes from API deployment selection, not Ollama list.
             deployment = (
-                getattr(getattr(self.config, "api", None), "deployment", "")
-                or "Auto (online)"
-            )
+                getattr(getattr(self.config, "api", None), "deployment", "") or ""
+            ).strip()
+            if not deployment:
+                # Fallback: credential manager may have deployment even if
+                # config object hasn't been refreshed yet.
+                try:
+                    from src.security.credentials import resolve_credentials
+                    creds = resolve_credentials(use_cache=False)
+                    deployment = (getattr(creds, "deployment", "") or "").strip()
+                except Exception:
+                    deployment = ""
+            if not deployment:
+                deployment = "Auto (online)"
             label = f"Online: {deployment}"
-            self.model_combo["values"] = [label]
-            self.model_var.set(label)
-            self.model_combo.config(state=tk.DISABLED)
+            if self._online_models:
+                vals = [f"Online: {m}" for m in self._online_models]
+                if label not in vals:
+                    vals.insert(0, label)
+                self.model_combo["values"] = vals
+                self.model_var.set(label)
+                self.model_combo.config(state="readonly")
+            else:
+                self.model_combo["values"] = [label]
+                self.model_var.set(label)
+                self.model_combo.config(state="readonly")
             return
 
         values = ["Auto"] + self._installed_models
@@ -339,6 +404,24 @@ class QueryPanel(tk.LabelFrame):
 
     def _on_model_select(self, event=None):
         """Handle user selecting a model from the dropdown."""
+        mode = getattr(self.config, "mode", "offline")
+        if mode == "online":
+            chosen = self.model_var.get().replace("Online:", "").strip()
+            if not chosen or chosen.lower().startswith("auto"):
+                return
+            if hasattr(self.config, "api"):
+                self.config.api.deployment = chosen
+            # Apply to live router if already initialized
+            try:
+                if self.query_engine and hasattr(self.query_engine, "llm_router"):
+                    api_router = getattr(self.query_engine.llm_router, "api", None)
+                    if api_router is not None:
+                        api_router.deployment = chosen
+            except Exception:
+                pass
+            self.model_info_var.set("{} (manual)".format(chosen))
+            return
+
         chosen = self.model_var.get()
         if chosen == "Auto":
             self._model_auto = True
@@ -352,6 +435,10 @@ class QueryPanel(tk.LabelFrame):
 
     def _update_model_info(self, model_name):
         """Update the score/info label for the given model."""
+        if self._auto_fallback_note:
+            self.model_info_var.set(self._auto_fallback_note)
+            return
+
         idx = self._uc_labels.index(self.uc_var.get()) if self.uc_var.get() in self._uc_labels else 0
         uc_key = self._uc_keys[idx]
         mode = getattr(self.config, "mode", "offline")
@@ -371,6 +458,113 @@ class QueryPanel(tk.LabelFrame):
                 )
         else:
             self.model_info_var.set(mode_label)
+
+    def _set_auto_note(self, selected, primary="", fallback=False, detail=""):
+        """Set explicit auto-mode primary/secondary status text."""
+        selected = (selected or "").strip() or "(none)"
+        primary = (primary or "").strip()
+        self._auto_selected_model = selected
+        self._auto_primary_model = primary
+        self._auto_fallback_active = bool(fallback)
+        if fallback:
+            msg = "Auto Mode - Primary unavailable, Secondary selected: {}".format(
+                selected
+            )
+        else:
+            if primary:
+                msg = "Auto Mode - Primary selected: {}".format(selected)
+            else:
+                msg = "Auto Mode - Selected: {}".format(selected)
+        if detail:
+            msg = "{} ({})".format(msg, detail)
+        self._auto_fallback_note = msg
+        self.model_info_var.set(msg)
+        if fallback:
+            self.primary_alert_var.set(
+                "Note: Primary AI Model Unavailable - Secondary model in use ({})".format(
+                    selected
+                )
+            )
+        else:
+            self.primary_alert_var.set("")
+        self._update_primary_controls()
+
+    def _update_primary_controls(self):
+        """Enable recovery controls only when fallback mode is active."""
+        if self._auto_fallback_active:
+            self.primary_check_btn.config(state=tk.NORMAL)
+        else:
+            self.primary_check_btn.config(state=tk.DISABLED)
+            self.primary_check_var.set("")
+
+    def _current_use_case_key(self):
+        idx = self._uc_labels.index(self.uc_var.get()) if self.uc_var.get() in self._uc_labels else 0
+        return self._uc_keys[idx]
+
+    def _on_check_primary(self):
+        """Probe for primary availability and switch if recovered."""
+        if not self._auto_fallback_active:
+            return
+        self.primary_check_btn.config(state=tk.DISABLED)
+        self.primary_check_var.set("Checking...")
+        threading.Thread(target=self._check_primary_worker, daemon=True).start()
+
+    def _check_primary_worker(self):
+        """Background primary availability check."""
+        mode = getattr(self.config, "mode", "offline")
+        uc_key = self._current_use_case_key()
+        if mode == "offline":
+            try:
+                from scripts._model_meta import get_offline_models_with_specs
+                names = [m["name"] for m in get_offline_models_with_specs()]
+            except Exception:
+                names = list(self._installed_models)
+            rec = RECOMMENDED_OFFLINE.get(uc_key, {})
+            primary = (rec.get("primary", "") or "").strip()
+            if primary and primary in names and self._model_auto:
+                safe_after(self, 0, self._switch_to_primary_offline, primary)
+                return
+            safe_after(self, 0, self._check_primary_done, False, "Primary still unavailable")
+            return
+
+        # Online mode: recompute best from live deployments and switch if better.
+        try:
+            deployments = get_available_deployments()
+            best = select_best_model(uc_key, deployments)
+            current = (self._auto_selected_model or "").strip()
+            if best and self._model_auto and best != current:
+                safe_after(self, 0, self._switch_to_primary_online, best, deployments)
+                return
+            if best and best == current:
+                safe_after(self, 0, self._check_primary_done, True, "Primary already active")
+            else:
+                safe_after(self, 0, self._check_primary_done, False, "Primary still unavailable")
+        except Exception:
+            safe_after(self, 0, self._check_primary_done, False, "Primary check failed")
+
+    def _switch_to_primary_offline(self, primary):
+        self._installed_models = list(self._installed_models or [])
+        if primary not in self._installed_models:
+            self._installed_models.append(primary)
+        if hasattr(self.config, "ollama"):
+            self.config.ollama.model = canonicalize_model_name(primary)
+        self._set_auto_note(primary, primary, False, "offline recovered")
+        self._set_model_combo_for_mode()
+        self._check_primary_done(True, "Primary restored and selected")
+
+    def _switch_to_primary_online(self, primary, deployments):
+        self._online_models = list(deployments or [primary])
+        self.model_var.set(f"Online: {primary}")
+        self._apply_online_selection(primary, False, "online recovered")
+        self._set_model_combo_for_mode()
+        self._set_auto_note(primary, primary, False, "online recovered")
+        self._check_primary_done(True, "Primary restored and selected")
+
+    def _check_primary_done(self, ok, message):
+        t = current_theme()
+        self.primary_check_var.set(message)
+        self.primary_check_label.config(fg=t["green"] if ok else t["orange"])
+        self._update_primary_controls()
 
     # ----------------------------------------------------------------
     # USE CASE CHANGE
@@ -392,6 +586,7 @@ class QueryPanel(tk.LabelFrame):
         self._set_model_combo_for_mode()
         if mode == "offline":
             rec = RECOMMENDED_OFFLINE.get(uc_key, {})
+            primary = (rec.get("primary", "") or "").strip()
 
             if self._model_auto:
                 # Auto mode: score ALL installed models for this use case
@@ -435,11 +630,24 @@ class QueryPanel(tk.LabelFrame):
                 self.model_var.set("Auto")
                 if hasattr(self.config, "ollama"):
                     self.config.ollama.model = canonicalize_model_name(ollama_model)
+                fallback = bool(primary) and primary not in self._installed_models and ollama_model != primary
+                self._set_auto_note(
+                    ollama_model,
+                    primary=primary,
+                    fallback=fallback,
+                    detail="offline",
+                )
             else:
                 # Manual mode: keep user's chosen model
                 ollama_model = self.model_var.get()
                 if hasattr(self.config, "ollama"):
                     self.config.ollama.model = canonicalize_model_name(ollama_model)
+                self._auto_fallback_note = ""
+                self.primary_alert_var.set("")
+                self._auto_fallback_active = False
+                self._auto_selected_model = ollama_model
+                self._auto_primary_model = ""
+                self._update_primary_controls()
 
             self._update_model_info(ollama_model)
 
@@ -465,6 +673,10 @@ class QueryPanel(tk.LabelFrame):
         else:
             # Online: resolve deployments off the main thread to avoid
             # freezing the GUI on a 1-3s network call.
+            self._auto_fallback_note = ""
+            self.primary_alert_var.set("")
+            self._auto_fallback_active = False
+            self._update_primary_controls()
             self.model_info_var.set("loading...")
             threading.Thread(
                 target=self._resolve_online_model,
@@ -478,21 +690,26 @@ class QueryPanel(tk.LabelFrame):
             deployments = get_available_deployments()
             best = select_best_model(uc_key, deployments)
             if best:
+                self._online_models = list(deployments) if deployments else [best]
                 safe_after(self, 0, self.model_var.set, f"Online: {best}")
-                safe_after(self, 0, lambda: self.model_combo.config(state=tk.DISABLED))
-                safe_after(self, 0, self.model_info_var.set, best)
+                safe_after(
+                    self, 0, self._apply_online_selection, best, False, "online auto",
+                )
+                safe_after(self, 0, self._set_model_combo_for_mode)
+                safe_after(self, 0, self._set_auto_note, best, best, False, "online")
             else:
                 configured = (
                     getattr(getattr(self.config, "api", None), "deployment", "")
                     or ""
                 ).strip()
                 if configured:
+                    self._online_models = [configured]
                     safe_after(self, 0, self.model_var.set, f"Online: {configured}")
-                    safe_after(self, 0, lambda: self.model_combo.config(state=tk.DISABLED))
                     safe_after(
-                        self, 0, self.model_info_var.set,
-                        f"{configured} (configured fallback)",
+                        self, 0, self._apply_online_selection, configured, True, "configured fallback",
                     )
+                    safe_after(self, 0, self._set_model_combo_for_mode)
+                    safe_after(self, 0, self._set_auto_note, configured, "", True, "online")
                 else:
                     safe_after(self, 0, self.model_info_var.set, "(no model)")
         except RuntimeError:
@@ -504,16 +721,32 @@ class QueryPanel(tk.LabelFrame):
                     or ""
                 ).strip()
                 if configured:
+                    self._online_models = [configured]
                     safe_after(self, 0, self.model_var.set, f"Online: {configured}")
-                    safe_after(self, 0, lambda: self.model_combo.config(state=tk.DISABLED))
                     safe_after(
-                        self, 0, self.model_info_var.set,
-                        f"{configured} (configured fallback)",
+                        self, 0, self._apply_online_selection, configured, True, "configured fallback",
                     )
+                    safe_after(self, 0, self._set_model_combo_for_mode)
+                    safe_after(self, 0, self._set_auto_note, configured, "", True, "online")
                 else:
                     safe_after(self, 0, self.model_info_var.set, "(discovery failed)")
             except RuntimeError:
                 pass  # Widget destroyed
+
+    def _apply_online_selection(self, deployment, is_fallback=False, note=""):
+        """Apply selected online deployment to live config/router for consistency."""
+        dep = (deployment or "").strip()
+        if not dep:
+            return
+        if hasattr(self.config, "api"):
+            self.config.api.deployment = dep
+        try:
+            if self.query_engine and hasattr(self.query_engine, "llm_router"):
+                api_router = getattr(self.query_engine.llm_router, "api", None)
+                if api_router is not None:
+                    api_router.deployment = dep
+        except Exception:
+            pass
 
     def _on_ask(self, event=None):
         """Handle Ask button click or Enter key.

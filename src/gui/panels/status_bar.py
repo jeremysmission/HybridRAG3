@@ -64,9 +64,19 @@ class StatusBar(tk.Frame):
         self.sep_loading = tk.Frame(self, width=1, bg=t["separator"])
         self.sep_loading.pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=4)
 
-        # -- LLM indicator --
+        # -- Model fallback warning (global visibility across tabs) --
+        self.alert_label = tk.Label(
+            self, text="", anchor=tk.W,
+            padx=8, pady=4, bg=t["panel_bg"], fg=t["red"], font=FONT,
+        )
+        self.alert_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self.sep_alert = tk.Frame(self, width=1, bg=t["separator"])
+        self.sep_alert.pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=4)
+
+        # -- Mode/Selector indicator --
         self.llm_label = tk.Label(
-            self, text="LLM: Not configured", anchor=tk.W,
+            self, text="Mode/Selector: Unknown", anchor=tk.W,
             padx=8, pady=4, bg=t["panel_bg"], fg=t["fg"], font=FONT,
         )
         self.llm_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -75,9 +85,9 @@ class StatusBar(tk.Frame):
         self.sep1 = tk.Frame(self, width=1, bg=t["separator"])
         self.sep1.pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=4)
 
-        # -- Ollama indicator --
+        # -- Backend health indicator --
         self.ollama_label = tk.Label(
-            self, text="Ollama: Unknown", anchor=tk.W,
+            self, text="Backend Health: Unknown", anchor=tk.W,
             padx=8, pady=4, bg=t["panel_bg"], fg=t["fg"], font=FONT,
         )
         self.ollama_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -86,13 +96,13 @@ class StatusBar(tk.Frame):
         self.sep2 = tk.Frame(self, width=1, bg=t["separator"])
         self.sep2.pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=4)
 
-        # -- Active Model indicator --
+        # -- Active model indicator --
         self.sep3 = tk.Frame(self, width=1, bg=t["separator"])
         self.sep3.pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=4)
 
         model_name = self._read_active_model()
         self.model_label = tk.Label(
-            self, text="Active model: {}".format(model_name), anchor=tk.W,
+            self, text="Active Model: {}".format(model_name), anchor=tk.W,
             padx=8, pady=4, bg=t["panel_bg"], fg=t["fg"], font=FONT,
         )
         self.model_label.pack(side=tk.LEFT)
@@ -122,6 +132,8 @@ class StatusBar(tk.Frame):
         else:
             self.loading_label.configure(fg=t["green"])
         self.sep_loading.configure(bg=t["separator"])
+        self.alert_label.configure(bg=t["panel_bg"], fg=t["red"])
+        self.sep_alert.configure(bg=t["separator"])
         self.llm_label.configure(bg=t["panel_bg"])
         self.ollama_label.configure(bg=t["panel_bg"])
         self.model_label.configure(bg=t["panel_bg"], fg=t["fg"])
@@ -144,12 +156,28 @@ class StatusBar(tk.Frame):
         try:
             self._update_gate_display()
             self._update_model_label()
+            self._update_fallback_alert()
             if self.router:
                 self._update_from_router()
             else:
                 self._update_no_router()
         except Exception as e:
             logger.debug("Status bar refresh error: %s", e)
+
+    def _update_fallback_alert(self):
+        """Mirror query-panel fallback warning to status bar."""
+        t = current_theme()
+        try:
+            app = self._find_app()
+            qp = getattr(app, "query_panel", None) if app else None
+            if qp is None:
+                self.alert_label.config(text="", fg=t["red"])
+                return
+            text = getattr(qp, "primary_alert_var", None)
+            msg = text.get().strip() if text else ""
+            self.alert_label.config(text=msg, fg=t["red"] if msg else t["fg"])
+        except Exception:
+            self.alert_label.config(text="", fg=t["red"])
 
     def _update_from_router(self):
         """Update LLM and Ollama indicators from router status."""
@@ -158,46 +186,47 @@ class StatusBar(tk.Frame):
             status = self.router.get_status()
         except Exception as e:
             logger.debug("Router status error: %s", e)
-            self.llm_label.config(text="LLM: Error reading status", fg=t["fg"])
-            self.ollama_label.config(text="Ollama: Unknown", fg=t["fg"])
+            self.llm_label.config(text="Mode/Selector: Status Error", fg=t["fg"])
+            self.ollama_label.config(text="Backend Health: Unknown", fg=t["fg"])
             return
 
-        # LLM
+        # Mode/Selector summary line
         mode = status.get("mode", "offline")
-        if mode == "online" and status.get("api_configured"):
-            provider = status.get("api_provider", "API")
-            deployment = status.get("api_deployment", "")
-            if deployment:
-                self.llm_label.config(
-                    text="LLM: {} ({})".format(deployment, provider),
-                    fg=t["fg"],
-                )
-            else:
-                self.llm_label.config(
-                    text="LLM: {} ({})".format(
-                        status.get("api_endpoint", "configured")[:30],
-                        provider,
-                    ),
-                    fg=t["fg"],
-                )
-        elif mode == "offline":
-            model_name = status.get("ollama_model", "")
-            if not model_name:
-                model = getattr(self.config, "ollama", None)
-                model_name = getattr(model, "model", "unknown") if model else "unknown"
-            self.llm_label.config(
-                text="LLM: {} (Ollama)".format(model_name),
-                fg=t["fg"],
-            )
-        else:
-            self.llm_label.config(text="LLM: Not configured", fg=t["fg"])
+        selector = self._read_selector_mode(mode)
+        self.llm_label.config(
+            text="Mode/Selector: {} | {}".format(mode.upper(), selector),
+            fg=t["fg"],
+        )
 
-        # Ollama
-        ollama_up = status.get("ollama_available", False)
-        if ollama_up:
-            self.ollama_label.config(text="Ollama: Ready", fg=t["green"])
+        # Backend health line (mode-aware)
+        if mode == "online":
+            if status.get("api_configured"):
+                self.ollama_label.config(text="Backend Health: API Ready", fg=t["green"])
+            else:
+                self.ollama_label.config(text="Backend Health: API Not Configured", fg=t["orange"])
+        elif mode == "offline":
+            ollama_up = status.get("ollama_available", False)
+            if ollama_up:
+                self.ollama_label.config(text="Backend Health: Ollama Ready", fg=t["green"])
+            else:
+                self.ollama_label.config(text="Backend Health: Ollama Offline", fg=t["gray"])
         else:
-            self.ollama_label.config(text="Ollama: Offline", fg=t["gray"])
+            self.ollama_label.config(text="Backend Health: Unknown Mode", fg=t["orange"])
+
+    def _read_selector_mode(self, mode):
+        """Best-effort selector mode detection from query panel state."""
+        try:
+            app = self._find_app()
+            qp = getattr(app, "query_panel", None) if app else None
+            if qp is None:
+                return "AUTO"
+            if mode == "online":
+                mv = getattr(qp, "model_var", None)
+                text = mv.get() if mv else ""
+                return "AUTO" if "Auto" in text else "MANUAL"
+            return "AUTO" if bool(getattr(qp, "_model_auto", True)) else "MANUAL"
+        except Exception:
+            return "AUTO"
 
     def set_init_error(self, error_text):
         """Store an init error message for display in status indicators."""
@@ -207,17 +236,17 @@ class StatusBar(tk.Frame):
         """Display when no router is available."""
         t = current_theme()
         if self._loading:
-            self.llm_label.config(text="LLM: Loading...", fg=t["gray"])
-            self.ollama_label.config(text="Ollama: Loading...", fg=t["gray"])
+            self.llm_label.config(text="Mode/Selector: Loading...", fg=t["gray"])
+            self.ollama_label.config(text="Backend Health: Loading...", fg=t["gray"])
         elif self._init_error:
             self.llm_label.config(
-                text="LLM: Init failed ({})".format(self._init_error[:40]),
+                text="Mode/Selector: Init Failed",
                 fg=t["red"],
             )
-            self.ollama_label.config(text="Ollama: Unknown", fg=t["gray"])
+            self.ollama_label.config(text="Backend Health: Unknown", fg=t["gray"])
         else:
-            self.llm_label.config(text="LLM: Not initialized", fg=t["fg"])
-            self.ollama_label.config(text="Ollama: Unknown", fg=t["gray"])
+            self.llm_label.config(text="Mode/Selector: Not Initialized", fg=t["fg"])
+            self.ollama_label.config(text="Backend Health: Unknown", fg=t["gray"])
 
     def _update_gate_display(self):
         """Update gate indicator from config mode."""
@@ -514,8 +543,12 @@ class StatusBar(tk.Frame):
     def _update_model_label(self):
         """Refresh the active model indicator from live config/router."""
         t = current_theme()
+        mode = getattr(self.config, "mode", "offline")
         model = self._read_active_model()
-        self.model_label.config(text="Active model: {}".format(model), fg=t["fg"])
+        self.model_label.config(
+            text="Active Model ({}): {}".format(mode, model),
+            fg=t["fg"],
+        )
 
     def force_refresh(self):
         """Immediately refresh all indicators."""

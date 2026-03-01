@@ -86,6 +86,16 @@ def _fmt_dur(s):
     return "{}h {}m".format(int(h), int(m))
 
 
+def _drive_from_path(path):
+    """Return normalized drive root (e.g. 'I:\\') from a Windows path."""
+    if not path:
+        return ""
+    drive = os.path.splitdrive(path)[0]
+    if drive:
+        return drive + os.sep
+    return ""
+
+
 def _theme_widget(widget, t):
     """Recursively apply theme to a widget and its children."""
     try:
@@ -289,7 +299,20 @@ class DataPanel(tk.Frame):
         ).pack(side=tk.LEFT)
 
         drives = _detect_drives()
-        self._drive_var = tk.StringVar(value=drives[0] if drives else "C:\\")
+        default_transfer_source = getattr(
+            getattr(self.config, "paths", None), "transfer_source_folder", ""
+        ) or getattr(
+            getattr(self.config, "paths", None), "source_folder", ""
+        ) or getattr(
+            getattr(self.config, "paths", None), "download_folder", ""
+        ) or ""
+        preferred_drive = _drive_from_path(default_transfer_source)
+        # Keep configured/default mapped drive visible even if startup
+        # drive detection missed it (common on slow network login).
+        if preferred_drive and preferred_drive not in drives:
+            drives = [preferred_drive] + drives
+        initial_drive = preferred_drive if preferred_drive else (drives[0] if drives else "C:\\")
+        self._drive_var = tk.StringVar(value=initial_drive)
         self._drive_combo = ttk.Combobox(
             drive_row, textvariable=self._drive_var, values=drives,
             state="readonly", width=8, font=FONT,
@@ -315,9 +338,6 @@ class DataPanel(tk.Frame):
             bg=t["panel_bg"], fg=t["fg"], font=FONT,
         ).pack(side=tk.LEFT)
 
-        default_transfer_source = getattr(
-            getattr(self.config, "paths", None), "transfer_source_folder", ""
-        ) or ""
         self._selected_path_var = tk.StringVar(value=default_transfer_source)
         self._path_entry = tk.Entry(
             unc_row, textvariable=self._selected_path_var, font=FONT,

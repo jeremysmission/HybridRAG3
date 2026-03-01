@@ -995,6 +995,7 @@ class APIRouter:
         self.last_error = ""
         self.provider = provider_override or ""
         self.http_api_client = None
+        self._init_error = ""
 
         # Store the raw endpoint for diagnostics/status reporting
         self.base_endpoint = endpoint.rstrip("/") if endpoint else config.api.endpoint.rstrip("/")
@@ -1054,6 +1055,7 @@ class APIRouter:
             from openai import AzureOpenAI, OpenAI
         except ImportError:
             self.client = None
+            self._init_error = "openai SDK missing"
             self.logger.error(
                 "openai_sdk_missing",
                 hint="Run: pip install openai",
@@ -1126,6 +1128,7 @@ class APIRouter:
 
         except Exception as e:
             self.client = None
+            self._init_error = str(e)
             self.logger.error("api_router_init_failed", error=str(e))
             self._init_http_fallback_client()
 
@@ -1167,7 +1170,73 @@ class APIRouter:
             )
         except Exception as e:
             self.http_api_client = None
+            self._init_error = str(e)
             self.logger.error("api_router_http_fallback_init_failed", error=str(e))
+
+    def _reinit_sdk_client(self):
+        """Best-effort SDK client re-init using current resolved fields."""
+        try:
+            from openai import AzureOpenAI, OpenAI
+            if self.is_azure:
+                clean_endpoint = self._extract_azure_base(self.base_endpoint)
+                self.client = AzureOpenAI(
+                    azure_endpoint=clean_endpoint,
+                    api_key=self.api_key,
+                    api_version=self.api_version,
+                    http_client=_build_httpx_client(
+                        timeout=getattr(self.config.api, "timeout_seconds", 60),
+                    ),
+                )
+            else:
+                client_kwargs = {"api_key": self.api_key}
+                if self.base_endpoint and "openai.com" not in self.base_endpoint:
+                    client_kwargs["base_url"] = self.base_endpoint
+                self.client = OpenAI(**client_kwargs)
+            self._init_error = ""
+        except Exception as e:
+            self.client = None
+            self._init_error = str(e)
+            self.logger.warning("api_router_sdk_reinit_failed", error=str(e))
+
+    def _attempt_late_init(self):
+        """
+        Last-chance API client initialization at query time.
+
+        Used when GUI mode switches or credential updates happen after router
+        creation and initial client init left both SDK and fallback clients
+        unavailable.
+        """
+        if self.client is not None or self.http_api_client is not None:
+            return
+        try:
+            from src.security.credentials import resolve_credentials
+            creds = resolve_credentials(use_cache=False)
+            if getattr(creds, "api_key", ""):
+                self.api_key = creds.api_key
+            if getattr(creds, "endpoint", ""):
+                self.base_endpoint = creds.endpoint.rstrip("/")
+            if getattr(creds, "deployment", ""):
+                self.deployment = creds.deployment
+            if getattr(creds, "api_version", ""):
+                self.api_version = creds.api_version
+
+            # Refresh provider detection from latest endpoint/provider.
+            provider = (getattr(creds, "provider", "") or self.provider or "").lower()
+            if provider in ("azure", "azure_gov"):
+                self.is_azure = True
+                self.provider = provider
+            elif provider == "openai":
+                self.is_azure = False
+                self.provider = provider
+            else:
+                low = (self.base_endpoint or "").lower()
+                self.is_azure = ("azure" in low or "aoai" in low)
+
+            # Retry SDK init, then HTTP fallback as secondary.
+            self._reinit_sdk_client()
+            self._init_http_fallback_client()
+        except Exception as e:
+            self.logger.warning("api_router_late_init_failed", error=str(e))
 
     def _extract_azure_base(self, url: str) -> str:
         """
@@ -1233,7 +1302,13 @@ class APIRouter:
         """
         self.last_error = ""
         if self.client is None and self.http_api_client is None:
-            self.last_error = "API client not ready (SDK missing or init failed)"
+            self._attempt_late_init()
+        if self.client is None and self.http_api_client is None:
+            detail = self._init_error.strip() if isinstance(self._init_error, str) else ""
+            self.last_error = (
+                f"API client not ready (SDK missing or init failed): {detail}"
+                if detail else "API client not ready (SDK missing or init failed)"
+            )
             self.logger.error(
                 "api_client_not_ready",
                 hint="openai SDK not installed and HTTP fallback unavailable",
@@ -1815,6 +1890,23 @@ class LLMRouter:
 
         if mode == "online":
             if self.api is None:
+                # Credentials may have been saved after router creation.
+                # Re-resolve once and attach APIRouter dynamically.
+                try:
+                    from ..security.credentials import resolve_credentials
+                    creds = resolve_credentials(use_cache=False)
+                    if getattr(creds, "api_key", ""):
+                        self.api = APIRouter(
+                            self.config,
+                            creds.api_key,
+                            getattr(creds, "endpoint", "") or "",
+                            deployment_override=getattr(creds, "deployment", "") or "",
+                            api_version_override=getattr(creds, "api_version", "") or "",
+                            provider_override=getattr(creds, "provider", "") or "",
+                        )
+                except Exception as e:
+                    self.logger.warning("online_late_router_attach_failed", error=str(e))
+            if self.api is None:
                 self.last_error = "API is not configured (missing key/endpoint)"
                 self.logger.error(
                     "api_not_configured",
@@ -1948,7 +2040,10 @@ class LLMRouter:
             ),
             "api_configured": (
                 self.api is not None
-                and getattr(self.api, "client", None) is not None
+                and (
+                    getattr(self.api, "client", None) is not None
+                    or getattr(self.api, "http_api_client", None) is not None
+                )
             ),
             "sdk_available": _openai_sdk_available(),
         }
