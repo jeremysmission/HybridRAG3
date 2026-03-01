@@ -188,8 +188,13 @@ class QueryEngine:
             llm_response = self.llm_router.query(prompt)
 
             if not llm_response:
+                reason = (getattr(self.llm_router, "last_error", "") or "").strip()
+                answer_text = (
+                    f"Error calling LLM: {reason}" if reason
+                    else "Error calling LLM. Please try again."
+                )
                 return QueryResult(
-                    answer="Error calling LLM. Please try again.",
+                    answer=answer_text,
                     sources=sources,
                     chunks_used=len(search_results),
                     tokens_in=0,
@@ -268,6 +273,8 @@ class QueryEngine:
         Falls back to non-streaming query() if anything goes wrong.
         """
         start_time = time.time()
+        sources = []
+        chunk_count = 0
 
         try:
             # Phase 1: Retrieval (eager)
@@ -286,6 +293,7 @@ class QueryEngine:
 
             context = self.retriever.build_context(search_results)
             sources = self.retriever.get_sources(search_results)
+            chunk_count = len(search_results)
 
             if not context.strip():
                 result = QueryResult(
@@ -298,6 +306,7 @@ class QueryEngine:
                 yield {"done": True, "result": result}
                 return
 
+            context = self._trim_context_to_fit(context, user_query)
             prompt = self._build_prompt(user_query, context)
 
             # Phase 2: LLM streaming
@@ -312,12 +321,17 @@ class QueryEngine:
             tokens_out = 0
             model = ""
             llm_latency_ms = 0.0
+            saw_done = False
+            stream_error = ""
 
             for chunk in self.llm_router.query_stream(prompt):
                 if "token" in chunk:
                     full_text.append(chunk["token"])
                     yield {"token": chunk["token"]}
+                elif "error" in chunk:
+                    stream_error = str(chunk.get("error", "")).strip()
                 elif chunk.get("done"):
+                    saw_done = True
                     tokens_in = chunk.get("tokens_in", 0)
                     tokens_out = chunk.get("tokens_out", 0)
                     model = chunk.get("model", "")
@@ -326,8 +340,27 @@ class QueryEngine:
             answer = "".join(full_text)
             elapsed_ms = (time.time() - start_time) * 1000
 
+            # Some backends log stream errors and terminate the generator
+            # without yielding "done". Recover via a one-shot non-stream call.
+            if not saw_done and not answer.strip() and not stream_error:
+                fallback = self.llm_router.query(prompt)
+                if fallback and (fallback.text or "").strip():
+                    answer = fallback.text
+                    tokens_in = fallback.tokens_in
+                    tokens_out = fallback.tokens_out
+                    model = fallback.model
+                    llm_latency_ms = fallback.latency_ms
+                    yield {"token": answer}
+
             if not answer or not answer.strip():
-                answer = "Error calling LLM. Please try again."
+                reason = stream_error or (
+                    getattr(self.llm_router, "last_error", "") or ""
+                )
+                reason = reason.strip()
+                answer = (
+                    f"Error calling LLM: {reason}" if reason
+                    else "Error calling LLM. Please try again."
+                )
                 # Yield fallback as tokens so UI shows the message
                 yield {"token": answer}
 
@@ -360,7 +393,7 @@ class QueryEngine:
             self.logger.error("query_stream_error", error=error_msg, query=user_query)
             result = QueryResult(
                 answer=f"Error processing query: {error_msg}",
-                sources=[], chunks_used=0, tokens_in=0, tokens_out=0,
+                sources=sources, chunks_used=chunk_count, tokens_in=0, tokens_out=0,
                 cost_usd=0.0, latency_ms=(time.time() - start_time) * 1000,
                 mode=self.config.mode, error=error_msg,
             )

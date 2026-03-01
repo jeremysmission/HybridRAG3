@@ -112,26 +112,16 @@ class GroundedQueryEngine(QueryEngine):
 
         self.guard_logger = get_app_logger("grounding_guard")
 
-        # Load guard config from the config object.
-        # Uses getattr for backward compatibility -- if config doesn't
-        # have hallucination_guard settings yet (older YAML), we use
-        # safe defaults. This prevents crashes when upgrading.
+        # Guard config (getattr for backward compat with older YAML)
         self.guard_enabled = getattr(
             config, "hallucination_guard_enabled", False
         )
-        # Threshold: fraction of claims that must be verified (0.80 = 80%).
-        # Below this, the answer is considered unreliable.
         self.guard_threshold = getattr(
             config, "hallucination_guard_threshold", 0.80
         )
-        # Action on failure: "block" = replace with refusal message,
-        # "strip" = keep only verified sentences, "flag" = pass through
-        # with metadata so the UI can show a warning.
         self.guard_action = getattr(
             config, "hallucination_guard_action", "block"
         )
-        # Retrieval gate settings: how many chunks and what minimum score
-        # must pass before we even try to generate an answer.
         self.guard_min_chunks = getattr(
             config.retrieval, "min_chunks", 1
         )
@@ -352,6 +342,7 @@ class GroundedQueryEngine(QueryEngine):
                     len(search_results))}
                 return
 
+            context = self._trim_context_to_fit(context, user_query)
             prompt = self._build_grounded_prompt(
                 user_query, context, search_results)
 
@@ -363,19 +354,40 @@ class GroundedQueryEngine(QueryEngine):
             tokens_in = tokens_out = 0
             model = ""
             llm_latency_ms = 0.0
+            saw_done = False
+            stream_error = ""
             for chunk in self.llm_router.query_stream(prompt):
                 if "token" in chunk:
                     full_text.append(chunk["token"])
+                elif "error" in chunk:
+                    stream_error = str(chunk.get("error", "")).strip()
                 elif chunk.get("done"):
+                    saw_done = True
                     tokens_in = chunk.get("tokens_in", 0)
                     tokens_out = chunk.get("tokens_out", 0)
                     model = chunk.get("model", "")
                     llm_latency_ms = chunk.get("latency_ms", 0.0)
 
             raw_answer = "".join(full_text)
+            if not saw_done and not raw_answer.strip() and not stream_error:
+                fallback = self.llm_router.query(prompt)
+                if fallback and (fallback.text or "").strip():
+                    raw_answer = fallback.text
+                    tokens_in = fallback.tokens_in
+                    tokens_out = fallback.tokens_out
+                    model = fallback.model
+                    llm_latency_ms = fallback.latency_ms
             if not raw_answer:
+                reason = stream_error or (
+                    getattr(self.llm_router, "last_error", "") or ""
+                )
+                reason = reason.strip()
+                msg = (
+                    f"LLM stream failed: {reason}" if reason
+                    else "LLM stream empty"
+                )
                 yield {"done": True, "result": self._make_error_result(
-                    start_time, "LLM stream empty", sources,
+                    start_time, msg, sources,
                     len(search_results))}
                 return
 

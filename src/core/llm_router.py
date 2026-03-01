@@ -208,6 +208,7 @@ class OllamaRouter:
         """
         self.config = config
         self.logger = get_app_logger("ollama_router")
+        self.last_error = ""
 
         # Base URL for the local Ollama server
         self.base_url = config.ollama.base_url.rstrip("/")
@@ -281,6 +282,7 @@ class OllamaRouter:
         """
         import httpx
         start_time = time.time()
+        self.last_error = ""
 
         # -- Network gate check --
         try:
@@ -289,6 +291,7 @@ class OllamaRouter:
                 "ollama_query", "ollama_router",
             )
         except NetworkBlockedError as e:
+            self.last_error = f"NetworkBlockedError: {e}"
             self.logger.error("ollama_blocked_by_gate", error=str(e))
             return None
 
@@ -332,9 +335,11 @@ class OllamaRouter:
             )
 
         except httpx.HTTPError as e:
+            self.last_error = f"{type(e).__name__}: {e}"
             self.logger.error("ollama_http_error", error=str(e))
             return None
         except Exception as e:
+            self.last_error = f"{type(e).__name__}: {e}"
             self.logger.error("ollama_error", error=str(e))
             return None
 
@@ -350,6 +355,7 @@ class OllamaRouter:
         """
         import httpx
         start_time = time.time()
+        self.last_error = ""
 
         try:
             get_gate().check_allowed(
@@ -357,7 +363,9 @@ class OllamaRouter:
                 "ollama_query_stream", "ollama_router",
             )
         except NetworkBlockedError as e:
+            self.last_error = f"NetworkBlockedError: {e}"
             self.logger.error("ollama_stream_blocked_by_gate", error=str(e))
+            yield {"error": self.last_error, "backend": "ollama"}
             return
 
         payload = {
@@ -407,9 +415,13 @@ class OllamaRouter:
             }
 
         except httpx.HTTPError as e:
+            self.last_error = f"{type(e).__name__}: {e}"
             self.logger.error("ollama_stream_http_error", error=str(e))
+            yield {"error": self.last_error, "backend": "ollama"}
         except Exception as e:
+            self.last_error = f"{type(e).__name__}: {e}"
             self.logger.error("ollama_stream_error", error=str(e))
+            yield {"error": self.last_error, "backend": "ollama"}
 
     def close(self):
         """Release the persistent HTTP client."""
@@ -450,6 +462,7 @@ class VLLMRouter:
         """
         self.config = config
         self.logger = get_app_logger("vllm_router")
+        self.last_error = ""
 
         self.base_url = config.vllm.base_url.rstrip("/")
         self.model = config.vllm.model
@@ -500,6 +513,7 @@ class VLLMRouter:
         """
         import httpx
         start_time = time.time()
+        self.last_error = ""
 
         try:
             get_gate().check_allowed(
@@ -507,6 +521,7 @@ class VLLMRouter:
                 "vllm_query", "vllm_router",
             )
         except NetworkBlockedError as e:
+            self.last_error = f"NetworkBlockedError: {e}"
             self.logger.error("vllm_blocked_by_gate", error=str(e))
             return None
 
@@ -549,9 +564,11 @@ class VLLMRouter:
             )
 
         except httpx.HTTPError as e:
+            self.last_error = f"{type(e).__name__}: {e}"
             self.logger.error("vllm_http_error", error=str(e))
             return None
         except Exception as e:
+            self.last_error = f"{type(e).__name__}: {e}"
             self.logger.error("vllm_error", error=str(e))
             return None
 
@@ -565,6 +582,7 @@ class VLLMRouter:
         """
         import httpx
         start_time = time.time()
+        self.last_error = ""
 
         try:
             get_gate().check_allowed(
@@ -572,7 +590,9 @@ class VLLMRouter:
                 "vllm_query_stream", "vllm_router",
             )
         except NetworkBlockedError as e:
+            self.last_error = f"NetworkBlockedError: {e}"
             self.logger.error("vllm_stream_blocked_by_gate", error=str(e))
+            yield {"error": self.last_error, "backend": "vllm"}
             return
 
         payload = {
@@ -624,9 +644,13 @@ class VLLMRouter:
             }
 
         except httpx.HTTPError as e:
+            self.last_error = f"{type(e).__name__}: {e}"
             self.logger.error("vllm_stream_http_error", error=str(e))
+            yield {"error": self.last_error, "backend": "vllm"}
         except Exception as e:
+            self.last_error = f"{type(e).__name__}: {e}"
             self.logger.error("vllm_stream_error", error=str(e))
+            yield {"error": self.last_error, "backend": "vllm"}
 
     def close(self):
         """Release the persistent HTTP client."""
@@ -660,6 +684,7 @@ class TransformersRouter:
         """
         self.config = config
         self.logger = get_app_logger("transformers_router")
+        self.last_error = ""
         self._model = None
         self._tokenizer = None
         self._pipe = None
@@ -732,6 +757,7 @@ class TransformersRouter:
             return None
 
         start_time = time.time()
+        self.last_error = ""
 
         try:
             messages = [{"role": "user", "content": prompt}]
@@ -773,6 +799,7 @@ class TransformersRouter:
             )
 
         except Exception as e:
+            self.last_error = f"{type(e).__name__}: {e}"
             self.logger.error("transformers_query_error", error=str(e))
             return None
 
@@ -791,6 +818,9 @@ class TransformersRouter:
                 "model": result.model,
                 "latency_ms": result.latency_ms,
             }
+        else:
+            msg = self.last_error or "Transformers backend returned no result"
+            yield {"error": msg, "backend": "transformers"}
 
     def close(self):
         """Release model from GPU memory."""
@@ -927,6 +957,7 @@ class APIRouter:
         self.config = config
         self.api_key = api_key
         self.logger = get_app_logger("api_router")
+        self.last_error = ""
         self.provider = provider_override or ""
 
         # Store the raw endpoint for diagnostics/status reporting
@@ -1123,7 +1154,9 @@ class APIRouter:
         The call is IDENTICAL for both Azure and standard OpenAI.
         The only difference is which client we created in __init__.
         """
+        self.last_error = ""
         if self.client is None:
+            self.last_error = "API client not ready (SDK missing or init failed)"
             self.logger.error(
                 "api_client_not_ready",
                 hint="openai SDK not installed or client init failed",
@@ -1138,6 +1171,7 @@ class APIRouter:
                 self.base_endpoint, "api_query", "api_router",
             )
         except NetworkBlockedError as e:
+            self.last_error = f"NetworkBlockedError: {e}"
             self.logger.error("api_query_blocked_by_gate", error=str(e))
             return None
 
@@ -1223,6 +1257,7 @@ class APIRouter:
             latency_ms = (time.time() - start_time) * 1000
             error_name = type(e).__name__
             error_msg = str(e)
+            self.last_error = f"{error_name}: {error_msg}"
 
             # Classify the error for better troubleshooting
             if "401" in error_msg or "Unauthorized" in error_msg:
@@ -1580,6 +1615,7 @@ class LLMRouter:
         """
         self.config = config
         self.logger = get_app_logger("llm_router")
+        self.last_error = ""
 
         # -- Always create the Ollama router (offline mode) --
         # This is lightweight (no network call) and doesn't need any
@@ -1692,17 +1728,25 @@ class LLMRouter:
             LLMResponse with the answer, or None if the call failed
         """
         mode = self.config.mode
+        self.last_error = ""
 
         self.logger.info("query_mode", mode=mode)
 
         if mode == "online":
             if self.api is None:
+                self.last_error = "API is not configured (missing key/endpoint)"
                 self.logger.error(
                     "api_not_configured",
                     hint="Run rag-store-key and rag-store-endpoint first",
                 )
                 return None
-            return self.api.query(prompt)
+            result = self.api.query(prompt)
+            if result is None:
+                self.last_error = (
+                    getattr(self.api, "last_error", "")
+                    or "Online API query failed"
+                )
+            return result
 
         else:
             # Offline mode priority: Transformers > vLLM > Ollama
@@ -1710,13 +1754,27 @@ class LLMRouter:
                 result = self.transformers_rt.query(prompt)
                 if result is not None:
                     return result
+                self.last_error = (
+                    getattr(self.transformers_rt, "last_error", "")
+                    or "Transformers query failed"
+                )
                 self.logger.warning("transformers_query_failed_falling_back")
             if self.vllm and self.vllm.is_available():
                 result = self.vllm.query(prompt)
                 if result is not None:
                     return result
+                self.last_error = (
+                    getattr(self.vllm, "last_error", "")
+                    or "vLLM query failed"
+                )
                 self.logger.warning("vllm_query_failed_falling_back_to_ollama")
-            return self.ollama.query(prompt)
+            result = self.ollama.query(prompt)
+            if result is None:
+                self.last_error = (
+                    getattr(self.ollama, "last_error", "")
+                    or "Ollama query failed"
+                )
+            return result
 
     def query_stream(self, prompt: str) -> Generator[Dict[str, Any], None, None]:
         """
@@ -1728,15 +1786,25 @@ class LLMRouter:
         Yields dicts -- see OllamaRouter.query_stream() for format.
         """
         mode = self.config.mode
+        self.last_error = ""
 
         if mode == "offline":
             # Priority: Transformers > vLLM > Ollama
             if self.transformers_rt and self.transformers_rt.is_available():
-                yield from self.transformers_rt.query_stream(prompt)
+                for chunk in self.transformers_rt.query_stream(prompt):
+                    if "error" in chunk:
+                        self.last_error = str(chunk.get("error", ""))
+                    yield chunk
             elif self.vllm and self.vllm.is_available():
-                yield from self.vllm.query_stream(prompt)
+                for chunk in self.vllm.query_stream(prompt):
+                    if "error" in chunk:
+                        self.last_error = str(chunk.get("error", ""))
+                    yield chunk
             else:
-                yield from self.ollama.query_stream(prompt)
+                for chunk in self.ollama.query_stream(prompt):
+                    if "error" in chunk:
+                        self.last_error = str(chunk.get("error", ""))
+                    yield chunk
         else:
             # Online mode: no streaming support, yield full response as one chunk
             result = self.query(prompt)
@@ -1751,6 +1819,8 @@ class LLMRouter:
                 }
             else:
                 # Query failed -- must still yield "done" or UI hangs
+                err = self.last_error or "Online API query failed"
+                yield {"error": err, "backend": "api"}
                 yield {
                     "done": True,
                     "tokens_in": 0, "tokens_out": 0,
@@ -1815,9 +1885,4 @@ class LLMRouter:
                 status["api_clean_endpoint"] = api_status.get("clean_endpoint", "")
 
         return status
-
-
-
-
-
 
