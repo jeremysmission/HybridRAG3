@@ -106,12 +106,12 @@ For each credential (API key, endpoint, deployment, API version):
 
 | Priority | Source                       | Security Level |
 |----------|------------------------------|----------------|
-| 1st      | Windows Credential Manager   | OS-protected, encrypted at rest |
-| 2nd      | Environment variables        | Process-scoped, not persisted |
+| 1st      | Environment variables        | Process-scoped, fast override |
+| 2nd      | Windows Credential Manager   | OS-protected, encrypted at rest |
 | 3rd      | Config file values           | Lowest -- config may be committed to git |
 
-The system always prefers the most secure source available. If a credential
-exists in both keyring and env var, the keyring value wins.
+The system resolves in fast-path order. If a credential exists in both env var
+and keyring, the env var value wins.
 
 ### Key Masking
 
@@ -157,10 +157,10 @@ application. The gate is configured once during boot and cannot be bypassed.
 
 - Gate initializes in OFFLINE mode. It is never upgraded without explicit
   configuration.
-- `HYBRIDRAG_OFFLINE=1` environment variable forces OFFLINE mode regardless
-  of any other configuration. This is the "kill switch."
-- ADMIN mode can only be set via `HYBRIDRAG_ADMIN_MODE=1` environment variable
-  (not via config file), preventing accidental persistence in committed config.
+- `HYBRIDRAG_OFFLINE=1` or `HYBRIDRAG_NETWORK_KILL_SWITCH=true` forces
+  OFFLINE mode regardless of any other configuration. This is the kill switch.
+- ADMIN mode is available by explicit mode configuration (not default) and is
+  always logged/warned as unrestricted.
 - Non-HTTP schemes (`ftp://`, `file://`, `data://`) are always blocked except
   in ADMIN mode.
 
@@ -540,13 +540,13 @@ must succeed before the next runs:
 ```
 Step 1: Load config (yaml.safe_load -- no code execution)
    |
-Step 2: Resolve credentials (keyring > env > config)
+Step 2: Resolve credentials (env > keyring > config)
    |
 Step 2.5: Configure network gate (BEFORE any network calls)
    |
 Step 3: Create API client (only if credentials.is_online_ready)
    |
-Step 4: Ollama health check (non-blocking, 500ms timeout)
+Step 4: Ollama health check (non-blocking, 2s join timeout)
    |
 Step 4.5: vLLM health check (if enabled, non-blocking)
    |
@@ -560,7 +560,7 @@ READY
   If gate configuration fails, OFFLINE mode is forced.
 
 - **Non-blocking health check.** The Ollama health check runs in a daemon
-  thread with a 500ms join timeout. A slow or unresponsive Ollama never
+  thread with a 2s join timeout. A slow or unresponsive Ollama never
   blocks the boot pipeline.
 
 - **Safe YAML parsing.** `yaml.safe_load()` is used exclusively -- no
@@ -652,7 +652,7 @@ Current scores: 100% injection resistance, 98% overall pass rate.
 | Are LLM responses verified? | 5-stage hallucination guard with NLI + zero-contradiction policy. |
 | Is there an audit trail? | Structured JSON logging for app events, errors, security events, cost, and verification results. |
 | Are the AI models trustworthy? | All models MIT/Apache 2.0 from US/EU publishers. Full audit trail for each model decision. |
-| Can the embedding model phone home? | No. Ollama serves nomic-embed-text on localhost:11434 only. No HuggingFace dependency. |
+| Can the embedding model phone home? | HybridRAG client paths are localhost-only (proxy bypass + gate checks). For Ollama daemon update traffic, enforce host firewall/proxy policy. |
 | What about the public/educational repo? | One-way sync with 31 text replacements + 22-word banned scan. |
 
 ### Design Principles

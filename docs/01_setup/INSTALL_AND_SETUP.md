@@ -243,7 +243,8 @@ the LLM models you need:
 
 ```powershell
 ollama pull nomic-embed-text   # 274 MB -- REQUIRED for all indexing/search
-ollama pull phi4-mini          # 2.3 GB -- primary LLM (recommended)
+ollama pull phi4-mini          # 2.3 GB -- laptop fallback / quick-start
+ollama pull phi4:14b-q4_K_M    # 9.1 GB -- default offline model in config
 ollama pull mistral:7b         # 4.1 GB -- engineering alternate
 ```
 
@@ -255,7 +256,7 @@ search will not work. The LLM models are for answer generation.
 | Model | Size | Publisher | License | Best For |
 |-------|------|-----------|---------|----------|
 | nomic-embed-text | 274 MB | Nomic AI | Apache 2.0 | **Embeddings (required)** |
-| phi4-mini | 2.3 GB | Microsoft | MIT | Default for 7 of 9 profiles |
+| phi4-mini | 2.3 GB | Microsoft | MIT | Laptop fallback |
 | mistral:7b | 4.1 GB | Mistral AI | Apache 2.0 | Engineering, cyber, systems |
 | phi4:14b-q4_K_M | 9.1 GB | Microsoft | MIT | Logistics, CAD |
 | gemma3:4b | 3.3 GB | Google | Apache 2.0 | PM summarization |
@@ -380,7 +381,6 @@ recommendation to `config/system_profile.json`.
 | `HYBRIDRAG_PROJECT_ROOT` | Project folder path |
 | `HYBRIDRAG_INDEX_FOLDER` | Source documents folder |
 | `HYBRIDRAG_DATA_DIR` | SQLite + embeddings storage |
-| `OLLAMA_HOST` | Ollama server URL (default: http://localhost:11434) |
 | `NO_PROXY=localhost,127.0.0.1` | Prevent proxy from intercepting localhost |
 | `HYBRIDRAG_NETWORK_KILL_SWITCH=true` | Master network kill switch |
 
@@ -395,7 +395,7 @@ mode: offline                        # offline or online
 
 embedding:
   model_name: nomic-embed-text       # Served by Ollama (768 dimensions)
-  batch_size: 64                     # Texts per Ollama API call
+  batch_size: 16                     # Texts per Ollama API call
   device: cpu                        # Unused (Ollama manages device)
 
 chunking:
@@ -403,7 +403,7 @@ chunking:
   overlap: 200                       # Overlap between chunks
 
 retrieval:
-  top_k: 12                         # Chunks sent to LLM
+  top_k: 5                          # Chunks sent to LLM
   min_score: 0.1                    # Minimum relevance score
   hybrid_search: true               # Vector + BM25 fusion
   reranker_enabled: false           # Keep OFF (see warnings below)
@@ -413,8 +413,8 @@ security:
   pii_sanitization: true            # Strip PII before online API calls
 
 ollama:
-  base_url: http://localhost:11434
-  model: phi4-mini                  # Which Ollama model to use
+  base_url: http://127.0.0.1:11434
+  model: phi4:14b-q4_K_M            # Default offline model
   timeout_seconds: 600              # 10 min timeout for CPU inference
 
 api:

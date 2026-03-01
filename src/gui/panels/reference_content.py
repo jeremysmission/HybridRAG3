@@ -201,7 +201,7 @@ ARCHITECTURE OVERVIEW
 =====================
 
 BOOT SEQUENCE:
-  Load config (YAML) -> Resolve credentials (keyring/env)
+  Load config (YAML) -> Resolve credentials (env/keyring/config)
   -> Configure network gate -> Probe backends -> BootResult
 
 QUERY PATH:
@@ -236,7 +236,7 @@ EMBEDDING: nomic-embed-text (768d, 274MB, Apache 2.0, served by Ollama)
 STORAGE: SQLite + NumPy memmap (float16). No external DB server.
 RETRIEVAL: Hybrid vector + BM25 via RRF (k=60). Reranker available but OFF.
 CHUNKING: 1200 chars, 200 overlap, smart boundary detection, heading prepend.
-LLM OFFLINE: Ollama (phi4-mini default). vLLM on workstation.
+LLM OFFLINE: Ollama (phi4:14b-q4_K_M default). vLLM on workstation.
 LLM ONLINE: OpenRouter / Azure OpenAI / OpenAI (openai SDK 1.109.1).
 GUI: tkinter (stdlib, zero deps). REST API: FastAPI 0.115.0 + Uvicorn.
 PARSING: pdfplumber, python-docx, openpyxl, python-pptx, pytesseract, Pillow.
@@ -305,7 +305,7 @@ ONLINE MODE: Localhost + configured API endpoint only. HuggingFace still blocked
 
 CREDENTIALS:
   Stored in Windows Credential Manager (DPAPI encrypted).
-  3-layer resolution: keyring > env var > config file.
+  3-layer resolution: env var > keyring > config file.
   Keys never logged in full (only first 8 chars shown).
 
 EMBEDDING MODEL: nomic-embed-text served by Ollama (localhost:11434).

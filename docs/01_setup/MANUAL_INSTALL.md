@@ -243,7 +243,7 @@ pip install structlog==24.4.0 rich==13.9.4 tqdm==4.67.3 regex==2026.1.15 --trust
 
 **Group 7Q -- AI core (install last, no-deps to avoid conflicts):**
 ```powershell
-pip install openai==1.51.2 tiktoken==0.8.0 --no-deps --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120 --retries 3
+pip install openai==1.109.1 tiktoken==0.8.0 --no-deps --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120 --retries 3
 ```
 
 **Group 7R -- Final dependency check (catches anything the groups missed):**
