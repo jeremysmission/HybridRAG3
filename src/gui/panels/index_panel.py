@@ -7,8 +7,9 @@
 # ============================================================================
 
 import os
+import shutil
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import threading
 import time
 import logging
@@ -37,6 +38,9 @@ class IndexPanel(tk.LabelFrame):
         self.indexer = indexer
         self._stop_flag = threading.Event()
         self._index_thread = None
+        self._dev_ui_enabled = os.environ.get(
+            "HYBRIDRAG_DEV_UI", ""
+        ).strip().lower() in ("1", "true", "yes")
 
         # Public testing state -- poll these from harness/tools.
         # Event is the thread-safe completion signal; plain attrs are
@@ -138,6 +142,15 @@ class IndexPanel(tk.LabelFrame):
             font=FONT_BOLD, relief=tk.FLAT, bd=0, padx=16, pady=8,
         )
         self.stop_btn.pack(side=tk.LEFT, padx=(8, 0))
+
+        if self._dev_ui_enabled:
+            self.clear_btn = tk.Button(
+                row1, text="Clear Index (Dev)", command=self._on_clear_index,
+                width=14,
+                bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"],
+                font=FONT, relief=tk.FLAT, bd=0, padx=12, pady=8,
+            )
+            self.clear_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         self.progress_file_label = tk.Label(
             row1, text="", anchor=tk.W, fg=t["gray"],
@@ -324,6 +337,80 @@ class IndexPanel(tk.LabelFrame):
                              fg=t["inactive_btn_fg"])
         self.progress_file_label.config(text="Stopping after current file...",
                                         fg=t["orange"])
+
+    def _on_clear_index(self):
+        """Development-only helper: wipe DB + embeddings cache quickly."""
+        t = current_theme()
+        if self.is_indexing:
+            self.progress_file_label.config(
+                text="[FAIL] Stop indexing before clearing index.",
+                fg=t["red"],
+            )
+            return
+
+        db_path = getattr(getattr(self.config, "paths", None), "database", "") or ""
+        emb_path = getattr(
+            getattr(self.config, "paths", None), "embeddings_cache", ""
+        ) or ""
+
+        if not db_path and not emb_path:
+            self.progress_file_label.config(
+                text="[FAIL] No index paths configured.",
+                fg=t["red"],
+            )
+            return
+
+        ok = messagebox.askyesno(
+            "Clear Index (Development)",
+            "Delete local index data now?\n\n"
+            "- SQLite index DB\n"
+            "- Embeddings cache folder\n\n"
+            "This cannot be undone. You must re-index afterward.",
+        )
+        if not ok:
+            return
+
+        # Try to release local file handles first.
+        try:
+            if self.indexer is not None and hasattr(self.indexer, "close"):
+                self.indexer.close()
+        except Exception:
+            pass
+
+        errors = []
+        removed = []
+
+        if db_path and os.path.isfile(db_path):
+            try:
+                os.remove(db_path)
+                removed.append("DB")
+            except Exception as e:
+                errors.append("DB: {}".format(str(e)[:120]))
+
+        if emb_path and os.path.isdir(emb_path):
+            try:
+                shutil.rmtree(emb_path)
+                removed.append("Embeddings")
+            except Exception as e:
+                errors.append("Embeddings: {}".format(str(e)[:120]))
+
+        if errors:
+            self.progress_file_label.config(
+                text="[FAIL] Clear index partial. {}. If locked, restart app and retry.".format(
+                    " | ".join(errors)
+                ),
+                fg=t["red"],
+            )
+            return
+
+        self.indexer = None
+        self.set_ready(False, "Index cleared. Rebuild backends or restart app.")
+        self.progress_bar["value"] = 0
+        self.progress_count_label.config(text="0 / 0 files")
+        self.progress_file_label.config(
+            text="[OK] Cleared: {}. Re-index required.".format(", ".join(removed) or "nothing"),
+            fg=t["green"],
+        )
 
     def _run_indexing(self, folder):
         """Execute indexing in background thread with progress callback."""
