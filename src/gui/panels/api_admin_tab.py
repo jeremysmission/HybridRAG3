@@ -1301,12 +1301,23 @@ class ApiAdminTab(tk.Frame):
         """Show current gate policy in plain language."""
         t = current_theme()
         mode = getattr(self.config, "mode", "offline") if self.config else "offline"
-        if mode == "online":
+        gate_mode = ""
+        try:
+            from src.core.network_gate import get_gate
+            gate_mode = (get_gate().mode_name or "").strip().lower()
+        except Exception:
+            gate_mode = ""
+
+        effective = gate_mode or mode
+        if effective == "online":
             text = "Network Policy: Online Mode = Whitelist Only (approved endpoint + localhost)"
             color = t["green"]
         else:
             text = "Network Policy: Offline Mode = Localhost Only (internet blocked)"
             color = t["gray"]
+        if gate_mode and gate_mode != mode:
+            text = "{} | Effective Gate: {}".format(text, gate_mode.upper())
+            color = t["orange"]
         self.network_policy_label.config(text=text, fg=color)
 
     def _on_save_credentials(self):
@@ -1379,6 +1390,20 @@ class ApiAdminTab(tk.Frame):
             store_api_key(key)
             invalidate_credential_cache()
             creds = resolve_credentials(use_cache=False)
+            # Ensure endpoint probe runs with online gate policy, using the
+            # same allowlist config as normal online query traffic.
+            try:
+                from src.core.network_gate import configure_gate
+                configure_gate(
+                    mode="online",
+                    api_endpoint=creds.endpoint or endpoint,
+                    allowed_prefixes=getattr(
+                        getattr(self.config, "api", None),
+                        "allowed_endpoint_prefixes", [],
+                    ) if self.config else [],
+                )
+            except Exception:
+                pass
             cfg_api = getattr(self.config, "api", None)
             cfg_dep = (getattr(cfg_api, "deployment", "") or "").strip() if cfg_api else ""
             cfg_model = (getattr(cfg_api, "model", "") or "").strip() if cfg_api else ""

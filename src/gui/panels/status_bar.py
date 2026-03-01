@@ -293,6 +293,13 @@ class StatusBar(tk.Frame):
         """Update gate indicator from config mode."""
         t = current_theme()
         mode = getattr(self.config, "mode", "offline")
+        try:
+            from src.core.network_gate import get_gate
+            gate_mode = (get_gate().mode_name or "").strip().lower()
+            if gate_mode:
+                mode = gate_mode
+        except Exception:
+            pass
         if mode == "online":
             self.gate_label.config(
                 text="Gate: ONLINE | Policy: Whitelist Only",

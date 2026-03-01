@@ -493,6 +493,20 @@ class QueryPanel(tk.LabelFrame):
             self.primary_alert_var.set("")
         self._update_primary_controls()
 
+    def _set_online_discovery_note(self, selected):
+        """Set a neutral online note when deployment discovery is unavailable."""
+        selected = (selected or "").strip() or "(none)"
+        self._auto_selected_model = selected
+        self._auto_primary_model = ""
+        self._auto_fallback_active = False
+        msg = "Auto Mode - Discovery unavailable, using configured model: {} (online)".format(
+            selected
+        )
+        self._auto_fallback_note = msg
+        self.model_info_var.set(msg)
+        self.primary_alert_var.set("")
+        self._update_primary_controls()
+
     def _update_primary_controls(self):
         """Enable recovery controls only when fallback mode is active."""
         if self._auto_fallback_active:
@@ -710,7 +724,7 @@ class QueryPanel(tk.LabelFrame):
                         self, 0, self._apply_online_selection, configured, True, "configured fallback",
                     )
                     safe_after(self, 0, self._set_model_combo_for_mode)
-                    safe_after(self, 0, self._set_auto_note, configured, "", True, "online")
+                    safe_after(self, 0, self._set_online_discovery_note, configured)
                 else:
                     safe_after(self, 0, self.model_info_var.set, "(no model)")
         except RuntimeError:
@@ -725,7 +739,7 @@ class QueryPanel(tk.LabelFrame):
                         self, 0, self._apply_online_selection, configured, True, "configured fallback",
                     )
                     safe_after(self, 0, self._set_model_combo_for_mode)
-                    safe_after(self, 0, self._set_auto_note, configured, "", True, "online")
+                    safe_after(self, 0, self._set_online_discovery_note, configured)
                 else:
                     safe_after(self, 0, self.model_info_var.set, "(discovery failed)")
             except RuntimeError:
