@@ -353,10 +353,10 @@ class QueryEngine:
                     yield {"token": answer}
 
             if not answer or not answer.strip():
-                reason = stream_error or (
-                    getattr(self.llm_router, "last_error", "") or ""
-                )
-                reason = reason.strip()
+                reason = stream_error
+                if not reason:
+                    _le = getattr(self.llm_router, "last_error", None)
+                    reason = _le.strip() if isinstance(_le, str) else ""
                 answer = (
                     f"Error calling LLM: {reason}" if reason
                     else "Error calling LLM. Please try again."

@@ -378,10 +378,10 @@ class GroundedQueryEngine(QueryEngine):
                     model = fallback.model
                     llm_latency_ms = fallback.latency_ms
             if not raw_answer:
-                reason = stream_error or (
-                    getattr(self.llm_router, "last_error", "") or ""
-                )
-                reason = reason.strip()
+                reason = stream_error
+                if not reason:
+                    _le = getattr(self.llm_router, "last_error", None)
+                    reason = _le.strip() if isinstance(_le, str) else ""
                 msg = (
                     f"LLM stream failed: {reason}" if reason
                     else "LLM stream empty"
@@ -464,13 +464,7 @@ class GroundedQueryEngine(QueryEngine):
     def _verify_response(
         self, response_text: str, hits: list
     ) -> tuple:
-        """
-        Run NLI verification on the LLM response against source chunks.
-        Uses batch processing with early-exit for speed:
-        - Chunk pruning per claim (3-5x faster)
-        - Early exit on consecutive pass/fail (1.5-3x faster)
-        Returns (score: float, details: dict).
-        """
+        """NLI verification with batch early-exit. Returns (score, details)."""
         if not self._guard_available:
             return 1.0, {"method": "bypass", "reason": "guard_not_loaded"}
 
