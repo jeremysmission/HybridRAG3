@@ -413,11 +413,9 @@ def copy_and_sanitize_file(src_path, dst_path):
     head = "\n".join(text.split("\n")[:5])
     if _PRIVATE_DOC_MARKER in head:
         return "skipped:private"
-    if _has_passthrough_marker(src_path):
-        # Waiver: copy verbatim, no sanitization
-        with open(dst_path, "w", encoding="utf-8", newline="\n") as f:
-            f.write(text)
-        return "waiver-pass"
+    # Waiver marker no longer bypasses sanitization.
+    # It still allows force-include through skip rules, but content must
+    # pass the same scrub pipeline as every other educational file.
 
     sanitized = sanitize_text(text)
 
