@@ -50,7 +50,7 @@
 # ============================================================================
 
 import time
-from typing import Optional
+from typing import Optional, Dict, Any, Generator
 from dataclasses import dataclass
 
 from .query_engine import QueryEngine, QueryResult
@@ -168,12 +168,92 @@ class GroundedQueryEngine(QueryEngine):
                     fallback="prompt_hardening_only",
                 )
 
+    # ------------------------------------------------------------------
+    # Shared guard helpers (used by both query and query_stream)
+    # ------------------------------------------------------------------
+
+    def _apply_guard_action(self, raw_answer, score, details):
+        """Apply block/strip/flag action based on grounding score.
+
+        Returns (answer, blocked) tuple.
+        """
+        if score >= self.guard_threshold:
+            return raw_answer, False
+
+        if self.guard_action == "block":
+            return (
+                "I found relevant documents but cannot provide "
+                "a fully verified answer. The available evidence "
+                "does not sufficiently support a complete response. "
+                "Please refine your question or check the source "
+                "documents directly."
+            ), True
+
+        if self.guard_action == "strip":
+            verified = [
+                d["claim"] for d in details.get("claims", [])
+                if d.get("verdict") == "SUPPORTED"
+            ]
+            if verified:
+                return " ".join(verified), False
+            return (
+                "No fully verified claims could be extracted. "
+                "Please check source documents directly."
+            ), True
+
+        # "flag" action: pass through with metadata only
+        return raw_answer, False
+
+    def _make_error_result(self, start_time, error_msg, sources=None,
+                           chunks=0):
+        """Build a GroundedQueryResult for error/empty-LLM cases."""
+        return GroundedQueryResult(
+            answer="Error processing query: {}".format(error_msg),
+            sources=sources or [], chunks_used=chunks,
+            tokens_in=0, tokens_out=0, cost_usd=0.0,
+            latency_ms=(time.time() - start_time) * 1000,
+            mode=self.config.mode, error=error_msg,
+            grounding_blocked=True,
+            grounding_details={"reason": "error"},
+        )
+
+    def _retrieval_gate(self, user_query, search_results, start_time):
+        """Check retrieval quality. Returns GroundedQueryResult if blocked,
+        None if evidence is sufficient to proceed."""
+        if not search_results:
+            return self._no_evidence_result(start_time)
+        passing = [
+            h for h in search_results if h.score >= self.guard_min_score
+        ]
+        if len(passing) < self.guard_min_chunks:
+            self.guard_logger.info(
+                "retrieval_gate_blocked", query=user_query[:80],
+                chunks_found=len(search_results),
+                chunks_passing=len(passing),
+                min_required=self.guard_min_chunks,
+            )
+            return self._insufficient_evidence_result(
+                start_time, search_results
+            )
+        return None  # gate passed
+
+    def _log_grounded_result(self, event_name, result, blocked, elapsed_ms):
+        """Log a grounded query result."""
+        self.guard_logger.info(
+            event_name,
+            score="{:.2f}".format(result.grounding_score),
+            safe=result.grounding_safe, blocked=blocked,
+            action=self.guard_action,
+            latency_ms="{:.0f}".format(elapsed_ms),
+        )
+
+    # ------------------------------------------------------------------
+    # query() -- synchronous guarded path
+    # ------------------------------------------------------------------
+
     def query(self, user_query: str) -> GroundedQueryResult:
-        """
-        Execute a guarded query. If guard is disabled, falls through
-        to base QueryEngine.query() with no overhead.
-        """
-        # Fast path: guard disabled -> use base class directly
+        """Execute a guarded query. Falls through to base QueryEngine
+        when guard is disabled."""
         if not self.guard_enabled or not self._guard_available:
             base_result = super().query(user_query)
             return GroundedQueryResult(
@@ -188,143 +268,157 @@ class GroundedQueryEngine(QueryEngine):
                 error=base_result.error,
             )
 
-        # Guarded path: retrieve -> gate -> harden -> LLM -> verify
         start_time = time.time()
-
         try:
-            # Step 1: Retrieve (reuse base retriever)
             search_results = self.retriever.search(user_query)
+            gate_result = self._retrieval_gate(
+                user_query, search_results, start_time)
+            if gate_result is not None:
+                return gate_result
 
-            # Step 2: RETRIEVAL GATE -- refuse if evidence is too weak.
-            # WHY: If the search only found low-quality matches, it is
-            # better to refuse than to let the LLM guess with bad context.
-            # This prevents confident-sounding wrong answers.
-            if not search_results:
-                return self._no_evidence_result(start_time)
-
-            # Filter to only chunks above the minimum relevance threshold.
-            # If not enough pass, we refuse to answer.
-            passing = [
-                h for h in search_results
-                if h.score >= self.guard_min_score
-            ]
-
-            if len(passing) < self.guard_min_chunks:
-                self.guard_logger.info(
-                    "retrieval_gate_blocked",
-                    query=user_query[:80],
-                    chunks_found=len(search_results),
-                    chunks_passing=len(passing),
-                    min_required=self.guard_min_chunks,
-                )
-                return self._insufficient_evidence_result(
-                    start_time, search_results
-                )
-
-            # Step 3: Build grounded context and prompt
             context = self.retriever.build_context(search_results)
             sources = self.retriever.get_sources(search_results)
-
-            # Harden the prompt with grounding rules
             prompt = self._build_grounded_prompt(
-                user_query, context, search_results
-            )
+                user_query, context, search_results)
 
-            # Step 4: Call LLM (same as base)
             llm_response = self.llm_router.query(prompt)
-
             if not llm_response:
-                return GroundedQueryResult(
-                    answer="Error calling LLM. Please try again.",
-                    sources=sources,
-                    chunks_used=len(search_results),
-                    tokens_in=0, tokens_out=0, cost_usd=0.0,
-                    latency_ms=(time.time() - start_time) * 1000,
-                    mode=self.config.mode,
-                    error="LLM call failed",
-                )
+                return self._make_error_result(
+                    start_time, "LLM call failed", sources,
+                    len(search_results))
 
-            # Step 5: VERIFY response against source chunks.
-            # The NLI model reads each claim in the answer and checks
-            # whether the source documents actually say that.
-            # Returns a score (0.0-1.0) = fraction of claims verified.
             score, details = self._verify_response(
-                llm_response.text, search_results
-            )
-
-            # Step 6: Apply action based on score.
-            # If too many claims are unverified, take corrective action.
-            answer = llm_response.text
-            blocked = False
-
-            if score < self.guard_threshold:
-                if self.guard_action == "block":
-                    answer = (
-                        "I found relevant documents but cannot provide "
-                        "a fully verified answer. The available evidence "
-                        "does not sufficiently support a complete response. "
-                        "Please refine your question or check the source "
-                        "documents directly."
-                    )
-                    blocked = True
-                elif self.guard_action == "strip":
-                    # Keep only verified sentences
-                    verified = [
-                        d["claim"] for d in details.get("claims", [])
-                        if d.get("verdict") == "SUPPORTED"
-                    ]
-                    if verified:
-                        answer = " ".join(verified)
-                    else:
-                        answer = (
-                            "No fully verified claims could be extracted. "
-                            "Please check source documents directly."
-                        )
-                        blocked = True
-                # "flag" action: pass through with metadata
+                llm_response.text, search_results)
+            answer, blocked = self._apply_guard_action(
+                llm_response.text, score, details)
 
             cost_usd = self._calculate_cost(llm_response)
             elapsed_ms = (time.time() - start_time) * 1000
 
             result = GroundedQueryResult(
-                answer=answer,
-                sources=sources,
+                answer=answer, sources=sources,
                 chunks_used=len(search_results),
                 tokens_in=llm_response.tokens_in,
                 tokens_out=llm_response.tokens_out,
-                cost_usd=cost_usd,
-                latency_ms=elapsed_ms,
+                cost_usd=cost_usd, latency_ms=elapsed_ms,
                 mode=self.config.mode,
                 grounding_score=score,
                 grounding_safe=score >= self.guard_threshold,
                 grounding_blocked=blocked,
                 grounding_details=details,
             )
-
-            self.guard_logger.info(
-                "query_grounded",
-                score=f"{score:.2f}",
-                safe=result.grounding_safe,
-                blocked=blocked,
-                action=self.guard_action,
-                latency_ms=f"{elapsed_ms:.0f}",
-            )
-
+            self._log_grounded_result(
+                "query_grounded", result, blocked, elapsed_ms)
             return result
 
         except Exception as e:
-            error_msg = f"{type(e).__name__}: {str(e)}"
+            error_msg = "{}: {}".format(type(e).__name__, e)
+            self.guard_logger.error("guard_query_error", error=error_msg)
+            return self._make_error_result(start_time, error_msg)
+
+    def query_stream(
+        self, user_query: str
+    ) -> Generator[Dict[str, Any], None, None]:
+        """
+        Stream a guarded query response.
+
+        IMPORTANT:
+            Guarded streaming intentionally buffers the raw model stream,
+            verifies grounding, then emits only the post-guard answer.
+            This prevents unverified tokens from being shown in real time.
+        """
+        if not self.guard_enabled or not self._guard_available:
+            yield from super().query_stream(user_query)
+            return
+
+        start_time = time.time()
+        try:
+            yield {"phase": "searching"}
+            search_results = self.retriever.search(user_query)
+            retrieval_ms = (time.time() - start_time) * 1000
+
+            # Retrieval gate
+            gate_result = self._retrieval_gate(
+                user_query, search_results, start_time)
+            if gate_result is not None:
+                yield {"done": True, "result": gate_result}
+                return
+
+            context = self.retriever.build_context(search_results)
+            sources = self.retriever.get_sources(search_results)
+            if not context.strip():
+                yield {"done": True, "result": self._make_error_result(
+                    start_time, "empty_context", sources,
+                    len(search_results))}
+                return
+
+            prompt = self._build_grounded_prompt(
+                user_query, context, search_results)
+
+            yield {"phase": "generating", "chunks": len(search_results),
+                   "retrieval_ms": retrieval_ms}
+
+            # Buffer raw stream (tokens must not reach UI before guard)
+            full_text = []
+            tokens_in = tokens_out = 0
+            model = ""
+            llm_latency_ms = 0.0
+            for chunk in self.llm_router.query_stream(prompt):
+                if "token" in chunk:
+                    full_text.append(chunk["token"])
+                elif chunk.get("done"):
+                    tokens_in = chunk.get("tokens_in", 0)
+                    tokens_out = chunk.get("tokens_out", 0)
+                    model = chunk.get("model", "")
+                    llm_latency_ms = chunk.get("latency_ms", 0.0)
+
+            raw_answer = "".join(full_text)
+            if not raw_answer:
+                yield {"done": True, "result": self._make_error_result(
+                    start_time, "LLM stream empty", sources,
+                    len(search_results))}
+                return
+
+            # Verify and apply guard action
+            score, details = self._verify_response(
+                raw_answer, search_results)
+            answer, blocked = self._apply_guard_action(
+                raw_answer, score, details)
+
+            # Emit only post-guard answer text
+            if answer:
+                words = answer.split()
+                for i, w in enumerate(words):
+                    yield {"token": w + (" " if i < len(words) - 1 else "")}
+
+            from .llm_router import LLMResponse
+            llm_resp = LLMResponse(
+                text=raw_answer, tokens_in=tokens_in,
+                tokens_out=tokens_out, model=model,
+                latency_ms=llm_latency_ms)
+            elapsed_ms = (time.time() - start_time) * 1000
+
+            result = GroundedQueryResult(
+                answer=answer, sources=sources,
+                chunks_used=len(search_results),
+                tokens_in=tokens_in, tokens_out=tokens_out,
+                cost_usd=self._calculate_cost(llm_resp),
+                latency_ms=elapsed_ms, mode=self.config.mode,
+                grounding_score=score,
+                grounding_safe=score >= self.guard_threshold,
+                grounding_blocked=blocked,
+                grounding_details=details,
+            )
+            self._log_grounded_result(
+                "query_stream_grounded", result, blocked, elapsed_ms)
+            yield {"done": True, "result": result}
+
+        except Exception as e:
+            error_msg = "{}: {}".format(type(e).__name__, e)
             self.guard_logger.error(
-                "guard_query_error", error=error_msg
-            )
-            return GroundedQueryResult(
-                answer=f"Error processing query: {error_msg}",
-                sources=[], chunks_used=0,
-                tokens_in=0, tokens_out=0, cost_usd=0.0,
-                latency_ms=(time.time() - start_time) * 1000,
-                mode=self.config.mode,
-                error=error_msg,
-            )
+                "guard_query_stream_error", error=error_msg)
+            yield {"done": True, "result": self._make_error_result(
+                start_time, error_msg)}
 
     def _build_grounded_prompt(
         self, user_query: str, context: str, hits: list
