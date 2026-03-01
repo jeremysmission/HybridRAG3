@@ -35,6 +35,7 @@ import json
 import os
 import threading
 import logging
+import re
 from datetime import datetime
 
 from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_SMALL, FONT_MONO, bind_hover
@@ -1315,6 +1316,8 @@ class ApiAdminTab(tk.Frame):
             from src.core.llm_router import (
                 invalidate_deployment_cache,
                 refresh_deployments,
+                _build_httpx_client,
+                _is_azure_endpoint,
             )
             endpoint = validate_endpoint(endpoint)
             store_endpoint(endpoint)
@@ -1329,16 +1332,77 @@ class ApiAdminTab(tk.Frame):
                 )
                 return
 
+            # Stage 1: connectivity/auth probe with explicit HTTP status.
+            probe_ok, probe_msg = self._probe_online_endpoint(
+                creds.endpoint or endpoint,
+                creds.api_key or key,
+                creds.api_version or "2024-02-02",
+                _build_httpx_client,
+                _is_azure_endpoint,
+            )
+            if not probe_ok:
+                safe_after(self, 0, self._test_failed, probe_msg)
+                return
+
+            # Stage 2: model/deployment discovery (may legitimately return 0).
             invalidate_deployment_cache()
             deployments = refresh_deployments()
             if deployments:
                 models = self._deployments_to_models(deployments)
-                safe_after(self, 0, self._test_done, models, len(deployments))
+                safe_after(
+                    self, 0, self._test_done, models, len(deployments), probe_msg
+                )
             else:
-                safe_after(self, 0, self._test_failed,
-                           "No models/deployments returned (check endpoint/provider/key)")
+                safe_after(
+                    self, 0, self._test_done, [], 0,
+                    probe_msg + " | Connected, but no deployments visible",
+                )
         except Exception as e:
             safe_after(self, 0, self._test_failed, str(e)[:80])
+
+    def _probe_online_endpoint(
+        self, endpoint, api_key, api_version, client_factory, is_azure_endpoint,
+    ):
+        """Probe endpoint with provider-appropriate auth and return status text."""
+        try:
+            ep = (endpoint or "").rstrip("/")
+            if is_azure_endpoint(ep):
+                base = re.split(r"/openai/|\?", ep, maxsplit=1)[0]
+                url = f"{base}/openai/deployments?api-version={api_version}"
+                with client_factory(timeout=10) as client:
+                    resp = client.get(
+                        url,
+                        headers={
+                            "api-key": api_key,
+                            "Content-Type": "application/json",
+                        },
+                    )
+                if resp.status_code == 200:
+                    return True, "Connected (Azure endpoint reachable)"
+                if resp.status_code in (401, 403):
+                    return False, f"Auth/RBAC failed (HTTP {resp.status_code})"
+                if resp.status_code == 404:
+                    return False, "Endpoint/API version not valid for Azure deployment list (HTTP 404)"
+                return False, f"Azure probe failed (HTTP {resp.status_code})"
+
+            url = f"{ep}/models"
+            with client_factory(timeout=10) as client:
+                resp = client.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                )
+            if resp.status_code == 200:
+                return True, "Connected (/models reachable)"
+            if resp.status_code in (401, 403):
+                return False, f"Auth failed (HTTP {resp.status_code})"
+            if resp.status_code == 404:
+                return False, "Endpoint path is not OpenAI-compatible /models (HTTP 404)"
+            return False, f"Probe failed (HTTP {resp.status_code})"
+        except Exception as e:
+            return False, f"Connection probe error: {type(e).__name__}: {e}"
 
     def _deployments_to_models(self, deployments):
         """Convert deployment names into ModelSelectionPanel row dicts."""
@@ -1357,12 +1421,15 @@ class ApiAdminTab(tk.Frame):
             })
         return out
 
-    def _test_done(self, models, total):
+    def _test_done(self, models, total, detail=""):
         """Main-thread callback: connection test succeeded."""
         t = current_theme()
-        self.cred_status_label.config(
-            text="[OK] Connected -- {} models available.".format(total),
-            fg=t["green"])
+        msg = detail or "Connected"
+        if total > 0:
+            msg = "{} -- {} models available.".format(msg, total)
+        else:
+            msg = "{} -- 0 models/deployments listed.".format(msg)
+        self.cred_status_label.config(text="[OK] {}".format(msg), fg=t["green"])
         self.test_btn.config(state=tk.NORMAL)
         self._model_panel.set_models(models)
 
