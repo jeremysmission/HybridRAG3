@@ -315,7 +315,10 @@ class DataPanel(tk.Frame):
             bg=t["panel_bg"], fg=t["fg"], font=FONT,
         ).pack(side=tk.LEFT)
 
-        self._selected_path_var = tk.StringVar()
+        default_transfer_source = getattr(
+            getattr(self.config, "paths", None), "transfer_source_folder", ""
+        ) or ""
+        self._selected_path_var = tk.StringVar(value=default_transfer_source)
         self._path_entry = tk.Entry(
             unc_row, textvariable=self._selected_path_var, font=FONT,
             bg=t["input_bg"], fg=t["input_fg"], relief=tk.FLAT, bd=2,
@@ -332,6 +335,16 @@ class DataPanel(tk.Frame):
         self._preview_btn.pack(side=tk.LEFT)
         bind_hover(self._preview_btn)
 
+        self._persist_transfer_source_var = tk.BooleanVar(value=True)
+        self._persist_transfer_source_cb = tk.Checkbutton(
+            frame, text="Set transfer source as default",
+            variable=self._persist_transfer_source_var,
+            bg=t["panel_bg"], fg=t["fg"],
+            selectcolor=t["input_bg"], activebackground=t["panel_bg"],
+            activeforeground=t["fg"], font=FONT_SMALL,
+        )
+        self._persist_transfer_source_cb.pack(anchor=tk.W, pady=(2, 0))
+
     def _on_browse(self):
         """Open native folder picker starting at selected drive."""
         drive = self._drive_var.get()
@@ -342,6 +355,7 @@ class DataPanel(tk.Frame):
         if folder:
             norm = os.path.normpath(folder)
             self._selected_path_var.set(norm)
+            self._persist_transfer_source_path(norm)
             # Update drive combo to match the selected folder's drive
             # so the display stays consistent (e.g. user browses to E:\)
             folder_drive = os.path.splitdrive(norm)[0]
@@ -377,10 +391,23 @@ class DataPanel(tk.Frame):
         if not path or not os.path.isdir(path):
             self._set_preview_text("[WARN] Folder does not exist: {}".format(path))
             return
+        self._persist_transfer_source_path(os.path.normpath(path))
         self._set_preview_text("Scanning {}...".format(path))
         threading.Thread(
             target=self._scan_preview, args=(path,), daemon=True,
         ).start()
+
+    def _persist_transfer_source_path(self, path):
+        """Persist transfer-source path when default toggle is enabled."""
+        if not bool(self._persist_transfer_source_var.get()):
+            return
+        paths = getattr(self.config, "paths", None)
+        if paths:
+            paths.transfer_source_folder = path
+        try:
+            save_config_field("paths.transfer_source_folder", path)
+        except Exception as e:
+            logger.warning("Could not persist transfer source path: %s", e)
 
     def _scan_preview(self, path):
         """Background thread: delegate to pure function, schedule UI update."""

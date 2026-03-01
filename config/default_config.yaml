@@ -49,6 +49,7 @@ paths:
   embeddings_cache: "D:\\RAG Indexed Data\\_embeddings"
   source_folder: "D:\\RAG Source Data"
   download_folder: "D:\\RAG Source Data"
+  transfer_source_folder: ""
 performance:
   gc_between_blocks: true
   gc_between_files: true
