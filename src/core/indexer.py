@@ -71,7 +71,7 @@ import os
 import time
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -440,7 +440,7 @@ class Indexer:
                         source_path=str(file_path),
                         chunk_index=chunks_added + i,
                         text_length=len(chunk_text),
-                        created_at=datetime.utcnow().isoformat(),
+                        created_at=datetime.now(timezone.utc).isoformat(),
                     )
                 )
             self.vector_store.add_embeddings(

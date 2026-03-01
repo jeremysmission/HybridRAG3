@@ -320,12 +320,8 @@ async def start_indexing(req: IndexRequest = None):
     if not s.config or not s.vector_store or not s.embedder:
         raise HTTPException(status_code=503, detail="Server not initialized")
 
-    if s.indexing_active:
-        raise HTTPException(
-            status_code=409,
-            detail="Indexing is already in progress. Check GET /index/status.",
-        )
-
+    # Validate source folder BEFORE acquiring lock so validation
+    # failures don't leave indexing_active stuck True.
     source_folder = (
         req.source_folder if req and req.source_folder
         else s.config.paths.source_folder
@@ -351,15 +347,24 @@ async def start_indexing(req: IndexRequest = None):
             detail="Source folder must be within the configured source directory.",
         )
 
+    # Race-safe check: acquire lock BEFORE reading indexing_active.
+    # Without the lock, two simultaneous requests could both see False
+    # and both start indexing threads.
+    with s.indexing_lock:
+        if s.indexing_active:
+            raise HTTPException(
+                status_code=409,
+                detail="Indexing is already in progress. Check GET /index/status.",
+            )
+        # Mark active inside the lock so no other request can slip through
+        s.indexing_active = True
+
     def _run_indexing():
         from src.api.server import APIProgressCallback
         from src.core.chunker import Chunker
         from src.core.indexer import Indexer
         try:
-            with s.indexing_lock:
-                if s.indexing_active:
-                    return
-                s.indexing_active = True
+            # indexing_active already set True under lock by the endpoint handler
             s.index_progress.update({
                 "files_processed": 0,
                 "files_total": 0,

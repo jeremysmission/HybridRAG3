@@ -376,7 +376,9 @@ class NetworkGate:
                     if parsed.port != p_port:
                         continue
                     req_path = parsed.path or "/"
-                    if req_path.startswith(p_path):
+                    # Path boundary check: /api must NOT match /api2.
+                    # Allow only exact match or prefix followed by '/'.
+                    if req_path == p_path or req_path.startswith(p_path.rstrip("/") + "/"):
                         self._log_access(url, host, purpose, caller, True, "allowed_prefix")
                         return
                 except Exception:

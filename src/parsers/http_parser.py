@@ -184,27 +184,26 @@ class HttpParser:
             },
         )
 
-        # Execute request
-        response = urllib.request.urlopen(
+        # Execute request (context manager ensures socket is closed)
+        with urllib.request.urlopen(
             req,
             timeout=self._timeout,
             context=ssl_ctx,
-        )
+        ) as response:
+            details["status_code"] = response.status
+            details["content_type"] = response.headers.get(
+                "Content-Type", "text/html"
+            )
 
-        details["status_code"] = response.status
-        details["content_type"] = response.headers.get(
-            "Content-Type", "text/html"
-        )
+            # Check content type
+            ct = details["content_type"].split(";")[0].strip().lower()
+            if ct not in _PARSEABLE_TYPES:
+                details["error"] = f"Unsupported content type: {ct}"
+                return "", details
 
-        # Check content type
-        ct = details["content_type"].split(";")[0].strip().lower()
-        if ct not in _PARSEABLE_TYPES:
-            details["error"] = f"Unsupported content type: {ct}"
-            return "", details
-
-        # Read with size limit
-        raw = response.read(self._max_bytes)
-        details["content_bytes"] = len(raw)
+            # Read with size limit
+            raw = response.read(self._max_bytes)
+            details["content_bytes"] = len(raw)
 
         # Detect encoding
         encoding = self._detect_encoding(

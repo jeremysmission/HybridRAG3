@@ -580,10 +580,14 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
         )
         self.status_label.pack(fill=tk.X, pady=(0, 4))
 
-        # Treeview
+        # Treeview inside its own frame so the button row below
+        # is not squeezed out by side=LEFT/RIGHT packing.
+        tree_frame = tk.Frame(self, bg=t["panel_bg"])
+        tree_frame.pack(fill=tk.BOTH, expand=True)
+
         columns = ("model", "role", "eng", "gen", "score", "vram_gb", "note")
         self.tree = ttk.Treeview(
-            self, columns=columns, show="headings", height=6,
+            tree_frame, columns=columns, show="headings", height=6,
             selectmode="browse",
         )
         for col, hdr, w, anchor in [
@@ -598,7 +602,7 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
             self.tree.heading(col, text=hdr)
             self.tree.column(col, width=w, anchor=anchor, minwidth=max(40, w - 15))
 
-        tree_scroll = ttk.Scrollbar(self, orient=tk.VERTICAL,
+        tree_scroll = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL,
                                      command=self.tree.yview)
         self.tree.configure(yscrollcommand=tree_scroll.set)
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)

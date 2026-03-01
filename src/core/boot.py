@@ -347,14 +347,14 @@ def boot_hybridrag(config_path=None) -> BootResult:
             req = urllib.request.Request(
                 f"{ollama_host}/api/tags", method="GET",
             )
-            response = opener.open(req, timeout=3)
-            if response.status == 200:
-                result.offline_available = True
-                logger.info("BOOT Step 4: Ollama is running")
-            else:
-                result.warnings.append(
-                    "Ollama responded but with unexpected status"
-                )
+            with opener.open(req, timeout=3) as response:
+                if response.status == 200:
+                    result.offline_available = True
+                    logger.info("BOOT Step 4: Ollama is running")
+                else:
+                    result.warnings.append(
+                        "Ollama responded but with unexpected status"
+                    )
         except Exception:
             result.warnings.append(
                 "Ollama is not running -- offline mode unavailable"
@@ -393,13 +393,13 @@ def boot_hybridrag(config_path=None) -> BootResult:
                 urllib.request.ProxyHandler({})
             )
             req = urllib.request.Request(f"{vllm_url}/health", method="GET")
-            response = opener.open(req, timeout=3)
-            if response.status == 200:
-                logger.info("[OK] vLLM available at %s", vllm_url)
-            else:
-                result.warnings.append(
-                    "vLLM responded with unexpected status (Ollama fallback)"
-                )
+            with opener.open(req, timeout=3) as response:
+                if response.status == 200:
+                    logger.info("[OK] vLLM available at %s", vllm_url)
+                else:
+                    result.warnings.append(
+                        "vLLM responded with unexpected status (Ollama fallback)"
+                    )
         except Exception:
             result.warnings.append(
                 "[WARN] vLLM not running at " + vllm_url + " (Ollama fallback)"

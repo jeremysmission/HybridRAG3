@@ -235,6 +235,28 @@ class HttpResponse:
 
 
 # ---------------------------------------------------------------------------
+# REDIRECT HANDLER -- gate-aware
+# ---------------------------------------------------------------------------
+
+class _GateAwareRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Block redirects to hosts not in the NetworkGate allowlist.
+
+    urllib follows 301/302/307/308 automatically. If the redirect target
+    points to a different host, we must re-validate through the gate.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        try:
+            from src.core.network_gate import get_gate
+            get_gate().check_allowed(newurl, "redirect", "http_client")
+        except Exception:
+            raise urllib.error.URLError(
+                f"Redirect to {newurl} blocked by network gate"
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+# ---------------------------------------------------------------------------
 # CENTRALIZED HTTP CLIENT
 # ---------------------------------------------------------------------------
 
@@ -409,25 +431,30 @@ class HttpClient:
                     method=method,
                 )
 
-                response = urllib.request.urlopen(
-                    req,
-                    context=self._ssl_context,
-                    timeout=self.config.timeout_seconds,
+                # Gate-aware opener: re-validates redirect targets
+                opener = urllib.request.build_opener(
+                    _GateAwareRedirectHandler,
+                    urllib.request.HTTPSHandler(context=self._ssl_context),
                 )
-
-                latency = time.time() - start_time
-                body = response.read().decode("utf-8")
+                with opener.open(
+                    req,
+                    timeout=self.config.timeout_seconds,
+                ) as response:
+                    latency = time.time() - start_time
+                    body = response.read().decode("utf-8")
+                    resp_status = response.status
+                    resp_headers = dict(response.headers)
 
                 # Audit log: URL + status + latency (never log body or keys)
                 logger.info(
                     "HTTP %s %s -> %d (%.2fs)",
-                    method, _mask_url(url), response.status, latency,
+                    method, _mask_url(url), resp_status, latency,
                 )
 
                 return HttpResponse(
-                    status_code=response.status,
+                    status_code=resp_status,
                     body=body,
-                    headers=dict(response.headers),
+                    headers=resp_headers,
                     latency_seconds=latency,
                     retry_count=attempt - 1,
                 )
