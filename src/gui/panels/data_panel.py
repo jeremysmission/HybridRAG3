@@ -647,6 +647,15 @@ class DataPanel(tk.Frame):
             relief=tk.FLAT, bd=1, font=FONT_SMALL,
         )
         self._est_total_gb_entry.pack(side=tk.LEFT)
+        self._est_total_gb_entry.bind("<Return>", self._on_apply_estimate)
+        self._est_total_gb_entry.bind("<FocusOut>", self._on_apply_estimate)
+
+        self._apply_est_btn = tk.Button(
+            btn_row, text="Apply ETA", command=self._on_apply_estimate,
+            width=9, bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"],
+            font=FONT_SMALL, relief=tk.FLAT, bd=0, padx=8, pady=4,
+        )
+        self._apply_est_btn.pack(side=tk.LEFT, padx=(6, 0))
 
         self._transfer_status = tk.Label(
             btn_row, text="", anchor=tk.W,
@@ -692,6 +701,12 @@ class DataPanel(tk.Frame):
         """Start transfer using values from current UI fields."""
         source = self._selected_path_var.get().strip()
         dest = self._source_path_var.get().strip()
+        self._apply_estimate_value(show_status=False)
+        self._start_transfer(source=source, dest=dest, resume=False)
+
+    def _apply_estimate_value(self, show_status=True):
+        """Parse Estimated Total (GB) field and apply immediately."""
+        t = current_theme()
         est_gb = (self._est_total_gb_var.get() or "").strip()
         self._estimated_total_bytes = 0
         if est_gb:
@@ -699,9 +714,39 @@ class DataPanel(tk.Frame):
                 gb = float(est_gb)
                 if gb > 0:
                     self._estimated_total_bytes = int(gb * (1024 ** 3))
+                else:
+                    raise ValueError("must be > 0")
             except Exception:
-                self._estimated_total_bytes = 0
-        self._start_transfer(source=source, dest=dest, resume=False)
+                if show_status:
+                    self._transfer_status.config(
+                        text="[WARN] Estimated total must be a positive number (GB).",
+                        fg=t["orange"],
+                    )
+                return False
+        if show_status:
+            if self._estimated_total_bytes > 0:
+                self._transfer_status.config(
+                    text="[OK] ETA estimate applied: {}".format(
+                        _fmt_size(self._estimated_total_bytes)
+                    ),
+                    fg=t["green"],
+                )
+            else:
+                self._transfer_status.config(
+                    text="[OK] ETA estimate cleared (using discovered total).",
+                    fg=t["gray"],
+                )
+        return True
+
+    def _on_apply_estimate(self, _event=None):
+        """Apply estimated total size and refresh ETA immediately."""
+        self._apply_estimate_value(show_status=True)
+        # If transfer is running, refresh stats line now so ETA changes immediately.
+        if self._engine is not None:
+            try:
+                self._poll_stats()
+            except Exception:
+                pass
 
     def _start_transfer(self, source, dest, resume=False):
         """Validate inputs and launch transfer in background thread."""
