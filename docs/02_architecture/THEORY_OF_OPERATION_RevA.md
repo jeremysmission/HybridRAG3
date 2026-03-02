@@ -4,6 +4,12 @@ Revision: B | Date: 2026-02-25
 
 ---
 
+## Change History Link
+For software evolution, decision rationale, tradeoffs, and 7-day chronology,
+see `docs/02_architecture/SOFTWARE_HISTORY_AND_SCALABILITY_PLAN_2026-03-02.md`.
+
+---
+
 ## What Is HybridRAG?
 
 HybridRAG is a document search and question-answering system that runs on

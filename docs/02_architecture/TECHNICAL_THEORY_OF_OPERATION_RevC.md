@@ -4,6 +4,13 @@ Revision: C | Date: 2026-02-25
 
 ---
 
+## Change History Link
+For cross-repo software evolution, major design tradeoffs, and the current
+scalability roadmap, see
+`docs/02_architecture/SOFTWARE_HISTORY_AND_SCALABILITY_PLAN_2026-03-02.md`.
+
+---
+
 ## 1. System Architecture Overview
 
 HybridRAG3 is a local-first Retrieval-Augmented Generation (RAG) system
