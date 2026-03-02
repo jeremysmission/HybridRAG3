@@ -13,6 +13,12 @@
 # Runs fully offline when wheelhouse and installers are present.
 # ============================================================================
 
+[CmdletBinding()]
+param(
+    [string]$BundleRoot = "",
+    [switch]$SkipHashCheck
+)
+
 $ErrorActionPreference = "Stop"
 
 function Write-Info([string]$m) { Write-Host "[INFO] $m" -ForegroundColor Cyan }
@@ -44,6 +50,46 @@ function Resolve-Python() {
     return @()
 }
 
+function Test-BundleIntegrity([string]$Root) {
+    $manifestPath = Join-Path $Root "MANIFEST_SHA256.txt"
+    if (-not (Test-Path $manifestPath)) {
+        Write-Warn "MANIFEST_SHA256.txt not found. Skipping integrity verification."
+        return
+    }
+
+    Write-Info "Verifying bundle integrity (SHA-256)..."
+    $bad = 0
+    $checked = 0
+    foreach ($line in Get-Content -Path $manifestPath -Encoding UTF8) {
+        $raw = $line.Trim()
+        if (-not $raw) { continue }
+        if ($raw.Length -lt 67) { continue }
+        if ($raw[64] -ne ' ') { continue }
+
+        $expected = $raw.Substring(0, 64).ToLowerInvariant()
+        $rel = $raw.Substring(66).Trim()
+        $target = Join-Path $Root $rel
+        $checked += 1
+
+        if (-not (Test-Path $target)) {
+            Write-Fail "Missing file from manifest: $rel"
+            $bad += 1
+            continue
+        }
+
+        $actual = (Get-FileHash -Path $target -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actual -ne $expected) {
+            Write-Fail "Hash mismatch: $rel"
+            $bad += 1
+        }
+    }
+
+    if ($bad -gt 0) {
+        throw "Integrity verification failed ($bad issue(s) across $checked file(s)). Re-copy/prestage bundle before installing."
+    }
+    Write-Ok "Integrity verified ($checked files)"
+}
+
 function Write-LocalConfig([string]$CfgPath, [string]$DataDir, [string]$SourceDir) {
     if (-not (Test-Path $CfgPath)) { return }
     $txt = Get-Content $CfgPath -Raw -Encoding UTF8
@@ -59,7 +105,12 @@ function Write-LocalConfig([string]$CfgPath, [string]$DataDir, [string]$SourceDi
 
 $scriptPath = $MyInvocation.MyCommand.Path
 $scriptsDir = Split-Path -Parent $scriptPath
-$bundleRoot = Split-Path -Parent $scriptsDir
+$defaultBundleRoot = Split-Path -Parent $scriptsDir
+if ([string]::IsNullOrWhiteSpace($BundleRoot)) {
+    $bundleRoot = $defaultBundleRoot
+} else {
+    $bundleRoot = [System.IO.Path]::GetFullPath($BundleRoot)
+}
 
 Write-Info "Bundle root: $bundleRoot"
 
@@ -71,6 +122,24 @@ $installers = Join-Path $bundleRoot "installers"
 if (-not (Test-Path $appSrc)) {
     Write-Fail "Bundle missing HybridRAG3 folder"
     exit 2
+}
+
+$requiredDirs = @("HybridRAG3", "scripts")
+$missing = @()
+foreach ($d in $requiredDirs) {
+    $p = Join-Path $bundleRoot $d
+    if (-not (Test-Path $p)) { $missing += $d }
+}
+if ($missing.Count -gt 0) {
+    Write-Fail "Bundle root is incomplete. Missing: $($missing -join ', ')"
+    Write-Host "Expected layout root contains: HybridRAG3, scripts, wheels (optional), cache (optional), installers (optional)"
+    exit 2
+}
+
+if (-not $SkipHashCheck) {
+    Test-BundleIntegrity -Root $bundleRoot
+} else {
+    Write-Warn "Integrity verification skipped (--SkipHashCheck)."
 }
 
 $defaultInstall = "D:\HybridRAG3"

@@ -166,6 +166,12 @@ class Indexer:
 
         # File validation (extracted from Indexer to keep class under 500 lines)
         self._file_validator = FileValidator(excluded_dirs=self._excluded_dirs)
+        # Fallback text read should only run for text-like formats.
+        self._fallback_text_extensions = {
+            ".txt", ".md", ".csv", ".json", ".xml", ".log",
+            ".yaml", ".yml", ".ini", ".cfg", ".conf", ".properties",
+            ".reg", ".html", ".htm", ".rtf",
+        }
 
     # ------------------------------------------------------------------
     # Public API
@@ -223,6 +229,8 @@ class Indexer:
         total_files_skipped = 0
         total_files_reindexed = 0
         preflight_blocked = []  # NEW: tracks files blocked by pre-flight
+        skip_reason_counts: Dict[str, int] = {}
+        skip_extension_counts: Dict[str, int] = {}
 
         folder = Path(folder_path)
         if not folder.exists() or not folder.is_dir():
@@ -286,6 +294,13 @@ class Indexer:
                 )
                 if skip_reason:
                     total_files_skipped += 1
+                    skip_reason_counts[skip_reason] = (
+                        skip_reason_counts.get(skip_reason, 0) + 1
+                    )
+                    ext = file_path.suffix.lower() or "<no_ext>"
+                    skip_extension_counts[ext] = (
+                        skip_extension_counts.get(ext, 0) + 1
+                    )
                     if skip_reason.startswith("preflight:"):
                         preflight_blocked.append(
                             (str(file_path), skip_reason[11:])
@@ -317,6 +332,12 @@ class Indexer:
             "total_files_reindexed": total_files_reindexed,
             "total_chunks_added": total_chunks,
             "preflight_blocked": preflight_blocked,
+            "skip_reason_counts": dict(
+                sorted(skip_reason_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            ),
+            "skip_extension_counts": dict(
+                sorted(skip_extension_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            ),
             "elapsed_seconds": elapsed,
         }
 
@@ -327,6 +348,14 @@ class Indexer:
         logger.info("  Files skipped:    %d", result['total_files_skipped'])
         logger.info("  Chunks added:     %d", result['total_chunks_added'])
         logger.info("  Time: %.1fs", elapsed)
+        if result["skip_reason_counts"]:
+            logger.info("  Top skip reasons:")
+            for reason, count in list(result["skip_reason_counts"].items())[:10]:
+                logger.info("    - %s: %d", reason, count)
+        if result["skip_extension_counts"]:
+            logger.info("  Top skipped extensions:")
+            for ext, count in list(result["skip_extension_counts"].items())[:10]:
+                logger.info("    - %s: %d", ext, count)
 
         # --- Pre-flight report (if any files were blocked) ---
         if preflight_blocked:
@@ -380,9 +409,9 @@ class Indexer:
             )
             was_reindex = True
 
-        text = self._process_file_with_retry(file_path)
+        text, parse_details = self._process_file_with_retry(file_path)
         if not text or not text.strip():
-            return 0, "no text extracted", False
+            return 0, self._build_no_text_reason(file_path, parse_details), False
 
         if not self._validate_text(text):
             logger.warning(
@@ -455,13 +484,14 @@ class Indexer:
         gc.collect()
         return chunks_added, None, was_reindex
 
-    def _process_file_with_retry(self, file_path, max_retries=3):
+    def _process_file_with_retry(
+        self, file_path: Path, max_retries: int = 3
+    ) -> Tuple[str, Dict[str, Any]]:
         """Retry file processing up to max_retries times with backoff."""
         last_error = None
         for attempt in range(1, max_retries + 1):
             try:
-                text = self._parse_file(file_path)
-                return text
+                return self._parse_file(file_path)
             except Exception as e:
                 last_error = e
                 if attempt < max_retries:
@@ -498,35 +528,69 @@ class Indexer:
         fast_key = f"{stat.st_size}:{stat.st_mtime_ns}"
         return fast_key
 
-    def _parse_file(self, file_path: Path) -> str:
+    def _parse_file(self, file_path: Path) -> Tuple[str, Dict[str, Any]]:
         """
         Extract text from a file using the parser registry.
 
         Falls back to reading as plain text if no specialized parser
-        is available. Returns empty string on failure.
+        is available. Returns (text, details) on all paths.
         """
+        ext = file_path.suffix.lower()
+        details: Dict[str, Any] = {
+            "file": str(file_path),
+            "extension": ext,
+            "parser": "unknown",
+            "mode": "registry",
+        }
         try:
-            from ..parsers.registry import REGISTRY
-            parser = REGISTRY.get(file_path.suffix.lower())
-            if parser:
-                result = parser.parser_cls().parse(str(file_path))
-                if hasattr(result, "text"):
-                    return result.text or ""
-                if isinstance(result, str):
-                    return result
+            from ..parsers.text_parser import TextParser
+            text, parsed = TextParser().parse_with_details(str(file_path))
+            if isinstance(parsed, dict):
+                details.update(parsed)
+            if text and text.strip():
+                return text, details
         except ImportError:
-            pass
+            details["error"] = "IMPORT_ERROR: parser stack unavailable"
         except Exception as e:
             logger.warning("[WARN] Parser error on %s: %s", file_path.name, e)
+            details["error"] = f"RUNTIME_ERROR: {type(e).__name__}: {e}"
 
-        # Fallback: try reading as plain text
+        # Fallback: only for text-like extensions.
+        if ext not in self._fallback_text_extensions:
+            details.setdefault("likely_reason", "PARSER_RETURNED_NO_TEXT")
+            details["mode"] = "no_fallback_for_binary_like_extension"
+            return "", details
+
+        details["mode"] = "fallback_plain_text"
         try:
-            return file_path.read_text(encoding="utf-8", errors="replace")
+            text = file_path.read_text(encoding="utf-8", errors="replace")
+            return text, details
         except Exception:
             try:
-                return file_path.read_text(encoding="latin-1", errors="replace")
+                details["fallback_encoding"] = "latin-1"
+                text = file_path.read_text(encoding="latin-1", errors="replace")
+                return text, details
             except Exception:
-                return ""
+                details["fallback_encoding"] = "none"
+                details.setdefault("error", "FALLBACK_READ_FAILED")
+                return "", details
+
+    def _build_no_text_reason(self, file_path: Path, details: Dict[str, Any]) -> str:
+        """
+        Build a compact, operator-friendly skip reason for empty extraction.
+        """
+        parser_name = details.get("parser") or "unknown_parser"
+        likely = details.get("likely_reason")
+        error = details.get("error")
+        extension = file_path.suffix.lower() or "<no_ext>"
+
+        if likely:
+            return f"no text extracted ({extension}, {parser_name}, {likely})"
+        if error:
+            # Keep first token to avoid giant log lines.
+            err_token = str(error).split(":")[0][:64]
+            return f"no text extracted ({extension}, {parser_name}, {err_token})"
+        return f"no text extracted ({extension}, {parser_name})"
 
     def _validate_text(self, text: str) -> bool:
         """Delegate to FileValidator. See file_validator.py for details."""

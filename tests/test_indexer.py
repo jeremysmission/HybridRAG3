@@ -228,6 +228,8 @@ class TestIndexer:
             f"on re-index, but only {result2['total_files_skipped']} were"
         )
         assert result2["total_files_indexed"] == 0
+        assert result2["skip_reason_counts"].get("unchanged (hash match)") == result2["total_files_scanned"]
+        assert result2["skip_extension_counts"].get(".txt", 0) >= 2
 
     # ------------------------------------------------------------------
     # Test 5.4: Re-indexes modified files
@@ -520,6 +522,32 @@ class TestIndexer:
 
         assert len(tracker.file_starts) > 0, "on_file_start should be called"
         assert tracker.completed is True, "on_indexing_complete should be called"
+
+    # ------------------------------------------------------------------
+    # Test 5.16: Empty extraction reason includes parser context
+    # ------------------------------------------------------------------
+    def test_no_text_reason_includes_parser_context(self):
+        """
+        WHAT: Empty extraction reason should include extension/parser/reason.
+        WHY:  Operators need actionable skip reasons, not a generic
+              "no text extracted" for everything.
+        """
+        indexer, _ = self._make_indexer()
+        target = self.test_dir / "document.txt"
+
+        with patch.object(
+            indexer,
+            "_process_file_with_retry",
+            return_value=("", {"parser": "DocParser", "likely_reason": "IMPORT_ERROR"}),
+        ):
+            chunks, reason, _ = indexer._process_single_file(target)
+
+        assert chunks == 0
+        assert reason is not None
+        assert "no text extracted" in reason
+        assert ".txt" in reason
+        assert "DocParser" in reason
+        assert "IMPORT_ERROR" in reason
 
 
 # ============================================================================

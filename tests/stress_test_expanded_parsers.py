@@ -55,6 +55,40 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
+def _create_writable_temp_dir() -> Path:
+    """
+    Create a writable temp dir with fallback locations.
+    """
+    candidates = []
+    env_override = os.environ.get("HYBRIDRAG_TEST_TMP")
+    if env_override:
+        candidates.append(Path(env_override))
+    for key in ("TMP", "TEMP"):
+        val = os.environ.get(key)
+        if val:
+            candidates.append(Path(val))
+    candidates.append(Path(tempfile.gettempdir()))
+    candidates.append(PROJECT_ROOT / "output" / "pytest_tmp")
+
+    seen = set()
+    for base in candidates:
+        base_str = str(base)
+        if base_str in seen:
+            continue
+        seen.add(base_str)
+        try:
+            base.mkdir(parents=True, exist_ok=True)
+            tmp = Path(tempfile.mkdtemp(prefix="hybridrag_parser_stress_", dir=str(base)))
+            probe = tmp / ".write_probe"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            return tmp
+        except Exception:
+            continue
+
+    raise RuntimeError("Could not create a writable temp directory for parser stress test.")
+
+
 # ============================================================================
 # TEST RESULT TRACKING
 # ============================================================================
@@ -1130,7 +1164,7 @@ def main():
     print()
 
     runner = TestRunner()
-    tmp_dir = Path(tempfile.mkdtemp(prefix="hybridrag_parser_stress_"))
+    tmp_dir = _create_writable_temp_dir()
     print(f"Temp directory: {tmp_dir}")
 
     try:

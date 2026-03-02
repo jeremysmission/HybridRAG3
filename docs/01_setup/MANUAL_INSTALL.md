@@ -8,6 +8,9 @@ Two sections: **Work/Educational** (enterprise laptop with proxy/Group Policy)
 and **Home/Personal** (unrestricted machine). Pick the one that matches your
 environment.
 
+For multi-disc, no-download deployment using a pre-staged local folder, see:
+- `docs/01_setup/OFFLINE_PRESTAGE_DVD_GUIDE.md`
+
 ---
 
 ## Important Historical Note (2026-03-01 / 2026-03-02)

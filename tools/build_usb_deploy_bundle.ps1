@@ -89,6 +89,20 @@ function Save-Manifest([string]$Root) {
     Set-Content -Path $manifest -Value $lines -Encoding UTF8
 }
 
+function Save-Sha256Manifest([string]$Root) {
+    $manifest = Join-Path $Root "MANIFEST_SHA256.txt"
+    $lines = New-Object System.Collections.Generic.List[string]
+    Get-ChildItem -Path $Root -Recurse -File | Where-Object {
+        $_.Name -ne "MANIFEST_SHA256.txt"
+    } | Sort-Object FullName | ForEach-Object {
+        $rel = $_.FullName.Substring($Root.Length).TrimStart('\')
+        $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        # Common checksum format used by many tools: "<hash> *<relative_path>"
+        $lines.Add("{0} *{1}" -f $hash, $rel)
+    }
+    Set-Content -Path $manifest -Value $lines -Encoding UTF8
+}
+
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 if (-not $OutputDir) {
     $OutputDir = Join-Path $projectRoot "output\USB_DEPLOY_BUNDLE"
@@ -235,6 +249,7 @@ if (-not $foundOllama) {
 }
 
 Save-Manifest -Root $output
+Save-Sha256Manifest -Root $output
 
 $bytes = (Get-ChildItem $output -Recurse -File | Measure-Object -Property Length -Sum).Sum
 $gb = [math]::Round($bytes / 1GB, 2)

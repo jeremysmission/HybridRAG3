@@ -497,13 +497,23 @@ Bundle output defaults to:
 2. Run `INSTALL.bat` from bundle root.
 3. Installer will use only bundled files (`wheels\`, `cache\`, installers).
 
+**Multi-disc prestage flow (recommended for DVD media):**
+1. Copy all discs into one local folder on target machine (example:
+   `D:\HybridRAG3_PRESTAGE`).
+2. Confirm the final folder has `HybridRAG3\`, `scripts\`, `INSTALL.bat`,
+   and `MANIFEST_SHA256.txt`.
+3. Run `INSTALL.bat` from that pre-staged folder.
+
+Detailed step-by-step guide:
+- `docs/01_setup/OFFLINE_PRESTAGE_DVD_GUIDE.md`
+
 ### Media Sizing Notes (USB vs DVD/CD)
 
 | Media | Typical Capacity | Practical Use |
 |-------|------------------|---------------|
 | CD-R | ~700 MB | Too small for model-inclusive bundle |
-| DVD single-layer | ~4.7 GB | Fits minimal stack (code+wheels+small model set) |
-| DVD dual-layer | ~8.5 GB | Fits medium bundles, still tight for full model stack |
+| DVD single-layer | ~4.7 GB (~4.38 GiB usable) | Fits minimal stack (code+wheels+small model set) |
+| DVD dual-layer | ~8.5 GB (~7.92 GiB usable) | Fits medium bundles, still tight for full model stack |
 | USB flash / SSD | 32 GB+ | Recommended for full 5-model offline stack |
 
 The full Ollama approved model set is roughly 26 GB, so optical media
@@ -848,6 +858,7 @@ For a fresh start: delete `.venv`, then re-run `tools\setup_home.bat`.
 
 - [../START_HERE.txt](../START_HERE.txt) -- Plain-language entry point (read this first)
 - [USER_GUIDE.md](USER_GUIDE.md) -- Daily use, all commands, tuning, troubleshooting
+- [OFFLINE_PRESTAGE_DVD_GUIDE.md](OFFLINE_PRESTAGE_DVD_GUIDE.md) -- Multi-disc prestage workflow for no-download installs
 - [SHORTCUT_SHEET.md](SHORTCUT_SHEET.md) -- Quick reference card
 - [GUI_GUIDE.md](GUI_GUIDE.md) -- Graphical interface walkthrough
 - [FORMAT_SUPPORT.md](FORMAT_SUPPORT.md) -- All 49+ supported file formats
