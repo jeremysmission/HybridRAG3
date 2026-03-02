@@ -477,3 +477,60 @@ Format: `commit | date | subject`
 2. Finalize offline media process with pre-stage validation as default.
 3. Instrument skip/OCR outcomes for operational observability.
 4. Rehearse 650 GB flow with checkpointed bottleneck notes.
+
+## 15. KPI and SLO Targets
+Use these targets to decide whether scalability work is succeeding:
+
+| Area | Metric | Target | Measurement Window |
+|------|--------|--------|--------------------|
+| Parser reliability | Parse success rate on supported extensions | >= 99.0% | Per indexing run |
+| Parser drift prevention | CI drift guard failures on main | 0 | Rolling 30 days |
+| Index completeness | Unsupported/skip ratio on expected corpus | <= 1.0% | Per large-run rehearsal |
+| Query quality | Grounded-answer rate (with valid citations) | >= 95.0% | Weekly sample set |
+| Query performance | P95 end-to-end offline query latency | <= 30s | Weekly benchmark pack |
+| Retrieval performance | P95 retrieval stage latency | <= 300ms at current corpus tier | Weekly benchmark pack |
+| Deployment readiness | Offline media install success (first pass) | >= 95.0% | Monthly deployment drill |
+| Operational stability | Unplanned restart/crash during index runs | 0 critical | Rolling 30 days |
+
+## 16. Ownership and Governance Cadence
+Recommended ownership model:
+
+| Function | Owner Role | Accountability |
+|----------|------------|----------------|
+| Parser registry and allowlist integrity | Core engineering | No drift, CI guard maintenance |
+| Setup/install scripts and offline media process | Platform/deployment lead | Reproducible installs in managed environments |
+| Query quality and hallucination controls | Retrieval/LLM lead | Grounded output quality thresholds |
+| Sync integrity (private <-> educational) | Repo operations lead | Mirror parity and sanitized sync correctness |
+| Performance and scalability planning | Architecture lead | Option selection and upgrade gates |
+
+Governance cadence:
+- Weekly: KPI review + top 3 regressions + mitigation owners.
+- Bi-weekly: scalability gate review (Phase progression decisions).
+- Monthly: offline deployment drill and postmortem review.
+
+## 17. 30/60/90-Day Execution Checklist
+
+### 17.1 First 30 Days
+- [ ] Enforce parser allowlist/registry CI guard as required check on main.
+- [ ] Publish and ratify offline media SOP (official sources, signature/hash verification).
+- [ ] Standardize minimal model-pack artifact and validate install on a clean target.
+- [ ] Add skip-reason telemetry schema and daily summary report output.
+
+### 17.2 Days 31-60
+- [ ] Add parser/OCR preflight dependency gate with actionable remediation output.
+- [ ] Run 650 GB rehearsal with checkpoint timings and skip histogram.
+- [ ] Baseline P95 query/retrieval metrics and trend dashboard.
+- [ ] Produce sync-integrity checklist and signoff routine for educational mirror sync.
+
+### 17.3 Days 61-90
+- [ ] Prototype ANN backend and benchmark vs current baseline.
+- [ ] Decide adopt/defer with explicit cost/benefit memo.
+- [ ] Update technical runbooks and onboarding docs for chosen path.
+- [ ] Run full offline media drill (multi-disc pre-stage + install + verification).
+
+## 18. Decision Triggers (When to Move from Option A to B/C)
+Escalate from Option A (SQLite+memmap optimization) when two or more are true:
+- P95 retrieval latency exceeds target for two consecutive weekly runs.
+- Corpus growth exceeds planned tier and optimization headroom is exhausted.
+- Operational complexity from compensating workarounds exceeds ANN adoption cost.
+- Team requires independent scaling/deployment boundaries not feasible in monolith.
