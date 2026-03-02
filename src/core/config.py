@@ -101,6 +101,7 @@ class PathsConfig:
     source_folder: str = ""        # Folder containing documents to index
     download_folder: str = ""      # Folder where downloads/transfers land
     transfer_source_folder: str = ""  # Last folder used as transfer source (copy FROM)
+    ocr_diversion_folder: str = ""    # OCR-dependent failures are moved/copied here
 
     def __post_init__(self) -> None:
         # __post_init__ runs automatically after the dataclass is created.
@@ -122,6 +123,8 @@ class PathsConfig:
         # download_folder defaults to source_folder if not set explicitly
         if not self.download_folder and self.source_folder:
             self.download_folder = self.source_folder
+        if not self.ocr_diversion_folder and self.source_folder:
+            self.ocr_diversion_folder = os.path.join(self.source_folder, "_ocr_diversions")
 
         # Clean up paths: expand %VARIABLES% and normalize slashes
         if self.database:
@@ -135,6 +138,10 @@ class PathsConfig:
         if self.transfer_source_folder:
             self.transfer_source_folder = os.path.normpath(
                 os.path.expandvars(self.transfer_source_folder)
+            )
+        if self.ocr_diversion_folder:
+            self.ocr_diversion_folder = os.path.normpath(
+                os.path.expandvars(self.ocr_diversion_folder)
             )
 
 
@@ -421,7 +428,7 @@ class IndexingConfig:
     # Folders to skip during recursive scanning
     excluded_dirs: List[str] = field(default_factory=lambda: [
         ".venv", "venv", "__pycache__", ".git", ".idea", ".vscode",
-        "node_modules", ".pytest_cache", ".mypy_cache",
+        "node_modules", ".pytest_cache", ".mypy_cache", "_ocr_diversions",
     ])
 
     # OCR settings (for scanned PDFs)

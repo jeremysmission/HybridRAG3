@@ -231,10 +231,12 @@ pip install python-docx==1.2.0 python-pptx==1.0.2 --trusted-host pypi.org --trus
 pip install openpyxl==3.1.5 xlsxwriter==3.2.9 et_xmlfile==2.0.0 --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120 --retries 3
 ```
 
-**Group 7K -- XML, images, and OCR bridge:**
+**Group 7K -- XML, images, and OCR tooling:**
 ```powershell
-pip install lxml==6.0.2 pillow==12.1.0 pdf2image==1.17.0 pytesseract==0.3.13 --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120 --retries 3
+pip install lxml==6.0.2 pillow==12.1.0 pdf2image==1.17.0 pytesseract==0.3.13 ocrmypdf==16.10.4 --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120 --retries 3
 ```
+Note: `pytesseract` and `ocrmypdf` are Python packages. The Tesseract engine
+itself is a separate system install (not pip).
 
 **Group 7L -- Web framework:**
 ```powershell

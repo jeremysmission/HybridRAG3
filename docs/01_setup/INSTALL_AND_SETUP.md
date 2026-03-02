@@ -35,6 +35,9 @@ What is now in place (as of 2026-03-02):
 Full postmortem and root-cause analysis:
 - `docs/ClaudeCLI_Codex_Collabs/003_parser_coverage_gap_analysis.md`
 
+OCR diversion + recovery process flow:
+- `docs/01_setup/OCR_DIVERSION_PROCESS_FLOW_CHEATSHEET.md`
+
 ---
 
 ## Prerequisites
@@ -60,6 +63,11 @@ Full postmortem and root-cause analysis:
 |----------|---------|---------|
 | Ollama | Offline LLM inference + embeddings | MIT |
 | Tesseract OCR | Image text extraction | Apache 2.0 |
+| OCRmyPDF (optional) | Improve scanned PDF OCR quality before re-index | MPL-2.0 |
+
+If you are indexing large scan-heavy corpora, use:
+- `docs/01_setup/OCR_DIVERSION_PROCESS_FLOW_CHEATSHEET.md`
+- Route OCR-dependent files to `_ocr_diversions` for targeted triage.
 
 **Note on managed machines:** Corporate Group Policy may block PowerShell
 script execution. See Step 2 below for workarounds before creating the

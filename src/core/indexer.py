@@ -69,6 +69,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+import shutil
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime, timezone
@@ -172,6 +173,14 @@ class Indexer:
             ".yaml", ".yml", ".ini", ".cfg", ".conf", ".properties",
             ".reg", ".html", ".htm", ".rtf",
         }
+        # OCR diversion: copy OCR-dependent no-text files into a triage folder.
+        paths_cfg = getattr(config, "paths", None)
+        self._ocr_diversion_folder = Path(
+            getattr(paths_cfg, "ocr_diversion_folder", "") or ""
+        )
+        self._ocr_diversion_enabled = str(
+            os.getenv("HYBRIDRAG_OCR_DIVERT_ENABLED", "1")
+        ).strip().lower() in ("1", "true", "yes", "on")
 
     # ------------------------------------------------------------------
     # Public API
@@ -235,6 +244,13 @@ class Indexer:
         folder = Path(folder_path)
         if not folder.exists() or not folder.is_dir():
             raise FileNotFoundError(f"Source folder not found: {folder_path}")
+        if self._ocr_diversion_enabled and not self._ocr_diversion_folder:
+            self._ocr_diversion_folder = folder / "_ocr_diversions"
+        if self._ocr_diversion_enabled:
+            try:
+                self._ocr_diversion_folder.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                logger.warning("[WARN] Could not create OCR diversion folder: %s", e)
 
         # --- Step 1: Discover all supported files ---
         # Lazy iteration avoids materializing the full rglob list,
@@ -293,6 +309,7 @@ class Indexer:
                     self._process_single_file(file_path)
                 )
                 if skip_reason:
+                    self._maybe_divert_ocr_dependent_file(file_path, skip_reason, folder)
                     total_files_skipped += 1
                     skip_reason_counts[skip_reason] = (
                         skip_reason_counts.get(skip_reason, 0) + 1
@@ -591,6 +608,65 @@ class Indexer:
             err_token = str(error).split(":")[0][:64]
             return f"no text extracted ({extension}, {parser_name}, {err_token})"
         return f"no text extracted ({extension}, {parser_name})"
+
+    def _is_ocr_dependent_skip(self, file_path: Path, skip_reason: str) -> bool:
+        """Heuristic: identify skips likely requiring OCR/manual triage."""
+        if not skip_reason.startswith("no text extracted"):
+            return False
+        ext = file_path.suffix.lower()
+        if ext in {
+            ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp",
+            ".gif", ".webp", ".wmf", ".emf", ".psd",
+        }:
+            return True
+        if ext == ".pdf":
+            s = skip_reason.upper()
+            return (
+                "LIKELY_SCANNED" in s
+                or "OCR_" in s
+                or "IMAGE_ONLY" in s
+                or "UNUSUAL_ENCODING" in s
+            )
+        return False
+
+    def _maybe_divert_ocr_dependent_file(
+        self,
+        file_path: Path,
+        skip_reason: str,
+        source_root: Path,
+    ) -> None:
+        """
+        Copy (never move) OCR-dependent skipped files to diversion folder,
+        preserving relative path and writing a .reason sidecar.
+        """
+        if not self._ocr_diversion_enabled:
+            return
+        if not self._ocr_diversion_folder:
+            return
+        if not self._is_ocr_dependent_skip(file_path, skip_reason):
+            return
+        try:
+            rel = file_path.relative_to(source_root)
+        except Exception:
+            rel = Path(file_path.name)
+        dest = self._ocr_diversion_folder / rel
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            # COPY ONLY: original source data is never moved or deleted.
+            if not dest.exists():
+                shutil.copy2(str(file_path), str(dest))
+            reason_path = dest.with_name(dest.name + ".reason.txt")
+            if not reason_path.exists():
+                reason_path.write_text(
+                    f"source={file_path}\nreason={skip_reason}\n",
+                    encoding="utf-8",
+                )
+        except Exception as e:
+            logger.warning(
+                "[WARN] OCR diversion copy failed for %s: %s",
+                file_path.name,
+                e,
+            )
 
     def _validate_text(self, text: str) -> bool:
         """Delegate to FileValidator. See file_validator.py for details."""

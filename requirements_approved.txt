@@ -1,6 +1,8 @@
 # ============================================================================
 # HybridRAG3 -- Approved Requirements
-# Updated: 2026-03-01
+# Updated: 2026-03-02
+# Changelog: 2026-03-02 -- Added ocrmypdf* for scanned PDF OCR enhancement workflow
+#                          (YELLOW: pending approval/validation on work environment)
 # Changelog: 2026-03-01 -- Added pdf2image, pytesseract, colorama (were installed but missing from list)
 #                          Moved faiss-cpu to commented BLUE section (not installed, future phase)
 #                          Added Tesseract OCR + Poppler system binaries* (required for OCR pipeline)
@@ -57,6 +59,7 @@ et_xmlfile==2.0.0              # MIT -- XML utility (openpyxl dep)
 pillow==12.1.0                 # HPND -- Image processing
 pdf2image==1.17.0              # MIT -- PDF to image conversion (OCR pipeline)
 pytesseract==0.3.13            # Apache 2.0 -- OCR bridge for scanned PDFs
+ocrmypdf==16.10.4              # MPL-2.0 -- Scanned PDF OCR enhancement (YELLOW*: pending approval/validation)
 
 # -- OCR System Binaries (NOT pip -- separate install required) ---------------
 # * These are standalone executables that the Python wrappers above call.

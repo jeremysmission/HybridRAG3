@@ -140,6 +140,7 @@ $PY_EXE = $null
 $PY_VER_FLAG = $null
 $DATA_DIR = $null
 $SOURCE_DIR = $null
+$OCR_DIVERSION_DIR = $null
 
 $wizStep = 1
 while ($wizStep -le 3) {
@@ -359,6 +360,8 @@ $ErrorActionPreference = 'Continue'
 Set-Location "$PROJECT_ROOT"
 if (-not (Test-Path "$DATA_DIR"))   { New-Item -ItemType Directory -Path "$DATA_DIR" -Force | Out-Null; Write-Ok "Created: $DATA_DIR" }
 if (-not (Test-Path "$SOURCE_DIR")) { New-Item -ItemType Directory -Path "$SOURCE_DIR" -Force | Out-Null; Write-Ok "Created: $SOURCE_DIR" }
+$OCR_DIVERSION_DIR = "$SOURCE_DIR\_ocr_diversions"
+if (-not (Test-Path "$OCR_DIVERSION_DIR")) { New-Item -ItemType Directory -Path "$OCR_DIVERSION_DIR" -Force | Out-Null; Write-Ok "Created: $OCR_DIVERSION_DIR" }
 
 # ======================================================================
 #  PHASE 2: AUTOMATED SETUP (real-time progress on every step)
@@ -611,7 +614,7 @@ $groups = @(
     @{ name = "PDF utilities";      pkgs = @("pypdf==6.6.2", "pypdfium2==5.3.0") },
     @{ name = "Office documents";   pkgs = @("python-docx==1.2.0", "python-pptx==1.0.2") },
     @{ name = "Excel support";      pkgs = @("openpyxl==3.1.5", "xlsxwriter==3.2.9", "et_xmlfile==2.0.0") },
-    @{ name = "XML and images";     pkgs = @("lxml==6.0.2", "pillow==12.1.0", "pdf2image==1.17.0", "pytesseract==0.3.13") },
+    @{ name = "XML and images";     pkgs = @("lxml==6.0.2", "pillow==12.1.0", "pdf2image==1.17.0", "pytesseract==0.3.13", "ocrmypdf==16.10.4") },
     @{ name = "Web framework";      pkgs = @("fastapi==0.115.0", "starlette==0.38.6", "python-multipart==0.0.22") },
     @{ name = "Web server";         pkgs = @("uvicorn==0.41.0", "click==8.3.1") },
     @{ name = "Credential storage"; pkgs = @("keyring==23.13.1", "jaraco.classes==3.4.0", "more-itertools==10.8.0") },
@@ -790,9 +793,11 @@ while (-not $stepDone) {
             $safeDbPath = $dbPath.Replace('$', '$$')
             $safeEmbPath = $embPath.Replace('$', '$$')
             $safeSrcDir = $SOURCE_DIR.Replace('$', '$$')
+            $safeOcrDivDir = $OCR_DIVERSION_DIR.Replace('$', '$$')
             $content = $content -replace '(?m)^(\s*database:\s*).*$', "`$1$safeDbPath"
             $content = $content -replace '(?m)^(\s*embeddings_cache:\s*).*$', "`$1$safeEmbPath"
             $content = $content -replace '(?m)^(\s*source_folder:\s*).*$', "`$1$safeSrcDir"
+            $content = $content -replace '(?m)^(\s*ocr_diversion_folder:\s*).*$', "`$1$safeOcrDivDir"
             # YAML is consumed by Python -- must NOT have BOM (Set-Content adds BOM in PS 5.1)
             [System.IO.File]::WriteAllText($configPath, $content)
             Write-Ok "Config updated with your paths"
@@ -1160,7 +1165,8 @@ $packages = @(
     @{mod="numpy"; label="numpy (numerical computing)"},
     @{mod="yaml"; label="PyYAML (config parser)"},
     @{mod="uvicorn"; label="uvicorn (web server)"},
-    @{mod="cryptography"; label="cryptography (encryption)"}
+    @{mod="cryptography"; label="cryptography (encryption)"},
+    @{mod="ocrmypdf"; label="OCRmyPDF (scanned PDF OCR enhancement)"}
 )
 foreach ($pkg in $packages) {
     $null = & $PYTHON -c "import $($pkg.mod)" 2>&1

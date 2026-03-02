@@ -119,6 +119,7 @@ $PY_EXE = $null
 $PY_VER_FLAG = $null
 $DATA_DIR = $null
 $SOURCE_DIR = $null
+$OCR_DIVERSION_DIR = $null
 
 $wizStep = 1
 while ($wizStep -le 3) {
@@ -320,6 +321,8 @@ $ErrorActionPreference = 'Continue'
 Set-Location "$PROJECT_ROOT"
 if (-not (Test-Path "$DATA_DIR"))   { New-Item -ItemType Directory -Path "$DATA_DIR" -Force | Out-Null; Write-Ok "Created: $DATA_DIR" }
 if (-not (Test-Path "$SOURCE_DIR")) { New-Item -ItemType Directory -Path "$SOURCE_DIR" -Force | Out-Null; Write-Ok "Created: $SOURCE_DIR" }
+$OCR_DIVERSION_DIR = "$SOURCE_DIR\_ocr_diversions"
+if (-not (Test-Path "$OCR_DIVERSION_DIR")) { New-Item -ItemType Directory -Path "$OCR_DIVERSION_DIR" -Force | Out-Null; Write-Ok "Created: $OCR_DIVERSION_DIR" }
 
 # ======================================================================
 #  PHASE 2: AUTOMATED SETUP
@@ -485,9 +488,11 @@ while (-not $stepDone) {
             $safeDbPath = $dbPath.Replace('$', '$$')
             $safeEmbPath = $embPath.Replace('$', '$$')
             $safeSrcDir = $SOURCE_DIR.Replace('$', '$$')
+            $safeOcrDivDir = $OCR_DIVERSION_DIR.Replace('$', '$$')
             $content = $content -replace '(?m)^(\s*database:\s*).*$', "`$1$safeDbPath"
             $content = $content -replace '(?m)^(\s*embeddings_cache:\s*).*$', "`$1$safeEmbPath"
             $content = $content -replace '(?m)^(\s*source_folder:\s*).*$', "`$1$safeSrcDir"
+            $content = $content -replace '(?m)^(\s*ocr_diversion_folder:\s*).*$', "`$1$safeOcrDivDir"
             # YAML is consumed by Python -- must NOT have BOM (Set-Content adds BOM in PS 5.1)
             [System.IO.File]::WriteAllText($configPath, $content)
             Write-Ok "Config updated with your paths"
