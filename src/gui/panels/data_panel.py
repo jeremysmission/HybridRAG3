@@ -122,6 +122,29 @@ def _resume_state_path():
     return os.path.join(root, "config", "transfer_resume_state.json")
 
 
+def _probe_source_ready(path, timeout_s=8.0):
+    """Quickly validate source path can be enumerated without hanging UI."""
+    result = {"ok": False, "error": ""}
+
+    def _worker():
+        try:
+            with os.scandir(path) as it:
+                # Touch one entry (or none) to force a real access probe.
+                next(it, None)
+            result["ok"] = True
+        except Exception as e:
+            result["error"] = str(e)
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    t.join(timeout=timeout_s)
+    if t.is_alive():
+        return False, "source probe timed out"
+    if result["ok"]:
+        return True, ""
+    return False, result["error"] or "source probe failed"
+
+
 def _scan_folder_summary(path):
     """Walk *path* and return a human-readable file/extension summary.
 
@@ -184,6 +207,7 @@ class DataPanel(tk.Frame):
         self._stop_event = threading.Event()
         self._poll_id = None
         self._resume_attempted = False
+        self._stop_watchdog_ticks = 0
 
         # Public testing state (same pattern as IndexPanel/QueryPanel)
         self.transfer_done_event = threading.Event()
@@ -230,16 +254,24 @@ class DataPanel(tk.Frame):
             logger.warning("resume_state_load_failed: %s", e)
         return None
 
-    def _save_resume_state(self, source, dest, status="running"):
+    def _save_resume_state(
+        self, source, dest, status="running", auto_resume_attempts=None
+    ):
         """Persist current transfer state for crash-safe resume."""
         path = _resume_state_path()
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
+            previous = self._load_resume_state() or {}
             payload = {
                 "status": status,
                 "source": source,
                 "dest": dest,
                 "updated_at": datetime.utcnow().isoformat() + "Z",
+                "auto_resume_attempts": int(
+                    previous.get("auto_resume_attempts", 0)
+                    if auto_resume_attempts is None
+                    else auto_resume_attempts
+                ),
             }
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2)
@@ -272,7 +304,17 @@ class DataPanel(tk.Frame):
 
         source = str(state.get("source", "")).strip()
         dest = str(state.get("dest", "")).strip()
+        auto_attempts = int(state.get("auto_resume_attempts", 0))
         t = current_theme()
+
+        if auto_attempts >= 3:
+            self._transfer_status.config(
+                text="[WARN] Auto-resume disabled after 3 failed attempts. "
+                     "Click Start Transfer manually.",
+                fg=t["orange"],
+            )
+            self._clear_resume_state()
+            return
 
         if not source or not os.path.isdir(source):
             self._transfer_status.config(
@@ -298,7 +340,20 @@ class DataPanel(tk.Frame):
         else:
             msg = "Resuming previous transfer..."
         self._transfer_status.config(text=msg, fg=t["orange"])
-        self._start_transfer(source=source, dest=dest, resume=True)
+        self._save_resume_state(
+            source=source,
+            dest=dest,
+            status=state_status,
+            auto_resume_attempts=auto_attempts + 1,
+        )
+        started = self._start_transfer(source=source, dest=dest, resume=True)
+        if not started:
+            self._clear_resume_state()
+            self._transfer_status.config(
+                text="[WARN] Auto-resume failed to start. "
+                     "Verify source path, then click Start Transfer.",
+                fg=t["orange"],
+            )
 
     # ================================================================
     # SECTION A: Current Source Path
@@ -602,13 +657,13 @@ class DataPanel(tk.Frame):
 
         # Stats line
         self._stats_hint = tk.Label(
-            frame, text="Live telemetry: rate | ETA | copied | dedup | skip | err",
+            frame, text="Live telemetry: rate | ETA | copied | processed | skipped | err",
             anchor=tk.W, bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
         )
         self._stats_hint.pack(fill=tk.X)
 
         self._stats_label = tk.Label(
-            frame, text="--/s | ETA -- | copied: 0 | dedup: 0 | skip: 0 | err: 0", anchor=tk.W,
+            frame, text="--/s | ETA -- | copied: 0 | processed: 0 | skipped: 0 | err: 0", anchor=tk.W,
             bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
         )
         self._stats_label.pack(fill=tk.X)
@@ -639,17 +694,17 @@ class DataPanel(tk.Frame):
             self._transfer_status.config(
                 text="Transfer already running. Stop it first.", fg=t["orange"]
             )
-            return
+            return False
 
         if not source or not os.path.isdir(source):
             self._transfer_status.config(
                 text="[FAIL] Select a source folder first", fg=t["red"])
-            return
+            return False
 
         if not dest:
             self._transfer_status.config(
                 text="[FAIL] Set destination source path first", fg=t["red"])
-            return
+            return False
 
         # Prevent transferring into self
         src_norm = os.path.normcase(os.path.normpath(source))
@@ -657,16 +712,25 @@ class DataPanel(tk.Frame):
         if src_norm == dst_norm:
             self._transfer_status.config(
                 text="[FAIL] Source and destination are the same", fg=t["red"])
-            return
+            return False
+
+        ok, probe_err = _probe_source_ready(source, timeout_s=8.0)
+        if not ok:
+            self._transfer_status.config(
+                text="[FAIL] Source not reachable: {}".format(probe_err[:80]),
+                fg=t["red"],
+            )
+            return False
 
         # Reset UI
         self._stop_event.clear()
+        self._stop_watchdog_ticks = 0
         self._start_btn.config(state=tk.DISABLED)
         self._stop_btn.config(state=tk.NORMAL)
         self._progress_bar["value"] = 0
         self._progress_label.config(text="0 / 0")
         self._stats_label.config(
-            text="--/s | ETA -- | copied: 0 | dedup: 0 | skip: 0 | err: 0"
+            text="--/s | ETA -- | copied: 0 | processed: 0 | skipped: 0 | err: 0"
         )
         self._stats_detail_label.config(
             text="Elapsed 0s | Data 0 B / 0 B | discovered 0"
@@ -691,6 +755,7 @@ class DataPanel(tk.Frame):
 
         # Start polling
         self._poll_stats()
+        return True
 
     def _run_transfer(self, source, dest):
         """Background thread: create engine and run transfer with diagnostics."""
@@ -762,6 +827,7 @@ class DataPanel(tk.Frame):
         """Signal the transfer engine to stop."""
         t = current_theme()
         self._stop_event.set()
+        self._stop_watchdog_ticks = 0
         if self._engine is not None:
             self._engine._stop.set()
         self._clear_resume_state()
@@ -777,6 +843,18 @@ class DataPanel(tk.Frame):
         is interrupted. Safe to call repeatedly.
         """
         if self._transfer_thread is not None and self._transfer_thread.is_alive():
+            self._stop_watchdog_ticks += 1
+            if self._stop_watchdog_ticks >= 75:
+                t = current_theme()
+                self._start_btn.config(state=tk.NORMAL)
+                self._stop_btn.config(state=tk.DISABLED)
+                self.is_transferring = False
+                self._transfer_status.config(
+                    text="[WARN] Stop timed out after 60s. Worker may still "
+                         "be draining in background; restart app if needed.",
+                    fg=t["orange"],
+                )
+                return
             # Still stopping; check again shortly.
             self.after(800, self._ensure_transfer_cleanup)
             return
@@ -825,20 +903,32 @@ class DataPanel(tk.Frame):
         speed = stats.speed_bps
         eta = stats.eta_seconds
         eta_str = _fmt_dur(eta) if eta < 86400 else "---"
+        skipped_total = (
+            int(getattr(stats, "files_skipped_unchanged", 0))
+            + int(getattr(stats, "files_skipped_ext", 0))
+            + int(getattr(stats, "files_skipped_size", 0))
+            + int(getattr(stats, "files_skipped_locked", 0))
+            + int(getattr(stats, "files_skipped_encoding", 0))
+            + int(getattr(stats, "files_skipped_symlink", 0))
+            + int(getattr(stats, "files_skipped_hidden", 0))
+            + int(getattr(stats, "files_skipped_inaccessible", 0))
+            + int(getattr(stats, "files_skipped_long_path", 0))
+        )
+        processed_total = int(getattr(stats, "files_processed", 0))
         self._stats_label.config(
-            text="{}/s | ETA {} | copied: {:,} | dedup: {:,} | skip: {:,} | err: {:,}".format(
+            text="{}/s | ETA {} | copied: {:,} | processed: {:,} | skipped: {:,} | err: {:,}".format(
                 _fmt_size(speed), eta_str,
-                copied, stats.files_deduplicated,
-                stats.files_skipped_unchanged, stats.files_failed,
+                copied, processed_total, skipped_total, stats.files_failed,
             ),
             fg=t["gray"],
         )
         self._stats_detail_label.config(
-            text="Elapsed {} | Data {} / {} | discovered {:,}".format(
+            text="Elapsed {} | Data {} / {} | discovered {:,} | manifest {:,}".format(
                 _fmt_dur(stats.elapsed),
                 _fmt_size(stats.bytes_copied),
                 _fmt_size(stats.bytes_source_total),
                 stats.files_discovered,
+                int(getattr(stats, "files_manifest", 0)),
             ),
             fg=t["gray"],
         )

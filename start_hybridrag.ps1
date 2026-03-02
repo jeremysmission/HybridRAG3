@@ -340,23 +340,33 @@ else:
 }
 
 function rag-gui {
+    param(
+        # Default behavior: show a visible console for diagnostics.
+        # Use -Hidden for silent/background launch.
+        [switch]$Hidden
+    )
+
     Write-Host ""
     Write-Host "Launching HybridRAG GUI (detached)..." -ForegroundColor Cyan
 
-    # Resolve pythonw from the active venv (no console window, survives terminal close).
-    # Fallback to python.exe if pythonw is missing (e.g. embedded Python).
-    $pythonw = Join-Path (Split-Path (Get-Command python).Source) 'pythonw.exe'
-    if (-not (Test-Path $pythonw)) {
-        Write-Host "[WARN] pythonw.exe not found -- falling back to python.exe" -ForegroundColor Yellow
-        $pythonw = (Get-Command python).Source
+    $pythonExe = (Get-Command python).Source
+    if ($Hidden) {
+        # Hidden/background launch path.
+        $pythonw = Join-Path (Split-Path $pythonExe) 'pythonw.exe'
+        if (Test-Path $pythonw) {
+            Start-Process -FilePath $pythonw -ArgumentList "$PROJECT_ROOT\src\gui\launch_gui.py" -WorkingDirectory $PROJECT_ROOT -WindowStyle Hidden
+            Write-Host "[OK]  GUI launched hidden (pythonw)." -ForegroundColor Green
+        } else {
+            Write-Host "[WARN] pythonw.exe not found -- hidden launch using python.exe" -ForegroundColor Yellow
+            Start-Process -FilePath $pythonExe -ArgumentList "$PROJECT_ROOT\src\gui\launch_gui.py" -WorkingDirectory $PROJECT_ROOT -WindowStyle Hidden
+            Write-Host "[OK]  GUI launched hidden (python.exe)." -ForegroundColor Green
+        }
+    } else {
+        # Visible detached console path for live diagnostics.
+        Start-Process -FilePath $pythonExe -ArgumentList "$PROJECT_ROOT\src\gui\launch_gui.py" -WorkingDirectory $PROJECT_ROOT
+        Write-Host "[OK]  GUI launched with visible console diagnostics." -ForegroundColor Green
+        Write-Host "      Tip: run rag-gui -Hidden for silent launch." -ForegroundColor DarkGray
     }
-
-    # Group Policy preempt: Start-Process with -WindowStyle Hidden works even
-    # on AllSigned/Restricted machines because we are launching an .exe, not a
-    # .ps1 script. No execution policy applies to non-PowerShell executables.
-    # -WindowStyle Hidden suppresses the brief console flash on python.exe fallback.
-    Start-Process -FilePath $pythonw -ArgumentList "$PROJECT_ROOT\src\gui\launch_gui.py" -WorkingDirectory $PROJECT_ROOT -WindowStyle Hidden
-    Write-Host "[OK]  GUI launched -- you can close this terminal safely." -ForegroundColor Green
 }
 
 function rag-server {

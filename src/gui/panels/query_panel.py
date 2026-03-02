@@ -43,6 +43,36 @@ from src.gui.panels.loading_overlay import VectorFieldOverlay
 
 logger = logging.getLogger(__name__)
 
+# Per-use-case ONLINE tuning presets. These are applied when the user
+# changes profession/use-case in online mode so model + retrieval settings
+# move together as a bundle.
+ONLINE_USE_CASE_TUNING = {
+    "sw":    {"temperature": 0.10, "max_tokens": 2048, "timeout_seconds": 90,  "top_k": 8,  "min_score": 0.08},
+    "eng":   {"temperature": 0.08, "max_tokens": 2048, "timeout_seconds": 90,  "top_k": 10, "min_score": 0.08},
+    "sys":   {"temperature": 0.08, "max_tokens": 1792, "timeout_seconds": 90,  "top_k": 9,  "min_score": 0.08},
+    "draft": {"temperature": 0.05, "max_tokens": 1792, "timeout_seconds": 90,  "top_k": 10, "min_score": 0.08},
+    "log":   {"temperature": 0.05, "max_tokens": 1536, "timeout_seconds": 90,  "top_k": 12, "min_score": 0.06},
+    "pm":    {"temperature": 0.20, "max_tokens": 2048, "timeout_seconds": 120, "top_k": 8,  "min_score": 0.06},
+    "fe":    {"temperature": 0.10, "max_tokens": 1792, "timeout_seconds": 90,  "top_k": 10, "min_score": 0.08},
+    "cyber": {"temperature": 0.08, "max_tokens": 1792, "timeout_seconds": 90,  "top_k": 9,  "min_score": 0.08},
+    "gen":   {"temperature": 0.30, "max_tokens": 2048, "timeout_seconds": 120, "top_k": 6,  "min_score": 0.05},
+}
+
+# Development grounding-bias scale (1..10).
+# 1 = max synthesis freedom, 10 = strict source lock.
+GROUNDING_BIAS_HINTS = {
+    1: "Grounding 1/10 - Generative (guard OFF, dev only)",
+    2: "Grounding 2/10 - Very relaxed",
+    3: "Grounding 3/10 - Relaxed",
+    4: "Grounding 4/10 - Moderate relaxed",
+    5: "Grounding 5/10 - Balanced",
+    6: "Grounding 6/10 - Balanced+",
+    7: "Grounding 7/10 - Strong grounding",
+    8: "Grounding 8/10 - Strict",
+    9: "Grounding 9/10 - Very strict",
+    10: "Grounding 10/10 - Evidence locked",
+}
+
 
 class QueryPanel(tk.LabelFrame):
     """
@@ -79,6 +109,8 @@ class QueryPanel(tk.LabelFrame):
         self._auto_fallback_active = False
         self._auto_selected_model = ""
         self._auto_primary_model = ""
+        self._grounding_bias_var = tk.IntVar(value=6)
+        self._grounding_bias_hint = tk.StringVar(value=GROUNDING_BIAS_HINTS[6])
 
         # Public testing state -- poll these from harness/tools.
         # Event is the thread-safe completion signal; plain attrs are
@@ -190,6 +222,32 @@ class QueryPanel(tk.LabelFrame):
             fg=t["accent"], bg=t["panel_bg"], padx=8, font=FONT,
         )
         self.model_info_label.pack(side=tk.LEFT, fill=tk.X)
+
+        # -- Row 1b: Grounding bias (development control) --
+        row1b = tk.Frame(self, bg=t["panel_bg"])
+        row1b.pack(fill=tk.X, pady=(0, 8))
+
+        self.grounding_label = tk.Label(
+            row1b, text="Grounding Bias (1-10):", bg=t["panel_bg"],
+            fg=t["fg"], font=FONT,
+        )
+        self.grounding_label.pack(side=tk.LEFT)
+
+        self.grounding_scale = tk.Scale(
+            row1b, from_=1, to=10, orient=tk.HORIZONTAL,
+            variable=self._grounding_bias_var, showvalue=True,
+            resolution=1, length=220, bg=t["panel_bg"], fg=t["fg"],
+            highlightthickness=0, troughcolor=t["input_bg"],
+            activebackground=t["accent"], command=self._on_grounding_bias_change,
+        )
+        self.grounding_scale.pack(side=tk.LEFT, padx=(8, 8))
+
+        self.grounding_hint_label = tk.Label(
+            row1b, textvariable=self._grounding_bias_hint,
+            bg=t["panel_bg"], fg=t["gray"], font=FONT,
+            anchor=tk.W,
+        )
+        self.grounding_hint_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # -- Row 2: Question label + entry + Ask button --
         self.question_label = tk.Label(
@@ -527,6 +585,59 @@ class QueryPanel(tk.LabelFrame):
         self.primary_check_var.set("Checking...")
         threading.Thread(target=self._check_primary_worker, daemon=True).start()
 
+    def _on_grounding_bias_change(self, _value=None):
+        """Update hint + live guard tuning when operator adjusts bias."""
+        bias = int(self._grounding_bias_var.get())
+        self._grounding_bias_hint.set(
+            GROUNDING_BIAS_HINTS.get(bias, "Grounding bias updated")
+        )
+        self._apply_grounding_bias_live(bias)
+
+    def _apply_grounding_bias_live(self, bias: int):
+        """
+        Map 1..10 slider into live guard settings.
+        Lower bias => more synthesis freedom.
+        Higher bias => stricter evidence requirements.
+        """
+        b = max(1, min(10, int(bias)))
+        guard_on = b > 1
+        threshold = 0.35 + (b / 10.0) * 0.55   # 1->0.41, 10->0.90
+        min_chunks = 1 if b <= 5 else 2 if b <= 8 else 3
+        min_score = 0.00 if b <= 3 else 0.03 if b <= 5 else 0.06 if b <= 7 else 0.09 if b <= 9 else 0.12
+        action = "flag" if b <= 5 else "block"
+
+        # Config object update (if fields exist)
+        try:
+            hg = getattr(self.config, "hallucination_guard", None)
+            if hg is not None:
+                hg.enabled = bool(guard_on)
+                hg.threshold = float(round(threshold, 2))
+                hg.failure_action = action
+            if hasattr(self.config, "retrieval"):
+                self.config.retrieval.min_score = max(
+                    float(getattr(self.config.retrieval, "min_score", 0.0)),
+                    float(min_score),
+                )
+        except Exception:
+            pass
+
+        # Live engine update (works without restart)
+        qe = self.query_engine
+        if qe is not None:
+            try:
+                if hasattr(qe, "guard_enabled"):
+                    qe.guard_enabled = bool(guard_on)
+                if hasattr(qe, "guard_threshold"):
+                    qe.guard_threshold = float(round(threshold, 2))
+                if hasattr(qe, "guard_min_chunks"):
+                    qe.guard_min_chunks = int(min_chunks)
+                if hasattr(qe, "guard_min_score"):
+                    qe.guard_min_score = float(min_score)
+                if hasattr(qe, "guard_action"):
+                    qe.guard_action = action
+            except Exception:
+                pass
+
     def _check_primary_worker(self):
         """Background primary availability check."""
         mode = getattr(self.config, "mode", "offline")
@@ -587,6 +698,47 @@ class QueryPanel(tk.LabelFrame):
     # ----------------------------------------------------------------
     # USE CASE CHANGE
     # ----------------------------------------------------------------
+
+    def _apply_use_case_tuning(self, uc_key: str, mode: str) -> None:
+        """
+        Apply profession-specific tuning bundle, not just model selection.
+
+        Offline: apply RECOMMENDED_OFFLINE tuning knobs.
+        Online:  apply ONLINE_USE_CASE_TUNING knobs.
+        """
+        if not self.config:
+            return
+
+        if mode == "offline":
+            rec = RECOMMENDED_OFFLINE.get(uc_key, {})
+            if not rec:
+                return
+            if hasattr(self.config, "ollama"):
+                if "context" in rec:
+                    self.config.ollama.context_window = rec["context"]
+                if "temperature" in rec:
+                    self.config.ollama.temperature = rec["temperature"]
+            if hasattr(self.config, "retrieval"):
+                if "top_k" in rec:
+                    self.config.retrieval.top_k = rec["top_k"]
+            return
+
+        # Online tuning bundle
+        rec = ONLINE_USE_CASE_TUNING.get(uc_key, {})
+        if not rec:
+            return
+        if hasattr(self.config, "api"):
+            if "temperature" in rec:
+                self.config.api.temperature = rec["temperature"]
+            if "max_tokens" in rec:
+                self.config.api.max_tokens = rec["max_tokens"]
+            if "timeout_seconds" in rec:
+                self.config.api.timeout_seconds = rec["timeout_seconds"]
+        if hasattr(self.config, "retrieval"):
+            if "top_k" in rec:
+                self.config.retrieval.top_k = rec["top_k"]
+            if "min_score" in rec:
+                self.config.retrieval.min_score = rec["min_score"]
 
     def _on_use_case_change(self, event=None):
         """Update model display when use case changes.
@@ -669,26 +821,17 @@ class QueryPanel(tk.LabelFrame):
 
             self._update_model_info(ollama_model)
 
-            # Apply per-use-case tuning (temperature, top_k, context)
-            # regardless of auto/manual -- these are use-case-specific
-            if rec and self.config:
-                if hasattr(self.config, "ollama"):
-                    if "context" in rec:
-                        self.config.ollama.context_window = rec["context"]
-                    if "temperature" in rec:
-                        self.config.ollama.temperature = rec["temperature"]
-                if hasattr(self.config, "retrieval"):
-                    if "top_k" in rec:
-                        self.config.retrieval.top_k = rec["top_k"]
-                    # NOTE: Do NOT apply reranker from RECOMMENDED_OFFLINE.
-                    # Standing rule: reranker destroys unanswerable/injection/
-                    # ambiguous eval scores. Reranker is controlled ONLY via
-                    # config YAML, never by use-case switching.
+            # Apply profession tuning bundle (offline model + retrieval knobs).
+            # NOTE: Reranker is intentionally not changed here.
+            self._apply_use_case_tuning(uc_key, "offline")
 
             # Flash confirmation so user knows the change took effect
             self.uc_status_var.set("[OK] Applied")
             self.after(3000, lambda: self.uc_status_var.set(""))
         else:
+            # Apply profession tuning bundle for online mode before model resolve.
+            self._apply_use_case_tuning(uc_key, "online")
+
             # Online: resolve deployments off the main thread to avoid
             # freezing the GUI on a 1-3s network call.
             self._auto_fallback_note = ""
@@ -696,6 +839,8 @@ class QueryPanel(tk.LabelFrame):
             self._auto_fallback_active = False
             self._update_primary_controls()
             self.model_info_var.set("loading...")
+            self.uc_status_var.set("[OK] Applied")
+            self.after(3000, lambda: self.uc_status_var.set(""))
             threading.Thread(
                 target=self._resolve_online_model,
                 args=(uc_key,),
@@ -773,6 +918,8 @@ class QueryPanel(tk.LabelFrame):
         if self.query_engine is None:
             self._show_error("[FAIL] Query engine not initialized. Run boot first.")
             return
+        # Enforce current grounding bias before each query execution.
+        self._apply_grounding_bias_live(int(self._grounding_bias_var.get()))
 
         # --- Transition to SEARCHING state ---
         self.ask_btn.config(state=tk.DISABLED)  # prevent double-submit

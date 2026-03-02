@@ -1,0 +1,110 @@
+HybridRAG3 – Engineering Session Summary Date: 2026-02-27
+
+============================================================ OVERVIEW
+============================================================
+
+Today’s work focused on stabilizing HybridRAG3 for demo readiness. We
+moved from architectural restructuring into real runtime validation with
+measured performance data.
+
+The system is now significantly more stable, faster, and operationally
+predictable compared to the previous baseline.
+
+============================================================
+ARCHITECTURE WORK COMPLETED
+============================================================
+
+1.  Bootstrap Architecture (State Machine Introduced)
+    -   Created src/core/bootstrap package
+    -   Modules: • boot_coordinator.py • startup_validator.py •
+        environment.py • startup_health_probe.py • backend_loader.py
+    -   Clean lifecycle: INITIALIZING → VALIDATING → BOOTING_CORE →
+        LOADING_CONFIG → READY_FOR_GUI
+    -   Eliminated GUI guessing about readiness
+    -   Removed hardcoded path assumptions
+2.  Concurrency Guard Enforcement
+    -   runtime_limits.py: centralized semaphore control
+    -   limiting_embedder.py: decorator to enforce embedding concurrency
+        limits
+    -   Prevents burst overload from multiple queries
+3.  Session Credential Cache
+    -   Resolution order: ENV → Keyring (cached) → Config
+    -   Eliminated repeated keyring lookups
+    -   Reduced OFFLINE toggle from ~11 seconds to sub-second range
+4.  Async Mode Switching
+    -   OFFLINE/ONLINE switching moved to background thread
+    -   GUI no longer blocks
+    -   Double-click guarded via switch lock
+    -   UI safely updated using app.after()
+
+============================================================ BUG FIXES
+COMPLETED ============================================================
+
+1.  Chunker Config Mismatch
+    -   Fixed backend_loader passing wrong config object
+    -   Corrected to use config.chunking
+2.  IBIT Pipeline Attribute Mismatch
+    -   Updated IBIT checks to use: vector_store instead of store
+        llm_router instead of router
+    -   IBIT now reports 6/6 correctly
+3.  Stale Import in GroundedQueryEngine
+    -   Corrected harden_prompt import path
+4.  GUI Model Attribute Bug
+    -   Fixed .model vs .model_name mismatch
+5.  Thread Safety in Query Panel
+    -   Request ID locking to prevent race overwrites
+
+============================================================ PERFORMANCE
+IMPROVEMENTS (MEASURED)
+============================================================
+
+Before: OFFLINE toggle: 11,183ms ONLINE toggle: 2,250ms GUI froze during
+switch
+
+After: OFFLINE → ONLINE: 630–1,227ms ONLINE → OFFLINE: 6–13ms GUI
+remains responsive (async)
+
+Credential resolution: Fresh (keyring): 1–3ms Cached: 0.001ms ENV-only:
+0.975ms
+
+IBIT: Before: 3/6 After: 6/6
+
+Regression: 410 tests passed 0 failures 1 known teardown warning
+(non-production)
+
+============================================================ DEMO STATUS
+============================================================
+
+System is now: ✔ Non-blocking ✔ Deterministic boot ✔ Stable under mode
+switching ✔ Concurrency guarded ✔ Passing regression suite
+
+Remaining operational task: Re-index database (old 384-dimension
+embeddings → new 768-dimension nomic-embed-text)
+
+This is a data migration issue, not a code defect.
+
+============================================================ CURRENT
+RISK PROFILE
+============================================================
+
+Low Risk: - Mode switching - Boot stability - Concurrency saturation -
+Credential resolution latency
+
+Operational Risk: - Must rebuild index before demo
+
+Non-blocking Warnings: - Keyring config warning (bypassed via ENV for
+demo) - Guard import warning (non-fatal)
+
+============================================================ CONCLUSION
+============================================================
+
+Today’s work moved HybridRAG3 from: “architecturally improved but
+runtime fragile” to: “demo-ready pending re-index”
+
+The largest instability (11-second GUI freeze) has been eliminated. IBIT
+is reliable. Concurrency is bounded. GUI responsiveness is restored.
+
+Next focus should be: - Re-index with 768-dimension embeddings - Demo
+rehearsal runs - Operational polish only (no structural changes)
+
+End of Report

@@ -1,0 +1,6 @@
+assembly,part_name,part_number,serial_prefix,qty,criticality
+DP4SD,Power Supply Unit,PSU-77A,SN-PSU,2,HIGH
+DP4SD,Radar Control Board,RCB-4421,SN-RCB,1,HIGH
+DP4SD,Cooling Fan Module,CFM-88,SN-CFM,4,MEDIUM
+DP4SD,Waveguide Coupler,WGC-19,SN-WGC,2,MEDIUM
+DP4SD,Mounting Bracket Kit,MBK-300,SN-MBK,6,LOW

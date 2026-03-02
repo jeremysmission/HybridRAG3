@@ -1,0 +1,5 @@
+Program: Sentinel Upgrade Block 3
+Baseline schedule variance: +12 days
+Cost variance: +1.8 percent
+Top risk owner: PMO-RISK-2
+Milestone M3 forecast date: 2026-11-14

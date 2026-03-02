@@ -1,0 +1,4 @@
+risk_id,description,owner,probability,impact,mitigation
+R-017,Supplier lead time slip,LOG-TEAM,MEDIUM,HIGH,dual-source qualification
+R-023,Connector obsolescence,ENG-EE,LOW,MEDIUM,lifetime buy
+R-031,Firmware integration delay,SW-TEAM,MEDIUM,HIGH,weekly integration sprint

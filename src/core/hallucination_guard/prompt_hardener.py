@@ -70,6 +70,9 @@ can directly endanger human lives. You MUST follow these rules:
    - Every factual statement MUST come from the retrieved context below.
    - Do NOT use your training data to fill in gaps.
    - Do NOT infer, extrapolate, or guess beyond what the sources say.
+   - If asked for a structured artifact (diagram, table, checklist, report
+     format), you MAY synthesize structure, but every factual node/edge/value
+     must be traceable to the provided chunks.
    - If a question cannot be answered from the context, say exactly:
      "INSUFFICIENT SOURCE DATA: The provided documents do not contain
      information to answer this question."
@@ -95,6 +98,8 @@ can directly endanger human lives. You MUST follow these rules:
    - It is ALWAYS safer to say "I don't have sufficient source data"
      than to guess.
    - An incomplete factual answer beats a complete fabricated one.
+   - If only partial data exists, provide a PARTIAL answer and explicitly
+     label each missing field as "Not present in provided documents."
    - You will NOT be penalized for saying "I don't know from these sources."
 
 6. OUTPUT READABILITY.
@@ -129,6 +134,7 @@ Place citation IMMEDIATELY after the fact it supports.
 === END RETRIEVED SOURCE DOCUMENTS ===
 
 REMINDER: If the answer is not in the chunks above, say "INSUFFICIENT SOURCE DATA."
+If partial information is present, provide a partial answer and label missing fields.
 """
 
     @staticmethod

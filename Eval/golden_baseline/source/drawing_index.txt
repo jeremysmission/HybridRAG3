@@ -1,0 +1,7 @@
+Drawing index:
+- DP4SD_ASSY_TOP.dwg
+- DP4SD_POWER_ROUTING.dxf
+- DP4SD_THERMAL_LAYOUT.dxf
+- DP4SD_MOUNT_PATTERN.stp
+
+Primary CAD authority file: DP4SD_ASSY_TOP.dwg
