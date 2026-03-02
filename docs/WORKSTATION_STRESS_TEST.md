@@ -1,6 +1,6 @@
 # Workstation Stress Test Simulation Results
 
-**Date:** 2026-03-02T00:53:50.835509
+**Date:** 2026-02-26T07:15:16.682924
 
 ## Hardware Profile
 
@@ -30,7 +30,7 @@
 | 3 | 0.9s | 7.0s | 7.9s | Excellent |
 | 2 | 0.8s | 5.6s | 6.5s | Excellent |
 
-## Offline/Ollama (phi4:14b-q4_K_M) -- 700 GB
+## Offline/Ollama (phi4:14b) -- 700 GB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|
@@ -52,7 +52,7 @@
 | 3 | 0.9s | 5.8s | 6.6s | Excellent |
 | 2 | 0.8s | 5.1s | 6.0s | Excellent |
 
-## vLLM Server (phi4:14b-q4_K_M) -- 700 GB
+## vLLM Server (phi4:14b) -- 700 GB
 
 | Users | Retrieval | LLM | Total | Rating |
 |-------|-----------|-----|-------|--------|

@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import shlex
 import subprocess
 import sys
 from datetime import datetime
@@ -63,7 +64,7 @@ def main() -> int:
         str(base),
     ]
     if args.extra.strip():
-        cmd.extend(args.extra.strip().split())
+        cmd.extend(shlex.split(args.extra.strip()))
 
     print(f"[INFO] Using basetemp: {base}")
     print("[INFO] Running:", " ".join(cmd))
@@ -83,4 +84,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

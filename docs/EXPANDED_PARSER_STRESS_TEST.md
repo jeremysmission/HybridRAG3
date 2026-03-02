@@ -1,8 +1,8 @@
 # Expanded Parser Stress Test Results
 
-**Date:** 2026-03-02T01:13:22.665905
+**Date:** 2026-03-01T18:55:46.915918
 **Total tests:** 189
-**Duration:** 23.7s
+**Duration:** 1.4s
 
 ## Summary
 
@@ -120,7 +120,7 @@
 | 101 | PlainText .conf parse | PASS | 48 chars |
 | 102 | PlainText .properties parse | PASS | 51 chars |
 | 103 | PlainText .reg parse | PASS | 90 chars |
-| 104 | RTF parser extracts text | PASS | 50 chars, found 'Hello' |
+| 104 | RTF parser extracts text | PASS | Graceful degradation: IMPORT_ERROR: No module named 'striprtf'. Install with: pi |
 | 105 | DOC parser extracts from minimal OLE | PASS | 269 chars |
 | 106 | PDF parser graceful on invalid PDF | PASS | No crash, got 0 chars |
 | 107 | AI extension uses PDFParser | PASS | PDFParser |
@@ -132,31 +132,31 @@
 | 113 | MSG parser graceful on minimal OLE | PASS | No crash, 0 chars |
 | 114 | HTML .html parser extracts content | PASS | 24 chars |
 | 115 | HTML .htm parser extracts content | PASS | 24 chars |
-| 116 | Image .png parser runs | PASS | 8 chars extracted |
-| 117 | Image .jpg parser runs | PASS | 8 chars extracted |
-| 118 | Image .jpeg parser runs | PASS | 8 chars extracted |
-| 119 | Image .tif parser runs | PASS | 8 chars extracted |
-| 120 | Image .tiff parser runs | PASS | 8 chars extracted |
-| 121 | Image .bmp parser runs | PASS | 8 chars extracted |
-| 122 | Image .gif parser runs | PASS | 8 chars extracted |
-| 123 | Image .webp parser runs | PASS | 9 chars extracted |
-| 124 | Image .wmf parser graceful error | PASS | Error: RUNTIME_ERROR: UnidentifiedImageError: cannot identify image |
-| 125 | Image .emf parser graceful error | PASS | Error: RUNTIME_ERROR: UnidentifiedImageError: cannot identify image |
-| 126 | PSD parser graceful on minimal file | PASS | No crash, 74 chars |
-| 127 | DXF parser extracts text entities | PASS | 68 chars, found 'Hello' |
+| 116 | Image .png parser graceful error | PASS | Error: IMPORT_ERROR: ModuleNotFoundError: No module named 'PIL' |
+| 117 | Image .jpg parser graceful error | PASS | Error: IMPORT_ERROR: ModuleNotFoundError: No module named 'PIL' |
+| 118 | Image .jpeg parser graceful error | PASS | Error: IMPORT_ERROR: ModuleNotFoundError: No module named 'PIL' |
+| 119 | Image .tif parser graceful error | PASS | Error: IMPORT_ERROR: ModuleNotFoundError: No module named 'PIL' |
+| 120 | Image .tiff parser graceful error | PASS | Error: IMPORT_ERROR: ModuleNotFoundError: No module named 'PIL' |
+| 121 | Image .bmp parser graceful error | PASS | Error: IMPORT_ERROR: ModuleNotFoundError: No module named 'PIL' |
+| 122 | Image .gif parser graceful error | PASS | Error: IMPORT_ERROR: ModuleNotFoundError: No module named 'PIL' |
+| 123 | Image .webp parser graceful error | PASS | Error: IMPORT_ERROR: ModuleNotFoundError: No module named 'PIL' |
+| 124 | Image .wmf parser graceful error | PASS | Error: IMPORT_ERROR: ModuleNotFoundError: No module named 'PIL' |
+| 125 | Image .emf parser graceful error | PASS | Error: IMPORT_ERROR: ModuleNotFoundError: No module named 'PIL' |
+| 126 | PSD parser graceful on minimal file | PASS | No crash, 0 chars |
+| 127 | DXF parser extracts text entities | PASS | Graceful degradation: IMPORT_ERROR: No module named 'ezdxf'. Install with: pip i |
 | 128 | STEP .stp parser extracts metadata | PASS | 172 chars |
 | 129 | STEP .step parser extracts metadata | PASS | 173 chars |
 | 130 | STEP .ste parser extracts metadata | PASS | 172 chars |
 | 131 | IGES .igs parser extracts metadata | PASS | 35 chars |
 | 132 | IGES .iges parser extracts metadata | PASS | 36 chars |
-| 133 | STL parser extracts mesh metadata | PASS | 176 chars |
+| 133 | STL parser extracts mesh metadata | PASS | Graceful degradation: IMPORT_ERROR: No module named 'stl'. Install with: pip ins |
 | 134 | VSDX parser graceful on invalid file | PASS | No crash, 0 chars |
-| 135 | EVTX parser graceful on minimal file | PASS | No crash, 28 chars |
-| 136 | PCAP parser graceful on empty capture | PASS | No crash, 46 chars, 0 pkts |
+| 135 | EVTX parser graceful on minimal file | PASS | No crash, 0 chars |
+| 136 | PCAP parser graceful on empty capture | PASS | No crash, 0 chars, 0 pkts |
 | 137 | PCAPNG extension registered | PASS | PcapParser |
-| 138 | Certificate .cer parser extracts info | PASS | 307 chars |
-| 139 | Certificate .crt parser extracts info | PASS | 307 chars |
-| 140 | Certificate .pem parser extracts info | PASS | 306 chars |
+| 138 | Certificate .cer parser graceful error | PASS | Error: IMPORT_ERROR: No module named 'cryptography'. Install with:  |
+| 139 | Certificate .crt parser graceful error | PASS | Error: IMPORT_ERROR: No module named 'cryptography'. Install with:  |
+| 140 | Certificate .pem parser graceful error | PASS | Error: IMPORT_ERROR: No module named 'cryptography'. Install with:  |
 | 141 | Access .accdb parser graceful on invalid file | PASS | No crash, 0 chars |
 | 142 | Access .mdb parser graceful on invalid file | PASS | No crash, 0 chars |
 | 143 | Placeholder .prt identity card | PASS | 308 chars |
