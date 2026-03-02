@@ -122,7 +122,7 @@ def _resume_state_path():
     return os.path.join(root, "config", "transfer_resume_state.json")
 
 
-def _probe_source_ready(path, timeout_s=8.0):
+def _probe_source_ready(path, timeout_s=2.0):
     """Quickly validate source path can be enumerated without hanging UI."""
     result = {"ok": False, "error": ""}
 
@@ -208,6 +208,9 @@ class DataPanel(tk.Frame):
         self._poll_id = None
         self._resume_attempted = False
         self._stop_watchdog_ticks = 0
+        self._stop_in_progress = False
+        self._detached_worker = False
+        self._estimated_total_bytes = 0
 
         # Public testing state (same pattern as IndexPanel/QueryPanel)
         self.transfer_done_event = threading.Event()
@@ -633,6 +636,18 @@ class DataPanel(tk.Frame):
         )
         self._stop_btn.pack(side=tk.LEFT, padx=(8, 0))
 
+        tk.Label(
+            btn_row, text="Estimated total (GB):",
+            bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+        ).pack(side=tk.LEFT, padx=(12, 4))
+        self._est_total_gb_var = tk.StringVar(value="")
+        self._est_total_gb_entry = tk.Entry(
+            btn_row, textvariable=self._est_total_gb_var, width=8,
+            bg=t["input_bg"], fg=t["input_fg"], insertbackground=t["fg"],
+            relief=tk.FLAT, bd=1, font=FONT_SMALL,
+        )
+        self._est_total_gb_entry.pack(side=tk.LEFT)
+
         self._transfer_status = tk.Label(
             btn_row, text="", anchor=tk.W,
             bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
@@ -657,7 +672,7 @@ class DataPanel(tk.Frame):
 
         # Stats line
         self._stats_hint = tk.Label(
-            frame, text="Live telemetry: rate | ETA | copied | processed | skipped | err",
+            frame, text="Live telemetry: rate | ETA | copied | processed | skipped | err (ETA uses estimate if provided)",
             anchor=tk.W, bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
         )
         self._stats_hint.pack(fill=tk.X)
@@ -677,6 +692,15 @@ class DataPanel(tk.Frame):
         """Start transfer using values from current UI fields."""
         source = self._selected_path_var.get().strip()
         dest = self._source_path_var.get().strip()
+        est_gb = (self._est_total_gb_var.get() or "").strip()
+        self._estimated_total_bytes = 0
+        if est_gb:
+            try:
+                gb = float(est_gb)
+                if gb > 0:
+                    self._estimated_total_bytes = int(gb * (1024 ** 3))
+            except Exception:
+                self._estimated_total_bytes = 0
         self._start_transfer(source=source, dest=dest, resume=False)
 
     def _start_transfer(self, source, dest, resume=False):
@@ -714,7 +738,15 @@ class DataPanel(tk.Frame):
                 text="[FAIL] Source and destination are the same", fg=t["red"])
             return False
 
-        ok, probe_err = _probe_source_ready(source, timeout_s=8.0)
+        if self._detached_worker:
+            self._transfer_status.config(
+                text="[WARN] Previous transfer worker was force-detached. "
+                     "Restart app before starting a new transfer.",
+                fg=t["orange"],
+            )
+            return False
+
+        ok, probe_err = _probe_source_ready(source, timeout_s=2.0)
         if not ok:
             self._transfer_status.config(
                 text="[FAIL] Source not reachable: {}".format(probe_err[:80]),
@@ -725,7 +757,9 @@ class DataPanel(tk.Frame):
         # Reset UI
         self._stop_event.clear()
         self._stop_watchdog_ticks = 0
+        self._stop_in_progress = False
         self._start_btn.config(state=tk.DISABLED)
+        self._stop_btn.config(text="Stop")
         self._stop_btn.config(state=tk.NORMAL)
         self._progress_bar["value"] = 0
         self._progress_label.config(text="0 / 0")
@@ -826,12 +860,36 @@ class DataPanel(tk.Frame):
     def _on_stop_transfer(self):
         """Signal the transfer engine to stop."""
         t = current_theme()
+        if self._transfer_thread is None or not self._transfer_thread.is_alive():
+            self._stop_in_progress = False
+            self._stop_btn.config(text="Stop", state=tk.DISABLED)
+            self._transfer_status.config(
+                text="[WARN] No active transfer to stop.", fg=t["orange"]
+            )
+            return
+
+        # Second press during hang => safe UI detach.
+        if self._stop_in_progress:
+            self._transfer_thread = None
+            self.is_transferring = False
+            self._detached_worker = True
+            self._stop_in_progress = False
+            self._start_btn.config(state=tk.NORMAL)
+            self._stop_btn.config(text="Stop", state=tk.DISABLED)
+            self._transfer_status.config(
+                text="[WARN] Transfer worker detached due to stop timeout. "
+                     "Restart app before next transfer.",
+                fg=t["orange"],
+            )
+            return
+
         self._stop_event.set()
         self._stop_watchdog_ticks = 0
+        self._stop_in_progress = True
         if self._engine is not None:
             self._engine._stop.set()
         self._clear_resume_state()
-        self._stop_btn.config(state=tk.DISABLED)
+        self._stop_btn.config(state=tk.NORMAL, text="Force Stop")
         self._transfer_status.config(
             text="Stopping after current file...", fg=t["orange"])
         # Safety watchdog: if worker exits but callback path is missed, restore UI.
@@ -844,11 +902,21 @@ class DataPanel(tk.Frame):
         """
         if self._transfer_thread is not None and self._transfer_thread.is_alive():
             self._stop_watchdog_ticks += 1
+            if self._stop_watchdog_ticks >= 15:
+                # Keep UI responsive and allow explicit operator action.
+                self._start_btn.config(state=tk.DISABLED)
+                self._stop_btn.config(state=tk.NORMAL, text="Force Stop")
+                self._transfer_status.config(
+                    text="[WARN] Stop is waiting on network/file operation. "
+                         "Press Force Stop to detach UI.",
+                    fg=t["orange"],
+                )
             if self._stop_watchdog_ticks >= 75:
                 t = current_theme()
                 self._start_btn.config(state=tk.NORMAL)
-                self._stop_btn.config(state=tk.DISABLED)
+                self._stop_btn.config(state=tk.DISABLED, text="Stop")
                 self.is_transferring = False
+                self._stop_in_progress = False
                 self._transfer_status.config(
                     text="[WARN] Stop timed out after 60s. Worker may still "
                          "be draining in background; restart app if needed.",
@@ -860,8 +928,9 @@ class DataPanel(tk.Frame):
             return
         self._transfer_thread = None
         self.is_transferring = False
+        self._stop_in_progress = False
         self._start_btn.config(state=tk.NORMAL)
-        self._stop_btn.config(state=tk.DISABLED)
+        self._stop_btn.config(state=tk.DISABLED, text="Stop")
         if self._stop_event.is_set():
             t = current_theme()
             if self._engine is not None:
@@ -902,6 +971,9 @@ class DataPanel(tk.Frame):
         # Speed + ETA
         speed = stats.speed_bps
         eta = stats.eta_seconds
+        if self._estimated_total_bytes > 0 and speed > 0:
+            remaining = max(0, self._estimated_total_bytes - int(stats.bytes_copied))
+            eta = float(remaining) / float(speed)
         eta_str = _fmt_dur(eta) if eta < 86400 else "---"
         skipped_total = (
             int(getattr(stats, "files_skipped_unchanged", 0))
@@ -926,12 +998,28 @@ class DataPanel(tk.Frame):
             text="Elapsed {} | Data {} / {} | discovered {:,} | manifest {:,}".format(
                 _fmt_dur(stats.elapsed),
                 _fmt_size(stats.bytes_copied),
-                _fmt_size(stats.bytes_source_total),
+                _fmt_size(self._estimated_total_bytes if self._estimated_total_bytes > 0 else stats.bytes_source_total),
                 stats.files_discovered,
                 int(getattr(stats, "files_manifest", 0)),
             ),
             fg=t["gray"],
         )
+
+        # Continue polling if transfer is still running
+        try:
+            current_status = (self._transfer_status.cget("text") or "").lower()
+            if (
+                ("resuming transfer" in current_status or "starting transfer" in current_status)
+                and not self._stop_event.is_set()
+            ):
+                self._transfer_status.config(
+                    text="Transfer running... discovered {:,}, copied {:,}".format(
+                        stats.files_discovered, stats.files_copied
+                    ),
+                    fg=t["gray"],
+                )
+        except Exception:
+            pass
 
         # Continue polling if transfer is still running
         if self._transfer_thread is not None and self._transfer_thread.is_alive():
@@ -944,8 +1032,9 @@ class DataPanel(tk.Frame):
         """Transfer completed -- update UI."""
         t = current_theme()
         self._start_btn.config(state=tk.NORMAL)
-        self._stop_btn.config(state=tk.DISABLED)
+        self._stop_btn.config(state=tk.DISABLED, text="Stop")
         self._transfer_thread = None
+        self._stop_in_progress = False
 
         if self._engine is not None:
             stats = self._engine.stats
@@ -980,8 +1069,9 @@ class DataPanel(tk.Frame):
         """Transfer failed -- update UI."""
         t = current_theme()
         self._start_btn.config(state=tk.NORMAL)
-        self._stop_btn.config(state=tk.DISABLED)
+        self._stop_btn.config(state=tk.DISABLED, text="Stop")
         self._transfer_thread = None
+        self._stop_in_progress = False
         self._transfer_status.config(
             text=msg + " | Resume is armed for next launch.",
             fg=t["red"],

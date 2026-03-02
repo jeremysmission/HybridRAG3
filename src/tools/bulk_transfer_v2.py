@@ -592,6 +592,38 @@ class SourceDiscovery:
         t.join(timeout=10.0)
         return queue
 
+    def discover_iter(self):
+        """
+        Stream discovered transfer candidates as an iterator.
+
+        This enables copy to begin before full discovery completes, which is
+        critical for very large/slow network sources.
+        """
+        cfg = self.config
+        self._discovery_stop = threading.Event()
+        t = threading.Thread(
+            target=self._discovery_progress_loop, daemon=True,
+        )
+        t.start()
+        try:
+            for source_root in cfg.source_paths:
+                if self._stop.is_set():
+                    break
+                root = Path(source_root)
+                if not root.exists():
+                    self._log(f"  [WARN] Not accessible: {source_root}")
+                    continue
+                self.stats.current_source_root = str(root)
+                for item in self._iter_walk_source(root, str(root)):
+                    if self._stop.is_set():
+                        break
+                    yield item
+                if self._stop.is_set():
+                    break
+        finally:
+            self._discovery_stop.set()
+            t.join(timeout=10.0)
+
     # ------------------------------------------------------------------
     # Directory walker
     # ------------------------------------------------------------------
@@ -645,6 +677,62 @@ class SourceDiscovery:
                     self._process_discovery(full, source_root, queue)
                 except (OSError, UnicodeEncodeError):
                     self.stats.files_skipped_inaccessible += 1
+            if self._stop.is_set():
+                break
+
+        if walk_warnings:
+            self._log(
+                f"  [WARN] {walk_warnings} directory read errors "
+                f"during walk"
+            )
+
+    def _iter_walk_source(self, root: Path, source_root: str):
+        """Generator variant of _walk_source that yields transfer candidates."""
+        cfg = self.config
+        excl = {d.lower() for d in cfg.excluded_dirs}
+        walk_warnings = 0
+
+        def _on_walk_error(err: OSError) -> None:
+            nonlocal walk_warnings
+            walk_warnings += 1
+
+        for dirpath, dirnames, filenames in os.walk(
+            str(root), onerror=_on_walk_error,
+        ):
+            if self._stop.is_set():
+                break
+            self.stats.dirs_walked += 1
+
+            try:
+                real = os.path.realpath(dirpath)
+            except OSError:
+                dirnames.clear()
+                continue
+            if real in self._visited_dirs:
+                self.manifest.record_skip(
+                    self.run_id, dirpath, reason="symlink_loop",
+                    detail="Circular junction/symlink detected",
+                )
+                dirnames.clear()
+                continue
+            self._visited_dirs.add(real)
+
+            dirnames[:] = [
+                d for d in dirnames if d.lower() not in excl
+            ]
+
+            for filename in filenames:
+                if self._stop.is_set():
+                    break
+                full = os.path.join(dirpath, filename)
+                self.stats.files_discovered += 1
+                tmp_q: List[Tuple[str, str, str, int]] = []
+                try:
+                    self._process_discovery(full, source_root, tmp_q)
+                except (OSError, UnicodeEncodeError):
+                    self.stats.files_skipped_inaccessible += 1
+                if tmp_q:
+                    yield tmp_q[0]
             if self._stop.is_set():
                 break
 
@@ -882,9 +970,7 @@ class AtomicTransferWorker:
     # Public entry point
     # ------------------------------------------------------------------
 
-    def transfer(
-        self, queue: List[Tuple[str, str, str, int]],
-    ) -> None:
+    def transfer(self, queue) -> None:
         """Transfer all files using a thread pool with backpressure.
 
         NON-PROGRAMMER NOTE:
@@ -909,20 +995,31 @@ class AtomicTransferWorker:
             max_workers=cfg.workers,
         ) as pool:
             pending: set = set()
-            q_idx = 0
+            q_iter = iter(queue)
+            exhausted = False
 
-            # Seed the pool
-            while q_idx < len(queue) and len(pending) < max_inflight:
-                if self._stop.is_set():
-                    break
-                item = queue[q_idx]
-                q_idx += 1
-                pending.add(pool.submit(self._transfer_one, *item))
+            def _feed_pending():
+                nonlocal exhausted
+                while not exhausted and len(pending) < max_inflight and not self._stop.is_set():
+                    try:
+                        item = next(q_iter)
+                    except StopIteration:
+                        exhausted = True
+                        break
+                    pending.add(pool.submit(self._transfer_one, *item))
+                    if len(pending) > self.stats.peak_queue_size:
+                        self.stats.peak_queue_size = len(pending)
+
+            _feed_pending()
 
             # Drain: wait for completions, feed new items
-            while pending:
+            while pending or not exhausted:
                 if self._stop.is_set():
                     break
+                if not pending:
+                    _feed_pending()
+                    if not pending:
+                        continue
                 done, pending = wait(
                     pending, return_when=FIRST_COMPLETED,
                 )
@@ -939,12 +1036,7 @@ class AtomicTransferWorker:
                        cfg.max_consecutive_failures:
                         self._network_recovery_wait()
 
-                    if q_idx < len(queue) and not self._stop.is_set():
-                        item = queue[q_idx]
-                        q_idx += 1
-                        pending.add(
-                            pool.submit(self._transfer_one, *item),
-                        )
+                    _feed_pending()
 
                     # Periodic GC for multi-day transfers
                     processed = self.stats.files_processed
@@ -1366,49 +1458,35 @@ class BulkTransferV2:
         checkpoint_thread.start()
 
         try:
-            # Phase 1: Source discovery
-            print("[PHASE 1] Building source manifest...")
+            # Phase 1+2: Stream discovery directly into transfer workers
+            print("[PHASE 1+2] Streaming discovery + transfer...")
             self._log_event("phase_start", phase=1, detail="Source discovery")
             discoverer = SourceDiscovery(
                 cfg, self.manifest, self.stats,
                 self.run_id, self._log_lock, self._stop,
             )
-            queue = discoverer.discover()
+            worker = AtomicTransferWorker(
+                cfg, self.manifest, self.staging, self.stats,
+                self.run_id, self._stop, self._log_lock,
+            )
+            worker.transfer(discoverer.discover_iter())
             self.stats.files_manifest = self.stats.files_discovered
-            self.stats.peak_queue_size = len(queue)
             print(
                 f"  Manifest: {self.stats.files_discovered:,} files, "
                 f"{_fmt_size(self.stats.bytes_source_total)}"
             )
-            print(f"  Transfer queue: {len(queue):,} files")
             self._log_event(
                 "discovery_complete",
                 files_discovered=self.stats.files_discovered,
-                queue_size=len(queue),
+                queue_size=self.stats.peak_queue_size,
                 bytes_total=self.stats.bytes_source_total,
             )
 
             # Phase 1b: Delta sync analysis
             prev = self.manifest.get_previous_manifest(self.run_id)
             if prev:
-                self._delta_analysis(queue, prev)
+                self._delta_analysis([], prev)
             print()
-
-            # Phase 2: Parallel transfer
-            if queue:
-                print(
-                    f"[PHASE 2] Transferring "
-                    f"({cfg.workers} workers)..."
-                )
-                self._log_event(
-                    "phase_start", phase=2,
-                    detail=f"Transfer with {cfg.workers} workers",
-                )
-                worker = AtomicTransferWorker(
-                    cfg, self.manifest, self.staging, self.stats,
-                    self.run_id, self._stop, self._log_lock,
-                )
-                worker.transfer(queue)
 
             # Phase 3: Finalize
             print()
