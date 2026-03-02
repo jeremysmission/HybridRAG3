@@ -9,6 +9,8 @@ Last Updated: 2026-03-02
 If you are setting up Azure/OpenAI online mode on a new machine, use:
 
 - `docs/01_setup/ONLINE_API_SETUP_FROM_SCRATCH.md`
+- `docs/01_setup/BUNDLE_BUILD_AND_DEP_INSTALL_NUMBERED.md` (single numbered
+  offline bundle + dependency guide)
 
 It includes both:
 - one-command setup (`tools/py/setup_online_api.py`)

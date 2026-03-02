@@ -5,6 +5,9 @@ Last Updated: 2026-03-02
 Use this guide when the target machine cannot download anything and you need
 to move the HybridRAG3 offline bundle using one or more optical discs.
 
+Primary step-by-step reference:
+- `docs/01_setup/BUNDLE_BUILD_AND_DEP_INSTALL_NUMBERED.md`
+
 ---
 
 ## Objective
@@ -95,4 +98,3 @@ offline installs.
 - Keep the generated `MANIFEST_SHA256.txt` with the bundle
 - Preserve the manifest unchanged across all discs
 - Verify hashes on target machine before install (now default behavior)
-
