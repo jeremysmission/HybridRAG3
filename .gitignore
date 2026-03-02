@@ -112,3 +112,4 @@ docs/06_guides/
 
 # USB installer staging output (built at runtime, not source)
 USB Installer Research/_staging/
+.tmp_*/
