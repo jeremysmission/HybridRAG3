@@ -150,13 +150,11 @@ class Indexer:
         # disk. 200K chars ~ 100 pages. Keeps RAM usage predictable.
         self.block_chars = getattr(idx_cfg, "block_chars", 200_000)
 
-        # File extensions we know how to parse
-        self._supported_extensions = set(
-            getattr(idx_cfg, "supported_extensions", [
-                ".txt", ".md", ".csv", ".json", ".xml", ".log", ".pdf",
-                ".docx", ".pptx", ".xlsx", ".eml",
-            ])
-        )
+        # File extensions we know how to parse.
+        # Primary source: config. Fallback: parser registry (single source of truth).
+        from src.parsers.registry import REGISTRY
+        cfg_exts = getattr(idx_cfg, "supported_extensions", None)
+        self._supported_extensions = set(cfg_exts) if cfg_exts else set(REGISTRY.supported_extensions())
 
         # Directories to skip (virtual environments, git history, etc.)
         self._excluded_dirs = set(

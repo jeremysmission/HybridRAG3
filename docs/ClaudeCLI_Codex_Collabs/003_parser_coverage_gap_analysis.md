@@ -1,7 +1,7 @@
 # Parser Coverage Gap Analysis -- Critical Finding
 ## Date: 2026-03-01
 ## Severity: HIGH -- Root cause of massive indexing skip rates
-## Discovered by: Claude CLI + Codex (independent parallel analysis)
+## Discovered by: CLI tooling + Codex (independent parallel analysis)
 
 ---
 
@@ -168,8 +168,26 @@ as fallback if PATH doesn't find them:
 | Install Poppler binary on work laptop | HIGH | Pending (software store) |
 | Re-index source data after fixes | HIGH | Pending |
 | Add integration test: extension -> parser -> chunks | MEDIUM | Open |
-| Add registry/config cross-validation check | MEDIUM | Open |
+| Add registry/config cross-validation check | MEDIUM | DONE (2026-03-02) |
 | Submit waiver for 9 new packages | MEDIUM | In progress |
+
+---
+
+## Follow-Up Hardening Update
+## Date: 2026-03-02
+
+Additional guardrails were implemented to prevent recurrence:
+
+1. CI guard test added:
+- `tests/test_indexing_allowlist_sync.py`
+- Asserts `IndexingConfig.supported_extensions` exactly matches
+  `REGISTRY.supported_extensions()`
+- Also validates loaded project config (`load_config`) stays in sync.
+
+2. Indexer fallback source-of-truth tightened:
+- `src/core/indexer.py` now uses parser registry as fallback source when
+  config allowlist is missing, instead of a stale hardcoded extension list.
+- This removes the second silent drift path in the indexing pipeline.
 
 ---
 

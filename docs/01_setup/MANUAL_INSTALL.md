@@ -241,6 +241,13 @@ pip install structlog==24.4.0 rich==13.9.4 tqdm==4.67.3 regex==2026.1.15 coloram
 pip install openai==1.109.1 tiktoken==0.8.0 --no-deps --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120 --retries 3
 ```
 
+**Group 7R -- Extended parser dependencies (added 2026-03-02):**
+```powershell
+pip install olefile==0.47 ezdxf==1.4.3 python-evtx==0.8.1 python-oxmsg==0.0.2 dpkt==1.9.8 psd-tools==1.13.1 striprtf==0.0.29 numpy-stl==3.2.0 vsdx==0.6.1 --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120 --retries 3
+```
+Without these, .doc, .msg, .dxf, .evtx, .pcap, .psd, .rtf, .stl, and .vsdx files
+silently return empty text during indexing. See `docs/ClaudeCLI_Codex_Collabs/003_parser_coverage_gap_analysis.md`.
+
 **Group 7Q -- Final dependency check (catches anything the groups missed):**
 ```powershell
 pip install -r requirements_approved.txt --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120 --retries 3
