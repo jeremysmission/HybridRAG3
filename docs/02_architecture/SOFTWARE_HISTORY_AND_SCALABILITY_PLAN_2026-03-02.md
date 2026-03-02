@@ -433,3 +433,47 @@ Format: `commit | date | subject`
 - Commit ledger is intentionally exhaustive for the 7-day window.
 - For deep file-level diffs, use git show <commit> in the corresponding repository.
 
+
+## 10. Supplemental Decision Matrix
+| Condition | Preferred Option | Why |
+|-----------|------------------|-----|
+| <= 500K chunks, low ops headcount | A + D | Lowest operational complexity; fastest to stabilize |
+| 500K-5M chunks, latency pressure | A -> B + D | Keep metadata stack, add ANN where it pays off |
+| Multi-team/service integration needed | A/B -> C | Explicit interfaces and independent scaling |
+| Air-gapped or media-constrained deployments | A + D | Smaller footprint, predictable packaging |
+
+## 11. Delivery Gates (Exit Criteria)
+- Phase 1 exit:
+  - CI guard active for parser/config drift and enforced in push path
+  - Offline media SOP published and dry-run validated
+  - Minimal offline model pack reproducibly installable
+- Phase 2 exit:
+  - Skip-reason metrics available by extension and reason code
+  - OCR/parser preflight check blocks misconfigured runs with clear fix steps
+  - Large-corpus rehearsal completes with documented bottlenecks
+- Phase 3 exit:
+  - ANN prototype benchmarked against baseline on identical corpus
+  - Decision memo created (adopt/defer) with explicit cost and complexity impact
+  - Production runbook updated for chosen backend
+
+## 12. Model-Pack Profiles (Recommended)
+| Profile | Models | Typical Use | Media Fit |
+|---------|--------|-------------|-----------|
+| Minimal | `nomic-embed-text` + `phi4-mini` | Baseline offline indexing + Q/A | Single DVD-5 or DVD-9 feasible |
+| Standard | Minimal + one medium alternate | Team workflows with one fallback model | Usually multi-disc |
+| Full | Approved full local stack | Advanced tuning and broad role coverage | USB/SSD preferred, multi-disc required |
+
+## 13. Risk Register (Current)
+| Risk | Impact | Likelihood | Mitigation |
+|------|--------|------------|------------|
+| Private/Educational drift | High | Medium | Strengthen sync checks and forced parity tests |
+| Silent parser skips regression | High | Medium | CI guard + skip telemetry + daily summary |
+| Offline media incompleteness | High | Medium | Pre-stage validator + required-layout checks |
+| Model footprint exceeds media plan | Medium | High | Tiered model packs + explicit capacity planning |
+| Installer source trust gap | High | Low/Medium | Authenticode + SHA256 logging before packaging |
+
+## 14. Near-Term Priority Stack
+1. Lock parser-drift CI enforcement and make failures blocking.
+2. Finalize offline media process with pre-stage validation as default.
+3. Instrument skip/OCR outcomes for operational observability.
+4. Rehearse 650 GB flow with checkpointed bottleneck notes.
