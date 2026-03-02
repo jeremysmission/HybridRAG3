@@ -55,7 +55,12 @@ def main():
     cfg = load_config(project_dir=".", config_filename=(args.config or "default_config.yaml"))
 
     if args.mode:
-        os.environ["HYBRIDRAG_MODE"] = args.mode
+        mode = str(args.mode).strip().lower()
+        if mode in ("online", "offline"):
+            os.environ["HYBRIDRAG_MODE"] = mode
+            cfg.mode = mode
+        else:
+            raise SystemExit("--mode must be 'online' or 'offline'")
 
     store = VectorStore(db_path=cfg.paths.database, embedding_dim=cfg.embedding.dimension)
     store.connect()
