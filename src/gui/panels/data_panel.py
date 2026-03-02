@@ -637,7 +637,7 @@ class DataPanel(tk.Frame):
         self._stop_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         tk.Label(
-            btn_row, text="Estimated total (GB):",
+            btn_row, text="Estimated total (GB, optional):",
             bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
         ).pack(side=tk.LEFT, padx=(12, 4))
         self._est_total_gb_var = tk.StringVar(value="")
