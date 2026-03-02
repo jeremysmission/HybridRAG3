@@ -42,6 +42,15 @@ notepad start_hybridrag.ps1
 rag-diag
 ```
 
+### Parser Guardrail Note (Added 2026-03-02)
+Parser coverage drift was previously a silent failure mode.
+Current safeguards:
+- CI parity tests:
+  - `tests/test_indexing_allowlist_sync.py`
+  - `tests/test_parser_coverage_guard.py`
+- Indexer fallback to parser registry in `src/core/indexer.py`
+- Postmortem: `docs/ClaudeCLI_Codex_Collabs/003_parser_coverage_gap_analysis.md`
+
 ### Common Setup Problems
 
 | Problem | Cause | Fix |

@@ -10,6 +10,23 @@ environment.
 
 ---
 
+## Important Historical Note (2026-03-01 / 2026-03-02)
+
+Parser coverage regression was found and fixed:
+- Config allowlist drifted from parser registry
+- Parser dependencies were incomplete
+- OCR system binaries were missing on some machines
+
+Guardrails now added:
+- `tests/test_indexing_allowlist_sync.py`
+- `tests/test_parser_coverage_guard.py`
+- Registry-based fallback in `src/core/indexer.py`
+
+Postmortem:
+- `docs/ClaudeCLI_Codex_Collabs/003_parser_coverage_gap_analysis.md`
+
+---
+
 ## Prerequisites (both environments)
 
 1. **Python 3.12** installed and on PATH

@@ -208,3 +208,81 @@ Additional guardrails were implemented to prevent recurrence:
 ### Cybersecurity
 - [Wireshark Sample Captures](https://wiki.wireshark.org/samplecaptures) -- .pcap/.pcapng
 - [NIST CFReDS](https://www.nist.gov/itl/ssd/software-quality-group/computer-forensics-tool-testing-program-cftt/cfreds)
+
+---
+
+## Postmortem Notes
+## Date: 2026-03-02
+
+### What Failed in Process (not just code)
+
+1. We maintained parser support in three places without hard enforcement:
+- Parser registry (`src/parsers/registry.py`)
+- Indexing allowlist (`IndexingConfig.supported_extensions`)
+- Approved/install dependency lists (`requirements*.txt`)
+
+2. We relied on graceful degradation as a runtime safety feature, but had no
+mandatory visibility for degraded parser paths.
+- Missing deps and OCR toolchain problems produced empty text outcomes.
+- Operators saw aggregate skip growth but not immediate root-cause breakdown.
+
+3. Parser validation focused on isolated parser behavior rather than full
+pipeline eligibility (discover -> allowlist -> parser -> deps -> text -> chunks).
+
+### Why It Was Hard to Spot Early
+
+1. The system did not crash. It stayed "healthy" while silently losing coverage.
+2. Extension-heavy domains (engineering/cyber/logistics) were underrepresented in
+quick smoke runs, so regression risk accumulated outside common office formats.
+3. Workstation/work-laptop dependency and binary differences (OCR stack) created
+non-reproducible behavior unless explicitly audited per machine.
+
+### Controls Added
+
+1. Registry/allowlist sync guard in tests:
+- `tests/test_indexing_allowlist_sync.py`
+- Fails if config defaults or loaded config drift from parser registry extensions.
+
+2. Indexer fallback source-of-truth improvement:
+- Indexer now uses parser-registry fallback when config allowlist is missing.
+- Prevents stale internal fallback lists from reintroducing drift.
+
+3. Requirements/install updates:
+- Extended parser dependencies pinned and added for install workflows.
+- OCR wrappers included in setup scripts, reducing first-run "empty text" risk.
+
+### Remaining Risk
+
+1. OCR quality remains content-dependent (poor scans, low contrast, diagrams with
+minimal text). Even with correct tooling, some files will legitimately produce
+no extractable text.
+
+2. Placeholder formats (CAD/project binaries) may produce metadata-only output by
+design and should not be misclassified as parser failures.
+
+3. Corporate software approval lag can temporarily recreate partial coverage on
+managed machines unless waiver and installer state are tracked together.
+
+### Operational Checklist Going Forward
+
+1. Before large ingest runs (>100 GB), run:
+- parser allowlist sync test
+- parser dependency availability check
+- OCR binary check (Tesseract + Poppler)
+
+2. During ingest, report daily:
+- skip rate by extension
+- top skip reasons
+- OCR-specific outcomes (`OCR_DEPS_MISSING`, `OCR_PRODUCED_NO_TEXT`, errors)
+
+3. After parser additions:
+- update registry
+- update allowlist (or validate auto-sync path)
+- update requirements + approved requirements
+- run end-to-end extension coverage test
+
+### Accountability Update
+
+Root cause was not a single bad parser. It was configuration drift plus missing
+dependency governance plus weak degraded-path observability. The remediation is
+therefore process + test + install hardening, not just parser code changes.

@@ -1,6 +1,6 @@
 # HybridRAG3 -- Installation and Setup Guide
 
-Last Updated: 2026-02-24
+Last Updated: 2026-03-02
 
 ---
 
@@ -13,6 +13,25 @@ If you are setting up Azure/OpenAI online mode on a new machine, use:
 It includes both:
 - one-command setup (`tools/py/setup_online_api.py`)
 - manual setup + verification flow
+
+---
+
+## Parser Reliability Postmortem (2026-03-01 / 2026-03-02)
+
+On 2026-03-01 we identified a parser coverage gap where indexing allowlist
+drift + missing parser dependencies + missing OCR binaries caused silent skip
+behavior for many extensions.
+
+What is now in place (as of 2026-03-02):
+- CI guard tests enforce config/registry extension parity:
+  - `tests/test_indexing_allowlist_sync.py`
+  - `tests/test_parser_coverage_guard.py`
+- Indexer fallback uses parser registry as source of truth when config list
+  is absent (`src/core/indexer.py`).
+- Install docs and dependency sets were updated for extended parser coverage.
+
+Full postmortem and root-cause analysis:
+- `docs/ClaudeCLI_Codex_Collabs/003_parser_coverage_gap_analysis.md`
 
 ---
 
