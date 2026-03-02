@@ -300,6 +300,26 @@ class TransferStats:
                 if len(self._speed_samples) > 500:
                     self._speed_samples = self._speed_samples[-500:]
 
+    def note_stream_bytes(self, byte_count: int) -> None:
+        """
+        Record in-flight copied bytes for live throughput telemetry.
+
+        This updates rolling speed without incrementing final copied-byte
+        totals (those are still updated only after a verified file copy).
+        """
+        if byte_count <= 0:
+            return
+        with self._lock:
+            now = time.time()
+            self._speed_samples.append((now, int(byte_count)))
+            if len(self._speed_samples) > 500:
+                cutoff = now - 30.0
+                self._speed_samples = [
+                    (t, b) for t, b in self._speed_samples if t >= cutoff
+                ]
+                if len(self._speed_samples) > 500:
+                    self._speed_samples = self._speed_samples[-500:]
+
     def record_source_event(
         self, source_root: str, event: str, count: int = 1,
     ) -> None:
@@ -557,12 +577,16 @@ class SourceDiscovery:
         t.start()
 
         for source_root in cfg.source_paths:
+            if self._stop.is_set():
+                break
             root = Path(source_root)
             if not root.exists():
                 self._log(f"  [WARN] Not accessible: {source_root}")
                 continue
             self.stats.current_source_root = str(root)
             self._walk_source(root, str(root), queue)
+            if self._stop.is_set():
+                break
 
         self._discovery_stop.set()
         t.join(timeout=10.0)
@@ -588,6 +612,8 @@ class SourceDiscovery:
         for dirpath, dirnames, filenames in os.walk(
             str(root), onerror=_on_walk_error,
         ):
+            if self._stop.is_set():
+                break
             self.stats.dirs_walked += 1
 
             # Symlink loop guard
@@ -611,12 +637,16 @@ class SourceDiscovery:
             ]
 
             for filename in filenames:
+                if self._stop.is_set():
+                    break
                 full = os.path.join(dirpath, filename)
                 self.stats.files_discovered += 1
                 try:
                     self._process_discovery(full, source_root, queue)
                 except (OSError, UnicodeEncodeError):
                     self.stats.files_skipped_inaccessible += 1
+            if self._stop.is_set():
+                break
 
         if walk_warnings:
             self._log(
@@ -1086,13 +1116,17 @@ class AtomicTransferWorker:
             copied = False
             last_err = ""
             retries = 0
-            copy_timeout = max(60.0, file_size / (512 * 1024))
+            # Stall timeout (not total-file timeout): fail a copy attempt if
+            # no forward progress is observed for this many seconds.
+            copy_timeout = 60.0
             for attempt in range(1, cfg.max_retries + 1):
                 try:
                     _buffered_copy(
                         source, str(tmp_path),
                         cfg.copy_buffer_size, cfg.bandwidth_limit,
-                        timeout=copy_timeout, stop_event=self._stop,
+                        timeout=copy_timeout,
+                        stop_event=self._stop,
+                        progress_cb=self.stats.note_stream_bytes,
                     )
                     copied = True
                     break
@@ -1686,43 +1720,65 @@ def _can_read_file(path: str, timeout: float = 5.0) -> bool:
 def _buffered_copy(
     src: str, dst: str, buf_size: int = 1_048_576,
     bw_limit: int = 0, timeout: float = 0, stop_event: threading.Event = None,
+    progress_cb=None,
 ) -> None:
     """
     Copy a file using buffered reads with optional bandwidth limiting.
 
-    If timeout > 0, the entire copy runs in a daemon thread with a
-    hard deadline. If the copy exceeds the deadline (e.g., stalled
-    SMB read), TimeoutError is raised and the partial .tmp file is
-    left for the caller to quarantine.
+    If timeout > 0, timeout is treated as a STALL timeout (seconds
+    without forward progress). Large files are allowed to run as long
+    as bytes continue flowing. If progress stalls (e.g., dead SMB read),
+    TimeoutError is raised and the partial .tmp file is left for the
+    caller to quarantine.
     """
     if timeout > 0:
         error_holder = [None]
+        last_progress = [time.monotonic()]
+
+        def _touch_progress():
+            last_progress[0] = time.monotonic()
 
         def _do_copy():
             try:
-                _buffered_copy_inner(src, dst, buf_size, bw_limit, stop_event=stop_event)
+                _buffered_copy_inner(
+                    src,
+                    dst,
+                    buf_size,
+                    bw_limit,
+                    stop_event=stop_event,
+                    progress_touch=_touch_progress,
+                    progress_cb=progress_cb,
+                )
             except Exception as e:
                 error_holder[0] = e
 
         t = threading.Thread(target=_do_copy, daemon=True)
         t.start()
-        t.join(timeout=timeout)
-        if t.is_alive():
-            raise TimeoutError(
-                f"_buffered_copy timed out after {timeout:.0f}s: {src}"
-            )
+        # Poll until done, but fail if no progress is observed.
+        poll_sleep = 0.5
+        while t.is_alive():
+            t.join(timeout=poll_sleep)
+            if (time.monotonic() - last_progress[0]) > timeout:
+                raise TimeoutError(
+                    f"_buffered_copy stalled for >{timeout:.0f}s: {src}"
+                )
         if error_holder[0] is not None:
             raise error_holder[0]
     else:
-        _buffered_copy_inner(src, dst, buf_size, bw_limit, stop_event=stop_event)
+        _buffered_copy_inner(
+            src, dst, buf_size, bw_limit, stop_event=stop_event, progress_cb=progress_cb
+        )
 
 
 def _buffered_copy_inner(
     src: str, dst: str, buf_size: int = 1_048_576,
     bw_limit: int = 0, stop_event: threading.Event = None,
+    progress_touch=None, progress_cb=None,
 ) -> None:
     """Inner copy logic (no timeout wrapper)."""
     with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
+        if progress_touch is not None:
+            progress_touch()
         while True:
             if stop_event is not None and stop_event.is_set():
                 raise InterruptedError("copy cancelled by stop request")
@@ -1731,6 +1787,10 @@ def _buffered_copy_inner(
             if not data:
                 break
             fdst.write(data)
+            if progress_touch is not None:
+                progress_touch()
+            if progress_cb is not None:
+                progress_cb(len(data))
             if bw_limit > 0:
                 elapsed = time.monotonic() - t0
                 expected = len(data) / bw_limit

@@ -627,6 +627,20 @@ class DataPanel(tk.Frame):
     def _start_transfer(self, source, dest, resume=False):
         """Validate inputs and launch transfer in background thread."""
         t = current_theme()
+        # If a previous transfer thread object exists but is no longer alive,
+        # normalize UI state so Start cannot get stuck disabled.
+        if self._transfer_thread is not None and not self._transfer_thread.is_alive():
+            self._transfer_thread = None
+            self.is_transferring = False
+            self._start_btn.config(state=tk.NORMAL)
+            self._stop_btn.config(state=tk.DISABLED)
+
+        if self._transfer_thread is not None and self._transfer_thread.is_alive():
+            self._transfer_status.config(
+                text="Transfer already running. Stop it first.", fg=t["orange"]
+            )
+            return
+
         if not source or not os.path.isdir(source):
             self._transfer_status.config(
                 text="[FAIL] Select a source folder first", fg=t["red"])
@@ -754,6 +768,36 @@ class DataPanel(tk.Frame):
         self._stop_btn.config(state=tk.DISABLED)
         self._transfer_status.config(
             text="Stopping after current file...", fg=t["orange"])
+        # Safety watchdog: if worker exits but callback path is missed, restore UI.
+        self.after(800, self._ensure_transfer_cleanup)
+
+    def _ensure_transfer_cleanup(self):
+        """
+        Ensure UI recovers after stop requests even if callback sequencing
+        is interrupted. Safe to call repeatedly.
+        """
+        if self._transfer_thread is not None and self._transfer_thread.is_alive():
+            # Still stopping; check again shortly.
+            self.after(800, self._ensure_transfer_cleanup)
+            return
+        self._transfer_thread = None
+        self.is_transferring = False
+        self._start_btn.config(state=tk.NORMAL)
+        self._stop_btn.config(state=tk.DISABLED)
+        if self._stop_event.is_set():
+            t = current_theme()
+            if self._engine is not None:
+                stats = self._engine.stats
+                self._transfer_status.config(
+                    text="[WARN] Transfer stopped -- {:,} files copied, {} transferred".format(
+                        stats.files_copied, _fmt_size(stats.bytes_copied),
+                    ),
+                    fg=t["orange"],
+                )
+            else:
+                self._transfer_status.config(
+                    text="[WARN] Transfer stopped", fg=t["orange"]
+                )
 
     def _poll_stats(self):
         """Poll engine.stats every 500ms and update the GUI."""
@@ -811,6 +855,7 @@ class DataPanel(tk.Frame):
         t = current_theme()
         self._start_btn.config(state=tk.NORMAL)
         self._stop_btn.config(state=tk.DISABLED)
+        self._transfer_thread = None
 
         if self._engine is not None:
             stats = self._engine.stats
@@ -846,6 +891,7 @@ class DataPanel(tk.Frame):
         t = current_theme()
         self._start_btn.config(state=tk.NORMAL)
         self._stop_btn.config(state=tk.DISABLED)
+        self._transfer_thread = None
         self._transfer_status.config(
             text=msg + " | Resume is armed for next launch.",
             fg=t["red"],

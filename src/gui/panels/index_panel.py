@@ -184,7 +184,7 @@ class IndexPanel(tk.LabelFrame):
         # -- Row 4: Live telemetry (indexing) --
         self.index_stats_label = tk.Label(
             self,
-            text="Telemetry: chunks 0 | skipped 0 | errors 0 | rate -- f/s | ETA --",
+            text="Telemetry: chunks 0 | files skipped 0 | file errors 0 | rate -- chunks/s | ETA --",
             anchor=tk.W, fg=t["gray"], bg=t["panel_bg"], font=FONT_SMALL,
         )
         self.index_stats_label.pack(fill=tk.X, pady=(2, 0))
@@ -328,7 +328,7 @@ class IndexPanel(tk.LabelFrame):
         self.progress_file_label.config(text="Starting...", fg=t["gray"])
         if hasattr(self, "index_stats_label"):
             self.index_stats_label.config(
-                text="Telemetry: chunks 0 | skipped 0 | errors 0 | rate -- f/s | ETA --",
+                text="Telemetry: chunks 0 | files skipped 0 | file errors 0 | rate -- chunks/s | ETA --",
                 fg=t["gray"],
             )
 
@@ -529,6 +529,7 @@ class _GUIProgressCallback:
         self._chunks_total = 0
         self._skipped_count = 0
         self._error_count = 0
+        self._skip_reasons = {}
         self._last_gui_update = 0.0
         self._pending_fname = None
         self._pending_file_num = 0
@@ -598,11 +599,14 @@ class _GUIProgressCallback:
         if not hasattr(self.panel, "index_stats_label"):
             return
         elapsed = max(0.001, time.monotonic() - self._start_time)
-        rate = self._file_count / elapsed
+        rate = self._chunks_total / elapsed
         eta_txt = "--"
         if self._total_files > 0 and rate > 0:
+            # ETA is still file-based because total chunk count is unknown
+            # until files are parsed/chunked.
+            file_rate = self._file_count / elapsed
             remaining = max(0, self._total_files - self._file_count)
-            eta_s = remaining / rate
+            eta_s = (remaining / file_rate) if file_rate > 0 else float("inf")
             if eta_s < 60:
                 eta_txt = "{:.0f}s".format(eta_s)
             elif eta_s < 3600:
@@ -614,18 +618,37 @@ class _GUIProgressCallback:
                 eta_txt = "{}h {}m".format(h, m)
         self.panel.index_stats_label.config(
             text=(
-                "Telemetry: chunks {:,} | skipped {:,} | errors {:,} | "
-                "rate {:.2f} f/s | ETA {}"
+                "Telemetry: chunks {:,} | files skipped {:,} | file errors {:,} | "
+                "rate {:.2f} chunks/s | ETA {}"
             ).format(
                 self._chunks_total, self._skipped_count,
                 self._error_count, rate, eta_txt,
             )
         )
+        if self._skip_reasons:
+            top = sorted(
+                self._skip_reasons.items(),
+                key=lambda kv: (-kv[1], kv[0]),
+            )[:3]
+            top_txt = ", ".join(
+                "{} ({})".format(reason, count) for reason, count in top
+            )
+            self.panel.index_stats_label.config(
+                text=(
+                    "Telemetry: chunks {:,} | files skipped {:,} | file errors {:,} | "
+                    "rate {:.2f} chunks/s | ETA {} | top skip reasons: {}"
+                ).format(
+                    self._chunks_total, self._skipped_count,
+                    self._error_count, rate, eta_txt, top_txt,
+                )
+            )
 
     def on_file_skipped(self, file_path, reason):
         """Called when a file is skipped."""
         self._file_count += 1
         self._skipped_count += 1
+        reason_key = (reason or "unknown").strip()
+        self._skip_reasons[reason_key] = self._skip_reasons.get(reason_key, 0) + 1
         if self._should_update():
             safe_after(self.panel, 0, self._update_file_complete)
             safe_after(self.panel, 0, self._update_telemetry)
