@@ -176,7 +176,6 @@ HybridRAG3/
 |   |   |-- query_engine.py           Search to LLM to answer (prompt v4)
 |   |   |-- grounded_query_engine.py   Source-bounded generation engine
 |   |   |-- llm_router.py             Ollama / vLLM / API routing
-|   |   |-- llm_router_fix.py         vLLM router enhancement
 |   |   |-- network_gate.py           Network availability control
 |   |   |-- cost_tracker.py           PM cost dashboard backend (SQLite)
 |   |   |-- health_checks.py          System health verification
@@ -213,11 +212,11 @@ HybridRAG3/
 |   |   |-- app.py                     Main window (File | Admin | Help)
 |   |   |-- launch_gui.py             CLI launcher + backend loading
 |   |   |-- theme.py                   Dark/light theme definitions
-|   |   +-- panels/                    GUI panels (5 modules)
+|   |   +-- panels/                    GUI panels (18 modules)
 |   |       |-- query_panel.py         Question box, answer, sources, metrics
 |   |       |-- index_panel.py         Folder picker, progress bar, start/stop
 |   |       |-- status_bar.py          LLM / Ollama / Gate indicators
-|   |       |-- engineering_menu.py    Admin settings dialog
+|   |       |-- api_admin_tab.py       Admin/API settings tab
 |   |       +-- cost_dashboard.py      PM cost tracking window
 |   |
 |   |-- diagnostic/                    Testing and diagnostics (11 files)

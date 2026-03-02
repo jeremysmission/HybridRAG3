@@ -211,11 +211,16 @@ class DataPanel(tk.Frame):
         self._stop_in_progress = False
         self._detached_worker = False
         self._estimated_total_bytes = 0
+        self._resumed_run = False
+        self._manifest_note_tick = 0
 
         # Public testing state (same pattern as IndexPanel/QueryPanel)
         self.transfer_done_event = threading.Event()
         self.is_transferring = False
         self.last_transfer_status = ""
+        self._run_id_var = tk.StringVar(value="Run ID: --")
+        self._stop_ack_var = tk.StringVar(value="Stop Ack: --")
+        self._last_reason_var = tk.StringVar(value="Last Manifest Reason: --")
 
         # Header so users can identify this as the downloader
         tk.Label(
@@ -696,6 +701,21 @@ class DataPanel(tk.Frame):
             bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
         )
         self._stats_detail_label.pack(fill=tk.X)
+        self._run_id_label = tk.Label(
+            frame, textvariable=self._run_id_var, anchor=tk.W,
+            bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+        )
+        self._run_id_label.pack(fill=tk.X)
+        self._stop_ack_label = tk.Label(
+            frame, textvariable=self._stop_ack_var, anchor=tk.W,
+            bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+        )
+        self._stop_ack_label.pack(fill=tk.X)
+        self._last_reason_label = tk.Label(
+            frame, textvariable=self._last_reason_var, anchor=tk.W,
+            bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+        )
+        self._last_reason_label.pack(fill=tk.X)
 
     def _on_start_transfer(self):
         """Start transfer using values from current UI fields."""
@@ -803,6 +823,8 @@ class DataPanel(tk.Frame):
         self._stop_event.clear()
         self._stop_watchdog_ticks = 0
         self._stop_in_progress = False
+        self._resumed_run = bool(resume)
+        self._manifest_note_tick = 0
         self._start_btn.config(state=tk.DISABLED)
         self._stop_btn.config(text="Stop")
         self._stop_btn.config(state=tk.NORMAL)
@@ -814,6 +836,9 @@ class DataPanel(tk.Frame):
         self._stats_detail_label.config(
             text="Elapsed 0s | Data 0 B / 0 B | discovered 0"
         )
+        self._run_id_var.set("Run ID: pending...")
+        self._stop_ack_var.set("Stop Ack: --")
+        self._last_reason_var.set("Last Manifest Reason: --")
         if resume:
             self._transfer_status.config(
                 text="Resuming transfer from saved state...", fg=t["orange"])
@@ -931,6 +956,9 @@ class DataPanel(tk.Frame):
         self._stop_event.set()
         self._stop_watchdog_ticks = 0
         self._stop_in_progress = True
+        self._stop_ack_var.set(
+            "Stop Ack: {}".format(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        )
         if self._engine is not None:
             self._engine._stop.set()
         self._clear_resume_state()
@@ -998,6 +1026,10 @@ class DataPanel(tk.Frame):
 
         stats = self._engine.stats
         t = current_theme()
+        run_id = str(getattr(self._engine, "run_id", "")).strip()
+        if run_id:
+            suffix = " (resumed)" if self._resumed_run else ""
+            self._run_id_var.set("Run ID: {}{}".format(run_id, suffix))
 
         copied = stats.files_copied
         total = stats.files_manifest if stats.files_manifest > 0 else stats.files_discovered
@@ -1048,6 +1080,12 @@ class DataPanel(tk.Frame):
             ),
             fg=t["gray"],
         )
+        self._manifest_note_tick += 1
+        if self._manifest_note_tick >= 4:
+            self._manifest_note_tick = 0
+            note = self._get_last_manifest_reason()
+            if note:
+                self._last_reason_var.set("Last Manifest Reason: {}".format(note))
 
         # Continue polling if transfer is still running
         try:
@@ -1108,6 +1146,9 @@ class DataPanel(tk.Frame):
             self._transfer_status.config(
                 text="[OK] Transfer complete", fg=t["green"])
             self._clear_resume_state()
+        note = self._get_last_manifest_reason()
+        if note:
+            self._last_reason_var.set("Last Manifest Reason: {}".format(note))
 
     def _on_transfer_error(self, msg):
         """Transfer failed -- update UI."""
@@ -1120,6 +1161,43 @@ class DataPanel(tk.Frame):
             text=msg + " | Resume is armed for next launch.",
             fg=t["red"],
         )
+        note = self._get_last_manifest_reason()
+        if note:
+            self._last_reason_var.set("Last Manifest Reason: {}".format(note))
+
+    def _get_last_manifest_reason(self):
+        """Return latest failed/locked/stopped error or skip reason for current run."""
+        if self._engine is None:
+            return ""
+        manifest = getattr(self._engine, "manifest", None)
+        run_id = str(getattr(self._engine, "run_id", "")).strip()
+        if manifest is None or not run_id:
+            return ""
+        try:
+            with manifest._lock:
+                err_row = manifest.conn.execute(
+                    "SELECT result, error_message FROM transfer_log "
+                    "WHERE run_id=? AND result IN ('failed','locked','stopped') "
+                    "AND error_message<>'' "
+                    "ORDER BY rowid DESC LIMIT 1",
+                    (run_id,),
+                ).fetchone()
+                if err_row:
+                    result, message = err_row
+                    return "{}: {}".format(str(result), str(message)[:96])
+                skip_row = manifest.conn.execute(
+                    "SELECT reason, detail FROM skipped_files "
+                    "WHERE run_id=? ORDER BY rowid DESC LIMIT 1",
+                    (run_id,),
+                ).fetchone()
+                if skip_row:
+                    reason, detail = skip_row
+                    if detail:
+                        return "{}: {}".format(str(reason), str(detail)[:96])
+                    return str(reason)
+        except Exception as e:
+            logger.debug("manifest_reason_lookup_failed: %s", e)
+        return ""
 
     # ================================================================
     # SECTION E: Post-Transfer Actions

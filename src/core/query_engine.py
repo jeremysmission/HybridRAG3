@@ -550,72 +550,81 @@ class QueryEngine:
         return bool(getattr(self, "allow_open_knowledge", False))
 
     def _build_relaxed_prompt(self, user_query: str, context: str) -> str:
-        """Prompt variant that prioritizes context but allows model reasoning."""
-        return (
-            "You are a precise technical assistant.\n"
-            "Use the provided context first. If context is missing or partial, "
-            "you may use general domain knowledge to provide a useful answer.\n"
-            "When you use knowledge not explicitly present in context, mark that "
-            "sentence with prefix: [General Knowledge].\n"
-            "Do not fabricate source citations. Keep output readable with short "
-            "paragraphs and bullets when useful.\n"
-            "\n"
-            "Context (may be empty/partial):\n"
-            f"{context}\n\n"
-            f"Question: {user_query}\n\n"
-            "Answer:"
-        )
+        return _qe_build_relaxed_prompt(user_query, context)
 
     def _query_open_knowledge(
         self, user_query: str, start_time: float, sources: Optional[list] = None
     ) -> QueryResult:
-        """Fallback query path when no useful retrieval evidence exists."""
-        prompt = self._build_relaxed_prompt(user_query, "")
-        llm_response = self.llm_router.query(prompt)
-        if not llm_response:
-            reason = (getattr(self.llm_router, "last_error", "") or "").strip()
-            answer_text = (
-                f"Error calling LLM: {reason}" if reason
-                else "Error calling LLM. Please try again."
-            )
-            return QueryResult(
-                answer=answer_text,
-                sources=sources or [],
-                chunks_used=0,
-                tokens_in=0,
-                tokens_out=0,
-                cost_usd=0.0,
-                latency_ms=(time.time() - start_time) * 1000,
-                mode=self.config.mode,
-                error="LLM call failed",
-            )
-        return QueryResult(
-            answer=llm_response.text,
-            sources=sources or [],
-            chunks_used=0,
-            tokens_in=llm_response.tokens_in,
-            tokens_out=llm_response.tokens_out,
-            cost_usd=self._calculate_cost(llm_response),
-            latency_ms=(time.time() - start_time) * 1000,
-            mode=self.config.mode,
-        )
+        return _qe_query_open_knowledge(self, user_query, start_time, sources)
 
     def _calculate_cost(self, llm_response: LLMResponse) -> float:
-        """
-        Calculate cost of LLM call (online only).
+        return _qe_calculate_cost(self, llm_response)
 
-        Offline mode cost is 0 because it runs locally on your machine.
-        Online mode cost is based on token counts and configured rates.
 
-        WHY PER-1K PRICING:
-            API providers charge per 1,000 tokens. A "token" is roughly
-            3/4 of a word. A typical query uses ~500 input tokens (prompt +
-            context) and ~200 output tokens (the answer), costing ~$0.002.
-        """
-        if self.config.mode == "offline":
-            return 0.0
+def _qe_build_relaxed_prompt(user_query: str, context: str) -> str:
+    """Prompt variant that prioritizes context but allows model reasoning."""
+    return (
+        "You are a precise technical assistant.\n"
+        "Use the provided context first. If context is missing or partial, "
+        "you may use general domain knowledge to provide a useful answer.\n"
+        "When you use knowledge not explicitly present in context, mark that "
+        "sentence with prefix: [General Knowledge].\n"
+        "Do not fabricate source citations. Keep output readable with short "
+        "paragraphs and bullets when useful.\n"
+        "\n"
+        "Context (may be empty/partial):\n"
+        f"{context}\n\n"
+        f"Question: {user_query}\n\n"
+        "Answer:"
+    )
 
-        # Input tokens = the prompt we sent; output tokens = the answer we got
-        input_cost = (llm_response.tokens_in / 1000) * self.config.cost.input_cost_per_1k
-        output_cost = (llm_response.tokens_out / 1000) * self.config.cost.output_cost_per_1k
-        return input_cost + output_cost
+
+def _qe_query_open_knowledge(
+    engine: QueryEngine,
+    user_query: str,
+    start_time: float,
+    sources: Optional[list] = None,
+) -> QueryResult:
+    """Fallback query path when no useful retrieval evidence exists."""
+    prompt = _qe_build_relaxed_prompt(user_query, "")
+    llm_response = engine.llm_router.query(prompt)
+    if not llm_response:
+        reason = (getattr(engine.llm_router, "last_error", "") or "").strip()
+        answer_text = (
+            f"Error calling LLM: {reason}" if reason
+            else "Error calling LLM. Please try again."
+        )
+        return QueryResult(
+            answer=answer_text,
+            sources=sources or [],
+            chunks_used=0,
+            tokens_in=0,
+            tokens_out=0,
+            cost_usd=0.0,
+            latency_ms=(time.time() - start_time) * 1000,
+            mode=engine.config.mode,
+            error="LLM call failed",
+        )
+    return QueryResult(
+        answer=llm_response.text,
+        sources=sources or [],
+        chunks_used=0,
+        tokens_in=llm_response.tokens_in,
+        tokens_out=llm_response.tokens_out,
+        cost_usd=_qe_calculate_cost(engine, llm_response),
+        latency_ms=(time.time() - start_time) * 1000,
+        mode=engine.config.mode,
+    )
+
+
+def _qe_calculate_cost(engine: QueryEngine, llm_response: LLMResponse) -> float:
+    """Calculate cost of LLM call (online only)."""
+    if engine.config.mode == "offline":
+        return 0.0
+    input_cost = (
+        llm_response.tokens_in / 1000
+    ) * engine.config.cost.input_cost_per_1k
+    output_cost = (
+        llm_response.tokens_out / 1000
+    ) * engine.config.cost.output_cost_per_1k
+    return input_cost + output_cost

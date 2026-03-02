@@ -67,6 +67,9 @@ security:
   audit_logging: true
   pii_sanitization: true
 setup_complete: true
+# RETIRED (Session 15): transformers_llm requires torch + HuggingFace (removed).
+# Use ollama section above for local LLM inference.
+# Kept for config schema compatibility -- TransformersRouter degrades gracefully.
 transformers_llm:
   device_map: auto
   enabled: false

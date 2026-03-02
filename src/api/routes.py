@@ -225,13 +225,15 @@ async def query(req: QueryRequest):
     except Exception as e:
         logger.debug("Cost event emit failed: %s", e)
 
-    # Return proper HTTP status when backend reports an error
+    # Degrade gracefully when backend query fails: keep endpoint usable
+    # and return a structured response with the error populated.
     if result.error:
-        logger.error("Query returned error: %s", result.error)
-        raise HTTPException(
-            status_code=502,
-            detail="Query execution failed",
-        )
+        logger.warning("Query returned error: %s", result.error)
+        if not result.answer:
+            result.answer = (
+                "Query backend unavailable right now. "
+                "Try again after verifying model/API connectivity."
+            )
 
     return QueryResponse(
         answer=result.answer,

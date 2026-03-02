@@ -118,10 +118,11 @@ class NLIVerifier:
                 return False
 
         try:
-            # sentence-transformers provides the CrossEncoder class.
-            # We import here (not at top of file) so the rest of the
-            # package works even if sentence-transformers isn't installed yet.
-            from sentence_transformers import CrossEncoder
+            # RETIRED (Session 15): sentence-transformers was removed.
+            # This import will fail, and the except block below handles it
+            # gracefully. NLI verifier is dormant until reimplemented
+            # with an Ollama-served model. Feature disabled by default.
+            from sentence_transformers import CrossEncoder  # RETIRED dep
 
             self.logger.info(
                 f"Loading NLI model: {self.config.nli_model_name}")
@@ -165,9 +166,8 @@ class NLIVerifier:
 
         except ImportError:
             self.logger.error(
-                "sentence-transformers not installed. "
-                "Run: pip install sentence-transformers "
-                "--break-system-packages"
+                "NLI verifier unavailable: sentence-transformers retired "
+                "(Session 15). Feature dormant until Ollama-based NLI is implemented."
             )
             return False
         except Exception as e:

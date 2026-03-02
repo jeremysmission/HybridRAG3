@@ -99,10 +99,18 @@ if ($pyCmd.Count -eq 0) {
     $pyInstaller = Get-ChildItem $installers -Filter "python*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
     Write-Fail "Python 3.10+ not found"
     if ($pyInstaller) {
-        Write-Warn "Run this installer, then rerun INSTALL.bat:"
+        Write-Warn "Python installer found in bundle:"
         Write-Host "  $($pyInstaller.FullName)"
+        $runPy = Read-Host "Run Python installer now? [Y/n]"
+        if ($runPy -ne "n" -and $runPy -ne "N") {
+            Start-Process -FilePath $pyInstaller.FullName -Wait
+            $pyCmd = Resolve-Python
+        }
     }
-    exit 3
+    if ($pyCmd.Count -eq 0) {
+        Write-Fail "Python still not available. Install Python, then rerun INSTALL.bat."
+        exit 3
+    }
 }
 
 Write-Info "Creating virtual environment..."
@@ -152,6 +160,34 @@ if (Test-Path $ollamaSrc) {
     New-Item -ItemType Directory -Path $ollamaDst -Force | Out-Null
     Copy-Tree -Source $ollamaSrc -Dest $ollamaDst
     Write-Ok "Restored Ollama models"
+}
+
+# Install Ollama if missing and installer is bundled.
+$ollamaOk = $false
+try {
+    & ollama --version *> $null
+    if ($LASTEXITCODE -eq 0) { $ollamaOk = $true }
+} catch {}
+if (-not $ollamaOk) {
+    $ollamaInstaller = Get-ChildItem $installers -Filter "OllamaSetup*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($ollamaInstaller) {
+        Write-Warn "Ollama is not installed."
+        Write-Host "  Bundled installer: $($ollamaInstaller.FullName)"
+        $runOllama = Read-Host "Run Ollama installer now? [Y/n]"
+        if ($runOllama -ne "n" -and $runOllama -ne "N") {
+            Start-Process -FilePath $ollamaInstaller.FullName -Wait
+            try {
+                & ollama --version *> $null
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Ok "Ollama installed"
+                    $ollamaOk = $true
+                }
+            } catch {}
+        }
+    }
+}
+if (-not $ollamaOk) {
+    Write-Warn "Ollama is not available. Offline query/index features will not work until Ollama is installed."
 }
 
 Write-Host ""

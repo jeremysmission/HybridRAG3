@@ -360,13 +360,12 @@ HELP_SECURITY = """\
 SECURITY OVERVIEW
 =================
 
-NETWORK LOCKDOWN (3 layers):
-  Layer 1: PowerShell env vars (HF_HUB_OFFLINE=1, TRANSFORMERS_OFFLINE=1)
-  Layer 2: Python env vars checked at import time
-  Layer 3: NetworkGate (fail-closed, audits every outbound connection)
+NETWORK LOCKDOWN (2 layers):
+  Layer 1: Ollama binds localhost only (127.0.0.1:11434)
+  Layer 2: NetworkGate (fail-closed, audits every outbound connection)
 
 OFFLINE MODE: Only localhost:11434 (Ollama) reachable. Nothing else.
-ONLINE MODE: Localhost + configured API endpoint only. HuggingFace still blocked.
+ONLINE MODE: Localhost + configured API endpoint only. All other traffic blocked.
 
 CREDENTIALS:
   Stored in Windows Credential Manager (DPAPI encrypted).

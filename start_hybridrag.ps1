@@ -203,16 +203,9 @@ Write-Host "Python verification:" -ForegroundColor Cyan
 python -c "import sys; print('Python exe:', sys.executable); print('Python version:', sys.version.split()[0])"
 
 # ---- 6) NETWORK LOCKDOWN ---------------------------------------------------
-$env:HF_HUB_OFFLINE = "1"
-$env:TRANSFORMERS_OFFLINE = "1"
-$env:HF_HUB_DISABLE_TELEMETRY = "1"
-$env:HF_HUB_DISABLE_PROGRESS_BARS = "1"
-$env:HF_HUB_DISABLE_IMPLICIT_TOKEN = "1"
-$env:HF_HUB_DISABLE_SYMLINKS_WARNING = "1"
+# RETIRED (Session 15, 2026-02-24): HuggingFace/torch/sentence-transformers
+# env vars removed. Embeddings now served by Ollama (nomic-embed-text).
 $env:NO_PROXY = "localhost,127.0.0.1"
-$env:SENTENCE_TRANSFORMERS_HOME = "$PROJECT_ROOT\.model_cache"
-$env:HF_HOME = "$PROJECT_ROOT\.hf_cache"
-$env:TORCH_HOME = "$PROJECT_ROOT\.torch_cache"
 # Start unlocked so app/CLI mode controls (offline/online) can work.
 # Use rag-mode-offline or GUI OFFLINE toggle to force local-only runtime.
 $env:HYBRIDRAG_NETWORK_KILL_SWITCH = "0"
@@ -220,11 +213,8 @@ $env:HYBRIDRAG_OFFLINE = "0"
 
 Write-Host ""
 Write-Host "Network lockdown:" -ForegroundColor Yellow
-Write-Host "  HF_HUB_OFFLINE           = $env:HF_HUB_OFFLINE (blocked)"
-Write-Host "  TRANSFORMERS_OFFLINE      = $env:TRANSFORMERS_OFFLINE (blocked)"
-Write-Host "  HF_HUB_DISABLE_TELEMETRY = $env:HF_HUB_DISABLE_TELEMETRY (blocked)"
+Write-Host "  NO_PROXY                  = $env:NO_PROXY"
 Write-Host "  NETWORK_KILL_SWITCH       = $env:HYBRIDRAG_NETWORK_KILL_SWITCH"
-Write-Host "  Model cache: $env:SENTENCE_TRANSFORMERS_HOME"
 
 # ---- 7) SET HYBRIDRAG ENVIRONMENT VARIABLES --------------------------------
 $env:HYBRIDRAG_DATA_DIR     = $DATA_DIR
@@ -242,12 +232,7 @@ if (-not (Test-Path $DATA_DIR)) {
 if (-not (Test-Path "$PROJECT_ROOT\.model_cache")) {
     New-Item -ItemType Directory -Path "$PROJECT_ROOT\.model_cache" -Force | Out-Null
 }
-if (-not (Test-Path "$PROJECT_ROOT\.hf_cache")) {
-    New-Item -ItemType Directory -Path "$PROJECT_ROOT\.hf_cache" -Force | Out-Null
-}
-if (-not (Test-Path "$PROJECT_ROOT\.torch_cache")) {
-    New-Item -ItemType Directory -Path "$PROJECT_ROOT\.torch_cache" -Force | Out-Null
-}
+# RETIRED: .hf_cache, .torch_cache directories no longer needed (Session 15)
 
 # ---- 9) PRINT CONFIGURED PATHS ---------------------------------------------
 Write-Host ""

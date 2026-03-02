@@ -3,6 +3,10 @@
 # Updated: 2026-03-01
 # Changelog: 2026-03-01 -- Added pdf2image, pytesseract, colorama (were installed but missing from list)
 #                          Moved faiss-cpu to commented BLUE section (not installed, future phase)
+#                          Added Tesseract OCR + Poppler system binaries* (required for OCR pipeline)
+#                          Added 9 parser deps* (YELLOW: applying for approval) -- enables .doc, .msg,
+#                          .dxf, .evtx, .pcap, .psd, .rtf, .stl, .vsdx parsing
+#                          Fixed indexer supported_extensions allowlist (was missing 35+ formats)
 # Changelog: 2026-02-24 -- Added pytest, psutil; cross-referenced against waiver_cheat_sheet_v4b
 # Pin policy: Exact versions from waiver cheat sheet v4b
 # openai PINNED to 1.109.1 -- never upgrade to 2.x (breaking API changes)
@@ -54,6 +58,20 @@ pillow==12.1.0                 # HPND -- Image processing
 pdf2image==1.17.0              # MIT -- PDF to image conversion (OCR pipeline)
 pytesseract==0.3.13            # Apache 2.0 -- OCR bridge for scanned PDFs
 
+# -- OCR System Binaries (NOT pip -- separate install required) ---------------
+# * These are standalone executables that the Python wrappers above call.
+#   They must be installed via system installer, software store, or scoop.
+#   Added 2026-03-01 -- required for scanned PDF and image OCR pipeline.
+# Tesseract OCR 5.x             # Apache 2.0 -- Google-maintained OCR engine (APPROVED*)
+#   Publisher: Google / tesseract-ocr (github.com/tesseract-ocr/tesseract)
+#   Install: software store "Tesseract OCR" or UB-Mannheim Windows builds
+#   Pinned: pytesseract==0.3.13 (Python wrapper already approved above)
+# Poppler 26.x                  # GPL-2.0 -- PDF rendering library (APPLYING*)
+#   Publisher: freedesktop.org (poppler.freedesktop.org)
+#   Install: software store "poppler-utils" or scoop install poppler
+#   Note: GPL-2.0 -- used as standalone tool only (no linking), same engine as Chrome/LibreOffice
+#   Pinned: pdf2image==1.17.0 (Python wrapper already approved above)
+
 # -- HTTP / Networking ------------------------------------------------------
 httpx==0.28.1                  # BSD-3 -- Async HTTP client (openai SDK dep + embedder)
 requests==2.32.5               # Apache 2.0 -- HTTP client (pip dep, likely pre-installed)
@@ -89,3 +107,26 @@ rich==13.9.4                   # MIT -- Terminal formatting (display-only)
 tqdm==4.67.3                   # MIT -- Progress bars (display-only)
 regex==2026.1.15               # Apache 2.0 -- Enhanced regex (text processing)
 colorama==0.4.6                # BSD-3 -- Console color output (Windows terminal support)
+
+# -- Extended Parser Dependencies (YELLOW*: applying for approval 2026-03-01) --
+# These enable the specialty parsers in src/parsers/. Without them, files with
+# these extensions silently return empty text and are skipped as "no text extracted."
+# All licenses are permissive (MIT, BSD, Apache 2.0). No GPL. No China-origin.
+olefile==0.47                  # BSD -- Legacy Office binary format reader (.doc, .msg)
+ezdxf==1.4.3                   # MIT -- AutoCAD DXF reader/writer (engineering drawings)
+python-evtx==0.8.1             # Apache 2.0 -- Windows Event Log parser (.evtx, sys admin)
+python-oxmsg==0.0.2            # MIT -- Outlook .msg email reader (by python-docx author)
+dpkt==1.9.8                    # BSD -- Network packet capture parser (.pcap, cybersecurity)
+psd-tools==1.13.1              # MIT -- Photoshop .psd file reader
+striprtf==0.0.29               # BSD-3 -- Rich Text Format parser (.rtf documents)
+numpy-stl==3.2.0               # BSD -- STL 3D mesh parser (engineering/manufacturing)
+vsdx==0.6.1                    # BSD-3 -- Visio .vsdx diagram parser (engineering/logistics)
+# Transitive deps (pulled by packages above):
+pyparsing==3.3.2               # MIT -- ezdxf dep
+fonttools==4.61.1              # MIT -- ezdxf dep
+hexdump==3.3                   # MIT -- python-evtx dep
+attrs==25.4.0                  # MIT -- psd-tools dep
+python-utils==3.9.1            # BSD-3 -- numpy-stl dep
+Jinja2==3.1.6                  # BSD-3 -- vsdx dep
+MarkupSafe==3.0.3              # BSD-3 -- Jinja2 dep
+deprecation==2.1.0             # Apache 2.0 -- vsdx dep

@@ -193,15 +193,45 @@ if ($IncludeVenvSnapshot -and (Test-Path (Join-Path $projectRoot ".venv"))) {
 }
 
 Write-Info "Copying optional installers if present..."
-$installerCandidates = @(
-    @{ Name = "python-installer"; Src = (Join-Path $projectRoot "USB Installer Research\python-3.11.9-amd64.exe") },
-    @{ Name = "ollama-installer"; Src = (Join-Path $projectRoot "USB Installer Research\OllamaSetup.exe") }
+$pythonCandidates = @(
+    (Join-Path $projectRoot "installers\python-3.12*.exe"),
+    (Join-Path $projectRoot "installers\python-3.11*.exe"),
+    (Join-Path $projectRoot "tools\installers\python-3.12*.exe"),
+    (Join-Path $projectRoot "tools\installers\python-3.11*.exe"),
+    (Join-Path $projectRoot "USB Installer Research\python-3.11.9-amd64.exe")
 )
-foreach ($ic in $installerCandidates) {
-    if (Test-Path $ic.Src) {
-        Copy-Item $ic.Src (Join-Path $installersDir ([System.IO.Path]::GetFileName($ic.Src))) -Force
-        Write-Ok "Copied installer: $($ic.Name)"
+$ollamaCandidates = @(
+    (Join-Path $projectRoot "installers\OllamaSetup*.exe"),
+    (Join-Path $projectRoot "tools\installers\OllamaSetup*.exe"),
+    (Join-Path $projectRoot "USB Installer Research\OllamaSetup.exe")
+)
+
+$foundPython = $false
+foreach ($pat in $pythonCandidates) {
+    $hit = Get-ChildItem -Path $pat -File -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($hit) {
+        Copy-Item $hit.FullName (Join-Path $installersDir $hit.Name) -Force
+        Write-Ok "Copied installer: python ($($hit.Name))"
+        $foundPython = $true
+        break
     }
+}
+if (-not $foundPython) {
+    Write-Warn "Python installer not found in installers/ or tools/installers/. Target machine must already have Python 3.10+."
+}
+
+$foundOllama = $false
+foreach ($pat in $ollamaCandidates) {
+    $hit = Get-ChildItem -Path $pat -File -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($hit) {
+        Copy-Item $hit.FullName (Join-Path $installersDir $hit.Name) -Force
+        Write-Ok "Copied installer: ollama ($($hit.Name))"
+        $foundOllama = $true
+        break
+    }
+}
+if (-not $foundOllama) {
+    Write-Warn "Ollama installer not found in installers/ or tools/installers/. Target machine must already have Ollama."
 }
 
 Save-Manifest -Root $output

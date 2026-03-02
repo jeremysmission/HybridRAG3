@@ -64,11 +64,26 @@ try {
 
 Write-Status 'INFO' 'Installing Python dependencies...'
 
+# RETIRED (Session 15): sentence-transformers removed. Embeddings via Ollama.
+# Updated 2026-03-01: Added all parser deps, OCR wrappers, and document parsers.
 $pipPackages = @(
-    'sentence-transformers',
     'numpy',
     'keyring',
-    'httpx'
+    'httpx',
+    'openai',
+    'pdfplumber',
+    'pytesseract',
+    'pdf2image',
+    'pillow',
+    'olefile',
+    'ezdxf',
+    'python-evtx',
+    'python-oxmsg',
+    'dpkt',
+    'psd-tools',
+    'striprtf',
+    'numpy-stl',
+    'vsdx'
 )
 
 foreach ($pkg in $pipPackages) {

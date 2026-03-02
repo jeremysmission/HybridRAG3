@@ -131,7 +131,10 @@ async def lifespan(app: FastAPI):
     state.vector_store.connect()
 
     logger.info("[OK] Loading embedding model...")
-    state.embedder = Embedder(state.config.embedding.model_name)
+    state.embedder = Embedder(
+        state.config.embedding.model_name,
+        dimension=state.config.embedding.dimension,
+    )
 
     logger.info("[OK] Initializing LLM router...")
     state.llm_router = LLMRouter(state.config)

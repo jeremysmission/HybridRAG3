@@ -696,16 +696,19 @@ class VLLMRouter:
 # --- SECTION 3B: TRANSFORMERS ROUTER (DIRECT GPU, NO SERVER) ---------------
 
 # ============================================================================
-# TransformersRouter -- Loads model directly via HuggingFace transformers
+# TransformersRouter -- RETIRED (Session 15, 2026-02-24)
 # ============================================================================
 #
-# No Ollama, no vLLM, no server. The model loads once into GPU memory
-# at startup and stays there. Queries go straight to the GPU via Python.
+# STATUS: DORMANT. Requires torch + HuggingFace transformers, which were
+# retired in Session 15 (embeddings moved to Ollama nomic-embed-text).
+# This class remains for forward compatibility -- if torch/transformers
+# are ever re-approved, this code path works without changes.
+# Config: transformers_llm.enabled = false (default_config.yaml).
+# Degrades gracefully: ImportError caught, logged, router marked unavailable.
 #
-# Uses 4-bit quantization (bitsandbytes) to fit 14B parameter models
-# into 12GB VRAM. Requires: transformers, torch, accelerate, bitsandbytes.
-#
-# INTERNET ACCESS: NONE after initial model download
+# Original purpose: Load HuggingFace model directly into GPU memory.
+# Uses 4-bit quantization (bitsandbytes) to fit 14B models in 12GB VRAM.
+# Requires: transformers, torch, accelerate, bitsandbytes (all retired).
 # ============================================================================
 class TransformersRouter:
     """Route queries to a locally loaded HuggingFace transformers model."""
@@ -1137,149 +1140,16 @@ class APIRouter:
             self._init_http_fallback_client()
 
     def _init_http_fallback_client(self):
-        """Initialize internal HTTP client fallback when SDK path is unavailable."""
-        try:
-            from src.core.api_client_factory import ApiClientFactory
-            from src.security.credentials import ApiCredentials
-
-            config_dict = (
-                self.config.to_dict()
-                if hasattr(self.config, "to_dict")
-                else {
-                    "api": {
-                        "provider": "azure" if self.is_azure else "openai",
-                        "endpoint": self.base_endpoint,
-                        "deployment": self.deployment,
-                        "api_version": self.api_version,
-                        "model": getattr(self.config.api, "model", ""),
-                    }
-                }
-            )
-            factory = ApiClientFactory(config_dict)
-            creds = ApiCredentials(
-                api_key=self.api_key,
-                endpoint=self.base_endpoint,
-                deployment=self.deployment,
-                api_version=self.api_version,
-                provider=("azure" if self.is_azure else "openai"),
-            )
-            self.http_api_client = factory.build(creds)
-            self.logger.info(
-                "api_router_http_fallback_ready",
-                provider=("azure" if self.is_azure else "openai"),
-            )
-        except Exception as e:
-            self.http_api_client = None
-            self._init_error = str(e)
-            self.logger.error("api_router_http_fallback_init_failed", error=str(e))
+        _api_init_http_fallback_client(self)
 
     def _reinit_sdk_client(self):
-        """Best-effort SDK client re-init using current resolved fields."""
-        try:
-            from openai import AzureOpenAI, OpenAI
-            if self.is_azure:
-                clean_endpoint = self._extract_azure_base(self.base_endpoint)
-                self.client = AzureOpenAI(
-                    azure_endpoint=clean_endpoint,
-                    api_key=self.api_key,
-                    api_version=self.api_version,
-                    http_client=_build_httpx_client(
-                        timeout=getattr(self.config.api, "timeout_seconds", 60),
-                    ),
-                )
-            else:
-                client_kwargs = {"api_key": self.api_key}
-                if self.base_endpoint and "openai.com" not in self.base_endpoint:
-                    client_kwargs["base_url"] = self.base_endpoint
-                self.client = OpenAI(**client_kwargs)
-            self._init_error = ""
-        except Exception as e:
-            self.client = None
-            self._init_error = str(e)
-            self.logger.warning("api_router_sdk_reinit_failed", error=str(e))
+        _api_reinit_sdk_client(self)
 
     def _attempt_late_init(self):
-        """
-        Last-chance API client initialization at query time.
-
-        Used when GUI mode switches or credential updates happen after router
-        creation and initial client init left both SDK and fallback clients
-        unavailable.
-        """
-        if self.client is not None or self.http_api_client is not None:
-            return
-        try:
-            from src.security.credentials import resolve_credentials
-            creds = resolve_credentials(use_cache=False)
-            if getattr(creds, "api_key", ""):
-                self.api_key = creds.api_key
-            if getattr(creds, "endpoint", ""):
-                self.base_endpoint = creds.endpoint.rstrip("/")
-            if getattr(creds, "deployment", ""):
-                self.deployment = creds.deployment
-            if getattr(creds, "api_version", ""):
-                self.api_version = creds.api_version
-
-            # Refresh provider detection from latest endpoint/provider.
-            provider = (getattr(creds, "provider", "") or self.provider or "").lower()
-            if provider in ("azure", "azure_gov"):
-                self.is_azure = True
-                self.provider = provider
-            elif provider == "openai":
-                self.is_azure = False
-                self.provider = provider
-            else:
-                low = (self.base_endpoint or "").lower()
-                self.is_azure = ("azure" in low or "aoai" in low)
-
-            # Retry SDK init, then HTTP fallback as secondary.
-            self._reinit_sdk_client()
-            self._init_http_fallback_client()
-        except Exception as e:
-            self.logger.warning("api_router_late_init_failed", error=str(e))
+        _api_attempt_late_init(self)
 
     def _extract_azure_base(self, url: str) -> str:
-        """
-        Extract just the base domain from an Azure endpoint URL.
-
-        WHY THIS EXISTS:
-            Users might store different URL formats:
-              - Just the base: https://company.openai.azure.com
-              - With deployment path: https://company.openai.azure.com/openai/deployments/...
-              - Full URL with query: ...chat/completions?api-version=2024-02-02
-
-            The AzureOpenAI SDK needs ONLY the base domain. If we pass the
-            full URL, the SDK will append /openai/deployments/... AGAIN,
-            causing the URL doubling that gave us 404 errors before.
-
-            This method strips everything after the domain, no matter what
-            format the user stored.
-
-        Examples:
-            Input:  https://company.openai.azure.com/openai/deployments/gpt-35-turbo/chat/completions
-            Output: https://company.openai.azure.com
-
-            Input:  https://company.openai.azure.com
-            Output: https://company.openai.azure.com  (unchanged)
-        """
-        # Find the position right after the domain
-        # Look for /openai/ which is where the Azure path starts
-        idx = url.lower().find("/openai/")
-        if idx > 0:
-            return url[:idx]
-
-        # Look for /chat/ in case the URL starts mid-path
-        idx = url.lower().find("/chat/")
-        if idx > 0:
-            return url[:idx]
-
-        # If there's a query string, strip it
-        idx = url.find("?")
-        if idx > 0:
-            return url[:idx]
-
-        # Already a clean base URL
-        return url
+        return _api_extract_azure_base(url)
 
     def query(self, prompt: str) -> Optional[LLMResponse]:
         """
@@ -1489,26 +1359,139 @@ class APIRouter:
             return None
 
     def get_status(self) -> Dict[str, Any]:
-        """
-        Return current API router status for diagnostics.
+        return _api_get_status(self)
 
-        Used by: rag-cred-status, rag-test-api, rag-status
-        """
-        detected_provider = self.provider if self.provider else (
-            "azure_openai" if self.is_azure else "openai"
+
+def _api_init_http_fallback_client(router: "APIRouter") -> None:
+    """Initialize internal HTTP client fallback when SDK path is unavailable."""
+    try:
+        from src.core.api_client_factory import ApiClientFactory
+        from src.security.credentials import ApiCredentials
+
+        config_dict = (
+            router.config.to_dict()
+            if hasattr(router.config, "to_dict")
+            else {
+                "api": {
+                    "provider": "azure" if router.is_azure else "openai",
+                    "endpoint": router.base_endpoint,
+                    "deployment": router.deployment,
+                    "api_version": router.api_version,
+                    "model": getattr(router.config.api, "model", ""),
+                }
+            }
         )
-        status = {
-            "provider": detected_provider,
-            "endpoint": self.base_endpoint,
-            "api_configured": (self.client is not None or self.http_api_client is not None),
-            "sdk_available": _openai_sdk_available(),
-            "sdk": "openai_official" if self.client is not None else "http_fallback",
-        }
-        if self.is_azure:
-            status["deployment"] = self.deployment
-            status["api_version"] = self.api_version
-            status["clean_endpoint"] = self._extract_azure_base(self.base_endpoint)
-        return status
+        factory = ApiClientFactory(config_dict)
+        creds = ApiCredentials(
+            api_key=router.api_key,
+            endpoint=router.base_endpoint,
+            deployment=router.deployment,
+            api_version=router.api_version,
+            provider=("azure" if router.is_azure else "openai"),
+        )
+        router.http_api_client = factory.build(creds)
+        router.logger.info(
+            "api_router_http_fallback_ready",
+            provider=("azure" if router.is_azure else "openai"),
+        )
+    except Exception as e:
+        router.http_api_client = None
+        router._init_error = str(e)
+        router.logger.error("api_router_http_fallback_init_failed", error=str(e))
+
+
+def _api_reinit_sdk_client(router: "APIRouter") -> None:
+    """Best-effort SDK client re-init using current resolved fields."""
+    try:
+        from openai import AzureOpenAI, OpenAI
+        if router.is_azure:
+            clean_endpoint = _api_extract_azure_base(router.base_endpoint)
+            router.client = AzureOpenAI(
+                azure_endpoint=clean_endpoint,
+                api_key=router.api_key,
+                api_version=router.api_version,
+                http_client=_build_httpx_client(
+                    timeout=getattr(router.config.api, "timeout_seconds", 60),
+                ),
+            )
+        else:
+            client_kwargs = {"api_key": router.api_key}
+            if router.base_endpoint and "openai.com" not in router.base_endpoint:
+                client_kwargs["base_url"] = router.base_endpoint
+            router.client = OpenAI(**client_kwargs)
+        router._init_error = ""
+    except Exception as e:
+        router.client = None
+        router._init_error = str(e)
+        router.logger.warning("api_router_sdk_reinit_failed", error=str(e))
+
+
+def _api_attempt_late_init(router: "APIRouter") -> None:
+    """Last-chance API client initialization at query time."""
+    if router.client is not None or router.http_api_client is not None:
+        return
+    try:
+        from src.security.credentials import resolve_credentials
+        creds = resolve_credentials(use_cache=False)
+        if getattr(creds, "api_key", ""):
+            router.api_key = creds.api_key
+        if getattr(creds, "endpoint", ""):
+            router.base_endpoint = creds.endpoint.rstrip("/")
+        if getattr(creds, "deployment", ""):
+            router.deployment = creds.deployment
+        if getattr(creds, "api_version", ""):
+            router.api_version = creds.api_version
+
+        provider = (getattr(creds, "provider", "") or router.provider or "").lower()
+        if provider in ("azure", "azure_gov"):
+            router.is_azure = True
+            router.provider = provider
+        elif provider == "openai":
+            router.is_azure = False
+            router.provider = provider
+        else:
+            low = (router.base_endpoint or "").lower()
+            router.is_azure = ("azure" in low or "aoai" in low)
+
+        _api_reinit_sdk_client(router)
+        _api_init_http_fallback_client(router)
+    except Exception as e:
+        router.logger.warning("api_router_late_init_failed", error=str(e))
+
+
+def _api_extract_azure_base(url: str) -> str:
+    """Extract just the base domain from an Azure endpoint URL."""
+    idx = url.lower().find("/openai/")
+    if idx > 0:
+        return url[:idx]
+    idx = url.lower().find("/chat/")
+    if idx > 0:
+        return url[:idx]
+    idx = url.find("?")
+    if idx > 0:
+        return url[:idx]
+    return url
+
+
+def _api_get_status(router: "APIRouter") -> Dict[str, Any]:
+    """Return current API router status for diagnostics."""
+    detected_provider = router.provider if router.provider else (
+        "azure_openai" if router.is_azure else "openai"
+    )
+    status = {
+        "provider": detected_provider,
+        "endpoint": router.base_endpoint,
+        "api_configured": (
+            router.client is not None or router.http_api_client is not None
+        ),
+        "sdk_available": _openai_sdk_available(),
+        "sdk": "openai_official" if router.client is not None else "http_fallback",
+    }
+    if router.is_azure:
+        status["deployment"] = router.deployment
+        status["api_version"] = router.api_version
+        status["clean_endpoint"] = _api_extract_azure_base(router.base_endpoint)
+    return status
 
 
 # --- SECTION 5: DEPLOYMENT DISCOVERY (MODEL LISTING) ----------------------
@@ -2061,6 +2044,13 @@ class LLMRouter:
         Get the current status of all LLM backends.
         Used by rag-cred-status, rag-test-api, and diagnostics.
         """
+        api_present = (
+            self.api is not None
+            and (
+                getattr(self.api, "client", None) is not None
+                or getattr(self.api, "http_api_client", None) is not None
+            )
+        )
         status = {
             "mode": self.config.mode,
             "ollama_model": self.config.ollama.model,
@@ -2071,13 +2061,10 @@ class LLMRouter:
             "transformers_available": (
                 self.transformers_rt.is_available() if self.transformers_rt else False
             ),
-            "api_configured": (
-                self.api is not None
-                and (
-                    getattr(self.api, "client", None) is not None
-                    or getattr(self.api, "http_api_client", None) is not None
-                )
-            ),
+            # Mode-aware: in offline mode API is not considered "configured"
+            # for active routing, even if credentials are present.
+            "api_configured": (self.config.mode == "online" and api_present),
+            "api_present": api_present,
             "sdk_available": _openai_sdk_available(),
         }
 

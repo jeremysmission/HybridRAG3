@@ -170,29 +170,20 @@ HYPOTHESIS_DEFS: List[Dict[str, Any]] = [
     },
     {
         "fault_id": "FAULT-ENV-003",
-        "title": "Model cache incomplete or corrupted",
+        "title": "Ollama model missing or not pulled",
         "description": (
-            "The embedding model or reranker model files are missing "
-            "from the project cache folders. HuggingFace offline mode "
-            "prevents re-downloading them, so loading fails silently."
+            "An Ollama model required by the current profile is not "
+            "installed. Run 'ollama list' to see which models are "
+            "available and 'ollama pull <model>' to download missing ones."
         ),
         "subsystem": "Environment",
         "severity": "HIGH",
         "next_step": (
-            "Check model cache folders for expected files. If missing, "
-            "temporarily disable offline mode and re-cache models."
+            "Run 'ollama list' to see installed models. Required: "
+            "nomic-embed-text (embeddings) plus at least one LLM "
+            "(phi4-mini, mistral:7b, phi4:14b-q4_K_M, etc.)."
         ),
-        "next_step_cmd": (
-            'python -c "'
-            "import os; "
-            "mc = os.environ.get('SENTENCE_TRANSFORMERS_HOME', '?'); "
-            "hf = os.environ.get('HF_HOME', '?'); "
-            "print(f'Model cache: {mc}'); "
-            "print(f'HF cache: {hf}'); "
-            "[print(f'  {d}: {len(list(os.scandir(d)))} items') "
-            "for d in [mc, hf] if os.path.isdir(d)]"
-            '"'
-        ),
+        "next_step_cmd": "ollama list",
     },
     # ---- Database ----
     {
@@ -243,17 +234,18 @@ HYPOTHESIS_DEFS: List[Dict[str, Any]] = [
         "fault_id": "FAULT-EMB-001",
         "title": "Embedding model fails to load",
         "description": (
-            "The sentence-transformers embedding model can't be loaded. "
-            "This is usually caused by: missing cache files, HuggingFace "
-            "offline mode blocking a required download, or a version "
-            "mismatch between sentence-transformers and the cached model."
+            "The Ollama embedding model (nomic-embed-text) cannot be reached. "
+            "This is usually caused by: Ollama not running (ollama serve), "
+            "the model not pulled (ollama pull nomic-embed-text), or a "
+            "network/firewall blocking localhost:11434."
         ),
         "subsystem": "Embedding",
         "severity": "CRITICAL",
         "next_step": (
-            "Test loading the embedding model directly. If it fails, "
-            "check that offline mode isn't blocking a required file "
-            "and that the model cache has all expected files."
+            "Verify Ollama is running: ollama list. If nomic-embed-text "
+            "is not listed, pull it: ollama pull nomic-embed-text. "
+            "Then test: python -c \"from src.core.embedder import Embedder; "
+            "print(Embedder().dimension)\""
         ),
         "next_step_cmd": "rag-diag --test-embed",
     },
@@ -394,18 +386,18 @@ HYPOTHESIS_DEFS: List[Dict[str, Any]] = [
     # ---- Security ----
     {
         "fault_id": "FAULT-SEC-001",
-        "title": "Network lockdown preventing model loading",
+        "title": "Ollama models not pulled on new machine",
         "description": (
-            "HF_HUB_OFFLINE=1 is blocking HuggingFace connections, "
-            "but the model cache is incomplete. The system needs "
-            "network access once to cache models, then can go offline. "
-            "This is the most common first-run failure on new machines."
+            "Ollama models must be pulled once (ollama pull <model>) "
+            "before the system can operate offline. This is the most "
+            "common first-run failure on new machines."
         ),
         "subsystem": "Security",
         "severity": "HIGH",
         "next_step": (
-            "Temporarily disable offline mode, cache all models, "
-            "then re-enable. This only needs to happen once per machine."
+            "Pull required models: ollama pull nomic-embed-text, "
+            "ollama pull phi4-mini (or your configured LLM model). "
+            "This only needs to happen once per machine."
         ),
         "next_step_cmd": (
             'ollama pull nomic-embed-text; '

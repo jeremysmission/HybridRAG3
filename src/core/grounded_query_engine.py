@@ -537,29 +537,7 @@ class GroundedQueryEngine(QueryEngine):
 
     @staticmethod
     def _fallback_score(claims, source_texts, threshold):
-        """Lightweight claim-vs-source scoring when NLI model is not loaded.
-
-        Counts how many extracted claims have a substring match in any
-        source chunk.  This is less accurate than NLI but prevents the
-        guard from blocking everything when the heavy model is absent.
-        """
-        if not claims:
-            return 1.0, {"method": "fallback_no_claims"}
-        joined = " ".join(source_texts).lower()
-        supported = 0
-        for c in claims:
-            text = c.get("text", "") if isinstance(c, dict) else str(c)
-            # Grab first 60 chars of claim as search key
-            key = text[:60].strip().lower()
-            if key and key in joined:
-                supported += 1
-        total = len(claims)
-        score = supported / total if total > 0 else 0.0
-        return score, {
-            "method": "fallback_substring",
-            "total_claims": total,
-            "supported": supported,
-        }
+        return _gqe_fallback_score(claims, source_texts, threshold)
 
     def _no_evidence_result(self, start_time: float) -> GroundedQueryResult:
         """Return result when no search results found."""
@@ -596,3 +574,23 @@ class GroundedQueryEngine(QueryEngine):
                 "min_required": self.guard_min_chunks,
             },
         )
+
+
+def _gqe_fallback_score(claims, source_texts, threshold):
+    """Lightweight claim-vs-source scoring when NLI model is not loaded."""
+    if not claims:
+        return 1.0, {"method": "fallback_no_claims"}
+    joined = " ".join(source_texts).lower()
+    supported = 0
+    for c in claims:
+        text = c.get("text", "") if isinstance(c, dict) else str(c)
+        key = text[:60].strip().lower()
+        if key and key in joined:
+            supported += 1
+    total = len(claims)
+    score = supported / total if total > 0 else 0.0
+    return score, {
+        "method": "fallback_substring",
+        "total_claims": total,
+        "supported": supported,
+    }

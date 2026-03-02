@@ -211,9 +211,9 @@ pip install python-docx==1.2.0 python-pptx==1.0.2 --trusted-host pypi.org --trus
 pip install openpyxl==3.1.5 xlsxwriter==3.2.9 et_xmlfile==2.0.0 --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120 --retries 3
 ```
 
-**Group 7K -- XML and images:**
+**Group 7K -- XML, images, and OCR bridge:**
 ```powershell
-pip install lxml==6.0.2 pillow==12.1.0 --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120 --retries 3
+pip install lxml==6.0.2 pillow==12.1.0 pdf2image==1.17.0 pytesseract==0.3.13 --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120 --retries 3
 ```
 
 **Group 7L -- Web framework:**
@@ -231,22 +231,17 @@ pip install uvicorn==0.41.0 click==8.3.1 --trusted-host pypi.org --trusted-host 
 pip install keyring==23.13.1 jaraco.classes==3.4.0 more-itertools==10.8.0 --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120 --retries 3
 ```
 
-**Group 7O -- Vector search:**
+**Group 7O -- Utilities:**
 ```powershell
-pip install faiss-cpu==1.9.0 --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120 --retries 3
+pip install structlog==24.4.0 rich==13.9.4 tqdm==4.67.3 regex==2026.1.15 colorama==0.4.6 --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120 --retries 3
 ```
 
-**Group 7P -- Utilities:**
-```powershell
-pip install structlog==24.4.0 rich==13.9.4 tqdm==4.67.3 regex==2026.1.15 --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120 --retries 3
-```
-
-**Group 7Q -- AI core (install last, no-deps to avoid conflicts):**
+**Group 7P -- AI core (install last, no-deps to avoid conflicts):**
 ```powershell
 pip install openai==1.109.1 tiktoken==0.8.0 --no-deps --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120 --retries 3
 ```
 
-**Group 7R -- Final dependency check (catches anything the groups missed):**
+**Group 7Q -- Final dependency check (catches anything the groups missed):**
 ```powershell
 pip install -r requirements_approved.txt --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120 --retries 3
 ```

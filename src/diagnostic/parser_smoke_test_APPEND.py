@@ -33,8 +33,7 @@ def test_parser_smoke() -> TestResult:
         ("PPTX (python-pptx)",  "pptx",                  "python-pptx"),
         ("XLSX (openpyxl)",     "openpyxl",              "openpyxl"),
         ("HTTP (httpx)",        "httpx",                  "httpx"),
-        ("ML (transformers)",   "transformers",           "transformers"),
-        ("ML (sentence_transformers)", "sentence_transformers", "sentence-transformers"),
+        # RETIRED (Session 15): transformers, sentence_transformers removed
         ("Config (yaml)",       "yaml",                   "PyYAML"),
         ("Logging (structlog)", "structlog",              "structlog"),
         ("Images (PIL)",        "PIL",                    "pillow"),

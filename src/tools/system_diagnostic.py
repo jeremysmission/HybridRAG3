@@ -256,13 +256,13 @@ def run_security_audit():
     print("=" * 60)
     results = []
 
-    # HF offline env vars
-    for var, exp in [("HF_HUB_OFFLINE","1"), ("TRANSFORMERS_OFFLINE","1"),
-                     ("HF_HUB_DISABLE_TELEMETRY","1"), ("HF_HUB_DISABLE_IMPLICIT_TOKEN","1")]:
-        val = os.environ.get(var, "NOT SET")
-        ok = val == exp
-        results.append({"test": f"ENV: {var}", "passed": ok, "detail": val})
-        print(f"  [{'PASS' if ok else 'FAIL'}] {var} = {val}")
+    # Network lockdown env vars
+    # RETIRED (Session 15): HF_HUB_OFFLINE, TRANSFORMERS_OFFLINE no longer required
+    # (HuggingFace/torch removed). Check Ollama localhost binding instead.
+    ollama_url = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+    is_local = "127.0.0.1" in ollama_url or "localhost" in ollama_url
+    results.append({"test": "ENV: OLLAMA_HOST", "passed": is_local, "detail": ollama_url})
+    print(f"  [{'PASS' if is_local else 'FAIL'}] OLLAMA_HOST = {ollama_url}")
 
     # Offline override (checked by NetworkGate at startup)
     offline_env = os.environ.get("HYBRIDRAG_OFFLINE", "NOT SET")
@@ -271,20 +271,28 @@ def run_security_audit():
     print(f"  [{'WARN' if is_forced_offline else 'PASS'}] HYBRIDRAG_OFFLINE = {offline_env}"
           + (" (forced offline mode)" if is_forced_offline else ""))
 
-    # Model cache dirs
-    for label, var in [("ST_HOME", "SENTENCE_TRANSFORMERS_HOME"), ("HF_HOME", "HF_HOME")]:
-        p = os.environ.get(var, "NOT SET")
-        if p == "NOT SET":
-            results.append({"test": f"CACHE: {label}", "passed": False, "detail": "Not set"})
-            print(f"  [FAIL] {label}: not set")
-        elif not Path(p).exists():
-            results.append({"test": f"CACHE: {label}", "passed": False, "detail": "Missing"})
-            print(f"  [FAIL] {label}: path missing")
+    # Ollama model availability
+    # RETIRED (Session 15): SENTENCE_TRANSFORMERS_HOME, HF_HOME no longer used
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["ollama", "list"], capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            has_embed = "nomic-embed-text" in result.stdout
+            results.append({"test": "OLLAMA: nomic-embed-text",
+                            "passed": has_embed,
+                            "detail": "Installed" if has_embed else "Missing"})
+            print(f"  [{'PASS' if has_embed else 'FAIL'}] Ollama: nomic-embed-text "
+                  f"{'installed' if has_embed else 'MISSING -- run: ollama pull nomic-embed-text'}")
         else:
-            has = any(Path(p).rglob("*.bin")) or any(Path(p).rglob("*.safetensors"))
-            results.append({"test": f"CACHE: {label}", "passed": has,
-                            "detail": "Cached" if has else "Empty"})
-            print(f"  [{'PASS' if has else 'WARN'}] {label}: {'cached' if has else 'EMPTY'}")
+            results.append({"test": "OLLAMA: status", "passed": False,
+                            "detail": "Not running"})
+            print("  [FAIL] Ollama not running (start with: ollama serve)")
+    except FileNotFoundError:
+        results.append({"test": "OLLAMA: installed", "passed": False,
+                        "detail": "Not installed"})
+        print("  [FAIL] Ollama not installed")
 
     # SEC-001: API endpoint
     try:
@@ -304,14 +312,15 @@ def run_security_audit():
         results.append({"test": "SEC-001", "passed": False, "detail": str(e)})
         print(f"  [FAIL] Config error: {e}")
 
-    # Layered check: Python-level enforcement in embedder.py
+    # Layered check: embedder.py uses Ollama (localhost), not HuggingFace
     emb_path = PROJECT_ROOT / "src" / "core" / "embedder.py"
     if emb_path.exists():
-        has = "HF_HUB_OFFLINE" in emb_path.read_text(encoding="utf-8")
-        results.append({"test": "LAYERED-CHECK: embedder.py", "passed": has,
-                        "detail": "Present" if has else "MISSING"})
-        print(f"  [{'PASS' if has else 'FAIL'}] Python offline lockdown: "
-              f"{'present' if has else 'MISSING -- only PowerShell protects you'}")
+        content = emb_path.read_text(encoding="utf-8")
+        uses_ollama = "127.0.0.1" in content or "ollama" in content.lower()
+        results.append({"test": "LAYERED-CHECK: embedder.py", "passed": uses_ollama,
+                        "detail": "Ollama" if uses_ollama else "Unknown backend"})
+        print(f"  [{'PASS' if uses_ollama else 'WARN'}] Embedder backend: "
+              f"{'Ollama (localhost)' if uses_ollama else 'check embedder.py'}")
     else:
         results.append({"test": "LAYERED-CHECK", "passed": False, "detail": "Not found"})
         print("  [FAIL] embedder.py not found")

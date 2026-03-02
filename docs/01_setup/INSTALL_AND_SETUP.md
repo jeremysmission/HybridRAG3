@@ -453,35 +453,42 @@ approval requirements.
 - [ ] D: drive available with write access
 - [ ] Browser can reach GitHub (for ZIP download)
 
-### Offline Installation (If PyPI Is Blocked)
+### Portable Offline Bundle (No Downloads on Target)
 
-**On the home PC** (with internet):
+For fully offline target installs (no PyPI, no model pulls), build a
+single deploy bundle on a connected machine, then transfer via USB/DVD.
 
-```powershell
-pip download -r requirements.txt -d wheels\
-```
-
-Transfer the `wheels\` folder to the work laptop via USB.
-
-**On the work laptop:**
+**On the connected build machine:**
 
 ```powershell
-pip install --no-index --find-links=wheels\ -r requirements_approved.txt
+cd "D:\HybridRAG3"
+powershell -ExecutionPolicy Bypass -File .\tools\build_usb_deploy_bundle.ps1 -DownloadWheels -IncludeOllamaModels
 ```
 
-**IMPORTANT:** On the work laptop, always use `requirements_approved.txt`
-(the software-cleared package list), not `requirements.txt`.
+Bundle output defaults to:
+`D:\HybridRAG3\output\USB_DEPLOY_BUNDLE`
 
-### Air-Gapped Model Caching
+**Optional but recommended for true no-download installs:**
+- Put Python installer in `installers\` (example: `python-3.12.x-amd64.exe`)
+- Put Ollama installer in `installers\` (example: `OllamaSetup.exe`)
 
-Ollama models must be downloaded once. For air-gapped machines, copy
-the Ollama model directory from a connected machine:
+**On the offline target machine:**
 
-| Folder | Contents | Size |
-|--------|----------|------|
-| Ollama model directory | LLM + embedding model files | 2-26 GB |
+1. Copy bundle folder from media to local disk (recommended).
+2. Run `INSTALL.bat` from bundle root.
+3. Installer will use only bundled files (`wheels\`, `cache\`, installers).
 
-Ollama stores models in `%USERPROFILE%\.ollama\models` on Windows.
+### Media Sizing Notes (USB vs DVD/CD)
+
+| Media | Typical Capacity | Practical Use |
+|-------|------------------|---------------|
+| CD-R | ~700 MB | Too small for model-inclusive bundle |
+| DVD single-layer | ~4.7 GB | Fits minimal stack (code+wheels+small model set) |
+| DVD dual-layer | ~8.5 GB | Fits medium bundles, still tight for full model stack |
+| USB flash / SSD | 32 GB+ | Recommended for full 5-model offline stack |
+
+The full Ollama approved model set is roughly 26 GB, so optical media
+usually requires either reduced model selection or multiple discs.
 
 ### Machine-Specific Files (Never Sync Between Machines)
 

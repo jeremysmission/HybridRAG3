@@ -391,12 +391,31 @@ class IndexingConfig:
     block_chars: int = 500_000             # Process text in blocks of this size
 
     # Which file types the indexer will attempt to parse
+    # Must match registry.py -- every registered extension should be here
     supported_extensions: List[str] = field(default_factory=lambda: [
+        # Plain text
         ".txt", ".md", ".csv", ".json", ".xml", ".log",
-        ".pdf", ".docx", ".pptx", ".xlsx", ".eml",
+        ".yaml", ".yml", ".ini", ".cfg", ".conf", ".properties", ".reg",
+        # Documents
+        ".pdf", ".docx", ".pptx", ".xlsx", ".doc", ".rtf", ".ai",
+        # Email
+        ".eml", ".msg", ".mbox",
+        # Web
         ".html", ".htm",
-        ".yaml", ".yml", ".ini",
+        # Images (OCR)
         ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif", ".webp",
+        ".wmf", ".emf", ".psd",
+        # CAD / Engineering
+        ".dxf", ".stp", ".step", ".ste", ".igs", ".iges", ".stl",
+        # Diagrams
+        ".vsdx",
+        # Cybersecurity / Sys Admin
+        ".evtx", ".pcap", ".pcapng", ".cer", ".crt", ".pem",
+        # Database
+        ".accdb", ".mdb",
+        # Placeholder (metadata only -- recognized but not fully parseable)
+        ".prt", ".sldprt", ".asm", ".sldasm", ".dwg", ".dwt",
+        ".mpp", ".vsd", ".one", ".ost", ".eps",
     ])
 
     # Folders to skip during recursive scanning

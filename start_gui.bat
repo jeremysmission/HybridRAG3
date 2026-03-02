@@ -29,8 +29,6 @@ REM ---- NETWORK LOCKDOWN ----
 REM NO_PROXY prevents corporate proxy from intercepting 127.0.0.1
 set "NO_PROXY=localhost,127.0.0.1"
 set "no_proxy=localhost,127.0.0.1"
-set "HF_HUB_OFFLINE=1"
-set "TRANSFORMERS_OFFLINE=1"
 REM Start unlocked for app-managed mode switching (offline/online).
 REM The GUI mode switch will set/clear this at runtime.
 set "HYBRIDRAG_NETWORK_KILL_SWITCH=0"

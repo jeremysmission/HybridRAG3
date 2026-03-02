@@ -4,6 +4,9 @@
 # Security audit reference: docs/05_security/ (model audit document)
 #
 # Changelog:
+# 2026-03-01 -- Added 9 parser deps (olefile, ezdxf, python-evtx, python-oxmsg,
+#               dpkt, psd-tools, striprtf, numpy-stl, vsdx) + transitive deps.
+#               These enable .doc, .msg, .dxf, .evtx, .pcap, .psd, .rtf, .stl, .vsdx parsing.
 # 2026-02-24 -- Added pytest, psutil (discovered missing during fresh setup test)
 # 2026-02-24 -- Cross-referenced against waiver_cheat_sheet_v4b.xlsx
 #               All packages GREEN (approved) except pytest, psutil (YELLOW: applying)
@@ -65,4 +68,24 @@ typing_extensions==4.15.0
 urllib3==2.6.3
 uvicorn==0.41.0
 # vllm==0.10.1  # COMMENTED OUT: conflicts with openai==1.109.1 pin
+# -- Parser-specific dependencies (added 2026-03-01) -----------------------
+# These enable the extended parsers in src/parsers/. Without them, those
+# parsers silently return empty text and files are skipped as "no text extracted."
+attrs==25.4.0
+deprecation==2.1.0
+dpkt==1.9.8
+ezdxf==1.4.3
+fonttools==4.61.1
+hexdump==3.3
+Jinja2==3.1.6
+MarkupSafe==3.0.3
+numpy-stl==3.2.0
+olefile==0.47
+psd-tools==1.13.1
+pyparsing==3.3.2
+python-evtx==0.8.1
+python-oxmsg==0.0.2
+python-utils==3.9.1
+striprtf==0.0.29
+vsdx==0.6.1
 xlsxwriter==3.2.9

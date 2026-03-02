@@ -59,14 +59,28 @@ class Controller:
 
     def dispatch_import_source(self, act: ImportSourceAction) -> None:
         def _work() -> None:
-            from src.tools.bulk_transfer_v2 import BulkTransferV2
+            from src.tools.bulk_transfer_v2 import BulkTransferV2, TransferConfig
             from src.core.config import load_config
             cfg = load_config()
-            self._emit(make_event("data_scan_started", self.diag.run_id, message=act.source_folder))
-            bt = BulkTransferV2()
-            bt.run(source_folder=act.source_folder)
-            self._emit(make_event("data_import_completed", self.diag.run_id, message=act.source_folder,
-                                  mode=getattr(cfg, "mode", "unknown")))
+            self._emit(
+                make_event("data_scan_started", self.diag.run_id, message=act.source_folder)
+            )
+            transfer_cfg = TransferConfig(
+                source_paths=[act.source_folder],
+                dest_path=str(cfg.paths.source_folder),
+                workers=8,
+            )
+            bt = BulkTransferV2(transfer_cfg)
+            bt.run()
+            self._emit(
+                make_event(
+                    "data_import_completed",
+                    self.diag.run_id,
+                    message=act.source_folder,
+                    mode=getattr(cfg, "mode", "unknown"),
+                    dest=str(cfg.paths.source_folder),
+                )
+            )
         self.runner.run_bg("import_source", _work)
 
     def dispatch_index(self, act: IndexAction) -> None:
@@ -87,13 +101,44 @@ class Controller:
     def dispatch_query(self, act: QueryAction) -> None:
         def _work() -> None:
             from src.core.config import load_config
+            from src.core.embedder import Embedder
             from src.core.query_engine import QueryEngine
+            from src.core.llm_router import LLMRouter
+            from src.core.vector_store import VectorStore
             cfg = load_config()
-            qe = QueryEngine(cfg)
-            ans = qe.answer(act.query, top_k=act.top_k)
-            self.state.last_query_answer = ans
-            self._emit(make_event("query_completed", self.diag.run_id, message="query ok",
-                                  query=act.query, top_k=act.top_k))
+            embedder = Embedder(cfg.embedding.model_name, dimension=cfg.embedding.dimension)
+            router = LLMRouter(cfg)
+            vs = VectorStore(
+                db_path=str(cfg.paths.database),
+                embedding_dim=int(cfg.embedding.dimension),
+            )
+            vs.connect()
+            try:
+                qe = QueryEngine(cfg, vs, embedder, router)
+                result = qe.query(act.query)
+                self.state.last_query_answer = result.answer
+                self._emit(
+                    make_event(
+                        "query_completed",
+                        self.diag.run_id,
+                        message="query ok",
+                        query=act.query,
+                        top_k=act.top_k,
+                    )
+                )
+            finally:
+                try:
+                    vs.close()
+                except Exception:
+                    pass
+                try:
+                    embedder.close()
+                except Exception:
+                    pass
+                try:
+                    router.close()
+                except Exception:
+                    pass
         self.runner.run_bg("query", _work)
 
     def dispatch_export_csv(self, act: ExportCsvAction) -> None:

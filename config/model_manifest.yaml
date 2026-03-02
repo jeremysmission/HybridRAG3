@@ -145,59 +145,45 @@ approved_alternates:
     notes: "128K context window. Best reasoning of approved offline models."
 
 # ============================================================================
-# SECTION 3: OPTIONAL FEATURE MODELS (disabled by default)
-# These are only needed if specific features are enabled in config.
+# SECTION 3: RETIRED FEATURE MODELS (Session 15, 2026-02-24)
+# These required sentence-transformers (HuggingFace), which was retired.
+# Kept for reference only. DO NOT install sentence-transformers.
+# Embeddings are now served by Ollama nomic-embed-text.
 # ============================================================================
 
-optional:
+retired_optional:
 
-  # --- NLI Model (hallucination guard -- disabled by default) ---
+  # --- NLI Model (hallucination guard -- RETIRED) ---
   - name: "cross-encoder/nli-deberta-v3-base"
     type: "nli_cross_encoder"
+    status: "RETIRED -- requires sentence-transformers (removed Session 15)"
     vendor: "Microsoft (DeBERTa architecture)"
     vendor_country: "USA"
     license: "MIT"
     size_mb: 440
-    download_source: "HuggingFace"
-    download_url: "https://huggingface.co/cross-encoder/nli-deberta-v3-base"
-    local_cache_path: ".model_cache/nli_model/"
-    pip_dependency: "sentence-transformers==2.7.0"
+    download_source: "HuggingFace (RETIRED)"
     config_key: "hallucination_guard.nli_model"
     enabled_by_default: false
-    enable_config: "hallucination_guard.enabled: true"
-    install_command: |
-      # One-time download (requires internet):
-      $env:HF_HUB_OFFLINE = "0"
-      python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cross-encoder/nli-deberta-v3-base')"
-      $env:HF_HUB_OFFLINE = "1"
     notes: >
-      Natural Language Inference model for hallucination detection.
-      Only needed if hallucination_guard.enabled=true in config.
-      Disabled by default. 440MB download.
+      RETIRED. Required sentence-transformers which was removed in Session 15.
+      Code in nli_verifier.py degrades gracefully (logs warning, skips check).
+      Feature will be reimplemented using Ollama-served models in a future phase.
 
-  # --- Reranker Model (reranking -- disabled by default) ---
+  # --- Reranker Model (reranking -- RETIRED) ---
   - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
     type: "reranker_cross_encoder"
+    status: "RETIRED -- requires sentence-transformers (removed Session 15)"
     vendor: "Microsoft"
     vendor_country: "USA"
     license: "MIT"
     size_mb: 80
-    download_source: "HuggingFace"
-    download_url: "https://huggingface.co/cross-encoder/ms-marco-MiniLM-L-6-v2"
-    local_cache_path: ".model_cache/"
-    pip_dependency: "sentence-transformers==2.7.0"
+    download_source: "HuggingFace (RETIRED)"
     config_key: "retrieval.reranker_model"
     enabled_by_default: false
-    enable_config: "retrieval.reranker_enabled: true"
-    install_command: |
-      # One-time download (requires internet):
-      $env:HF_HUB_OFFLINE = "0"
-      python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
-      $env:HF_HUB_OFFLINE = "1"
     notes: >
-      Reranker for improved retrieval accuracy.
-      Only needed if retrieval.reranker_enabled=true in config.
-      Currently disabled because it degrades injection detection scores.
+      RETIRED. Required sentence-transformers which was removed in Session 15.
+      Code in retriever.py degrades gracefully (logs warning, skips reranking).
+      Also: enabling reranker destroys injection detection scores (100->46%).
 
 # ============================================================================
 # SECTION 4: RUNTIME DEPENDENCIES (not model weights, but required software)
@@ -230,7 +216,7 @@ runtime_dependencies:
     manifest: "requirements.txt"
     key_packages:
       - "httpx                         # HTTP client for Ollama embedding API"
-      - "openai==1.51.2                # API client for online mode (pinned, never upgrade to 2.x)"
+      - "openai==1.109.1               # API client for online mode (pinned v1.x, never upgrade to 2.x)"
     install_command: "pip install -r requirements.txt"
     notes: "All Python packages pinned to exact versions in requirements.txt."
 

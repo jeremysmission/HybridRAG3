@@ -200,7 +200,7 @@ while ($wizStep -le 3) {
         Write-Step 2 "Detecting Python"
         $PY_EXE = $null
         $PY_VER_FLAG = $null
-        # BUG 10 fix: removed 3.9 -- faiss-cpu requires Python >= 3.10
+        # Keep compatibility with current approved package set (Python 3.10+).
         foreach ($ver in @("3.12", "3.11", "3.10")) {
             try {
                 $result = & py "-$ver" --version 2>&1
@@ -611,13 +611,12 @@ $groups = @(
     @{ name = "PDF utilities";      pkgs = @("pypdf==6.6.2", "pypdfium2==5.3.0") },
     @{ name = "Office documents";   pkgs = @("python-docx==1.2.0", "python-pptx==1.0.2") },
     @{ name = "Excel support";      pkgs = @("openpyxl==3.1.5", "xlsxwriter==3.2.9", "et_xmlfile==2.0.0") },
-    @{ name = "XML and images";     pkgs = @("lxml==6.0.2", "pillow==12.1.0") },
+    @{ name = "XML and images";     pkgs = @("lxml==6.0.2", "pillow==12.1.0", "pdf2image==1.17.0", "pytesseract==0.3.13") },
     @{ name = "Web framework";      pkgs = @("fastapi==0.115.0", "starlette==0.38.6", "python-multipart==0.0.22") },
     @{ name = "Web server";         pkgs = @("uvicorn==0.41.0", "click==8.3.1") },
     @{ name = "Credential storage"; pkgs = @("keyring==23.13.1", "jaraco.classes==3.4.0", "more-itertools==10.8.0") },
-    @{ name = "Vector search";      pkgs = @("faiss-cpu==1.9.0") },
-    @{ name = "Utilities";          pkgs = @("structlog==24.4.0", "rich==13.9.4", "tqdm==4.67.3", "regex==2026.1.15") },
-    @{ name = "AI core (openai)";   pkgs = @("openai==1.51.2", "tiktoken==0.8.0"); nodeps = $true }
+    @{ name = "Utilities";          pkgs = @("structlog==24.4.0", "rich==13.9.4", "tqdm==4.67.3", "regex==2026.1.15", "colorama==0.4.6") },
+    @{ name = "AI core (openai)";   pkgs = @("openai==1.109.1", "tiktoken==0.8.0"); nodeps = $true }
 )
 
 $groupNum = 0

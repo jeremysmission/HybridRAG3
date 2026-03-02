@@ -20,9 +20,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 # Set environment before any imports
 os.environ.setdefault("HYBRIDRAG_DATA_DIR", "D:\\RAG Indexed Data")
 os.environ.setdefault("HYBRIDRAG_INDEX_FOLDER", "D:\\RAG Source Data")
-os.environ["HF_HUB_OFFLINE"] = "1"
-os.environ["TRANSFORMERS_OFFLINE"] = "1"
-os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+# RETIRED (Session 15): HF_HUB_OFFLINE, TRANSFORMERS_OFFLINE no longer needed
+# HuggingFace/torch removed. Embeddings served by Ollama.
 
 from fastapi.testclient import TestClient
 from src.api.server import app

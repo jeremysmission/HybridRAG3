@@ -19,10 +19,12 @@ import sys
 print(f"  Python:             {sys.version.split()[0]}")
 
 packages = [
-    "sentence_transformers", "torch", "numpy", "keyring",
+    "numpy", "keyring", "httpx", "openai", "pydantic",
     "structlog", "yaml", "requests", "urllib3", "certifi",
     "sqlite3"
 ]
+# RETIRED (Session 15, 2026-02-24): sentence_transformers, torch
+# Embeddings now served by Ollama nomic-embed-text. No HuggingFace deps.
 
 for pkg in packages:
     try:

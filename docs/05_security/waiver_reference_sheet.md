@@ -2,8 +2,8 @@
 # Software Applications Waiver Reference Sheet
 
 **Project:** HybridRAG v3 -- Offline-First RAG System
-**Updated:** 2026-02-28
-**Revision:** v5c (openai 1.109.1 httpx compat fix, 410 tests, wizard auto-setup)
+**Updated:** 2026-03-01
+**Revision:** v6 (full audit: added pdf2image, pytesseract, colorama; fixed faiss-cpu status; added justification notes; 25 transitive deps cataloged; xlsx v5 generated)
 
 ---
 
@@ -148,6 +148,8 @@ separate waivers because they are dependencies of already-approved software.
 | sniffio | 1.3.1 | MIT | httpx |
 | typing_extensions | 4.15.0 | PSF-2.0 | pydantic |
 | typing-inspection | 0.4.2 | MIT | pydantic |
+| iniconfig | 2.3.0 | MIT | pytest |
+| pluggy | 1.6.0 | MIT | pytest |
 
 ---
 
@@ -362,10 +364,10 @@ served by Ollama (nomic-embed-text) instead of HuggingFace/PyTorch.
 
 | Category | Count | Size |
 |----------|-------|------|
-| GREEN (approved, installed) | 35 direct + 23 transitive | ~200 MB |
-| YELLOW (applying, installed) | 3 direct + 4 transitive + Ollama | ~50 MB + Ollama |
-| BLUE (recommended, not yet installed) | 3 direct + 2 transitive | ~350 MB |
-| **Total when fully approved** | **~70 packages** | **~600 MB** |
+| GREEN (approved, installed) | 35 direct + 25 transitive | ~200 MB |
+| YELLOW (applying, installed) | 4 direct + 4 transitive + Ollama + 6 models | ~50 MB + Ollama |
+| BLUE (recommended, not yet installed) | 4 direct + 1 transitive | ~350 MB |
+| **Total when fully approved** | **~75 packages** | **~600 MB** |
 | RETIRED (removed) | 8 | -2.5 GB saved |
 
 ---

@@ -184,7 +184,7 @@ def test_guard_nli_model() -> TestResult:
         return TestResult(
             "guard_nli_model", "Hallucination Filter", "FAIL",
             f"Missing dependency: {e}",
-            fix_hint="pip install sentence-transformers --break-system-packages",
+            fix_hint="RETIRED: sentence-transformers removed (Session 15). NLI guard is dormant.",
         )
     except Exception as e:
         return TestResult(

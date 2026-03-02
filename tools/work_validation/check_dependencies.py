@@ -263,13 +263,14 @@ def check_git() -> bool:
 
 KEY_PACKAGES = [
     ("numpy", "numpy"),
-    ("sentence_transformers", "sentence-transformers"),
     ("yaml", "PyYAML"),
-    ("torch", "torch (PyTorch)"),
     ("httpx", "httpx"),
     ("openai", "openai"),
+    ("pydantic", "pydantic"),
     ("keyring", "keyring"),
 ]
+# RETIRED (Session 15, 2026-02-24): sentence_transformers, torch
+# Embeddings now served by Ollama nomic-embed-text. No HuggingFace deps.
 
 
 def check_key_packages() -> tuple:

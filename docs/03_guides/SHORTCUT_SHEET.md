@@ -47,11 +47,10 @@ rag-diag
 | Problem | Cause | Fix |
 |---------|-------|-----|
 | `py -3.12` not found | Python not installed or not in PATH | Install 3.11 or 3.12 from software portal, check "Add to PATH" |
-| `pip install` hangs on torch | PyTorch is ~280 MB | Be patient, or use `--timeout 300` |
 | `rag-diag` command not found | start_hybridrag.ps1 not sourced | Run `. .\start_hybridrag.ps1` (note the dot-space) |
 | "Execution policy" error | PowerShell blocks scripts | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
 | Wrong Python version in venv | Created venv with wrong Python | Delete .venv/, recreate with `py -3.12 -m venv .venv` |
-| Model download fails | No internet / firewall blocks HuggingFace | First run needs internet. Model caches locally after. |
+| Ollama model not found | Model not pulled yet | Run `ollama pull nomic-embed-text` (and your LLM model) |
 | SSL certificate error during pip install | Corporate proxy intercepts HTTPS | Use `pip install -r requirements.txt --trusted-host pypi.org --trusted-host files.pythonhosted.org` |
 
 
