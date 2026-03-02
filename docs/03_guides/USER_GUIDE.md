@@ -557,7 +557,7 @@ Server starts on `http://localhost:8000`. API documentation is at
 | `/query` | POST | Execute a query |
 | `/index` | POST | Start background indexing |
 | `/index/status` | GET | Indexing progress |
-| `/mode` | POST | Switch offline/online |
+| `/mode` | PUT | Switch offline/online |
 
 ### Example Query
 

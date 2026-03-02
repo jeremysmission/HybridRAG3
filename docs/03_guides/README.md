@@ -219,7 +219,7 @@ HybridRAG3/
 |   |
 |   |-- api/                        REST API (FastAPI)
 |   |   |-- server.py              Uvicorn entry point (localhost:8000)
-|   |   |-- routes.py              /health, /query, /index, /status, /config, /mode
+|   |   |-- routes.py              /health, /status, /config, /query, /query/stream, /index, /index/status, /mode
 |   |   +-- models.py              Pydantic request/response schemas
 |   |
 |   +-- gui/                        Desktop GUI (tkinter, dark/light theme)
@@ -243,21 +243,19 @@ HybridRAG3/
 |   +-- cli_test_phase1.py         rag-query entry point
 |
 |-- docs/                           Documentation
-|   |-- ARCHITECTURE.md            System design, security model
-|   |-- INSTALL_AND_SETUP.md       Complete installation and setup guide
-|   |-- NETWORK_SECURITY_EXPLAINER.md  Network isolation design
-|   |-- PERFORMANCE_BASELINE.md    Performance benchmarks and tuning
-|   |-- SOURCE_BOUNDED_GENERATION.md   LLM context grounding
-|   |-- SYSTEM_STATE.md            Current system state
-|   +-- schematic_conversion_schema.md  Schema documentation
+|   |-- 01_setup/                  Installation and onboarding
+|   |-- 02_architecture/           System design and interface references
+|   |-- 03_guides/                 User and operator guides
+|   |-- 04_demo/                   Demo scripts and prep
+|   |-- 05_security/               Security and compliance documentation
+|   |-- 07_career/                 Career and planning notes
+|   +-- 08_learning/               Learning and study materials
 |
 |-- api_mode_commands.ps1           API mode + profile PowerShell commands
-|-- api_mode_simulation.py          Deployment dry-run diagnostic
-|-- API_MODE_REVIEW.md              API mode code review and bug analysis
 |-- start_hybridrag.ps1             Environment setup + aliases (machine-specific)
 |-- start_rag.bat                   Double-click launcher for start_hybridrag.ps1
 |-- requirements.txt                Python dependencies (what we want)
-|-- requirements-lock.txt           Python dependencies (exact versions installed)
+|-- requirements_approved.txt       Approved Python dependency set
 |-- .gitignore                      Files excluded from git
 +-- README.md                       This file
 ```

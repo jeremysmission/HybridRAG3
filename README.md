@@ -160,7 +160,7 @@ HybridRAG3/
 |
 |-- config/                            Settings
 |   |-- default_config.yaml            All settings (paths, models, thresholds)
-|   |-- profiles.yaml                  Hardware profile definitions (9 profiles)
+|   |-- profiles.yaml                  Hardware profile definitions (3 profiles)
 |   +-- system_profile.json            Auto-detected hardware fingerprint
 |
 |-- src/
@@ -206,7 +206,7 @@ HybridRAG3/
 |   |
 |   |-- api/                           REST API (FastAPI)
 |   |   |-- server.py                  FastAPI app + uvicorn launcher
-|   |   |-- routes.py                  Endpoints: /health /query /index /status /config /mode
+|   |   |-- routes.py                  Endpoints: /health /status /config /query /query/stream /index /index/status /mode
 |   |   +-- models.py                  Pydantic request/response models
 |   |
 |   |-- gui/                           Desktop GUI (tkinter)
@@ -285,7 +285,6 @@ HybridRAG3/
 |-- start_hybridrag.ps1                Environment setup + aliases (machine-specific)
 |-- start_rag.bat                      Double-click launcher (CLI)
 |-- start_gui.bat                      Double-click launcher (GUI)
-|-- START_HERE.txt                     New user entry point
 |-- requirements.txt                   Python dependencies
 |-- requirements_approved.txt          Store-approved exact versions
 |-- .gitignore                         Files excluded from git
@@ -349,7 +348,6 @@ All packages sourced from PyPI (pypi.org) -- open-source with permissive license
 ## Documentation
 
 ### Getting Started
-- `START_HERE.txt` -- Read this first (plain-language walkthrough, no jargon)
 - `docs/01_setup/INSTALL_AND_SETUP.md` -- Full installation and deployment guide (10 parts)
 - `docs/03_guides/USER_GUIDE.md` -- Daily use, all commands, tuning, troubleshooting
 - `docs/03_guides/SHORTCUT_SHEET.md` -- Quick reference card (phone-friendly)
@@ -365,7 +363,7 @@ All packages sourced from PyPI (pypi.org) -- open-source with permissive license
 - `docs/02_architecture/INTERFACES.md` -- Stable public API reference for all modules
 - `docs/02_architecture/FORMAT_SUPPORT.md` -- All 49+ supported file formats
 - `docs/03_guides/GLOSSARY.md` -- Every acronym and term defined
-- `docs/02_architecture/SOFTWARE_STACK.md` -- Full dependency list with licenses
+- `docs/Development_Inventory.md` -- Current dependency and model inventory
 
 ### Configuration
 - `config/default_config.yaml` -- All runtime settings
@@ -374,7 +372,7 @@ All packages sourced from PyPI (pypi.org) -- open-source with permissive license
 ### Additional Guides
 - `docs/04_demo/DEMO_PREP.md` -- Demo preparation checklist
 - `docs/04_demo/DEMO_GUIDE.md` -- Demo walkthrough script
-- `docs/06_hardware/STACK_LAPTOP.md` / `STACK_WORKSTATION.md` -- Per-machine setup notes
+- `docs/HANDOVER_AND_SPRINT_PLAN_FREEZE_SAFE.md` -- Active handoff and sprint planning notes
 - `docs/05_security/GIT_REPO_RULES.md` -- Git workflow and sync rules
 - `docs/05_security/DEFENSE_MODEL_AUDIT.md` -- Approved model stack and audit trail
 

@@ -945,6 +945,7 @@ class DataPanel(tk.Frame):
         Ensure UI recovers after stop requests even if callback sequencing
         is interrupted. Safe to call repeatedly.
         """
+        t = current_theme()
         if self._transfer_thread is not None and self._transfer_thread.is_alive():
             self._stop_watchdog_ticks += 1
             if self._stop_watchdog_ticks >= 15:
@@ -957,7 +958,6 @@ class DataPanel(tk.Frame):
                     fg=t["orange"],
                 )
             if self._stop_watchdog_ticks >= 75:
-                t = current_theme()
                 self._start_btn.config(state=tk.NORMAL)
                 self._stop_btn.config(state=tk.DISABLED, text="Stop")
                 self.is_transferring = False
@@ -977,7 +977,6 @@ class DataPanel(tk.Frame):
         self._start_btn.config(state=tk.NORMAL)
         self._stop_btn.config(state=tk.DISABLED, text="Stop")
         if self._stop_event.is_set():
-            t = current_theme()
             if self._engine is not None:
                 stats = self._engine.stats
                 self._transfer_status.config(

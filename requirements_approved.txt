@@ -1,6 +1,8 @@
 # ============================================================================
 # HybridRAG3 -- Approved Requirements
-# Updated: 2026-02-24
+# Updated: 2026-03-01
+# Changelog: 2026-03-01 -- Added pdf2image, pytesseract, colorama (were installed but missing from list)
+#                          Moved faiss-cpu to commented BLUE section (not installed, future phase)
 # Changelog: 2026-02-24 -- Added pytest, psutil; cross-referenced against waiver_cheat_sheet_v4b
 # Pin policy: Exact versions from waiver cheat sheet v4b
 # openai PINNED to 1.109.1 -- never upgrade to 2.x (breaking API changes)
@@ -29,7 +31,7 @@ tiktoken==0.8.0                # MIT -- OpenAI token counting (offline, no netwo
 numpy==1.26.4                  # BSD-3 -- Last 1.x release (2.x has breaking changes)
 
 # -- Vector Store -----------------------------------------------------------
-faiss-cpu==1.9.0               # MIT -- Vector similarity search (YELLOW: waiver request 3)
+# faiss-cpu==1.9.0             # MIT -- Vector similarity search (BLUE: not yet installed, apply for next phase)
 
 # -- Data Validation -------------------------------------------------------
 pydantic==2.11.1               # MIT -- Data validation (openai SDK dep)
@@ -49,6 +51,8 @@ xlsxwriter==3.2.9              # BSD-2 -- Excel .xlsx writer
 lxml==6.0.2                    # BSD-3 -- XML/HTML parsing (Office XML dep)
 et_xmlfile==2.0.0              # MIT -- XML utility (openpyxl dep)
 pillow==12.1.0                 # HPND -- Image processing
+pdf2image==1.17.0              # MIT -- PDF to image conversion (OCR pipeline)
+pytesseract==0.3.13            # Apache 2.0 -- OCR bridge for scanned PDFs
 
 # -- HTTP / Networking ------------------------------------------------------
 httpx==0.28.1                  # BSD-3 -- Async HTTP client (openai SDK dep + embedder)
@@ -84,3 +88,4 @@ structlog==24.4.0              # MIT -- Structured JSON logging for audit trails
 rich==13.9.4                   # MIT -- Terminal formatting (display-only)
 tqdm==4.67.3                   # MIT -- Progress bars (display-only)
 regex==2026.1.15               # Apache 2.0 -- Enhanced regex (text processing)
+colorama==0.4.6                # BSD-3 -- Console color output (Windows terminal support)
