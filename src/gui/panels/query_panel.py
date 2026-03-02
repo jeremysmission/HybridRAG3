@@ -37,7 +37,7 @@ from scripts._model_meta import (
 from src.core.llm_router import get_available_deployments
 from src.core.model_identity import canonicalize_model_name
 from src.core.cost_tracker import get_cost_tracker
-from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_MONO, bind_hover
+from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_SMALL, FONT_MONO, bind_hover
 from src.gui.helpers.safe_after import safe_after
 from src.gui.panels.loading_overlay import VectorFieldOverlay
 
