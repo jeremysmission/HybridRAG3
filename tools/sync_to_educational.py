@@ -86,6 +86,9 @@ SKIP_PATTERNS = [
     "runtime_traces_after.json",   # diagnostic artifact
     "compile_stderr.log",          # diagnostic artifact (also caught by *.log)
     "*.tmp",                       # temp files
+    ".tmp_pytest",                 # pytest basetemp dirs left by test runners
+    ".tmp_pytest_full",            # pytest basetemp dirs left by test runners
+    ".tmp_stream_test",            # test runner temp dirs
 
     # [GIT] Git internals
     ".git",
@@ -433,12 +436,18 @@ def clean_destination(dst_root):
         if item in (".git", ".gitignore"):
             continue
         path = os.path.join(dst_root, item)
-        if os.path.isdir(path):
-            shutil.rmtree(path)
-            removed += 1
-        else:
-            os.remove(path)
-            removed += 1
+        try:
+            if os.path.isdir(path):
+                # Ignore races from transient test/cache files that disappear
+                # while the cleanup walk is in progress.
+                shutil.rmtree(path, ignore_errors=True)
+                removed += 1
+            else:
+                os.remove(path)
+                removed += 1
+        except FileNotFoundError:
+            # Another process already removed it; continue cleaning.
+            continue
     return removed
 
 
