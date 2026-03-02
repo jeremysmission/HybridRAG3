@@ -210,6 +210,8 @@ class GroundedQueryEngine(QueryEngine):
     def _retrieval_gate(self, user_query, search_results, start_time):
         """Check retrieval quality. Returns GroundedQueryResult if blocked,
         None if evidence is sufficient to proceed."""
+        if bool(getattr(self, "allow_open_knowledge", False)):
+            return None
         if not search_results:
             return self._no_evidence_result(start_time)
         passing = [
@@ -264,6 +266,8 @@ class GroundedQueryEngine(QueryEngine):
             gate_result = self._retrieval_gate(
                 user_query, search_results, start_time)
             if gate_result is not None:
+                if bool(getattr(self, "allow_open_knowledge", False)):
+                    return super().query(user_query)
                 return gate_result
 
             context = self.retriever.build_context(search_results)
@@ -331,6 +335,10 @@ class GroundedQueryEngine(QueryEngine):
             gate_result = self._retrieval_gate(
                 user_query, search_results, start_time)
             if gate_result is not None:
+                if bool(getattr(self, "allow_open_knowledge", False)):
+                    fallback = super().query(user_query)
+                    yield {"done": True, "result": fallback}
+                    return
                 yield {"done": True, "result": gate_result}
                 return
 

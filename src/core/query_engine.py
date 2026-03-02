@@ -130,6 +130,8 @@ class QueryEngine:
             search_results = self.retriever.search(user_query)
 
             if not search_results:
+                if self._allow_open_knowledge():
+                    return self._query_open_knowledge(user_query, start_time)
                 return QueryResult(
                     answer="No relevant information found in knowledge base.",
                     sources=[],
@@ -151,6 +153,10 @@ class QueryEngine:
             sources = self.retriever.get_sources(search_results)
 
             if not context.strip():
+                if self._allow_open_knowledge():
+                    return self._query_open_knowledge(
+                        user_query, start_time, sources=sources
+                    )
                 # Extremely rare edge case (should not happen if chunks have text),
                 # but we handle it gracefully.
                 return QueryResult(
@@ -283,6 +289,12 @@ class QueryEngine:
             retrieval_ms = (time.time() - start_time) * 1000
 
             if not search_results:
+                if self._allow_open_knowledge():
+                    result = self.query(user_query)
+                    if result.answer:
+                        yield {"token": result.answer}
+                    yield {"done": True, "result": result}
+                    return
                 result = QueryResult(
                     answer="No relevant information found in knowledge base.",
                     sources=[], chunks_used=0, tokens_in=0, tokens_out=0,
@@ -460,6 +472,9 @@ class QueryEngine:
         #     Rule 9 (EXACT LINE):   Enables automated fact-checking
         # ------------------------------------------------------------------
         return (
+            self._build_relaxed_prompt(user_query, context)
+            if self._allow_open_knowledge()
+            else
             "You are a precise technical assistant. Answer the question "
             "using ONLY the context provided below. Follow these rules:\n"
             "\n"
@@ -528,6 +543,61 @@ class QueryEngine:
             f"Question: {user_query}\n"
             "\n"
             "Answer:"
+        )
+
+    def _allow_open_knowledge(self) -> bool:
+        """Runtime toggle for development troubleshooting mode."""
+        return bool(getattr(self, "allow_open_knowledge", False))
+
+    def _build_relaxed_prompt(self, user_query: str, context: str) -> str:
+        """Prompt variant that prioritizes context but allows model reasoning."""
+        return (
+            "You are a precise technical assistant.\n"
+            "Use the provided context first. If context is missing or partial, "
+            "you may use general domain knowledge to provide a useful answer.\n"
+            "When you use knowledge not explicitly present in context, mark that "
+            "sentence with prefix: [General Knowledge].\n"
+            "Do not fabricate source citations. Keep output readable with short "
+            "paragraphs and bullets when useful.\n"
+            "\n"
+            "Context (may be empty/partial):\n"
+            f"{context}\n\n"
+            f"Question: {user_query}\n\n"
+            "Answer:"
+        )
+
+    def _query_open_knowledge(
+        self, user_query: str, start_time: float, sources: Optional[list] = None
+    ) -> QueryResult:
+        """Fallback query path when no useful retrieval evidence exists."""
+        prompt = self._build_relaxed_prompt(user_query, "")
+        llm_response = self.llm_router.query(prompt)
+        if not llm_response:
+            reason = (getattr(self.llm_router, "last_error", "") or "").strip()
+            answer_text = (
+                f"Error calling LLM: {reason}" if reason
+                else "Error calling LLM. Please try again."
+            )
+            return QueryResult(
+                answer=answer_text,
+                sources=sources or [],
+                chunks_used=0,
+                tokens_in=0,
+                tokens_out=0,
+                cost_usd=0.0,
+                latency_ms=(time.time() - start_time) * 1000,
+                mode=self.config.mode,
+                error="LLM call failed",
+            )
+        return QueryResult(
+            answer=llm_response.text,
+            sources=sources or [],
+            chunks_used=0,
+            tokens_in=llm_response.tokens_in,
+            tokens_out=llm_response.tokens_out,
+            cost_usd=self._calculate_cost(llm_response),
+            latency_ms=(time.time() - start_time) * 1000,
+            mode=self.config.mode,
         )
 
     def _calculate_cost(self, llm_response: LLMResponse) -> float:

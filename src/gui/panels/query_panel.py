@@ -58,9 +58,37 @@ ONLINE_USE_CASE_TUNING = {
     "gen":   {"temperature": 0.30, "max_tokens": 2048, "timeout_seconds": 120, "top_k": 6,  "min_score": 0.05},
 }
 
+# Safe development defaults for independent dial controls.
+# Values are intentionally conservative for demo reliability.
+PROFILE_DIAL_DEFAULTS = {
+    "offline": {
+        "sw":    {"grounding": 8, "reasoning": 2},
+        "eng":   {"grounding": 8, "reasoning": 2},
+        "sys":   {"grounding": 8, "reasoning": 2},
+        "draft": {"grounding": 7, "reasoning": 3},
+        "log":   {"grounding": 8, "reasoning": 2},
+        "pm":    {"grounding": 7, "reasoning": 3},
+        "fe":    {"grounding": 8, "reasoning": 2},
+        "cyber": {"grounding": 9, "reasoning": 1},
+        "gen":   {"grounding": 6, "reasoning": 4},
+    },
+    "online": {
+        "sw":    {"grounding": 7, "reasoning": 5},
+        "eng":   {"grounding": 7, "reasoning": 5},
+        "sys":   {"grounding": 8, "reasoning": 4},
+        "draft": {"grounding": 7, "reasoning": 5},
+        "log":   {"grounding": 7, "reasoning": 5},
+        "pm":    {"grounding": 6, "reasoning": 6},
+        "fe":    {"grounding": 7, "reasoning": 5},
+        "cyber": {"grounding": 9, "reasoning": 3},
+        "gen":   {"grounding": 5, "reasoning": 7},
+    },
+}
+
 # Development grounding-bias scale (1..10).
 # 1 = max synthesis freedom, 10 = strict source lock.
 GROUNDING_BIAS_HINTS = {
+    0: "Grounding 0/10 - OFF",
     1: "Grounding 1/10 - Generative (guard OFF, dev only)",
     2: "Grounding 2/10 - Very relaxed",
     3: "Grounding 3/10 - Relaxed",
@@ -71,6 +99,85 @@ GROUNDING_BIAS_HINTS = {
     8: "Grounding 8/10 - Strict",
     9: "Grounding 9/10 - Very strict",
     10: "Grounding 10/10 - Evidence locked",
+}
+REASONING_DIAL_HINTS = {
+    0: "Reasoning 0/10 - OFF (context-only)",
+    1: "Reasoning 1/10 - Minimal",
+    2: "Reasoning 2/10 - Very low",
+    3: "Reasoning 3/10 - Low",
+    4: "Reasoning 4/10 - Light",
+    5: "Reasoning 5/10 - Balanced",
+    6: "Reasoning 6/10 - Moderate",
+    7: "Reasoning 7/10 - Strong",
+    8: "Reasoning 8/10 - High",
+    9: "Reasoning 9/10 - Very high",
+    10: "Reasoning 10/10 - Max",
+}
+
+PROFILE_TASK_PLAYBOOK = {
+    "log": [
+        "1) Reconcile received vs required parts -- Grounding 8 / Reasoning 4",
+        "2) Build shortage report by part number -- Grounding 9 / Reasoning 3",
+        "3) Cross-check procurement status across files -- Grounding 7 / Reasoning 6",
+        "4) Extract lead times and vendor constraints -- Grounding 8 / Reasoning 4",
+        "5) Generate weekly logistics summary -- Grounding 6 / Reasoning 7",
+    ],
+    "pm": [
+        "1) Build status report from multiple documents -- Grounding 6 / Reasoning 7",
+        "2) Summarize risks, owners, due dates -- Grounding 7 / Reasoning 6",
+        "3) Draft executive one-pager -- Grounding 5 / Reasoning 8",
+        "4) Compare baseline vs current milestones -- Grounding 7 / Reasoning 6",
+        "5) Create action-item register -- Grounding 6 / Reasoning 7",
+    ],
+    "eng": [
+        "1) Extract specs/tolerances/part numbers -- Grounding 9 / Reasoning 2",
+        "2) Compare interfaces across drawings/manuals -- Grounding 8 / Reasoning 5",
+        "3) Generate subsystem technical summary -- Grounding 7 / Reasoning 6",
+        "4) Identify conflicts between revisions -- Grounding 8 / Reasoning 5",
+        "5) Produce test readiness checklist -- Grounding 7 / Reasoning 6",
+    ],
+    "draft": [
+        "1) Extract dimensions/callouts from docs -- Grounding 9 / Reasoning 2",
+        "2) Build drawing package index -- Grounding 8 / Reasoning 4",
+        "3) Cross-reference drawing to BOM entries -- Grounding 8 / Reasoning 5",
+        "4) Generate revision-impact notes -- Grounding 7 / Reasoning 6",
+        "5) Produce release checklist -- Grounding 7 / Reasoning 6",
+    ],
+    "sys": [
+        "1) Extract configuration values exactly -- Grounding 9 / Reasoning 2",
+        "2) Build troubleshooting decision tree -- Grounding 7 / Reasoning 6",
+        "3) Compare system states across docs -- Grounding 8 / Reasoning 5",
+        "4) Draft change-implementation steps -- Grounding 7 / Reasoning 6",
+        "5) Summarize operational constraints -- Grounding 8 / Reasoning 4",
+    ],
+    "cyber": [
+        "1) Extract controls/findings exactly -- Grounding 10 / Reasoning 1",
+        "2) Map findings to mitigations -- Grounding 8 / Reasoning 5",
+        "3) Generate incident summary report -- Grounding 7 / Reasoning 6",
+        "4) Compare policy vs implementation docs -- Grounding 8 / Reasoning 5",
+        "5) Build audit evidence checklist -- Grounding 9 / Reasoning 3",
+    ],
+    "fe": [
+        "1) Extract field procedures and limits -- Grounding 9 / Reasoning 2",
+        "2) Build troubleshooting flow from manuals -- Grounding 7 / Reasoning 6",
+        "3) Cross-link parts to installation steps -- Grounding 8 / Reasoning 5",
+        "4) Generate shift handoff summary -- Grounding 6 / Reasoning 7",
+        "5) Create field readiness checklist -- Grounding 7 / Reasoning 6",
+    ],
+    "sw": [
+        "1) Extract exact API/config requirements -- Grounding 9 / Reasoning 2",
+        "2) Summarize architecture from docs -- Grounding 7 / Reasoning 6",
+        "3) Generate implementation plan -- Grounding 6 / Reasoning 7",
+        "4) Build dependency/risk report -- Grounding 7 / Reasoning 6",
+        "5) Draft test strategy summary -- Grounding 6 / Reasoning 7",
+    ],
+    "gen": [
+        "1) Quick doc summary -- Grounding 5 / Reasoning 7",
+        "2) Cross-doc synthesis answer -- Grounding 5 / Reasoning 8",
+        "3) Report draft from mixed sources -- Grounding 4 / Reasoning 8",
+        "4) Block diagram text from context -- Grounding 4 / Reasoning 9",
+        "5) Executive brief + action items -- Grounding 5 / Reasoning 8",
+    ],
 }
 
 
@@ -111,6 +218,8 @@ class QueryPanel(tk.LabelFrame):
         self._auto_primary_model = ""
         self._grounding_bias_var = tk.IntVar(value=6)
         self._grounding_bias_hint = tk.StringVar(value=GROUNDING_BIAS_HINTS[6])
+        self._reasoning_dial_var = tk.IntVar(value=5)
+        self._reasoning_dial_hint = tk.StringVar(value=REASONING_DIAL_HINTS[5])
 
         # Public testing state -- poll these from harness/tools.
         # Event is the thread-safe completion signal; plain attrs are
@@ -228,13 +337,13 @@ class QueryPanel(tk.LabelFrame):
         row1b.pack(fill=tk.X, pady=(0, 8))
 
         self.grounding_label = tk.Label(
-            row1b, text="Grounding Bias (1-10):", bg=t["panel_bg"],
+            row1b, text="Grounding Dial (0-10):", bg=t["panel_bg"],
             fg=t["fg"], font=FONT,
         )
         self.grounding_label.pack(side=tk.LEFT)
 
         self.grounding_scale = tk.Scale(
-            row1b, from_=1, to=10, orient=tk.HORIZONTAL,
+            row1b, from_=0, to=10, orient=tk.HORIZONTAL,
             variable=self._grounding_bias_var, showvalue=True,
             resolution=1, length=220, bg=t["panel_bg"], fg=t["fg"],
             highlightthickness=0, troughcolor=t["input_bg"],
@@ -248,6 +357,44 @@ class QueryPanel(tk.LabelFrame):
             anchor=tk.W,
         )
         self.grounding_hint_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        row1c = tk.Frame(self, bg=t["panel_bg"])
+        row1c.pack(fill=tk.X, pady=(0, 8))
+
+        self.reasoning_label = tk.Label(
+            row1c, text="Reasoning Dial (0-10):", bg=t["panel_bg"],
+            fg=t["fg"], font=FONT,
+        )
+        self.reasoning_label.pack(side=tk.LEFT)
+
+        self.reasoning_scale = tk.Scale(
+            row1c, from_=0, to=10, orient=tk.HORIZONTAL,
+            variable=self._reasoning_dial_var, showvalue=True,
+            resolution=1, length=220, bg=t["panel_bg"], fg=t["fg"],
+            highlightthickness=0, troughcolor=t["input_bg"],
+            activebackground=t["accent"], command=self._on_reasoning_dial_change,
+        )
+        self.reasoning_scale.pack(side=tk.LEFT, padx=(8, 8))
+
+        self.reasoning_hint_label = tk.Label(
+            row1c, textvariable=self._reasoning_dial_hint,
+            bg=t["panel_bg"], fg=t["gray"], font=FONT,
+            anchor=tk.W,
+        )
+        self.reasoning_hint_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # -- Row 1d: Profile playbook (top tasks + dial suggestions) --
+        self.playbook_label = tk.Label(
+            self,
+            text="",
+            anchor=tk.W,
+            justify=tk.LEFT,
+            wraplength=1200,
+            bg=t["panel_bg"],
+            fg=t["gray"],
+            font=FONT_SMALL,
+        )
+        self.playbook_label.pack(fill=tk.X, pady=(0, 8))
 
         # -- Row 2: Question label + entry + Ask button --
         self.question_label = tk.Label(
@@ -593,17 +740,25 @@ class QueryPanel(tk.LabelFrame):
         )
         self._apply_grounding_bias_live(bias)
 
+    def _on_reasoning_dial_change(self, _value=None):
+        lvl = int(self._reasoning_dial_var.get())
+        self._reasoning_dial_hint.set(
+            REASONING_DIAL_HINTS.get(lvl, "Reasoning dial updated")
+        )
+        self._apply_grounding_bias_live(int(self._grounding_bias_var.get()))
+
     def _apply_grounding_bias_live(self, bias: int):
         """
         Map 1..10 slider into live guard settings.
         Lower bias => more synthesis freedom.
         Higher bias => stricter evidence requirements.
         """
-        b = max(1, min(10, int(bias)))
-        guard_on = b > 1
-        threshold = 0.35 + (b / 10.0) * 0.55   # 1->0.41, 10->0.90
-        min_chunks = 1 if b <= 5 else 2 if b <= 8 else 3
-        min_score = 0.00 if b <= 3 else 0.03 if b <= 5 else 0.06 if b <= 7 else 0.09 if b <= 9 else 0.12
+        b = max(0, min(10, int(bias)))
+        r = max(0, min(10, int(self._reasoning_dial_var.get())))
+        guard_on = b > 0
+        threshold = 0.35 + (max(1, b) / 10.0) * 0.55
+        min_chunks = 1 if b <= 4 else 2 if b <= 7 else 3
+        min_score = 0.00 if b <= 2 else 0.03 if b <= 4 else 0.06 if b <= 7 else 0.10
         action = "flag" if b <= 5 else "block"
 
         # Config object update (if fields exist)
@@ -625,6 +780,9 @@ class QueryPanel(tk.LabelFrame):
         qe = self.query_engine
         if qe is not None:
             try:
+                # Independent reasoning dial: 0 disables, >0 enables.
+                setattr(qe, "allow_open_knowledge", bool(r > 0))
+                setattr(qe, "reasoning_level", int(r))
                 if hasattr(qe, "guard_enabled"):
                     qe.guard_enabled = bool(guard_on)
                 if hasattr(qe, "guard_threshold"):
@@ -709,6 +867,8 @@ class QueryPanel(tk.LabelFrame):
         if not self.config:
             return
 
+        self._apply_profile_dial_defaults(uc_key, mode)
+
         if mode == "offline":
             rec = RECOMMENDED_OFFLINE.get(uc_key, {})
             if not rec:
@@ -740,6 +900,29 @@ class QueryPanel(tk.LabelFrame):
             if "min_score" in rec:
                 self.config.retrieval.min_score = rec["min_score"]
 
+    def _apply_profile_dial_defaults(self, uc_key: str, mode: str) -> None:
+        """Apply safe per-profile defaults for grounding/reasoning dials."""
+        mode_key = "online" if str(mode).lower() == "online" else "offline"
+        rec = PROFILE_DIAL_DEFAULTS.get(mode_key, {}).get(
+            uc_key, {"grounding": 7, "reasoning": 4}
+        )
+        try:
+            self._grounding_bias_var.set(int(rec.get("grounding", 7)))
+            self._reasoning_dial_var.set(int(rec.get("reasoning", 4)))
+            self._grounding_bias_hint.set(
+                GROUNDING_BIAS_HINTS.get(
+                    int(self._grounding_bias_var.get()), "Grounding updated"
+                )
+            )
+            self._reasoning_dial_hint.set(
+                REASONING_DIAL_HINTS.get(
+                    int(self._reasoning_dial_var.get()), "Reasoning updated"
+                )
+            )
+            self._apply_grounding_bias_live(int(self._grounding_bias_var.get()))
+        except Exception:
+            pass
+
     def _on_use_case_change(self, event=None):
         """Update model display when use case changes.
 
@@ -753,6 +936,7 @@ class QueryPanel(tk.LabelFrame):
         uc_key = self._uc_keys[idx]
 
         mode = getattr(self.config, "mode", "offline")
+        self._update_profile_playbook(uc_key)
         self._set_model_combo_for_mode()
         if mode == "offline":
             rec = RECOMMENDED_OFFLINE.get(uc_key, {})
@@ -846,6 +1030,15 @@ class QueryPanel(tk.LabelFrame):
                 args=(uc_key,),
                 daemon=True,
             ).start()
+
+    def _update_profile_playbook(self, uc_key: str) -> None:
+        """Show top high-value tasks and recommended dial settings by profile."""
+        lines = PROFILE_TASK_PLAYBOOK.get(uc_key, PROFILE_TASK_PLAYBOOK["gen"])
+        title = USE_CASES.get(uc_key, {}).get("label", "Profile")
+        text = "Top 5 high-value tasks for {}:\n{}".format(
+            title, "\n".join(lines)
+        )
+        self.playbook_label.config(text=text)
 
     def _resolve_online_model(self, uc_key):
         """Background thread: fetch deployments and update model label."""
