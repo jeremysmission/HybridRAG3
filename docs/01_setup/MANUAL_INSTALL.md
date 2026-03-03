@@ -39,6 +39,18 @@ Postmortem:
    ollama pull nomic-embed-text
    ollama pull phi4-mini
    ```
+4. **Workstation cloud-check lockdown for Ollama (recommended):**
+   ```powershell
+   setx OLLAMA_NO_CLOUD 1
+   $ollamaDir = Join-Path $env:USERPROFILE ".ollama"
+   New-Item -ItemType Directory -Path $ollamaDir -Force | Out-Null
+   @'
+   {
+     "disable_ollama_cloud": true
+   }
+   '@ | Set-Content -Path (Join-Path $ollamaDir "server.json") -Encoding UTF8
+   ```
+   Restart Ollama after setting this.
 
 Verify Python:
 ```

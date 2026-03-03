@@ -105,6 +105,46 @@ function Write-ManualResume {
     Write-Host "  ============================================================" -ForegroundColor Cyan
 }
 
+# Configure Ollama for enterprise/offline defaults.
+# This disables Ollama Cloud features that can trigger update/cloud checks.
+function Set-OllamaOfflineDefaults {
+    try {
+        [Environment]::SetEnvironmentVariable("OLLAMA_NO_CLOUD", "1", "User")
+        $env:OLLAMA_NO_CLOUD = "1"
+        Write-Ok "Set user env: OLLAMA_NO_CLOUD=1"
+    } catch {
+        Write-Warn "Could not set OLLAMA_NO_CLOUD env var: $($_.Exception.Message)"
+    }
+
+    try {
+        $ollamaDir = Join-Path $env:USERPROFILE ".ollama"
+        if (-not (Test-Path $ollamaDir)) {
+            New-Item -ItemType Directory -Path $ollamaDir -Force | Out-Null
+        }
+        $serverJsonPath = Join-Path $ollamaDir "server.json"
+        $cfg = @{}
+        if (Test-Path $serverJsonPath) {
+            try {
+                $raw = Get-Content $serverJsonPath -Raw
+                if (-not [string]::IsNullOrWhiteSpace($raw)) {
+                    $obj = $raw | ConvertFrom-Json
+                    foreach ($p in $obj.PSObject.Properties) {
+                        $cfg[$p.Name] = $p.Value
+                    }
+                }
+            } catch {
+                Write-Warn "Could not parse existing .ollama\\server.json, rewriting minimal config"
+                $cfg = @{}
+            }
+        }
+        $cfg["disable_ollama_cloud"] = $true
+        $cfg | ConvertTo-Json -Depth 10 | Set-Content -Path $serverJsonPath -Encoding UTF8
+        Write-Ok "Configured .ollama\\server.json (disable_ollama_cloud=true)"
+    } catch {
+        Write-Warn "Could not write .ollama\\server.json: $($_.Exception.Message)"
+    }
+}
+
 # ------------------------------------------------------------------
 # Welcome banner
 # ------------------------------------------------------------------
@@ -947,6 +987,7 @@ if ($configureApi -eq "y" -or $configureApi -eq "Y") {
 # Fallback: curl.exe --noproxy (ships with Windows 10 1803+).
 # ==================================================================
 Write-Step 12 "Checking Ollama"
+Set-OllamaOfflineDefaults
 
 # Build proxy-free session for Invoke-RestMethod (PS 5.1 compatible)
 $ollamaSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession

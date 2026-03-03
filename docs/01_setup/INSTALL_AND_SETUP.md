@@ -277,6 +277,26 @@ internet access.
 
 Download from https://ollama.com and run the installer.
 
+### Lock Down Cloud/Update Checks (Workstations)
+
+Run this once on managed machines before normal use:
+
+```powershell
+# Disable Ollama cloud features for this user profile
+setx OLLAMA_NO_CLOUD 1
+
+# Also set server-side flag in Ollama config
+$ollamaDir = Join-Path $env:USERPROFILE ".ollama"
+New-Item -ItemType Directory -Path $ollamaDir -Force | Out-Null
+@'
+{
+  "disable_ollama_cloud": true
+}
+'@ | Set-Content -Path (Join-Path $ollamaDir "server.json") -Encoding UTF8
+```
+
+Then fully restart Ollama (quit tray app/process and launch again).
+
 ### Pull Approved Models
 
 Open a **separate terminal** and pull the embedding model (required) plus
