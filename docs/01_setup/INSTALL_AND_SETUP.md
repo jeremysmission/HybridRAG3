@@ -305,7 +305,7 @@ the LLM models you need:
 ```powershell
 ollama pull nomic-embed-text   # 274 MB -- REQUIRED for all indexing/search
 ollama pull phi4-mini          # 2.3 GB -- laptop fallback / quick-start
-ollama pull phi4:14b-q4_K_M    # 9.1 GB -- default offline model in config
+ollama pull phi4:14b-q4_K_M    # 9.1 GB -- workstation high-accuracy option
 ollama pull mistral:7b         # 4.1 GB -- engineering alternate
 ```
 
@@ -475,8 +475,8 @@ security:
 
 ollama:
   base_url: http://127.0.0.1:11434
-  model: phi4:14b-q4_K_M            # Default offline model
-  timeout_seconds: 600              # 10 min timeout for CPU inference
+  model: phi4-mini                  # Default offline model (stability baseline)
+  timeout_seconds: 180              # Stability baseline timeout
 
 api:
   endpoint: ''                       # Set via rag-store-endpoint
@@ -640,7 +640,7 @@ If using online API:
 | `rag-diag` not found | Script not sourced | Run `. .\start_hybridrag.ps1` (dot-space) |
 | Execution policy error | PowerShell blocks scripts | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
 | Embedder fails at startup | Ollama not running or model not pulled | Run `ollama serve` and `ollama pull nomic-embed-text` |
-| Ollama timeout | Model takes time to load on first query | Default timeout is 600s. Wait or increase `ollama.timeout_seconds`. |
+| Ollama timeout | Model takes time to load on first query | Default timeout is 180s. For heavy models (e.g., 14B), set `ollama.timeout_seconds: 240`. |
 | Corporate proxy blocks Ollama | Proxy intercepting localhost | `start_hybridrag.ps1` sets `NO_PROXY=localhost,127.0.0.1` |
 | "Database locked" | Another rag-index process running | Wait for it to finish or kill the process |
 | Out of memory during indexing | Batch size too large for RAM | Switch to `laptop_safe` profile |

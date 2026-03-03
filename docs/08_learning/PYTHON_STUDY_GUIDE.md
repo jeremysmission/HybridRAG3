@@ -777,7 +777,7 @@ mode: offline
 ollama:
   base_url: http://localhost:11434
   model: phi4-mini
-  timeout_seconds: 600
+  timeout_seconds: 180
 embedding:
   model_name: nomic-embed-text
   dimension: 768

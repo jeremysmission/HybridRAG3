@@ -1,6 +1,6 @@
 # HybridRAG3 -- Technical Theory of Operation
 
-Revision: C | Date: 2026-02-25
+Revision: D | Date: 2026-03-03
 
 ---
 
@@ -62,6 +62,11 @@ enforcing zero-trust outbound access control.
 
 **Design priorities**: Offline operation, crash safety, low RAM usage,
 full auditability, zero external server dependencies.
+
+**RevD changes from RevC**: Offline runtime defaults aligned to current
+stability baseline (`phi4-mini`, `context_window: 4096`,
+`timeout_seconds: 180`) and query operator cancel controls documented
+(`Stop` button and `Esc` in Query Panel).
 
 **RevC changes from RevB**: Bulk transfer engine hardened for production
 nightly sync (VPN resilience, memory safety, JSON event logging, 80 stress
@@ -379,12 +384,12 @@ parallelism across GPUs. Query latency: 2-5 seconds. Falls back to
 Ollama silently if vLLM is not running.
 
 **Tier 2 -- Ollama (laptop/workstation)**: HTTP POST to
-`localhost:11434/api/generate`. Default timeout 600s (CPU inference
-is slow). Serves as fallback when vLLM is unavailable or disabled.
+`localhost:11434/api/generate`. Default timeout 180s (stability-first
+baseline). Serves as fallback when vLLM is unavailable or disabled.
 Query latency: 5-180 seconds (hardware dependent).
 
 **Tier 3 -- API (online)**: HTTP POST to OpenAI-compatible
-`/v1/chat/completions`. Uses `openai` SDK (v1.51.2, never 2.x).
+`/v1/chat/completions`. Uses `openai` SDK (v1.109.1, never 2.x).
 Supports Azure OpenAI and standard OpenAI endpoints. Query latency:
 2-5 seconds.
 
@@ -819,7 +824,8 @@ Full audit: `docs/05_security/MODEL_AUDIT.md`.
 - Meta/Llama: License restrictions (ITAR ban)
 
 Model definitions: `scripts/_model_meta.py`, `scripts/_set_model.py`.
-Default offline model: `phi4:14b-q4_K_M` (`config/default_config.yaml`).
+Default offline model: `phi4-mini` (`config/default_config.yaml`).
+Workstation high-accuracy option: `phi4:14b-q4_K_M` (operator-selected).
 Waiver reference: `docs/05_security/waiver_reference_sheet.md`.
 
 ---

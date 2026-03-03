@@ -256,7 +256,7 @@ ollama:
   model: phi4-mini
   num_predict: 512           # max output tokens
   num_thread: 0              # 0 = auto-detect
-  timeout_seconds: 600
+  timeout_seconds: 180
 ```
 
 Temperature is inherited from `api.temperature: 0.05` and sent in the Ollama

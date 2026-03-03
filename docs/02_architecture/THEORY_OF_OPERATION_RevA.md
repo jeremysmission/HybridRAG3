@@ -1,6 +1,6 @@
 # HybridRAG3 -- Theory of Operation (Management / Non-Technical)
 
-Revision: B | Date: 2026-02-25
+Revision: C | Date: 2026-03-03
 
 ---
 
@@ -130,7 +130,8 @@ A desktop application with a navigation bar for switching between views:
 
 - **Query view** -- Type questions and view answers with source citations,
   latency metrics, and token counts. Answers stream in token-by-token
-  so you see progress immediately.
+  so you see progress immediately. Includes a `Stop` button (and `Esc`)
+  to cancel long-running queries during live operations.
 - **Data view** -- Browse drives, select document folders, transfer files
   from network drives to the source folder with live progress and ETA,
   and run the indexer.
@@ -310,7 +311,7 @@ real time instead of waiting for the full response.
 |-------|------|-----------|---------|
 | phi4-mini | 2.3 GB | Microsoft (USA) | MIT |
 | mistral:7b | 4.1 GB | Mistral AI (France) | Apache 2.0 |
-| phi4:14b | 9.1 GB | Microsoft (USA) | MIT |
+| phi4:14b-q4_K_M | 9.1 GB | Microsoft (USA) | MIT |
 | gemma3:4b | 3.3 GB | Google (USA) | Apache 2.0 |
 | mistral-nemo:12b | 7.1 GB | Mistral/NVIDIA | Apache 2.0 |
 

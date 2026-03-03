@@ -329,7 +329,7 @@ All packages sourced from PyPI (pypi.org) -- open-source with permissive license
 
 ### Architecture and Design
 - `docs/02_architecture/THEORY_OF_OPERATION_RevA.md` -- High-level overview for non-programmers
-- `docs/02_architecture/TECHNICAL_THEORY_OF_OPERATION_RevA.md` -- Developer-focused technical reference
+- `docs/02_architecture/TECHNICAL_THEORY_OF_OPERATION_RevC.md` -- Developer-focused technical reference
 - `docs/02_architecture/INTERFACES.md` -- Stable public API reference for all modules
 - `docs/03_guides/GLOSSARY.md` -- Definitions of all technical terms and acronyms
 
