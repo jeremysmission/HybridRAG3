@@ -14,7 +14,7 @@ def test_sanitize_ollama_base_url_fixes_common_typo():
 def test_canonicalize_model_name_phi_aliases():
     assert canonicalize_model_name("phi4-mini:latest") == "phi4-mini"
     assert canonicalize_model_name("phi4-mini:3.8b") == "phi4-mini"
-    assert canonicalize_model_name("phi4:14b-q4_K_M") == "phi4:14b"
+    assert canonicalize_model_name("phi4:14b-q4_K_M") == "phi4:14b-q4_K_M"
 
 
 def test_alias_builder_includes_family_candidates():

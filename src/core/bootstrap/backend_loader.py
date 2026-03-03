@@ -33,6 +33,10 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Any, List, Callable, Dict
 
 from src.core.constants import DEFAULT_EMBED_DIM
+from src.core.model_identity import (
+    canonicalize_model_name,
+    resolve_ollama_model_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +159,10 @@ class BackendLoader:
             bundle.embedder = self._await("Embedder", fut_embedder, bundle.init_errors, t_embed)
             bundle.router = self._await("LLMRouter", fut_router, bundle.init_errors, t_router)
 
+        # Early warning for model-tag drift (configured tag vs installed tags).
+        # Surfaces in "Backend Init Errors" so operators get a clear prompt.
+        self._check_ollama_model_match(bundle.router, bundle.init_errors)
+
         # Warmups (best effort, do not block readiness)
         stage("Warming up model...")
         self._warm_offline(bundle.router)
@@ -202,6 +210,48 @@ class BackendLoader:
             )
         except Exception:
             return
+
+    def _check_ollama_model_match(self, router: Any, errors: List[str]) -> None:
+        """Warn when configured Ollama model is not installed/resolvable."""
+        try:
+            if not router or not getattr(router, "ollama", None):
+                return
+            if not router.ollama.is_available():
+                return
+
+            configured = str(getattr(getattr(self.config, "ollama", None), "model", "") or "").strip()
+            if not configured:
+                return
+
+            available = router.ollama._available_models() or []
+            if not available:
+                return
+
+            resolved = resolve_ollama_model_name(configured, available)
+            configured_c = canonicalize_model_name(configured)
+            resolved_c = canonicalize_model_name(resolved)
+            available_c = {canonicalize_model_name(m) for m in available}
+
+            if resolved not in available and configured_c not in available_c:
+                sample = ", ".join(available[:4])
+                errors.append(
+                    "Ollama model mismatch: configured '{}' is not installed. "
+                    "Installed: {}. FIX: set config/user_overrides.yaml -> "
+                    "ollama.model to an installed tag OR run 'ollama pull {}'."
+                    .format(configured, sample or "(none)", configured)
+                )
+                return
+
+            # Non-fatal alias drift warning (helps operators fix stale tags).
+            if configured_c != resolved_c:
+                errors.append(
+                    "Ollama model alias drift: configured '{}' resolves to installed '{}'. "
+                    "FIX: save exact installed tag '{}' in config/user_overrides.yaml "
+                    "(ollama.model) to prevent future startup/query confusion."
+                    .format(configured, resolved)
+                )
+        except Exception as e:
+            logger.debug("model_match_check_failed: %s", e)
 
     def _warm_online(self, boot_result: Any) -> None:
         # Warm online API connection: DNS/TLS/connection pooling.

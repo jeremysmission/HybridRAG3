@@ -12,8 +12,12 @@ def canonicalize_model_name(name: str) -> str:
         return n
     if n in ("phi4-mini", "phi4-mini:latest", "phi4-mini:3.8b"):
         return "phi4-mini"
+    # Keep the full approved 14B tag as the canonical identity so
+    # config/UI/manifest checks use one consistent string.
+    if n in ("phi4", "phi4:latest", "phi4:14b"):
+        return "phi4:14b-q4_K_M"
     if n.startswith("phi4:14b"):
-        return "phi4:14b"
+        return "phi4:14b-q4_K_M"
     return n
 
 
@@ -40,8 +44,8 @@ def build_ollama_aliases(requested: str) -> list[str]:
         req.replace(":latest", ""),
         base,
     ]
-    if req.startswith("phi4:14b"):
-        aliases.extend(["phi4:14b", "phi4"])
+    if req.startswith("phi4:14b") or req in ("phi4", "phi4:latest"):
+        aliases.extend(["phi4:14b-q4_K_M", "phi4:14b", "phi4", "phi4:latest"])
     if req.startswith("phi4-mini"):
         aliases.extend(["phi4-mini:3.8b", "phi4-mini", "phi4-mini:latest"])
     return _ordered_unique(aliases)

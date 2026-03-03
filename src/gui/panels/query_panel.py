@@ -581,8 +581,15 @@ class QueryPanel(tk.LabelFrame):
         ) or ""
         uc_key = self._uc_keys[0]
         rec_primary = RECOMMENDED_OFFLINE.get(uc_key, {}).get("primary", "")
-        if cfg_model and cfg_model != rec_primary and cfg_model in names:
-            self.model_var.set(cfg_model)
+        # Normalize before comparing so aliases (phi4:14b vs phi4:14b-q4_K_M)
+        # do not force an unnecessary fallback warning.
+        cfg_model_c = canonicalize_model_name(cfg_model)
+        rec_primary_c = canonicalize_model_name(rec_primary)
+        names_by_canon = {
+            canonicalize_model_name(n): n for n in names
+        }
+        if cfg_model_c and cfg_model_c != rec_primary_c and cfg_model_c in names_by_canon:
+            self.model_var.set(names_by_canon[cfg_model_c])
             self._model_auto = False
 
         self._on_use_case_change()
@@ -1003,7 +1010,12 @@ class QueryPanel(tk.LabelFrame):
                 self.model_var.set("Auto")
                 if hasattr(self.config, "ollama"):
                     self.config.ollama.model = canonicalize_model_name(ollama_model)
-                fallback = bool(primary) and primary not in self._installed_models and ollama_model != primary
+                primary_c = canonicalize_model_name(primary)
+                selected_c = canonicalize_model_name(ollama_model)
+                installed_c = {
+                    canonicalize_model_name(m) for m in self._installed_models
+                }
+                fallback = bool(primary) and primary_c not in installed_c and selected_c != primary_c
                 self._set_auto_note(
                     ollama_model,
                     primary=primary,

@@ -64,10 +64,8 @@ class HybridRAGApp(tk.Tk):
         self.geometry("840x780")
         self.minsize(700, 400)
 
-        # Raise window above all others on launch, then release topmost
-        # so it doesn't permanently pin over other apps.
-        self.attributes("-topmost", True)
-        self.after(500, lambda: self.attributes("-topmost", False))
+        # Avoid launch flicker/pop on some Windows builds.
+        # Foreground focus is handled by launch/bootstrap helpers.
 
         # Store backend references
         self.boot_result = boot_result
