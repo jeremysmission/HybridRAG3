@@ -3,6 +3,8 @@
 # Updated: 2026-03-02
 # Changelog: 2026-03-02 -- Added ocrmypdf* for scanned PDF OCR enhancement workflow
 #                          (YELLOW: pending approval/validation on work environment)
+# Changelog: 2026-03-03 -- Added missing runtime/transitive deps from requirements.txt
+#                          with explicit enterprise action tags (NEEDS_CHECK/APPLYING).
 # Changelog: 2026-03-01 -- Added pdf2image, pytesseract, colorama (were installed but missing from list)
 #                          Moved faiss-cpu to commented BLUE section (not installed, future phase)
 #                          Added Tesseract OCR + Poppler system binaries* (required for OCR pipeline)
@@ -29,6 +31,7 @@
 # -- Core AI / Model APIs --------------------------------------------------
 openai==1.109.1                # MIT -- APPLYING: Azure/OpenAI API client (PINNED v1.x forever; never 2.x syntax)
 tiktoken==0.8.0                # MIT -- OpenAI token counting (offline, no network)
+jiter==0.13.0                  # MIT -- NEEDS_CHECK: OpenAI SDK parser/streaming helper
 
 # -- Embeddings ------------------------------------------------------------
 # Embeddings are now served by Ollama (nomic-embed-text, 768-dim).
@@ -47,6 +50,7 @@ numpy==1.26.4                  # BSD-3 -- Last 1.x release (2.x has breaking cha
 
 # -- Data Validation -------------------------------------------------------
 pydantic==2.11.1               # MIT -- Data validation (openai SDK dep)
+pydantic_core==2.33.0          # MIT -- NEEDS_CHECK: compiled runtime core for pydantic v2
 typing-inspection==0.4.2       # MIT -- Pydantic dep
 annotated-types==0.7.0         # MIT -- Pydantic dep
 typing_extensions==4.15.0      # PSF-2.0 -- Python typing backports (PSF/USA)
@@ -83,10 +87,20 @@ ocrmypdf==16.10.4              # MPL-2.0 -- APPLYING: scanned PDF OCR enhancemen
 
 # -- HTTP / Networking ------------------------------------------------------
 httpx==0.28.1                  # BSD-3 -- Async HTTP client (openai SDK dep + embedder)
+httpcore==1.0.9                # BSD-3 -- NEEDS_CHECK: transport layer for httpx
+h11==0.16.0                    # MIT -- NEEDS_CHECK: HTTP/1.1 protocol layer
+anyio==4.12.1                  # MIT -- NEEDS_CHECK: async runtime compatibility layer
 requests==2.32.5               # Apache 2.0 -- HTTP client (pip dep, likely pre-installed)
 urllib3==2.6.3                  # MIT -- HTTP internals (requests dep, likely pre-installed)
 sniffio==1.3.1                 # MIT -- Async detection (httpx dep)
+distro==1.9.0                  # Apache 2.0 -- NEEDS_CHECK: OS detection helper
+idna==3.11                     # BSD-3 -- NEEDS_CHECK: IDN domain support
+certifi==2026.1.4              # MPL-2.0 -- NEEDS_CHECK: TLS CA certificate bundle
+charset-normalizer==3.4.4      # MIT -- NEEDS_CHECK: encoding detection (requests dep)
+chardet==5.2.0                 # LGPL-2.1 -- APPLYING: encoding fallback library
 cryptography==44.0.2           # Apache 2.0 -- AES-256 encryption (pip dep, likely pre-installed)
+cffi==2.0.0                    # MIT -- NEEDS_CHECK: native FFI layer for cryptography
+pycparser==3.0                 # BSD-3 -- NEEDS_CHECK: parser dep for cffi
 
 # -- Web Server / API ---------------------------------------------------------
 fastapi==0.115.0               # MIT -- REST API framework (Tiangolo/USA)
@@ -113,6 +127,10 @@ psutil==7.2.2                  # BSD-3 -- APPLYING: process utilities
 pyyaml==6.0.2                  # MIT -- YAML parsing (ALREADY APPROVED in store)
 structlog==24.4.0              # MIT -- Structured JSON logging for audit trails
 rich==13.9.4                   # MIT -- Terminal formatting (display-only)
+markdown-it-py==4.0.0          # MIT -- NEEDS_CHECK: markdown renderer used by rich
+mdurl==0.1.2                   # MIT -- NEEDS_CHECK: URL parser dep for markdown-it-py
+Pygments==2.19.2               # BSD-2 -- NEEDS_CHECK: syntax highlighting for rich/CLI
+packaging==26.0                # Apache 2.0 -- NEEDS_CHECK: version parsing utility
 tqdm==4.67.3                   # MIT -- Progress bars (display-only)
 regex==2026.1.15               # Apache 2.0 -- Enhanced regex (text processing)
 colorama==0.4.6                # BSD-3 -- Console color output (Windows terminal support)
