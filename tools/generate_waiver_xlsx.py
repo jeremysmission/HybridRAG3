@@ -6,6 +6,9 @@ Run: python tools/generate_waiver_xlsx.py
 Output: docs/05_security/waiver_cheat_sheet_v5.xlsx
 
 CHANGELOG:
+  2026-03-03: v5b -- Added Tesseract OCR 5.x (external binary) to GREEN.
+              Updated summary counts (35->36 direct). Updated ocrmypdf
+              YELLOW notes to reflect Tesseract dependency now satisfied.
   2026-03-01: v5 -- Full rebuild from waiver_reference_sheet.md v5c.
               Added justification notes, CVE status, transitive deps,
               BLUE recommendations with business cases, RETIRED section.
@@ -238,6 +241,11 @@ GREEN_DATA = [
      "CLI toolkit (uvicorn dependency)",
      "Command-line interface library. Required by uvicorn for CLI argument parsing. Published by Pallets (Flask maintainers).",
      "No known CVEs"],
+    # External Binaries (not pip packages)
+    [36, "Tesseract OCR", "5.x", "Apache 2.0", "Google / USA", "External Binary / OCR",
+     "OCR engine for scanned PDFs and images (pytesseract calls this binary)",
+     "Open-source OCR engine maintained by Google. On enterprise approved software list. Required by pytesseract (#18) and ocrmypdf. Installed via UW-Madison education site. PATH configured manually.",
+     "No known CVEs"],
 ]
 
 GREEN_TRANSITIVE_HEADERS = ["#", "Package", "Version", "License", "Pulled In By",
@@ -302,10 +310,10 @@ YELLOW_DATA = [
      "No known CVEs"],
     [5, "ocrmypdf", "16.10.4", "MPL-2.0", "OCRmyPDF maintainers / US-EU OSS", "OCR Enhancement",
      "Scanned PDF OCR enhancement pipeline",
-     "Adds OCR text layer to scanned PDFs before ingestion. Keep version pinned to vetted release. Approval pending in enterprise environment.",
+     "Adds OCR text layer to scanned PDFs before ingestion. Keep version pinned to vetted release. Primary dependency (Tesseract OCR 5.x) is NOW APPROVED and installed. Poppler still pending.",
      "Reads local PDFs; writes OCR-enhanced local PDFs",
      "No required outbound network during runtime",
-     "Track dependency-chain advisories (Tesseract/Ghostscript)"],
+     "Tesseract: APPROVED. Poppler: pending."],
 ]
 
 YELLOW_MODELS_HEADERS = ["#", "Model", "Size", "License", "Publisher / Origin",
@@ -443,7 +451,7 @@ def create_workbook():
     wb.properties.lastModifiedBy = "HybridRAG Team"
     wb.properties.title = "Software Applications Waiver Reference v5"
     wb.properties.subject = "HybridRAG software approval inventory"
-    wb.properties.description = "Pinned package inventory with approval status."
+    wb.properties.description = "Pinned package inventory with approval status. v5b 2026-03-03."
     wb.properties.keywords = "HybridRAG,waiver,software-approval,python,security"
     wb.properties.category = "Security Compliance"
 
@@ -469,7 +477,7 @@ def create_workbook():
     _apply_header(ws, row, ["Category", "Status", "Count (Direct)",
                             "Count (Transitive)", "Est. Size"], BLUE_FILL)
     summaries = [
-        ["GREEN", "Approved & Installed", "35", "25", "~200 MB"],
+        ["GREEN", "Approved & Installed", "36 (35 pip + 1 binary)", "25", "~200 MB"],
         ["YELLOW", "Applying for Approval", "5 + Ollama + 6 models", "4", "~50 MB + Ollama"],
         ["BLUE", "Recommended (Not Installed)", "4", "1", "~350 MB"],
         ["RED", "Banned (DO NOT SUBMIT)", "11", "--", "N/A"],
@@ -527,7 +535,7 @@ def create_workbook():
     ws2.sheet_properties.tabColor = "228B22"
 
     ws2.merge_cells("A1:I1")
-    ws2.cell(row=1, column=1, value="GREEN -- Approved and Installed (35 direct packages)").font = TITLE_FONT
+    ws2.cell(row=1, column=1, value="GREEN -- Approved and Installed (36 direct: 35 pip + 1 binary)").font = TITLE_FONT
 
     _apply_header(ws2, 3, GREEN_HEADERS, GREEN_FILL)
     for i, vals in enumerate(GREEN_DATA):
@@ -655,7 +663,7 @@ def main():
     wb.save(output_path)
     print("[OK] Generated: %s" % output_path)
     print("     Sheets: Summary, GREEN, YELLOW, BLUE, RED, RETIRED")
-    print("     35 GREEN direct + 25 transitive")
+    print("     36 GREEN direct (35 pip + 1 binary) + 25 transitive")
     print("     5 YELLOW packages + Ollama + 6 models")
     print("     4 BLUE recommendations")
     print("     11 RED banned entries")

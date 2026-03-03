@@ -5,7 +5,7 @@ C:\Users\jerem\.ai_handoff\
 
 ## Files
 - claude_to_codex.md -- Claude Code writes findings/context for Codex
-- codex_to_claude.md -- Codex writes findings/context for Claude Code
+- ai_handoff.md -- Codex writes findings/context for Claude Code
 
 ## Protocol
 1. Before starting work, check the handoff dir for messages from the other agent

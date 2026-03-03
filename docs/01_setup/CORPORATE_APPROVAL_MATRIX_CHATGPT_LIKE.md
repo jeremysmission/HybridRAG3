@@ -158,4 +158,4 @@ pytest tests/test_indexing_allowlist_sync.py -q
 - `docs/01_setup/INSTALL_AND_SETUP.md`
 - `docs/01_setup/MANUAL_INSTALL.md`
 - `docs/01_setup/OCR_DIVERSION_PROCESS_FLOW_CHEATSHEET.md`
-- `docs/ClaudeCLI_Codex_Collabs/003_parser_coverage_gap_analysis.md`
+- `docs/cross_ai_collabs/003_parser_coverage_gap_analysis.md`

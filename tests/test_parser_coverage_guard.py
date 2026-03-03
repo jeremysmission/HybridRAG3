@@ -35,7 +35,7 @@ class TestConfigRegistrySync:
 
         If this test fails, someone added a parser to registry.py but forgot to
         add the extension to config.py IndexingConfig.supported_extensions.
-        See: docs/ClaudeCLI_Codex_Collabs/003_parser_coverage_gap_analysis.md
+        See: docs/cross_ai_collabs/003_parser_coverage_gap_analysis.md
         """
         from src.core.config import IndexingConfig
         from src.parsers.registry import REGISTRY
@@ -125,7 +125,7 @@ class TestParserDependencies:
                 f"Parser dependency '{pip_name}' not installed!\n"
                 f"  Affected file types: {file_types}\n"
                 f"  Fix: pip install {pip_name}\n"
-                f"  See: docs/ClaudeCLI_Codex_Collabs/003_parser_coverage_gap_analysis.md"
+                f"  See: docs/cross_ai_collabs/003_parser_coverage_gap_analysis.md"
             )
 
     @pytest.mark.parametrize(

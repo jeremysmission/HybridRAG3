@@ -49,7 +49,7 @@ Current safeguards:
   - `tests/test_indexing_allowlist_sync.py`
   - `tests/test_parser_coverage_guard.py`
 - Indexer fallback to parser registry in `src/core/indexer.py`
-- Postmortem: `docs/ClaudeCLI_Codex_Collabs/003_parser_coverage_gap_analysis.md`
+- Postmortem: `docs/cross_ai_collabs/003_parser_coverage_gap_analysis.md`
 
 ### Common Setup Problems
 

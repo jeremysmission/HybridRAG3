@@ -26,7 +26,7 @@ Guardrails now added:
 - Registry-based fallback in `src/core/indexer.py`
 
 Postmortem:
-- `docs/ClaudeCLI_Codex_Collabs/003_parser_coverage_gap_analysis.md`
+- `docs/cross_ai_collabs/003_parser_coverage_gap_analysis.md`
 
 ---
 
@@ -280,7 +280,7 @@ pip install openai==1.109.1 tiktoken==0.8.0 --no-deps --trusted-host pypi.org --
 pip install olefile==0.47 ezdxf==1.4.3 python-evtx==0.8.1 python-oxmsg==0.0.2 dpkt==1.9.8 psd-tools==1.13.1 striprtf==0.0.29 numpy-stl==3.2.0 vsdx==0.6.1 --trusted-host pypi.org --trusted-host files.pythonhosted.org --timeout 120 --retries 3
 ```
 Without these, .doc, .msg, .dxf, .evtx, .pcap, .psd, .rtf, .stl, and .vsdx files
-silently return empty text during indexing. See `docs/ClaudeCLI_Codex_Collabs/003_parser_coverage_gap_analysis.md`.
+silently return empty text during indexing. See `docs/cross_ai_collabs/003_parser_coverage_gap_analysis.md`.
 
 **Group 7Q -- Final dependency check (catches anything the groups missed):**
 ```powershell

@@ -33,7 +33,7 @@ What is now in place (as of 2026-03-02):
 - Install docs and dependency sets were updated for extended parser coverage.
 
 Full postmortem and root-cause analysis:
-- `docs/ClaudeCLI_Codex_Collabs/003_parser_coverage_gap_analysis.md`
+- `docs/cross_ai_collabs/003_parser_coverage_gap_analysis.md`
 
 OCR diversion + recovery process flow:
 - `docs/01_setup/OCR_DIVERSION_PROCESS_FLOW_CHEATSHEET.md`
