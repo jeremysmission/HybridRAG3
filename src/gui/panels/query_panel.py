@@ -217,6 +217,9 @@ class QueryPanel(tk.LabelFrame):
         self._auto_selected_model = ""
         self._auto_primary_model = ""
         self._last_mem_popup_ts = 0.0
+        self._query_seq = 0
+        self._active_query_id = 0
+        self._cancelled_query_ids = set()
         self._grounding_bias_var = tk.IntVar(value=6)
         self._grounding_bias_hint = tk.StringVar(value=GROUNDING_BIAS_HINTS[6])
         self._reasoning_dial_var = tk.IntVar(value=5)
@@ -427,6 +430,7 @@ class QueryPanel(tk.LabelFrame):
         self.question_entry.insert(0, "Type your question here...")
         self.question_entry.bind("<FocusIn>", self._on_entry_focus)
         self.question_entry.bind("<Return>", self._on_ask)
+        self.question_entry.bind("<Escape>", self._on_stop_query)
 
         self.ask_btn = tk.Button(
             row2, text="Ask", command=self._on_ask, width=10,
@@ -437,6 +441,16 @@ class QueryPanel(tk.LabelFrame):
             activeforeground=t["accent_fg"],
         )
         self.ask_btn.pack(side=tk.LEFT, padx=(8, 0))
+
+        self.stop_btn = tk.Button(
+            row2, text="Stop", command=self._on_stop_query, width=10,
+            bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"],
+            font=FONT_BOLD, relief=tk.FLAT, bd=0,
+            padx=24, pady=8, state=tk.DISABLED,
+            activebackground=t["accent_hover"],
+            activeforeground=t["accent_fg"],
+        )
+        self.stop_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         # -- Network activity indicator --
         self.network_label = tk.Label(
@@ -1143,12 +1157,18 @@ class QueryPanel(tk.LabelFrame):
         if self.query_engine is None:
             self._show_error("[FAIL] Query engine not initialized. Run boot first.")
             return
+        if self.is_querying:
+            return
         # Enforce current grounding bias before each query execution.
         self._apply_grounding_bias_live(int(self._grounding_bias_var.get()))
 
         # --- Transition to SEARCHING state ---
-        self.ask_btn.config(state=tk.DISABLED)  # prevent double-submit
+        self._set_query_controls(running=True)
         self._stream_start = time.time()
+        self._query_seq += 1
+        query_id = self._query_seq
+        self._active_query_id = query_id
+        self._cancelled_query_ids.discard(query_id)
 
         # Public testing state (main thread, before thread starts)
         self.is_querying = True
@@ -1172,18 +1192,20 @@ class QueryPanel(tk.LabelFrame):
         has_stream = hasattr(self.query_engine, "query_stream")
         if has_stream:
             self._query_thread = threading.Thread(
-                target=self._run_query_stream, args=(question,), daemon=True,
+                target=self._run_query_stream, args=(question, query_id), daemon=True,
             )
         else:
             self._query_thread = threading.Thread(
-                target=self._run_query, args=(question,), daemon=True,
+                target=self._run_query, args=(question, query_id), daemon=True,
             )
         self._query_thread.start()
 
-    def _run_query(self, question):
+    def _run_query(self, question, query_id):
         """Execute query in background thread (non-streaming fallback)."""
         try:
             result = self.query_engine.query(question)
+            if self._is_query_aborted(query_id):
+                return
             # Thread-safe completion signal + status
             self.is_querying = False
             self.last_answer_preview = (result.answer or "")[:200]
@@ -1191,6 +1213,8 @@ class QueryPanel(tk.LabelFrame):
             self.query_done_event.set()
             safe_after(self, 0, self._display_result, result)
         except Exception as e:
+            if self._is_query_aborted(query_id):
+                return
             error_msg = "[FAIL] {}: {}".format(type(e).__name__, e)
             self.is_querying = False
             self.last_answer_preview = error_msg
@@ -1198,7 +1222,7 @@ class QueryPanel(tk.LabelFrame):
             self.query_done_event.set()
             safe_after(self, 0, self._show_error, error_msg)
 
-    def _run_query_stream(self, question):
+    def _run_query_stream(self, question, query_id):
         """Execute streaming query in background thread.
 
         State transitions driven by the query engine's yield chunks:
@@ -1209,39 +1233,47 @@ class QueryPanel(tk.LabelFrame):
         """
         try:
             for chunk in self.query_engine.query_stream(question):
+                if self._is_query_aborted(query_id):
+                    return
                 if "phase" in chunk:
                     if chunk["phase"] == "searching":
                         # Still in SEARCHING -- update status text
-                        safe_after(self, 0, self._set_status, "Searching documents...")
+                        safe_after(self, 0, self._set_status_if_active, query_id, "Searching documents...")
                     elif chunk["phase"] == "generating":
                         # --- Transition: SEARCHING -> GENERATING ---
                         n = chunk.get("chunks", 0)
                         ms = chunk.get("retrieval_ms", 0)
                         msg = "Found {} chunks ({:.0f}ms) -- Generating answer...".format(n, ms)
-                        safe_after(self, 0, self._set_status, msg)
-                        safe_after(self, 0, self._start_elapsed_timer)
-                        safe_after(self, 0, self._prepare_streaming)
-                        safe_after(self, 0, self._overlay.stop)
+                        safe_after(self, 0, self._set_status_if_active, query_id, msg)
+                        safe_after(self, 0, self._start_elapsed_timer_if_active, query_id)
+                        safe_after(self, 0, self._prepare_streaming_if_active, query_id)
+                        safe_after(self, 0, self._stop_overlay_if_active, query_id)
                 elif "token" in chunk:
-                    safe_after(self, 0, self._append_token, chunk["token"])
+                    safe_after(self, 0, self._append_token_if_active, query_id, chunk["token"])
                 elif chunk.get("done"):
                     result = chunk.get("result")
                     if result:
+                        if self._is_query_aborted(query_id):
+                            return
                         # Thread-safe completion signal + status
                         self.is_querying = False
                         self.last_answer_preview = (result.answer or "")[:200]
                         self.last_query_status = "error" if result.error else "complete"
                         self.query_done_event.set()
-                        safe_after(self, 0, self._finish_stream, result)
+                        safe_after(self, 0, self._finish_stream_if_active, query_id, result)
                     return
             # If generator exhausted without "done"
+            if self._is_query_aborted(query_id):
+                return
             self.is_querying = False
             self.last_query_status = "incomplete"
             self.query_done_event.set()
             safe_after(self, 0, self._stop_elapsed_timer)
-            safe_after(self, 0, self._overlay.stop)
-            safe_after(self, 0, lambda: self.ask_btn.config(state=tk.NORMAL))
+            safe_after(self, 0, self._stop_overlay_if_active, query_id)
+            safe_after(self, 0, self._set_query_controls, False)
         except Exception as e:
+            if self._is_query_aborted(query_id):
+                return
             error_msg = "[FAIL] {}: {}".format(type(e).__name__, e)
             self.is_querying = False
             self.last_answer_preview = error_msg
@@ -1250,6 +1282,67 @@ class QueryPanel(tk.LabelFrame):
             safe_after(self, 0, self._stop_elapsed_timer)
             safe_after(self, 0, self._overlay.cancel)
             safe_after(self, 0, self._show_error, error_msg)
+
+    def _is_query_aborted(self, query_id):
+        """True when a query is stale/cancelled and its UI updates must be ignored."""
+        return (query_id != self._active_query_id) or (query_id in self._cancelled_query_ids)
+
+    def _set_query_controls(self, running):
+        """Toggle Ask/Stop buttons for in-flight query UX."""
+        t = current_theme()
+        if running:
+            self.ask_btn.config(state=tk.DISABLED, bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"])
+            self.stop_btn.config(state=tk.NORMAL, bg=t["orange"], fg=t["accent_fg"])
+        else:
+            self.ask_btn.config(state=tk.NORMAL, bg=t["accent"], fg=t["accent_fg"])
+            self.stop_btn.config(state=tk.DISABLED, bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"])
+
+    def _on_stop_query(self, event=None):
+        """Soft-cancel current query: restore control immediately and ignore late results."""
+        if not self.is_querying:
+            return
+        qid = self._active_query_id
+        self._cancelled_query_ids.add(qid)
+        self.is_querying = False
+        self._streaming = False
+        self.last_answer_preview = "[STOP] Query cancelled by user."
+        self.last_query_status = "cancelled"
+        self.query_done_event.set()
+        self._stop_elapsed_timer()
+        self._overlay.cancel()
+        self._set_query_controls(running=False)
+        t = current_theme()
+        self.network_label.config(text="Query stopped.", fg=t["orange"])
+
+    def _set_status_if_active(self, query_id, text):
+        if self._is_query_aborted(query_id):
+            return
+        self._set_status(text)
+
+    def _start_elapsed_timer_if_active(self, query_id):
+        if self._is_query_aborted(query_id):
+            return
+        self._start_elapsed_timer()
+
+    def _prepare_streaming_if_active(self, query_id):
+        if self._is_query_aborted(query_id):
+            return
+        self._prepare_streaming()
+
+    def _append_token_if_active(self, query_id, token):
+        if self._is_query_aborted(query_id):
+            return
+        self._append_token(token)
+
+    def _finish_stream_if_active(self, query_id, result):
+        if self._is_query_aborted(query_id):
+            return
+        self._finish_stream(result)
+
+    def _stop_overlay_if_active(self, query_id):
+        if self._is_query_aborted(query_id):
+            return
+        self._overlay.stop()
 
     def _set_status(self, text):
         """Update the network/status label."""
@@ -1308,7 +1401,7 @@ class QueryPanel(tk.LabelFrame):
             self.answer_text.insert("1.0", result.answer)
 
         self.answer_text.config(state=tk.DISABLED)
-        self.ask_btn.config(state=tk.NORMAL)
+        self._set_query_controls(running=False)
         self.network_label.config(text="")
 
         # Display sources and metrics from the final result
@@ -1362,13 +1455,13 @@ class QueryPanel(tk.LabelFrame):
             self._display_result_inner(result)
         except Exception as e:
             logger.error("Display result failed: %s", e)
-            self.ask_btn.config(state=tk.NORMAL)
+            self._set_query_controls(running=False)
             self.network_label.config(text="")
 
     def _display_result_inner(self, result):
         """Inner display logic (separated so outer can catch and re-enable)."""
         t = current_theme()
-        self.ask_btn.config(state=tk.NORMAL)
+        self._set_query_controls(running=False)
         self.network_label.config(text="")
         self._overlay.stop()
 
@@ -1444,7 +1537,7 @@ class QueryPanel(tk.LabelFrame):
         State transition: any state -> ERROR (then effectively IDLE)
         """
         t = current_theme()
-        self.ask_btn.config(state=tk.NORMAL)
+        self._set_query_controls(running=False)
         self.network_label.config(text="")
         self._overlay.cancel()
 
@@ -1517,9 +1610,13 @@ class QueryPanel(tk.LabelFrame):
         if enabled:
             self.ask_btn.config(state=tk.NORMAL, bg=t["accent"],
                                 fg=t["accent_fg"])
+            self.stop_btn.config(state=tk.DISABLED, bg=t["inactive_btn_bg"],
+                                 fg=t["inactive_btn_fg"])
         else:
             self.ask_btn.config(state=tk.DISABLED, bg=t["inactive_btn_bg"],
                                 fg=t["inactive_btn_fg"])
+            self.stop_btn.config(state=tk.DISABLED, bg=t["inactive_btn_bg"],
+                                 fg=t["inactive_btn_fg"])
 
     def _emit_cost_event(self, result):
         """Record completed query in the cost tracker for PM dashboard."""
