@@ -198,6 +198,7 @@ class TransferConfig:
     resume: bool = True                 # Skip already-transferred files
     resume_seed_from_manifest: bool = True  # Start resume from prior manifest before full crawl
     resume_seed_limit: int = 0          # 0 = no limit; >0 caps resume seed candidates
+    skip_full_discovery: bool = False   # If True, transfer only resume-seeded candidates
     max_retries: int = 3
     retry_backoff: float = 2.0          # Wait 2s, 4s, 8s between retries
     copy_buffer_size: int = 1_048_576   # 1 MB (optimal for network SMB)
@@ -1528,6 +1529,7 @@ class BulkTransferV2:
                 "extensions": len(cfg.extensions),
                 "resume_seed_from_manifest": cfg.resume_seed_from_manifest,
                 "resume_seed_limit": cfg.resume_seed_limit,
+                "skip_full_discovery": cfg.skip_full_discovery,
             }),
         )
 
@@ -1571,8 +1573,17 @@ class BulkTransferV2:
                 self.run_id, self._stop, self._log_lock,
             )
             def _stream_candidates():
+                seeded_any = False
                 for item in discoverer.resume_seed_iter():
+                    seeded_any = True
                     yield item
+                if cfg.skip_full_discovery:
+                    if not seeded_any:
+                        self._log(
+                            "  [WARN] skip_full_discovery=True but no resume seed "
+                            "candidates were found in prior manifests."
+                        )
+                    return
                 for item in discoverer.discover_iter():
                     yield item
 

@@ -304,9 +304,14 @@ class Indexer:
                 progress_callback.on_file_start(
                     str(file_path), idx, len(supported_files)
                 )
-                chunks_added, skip_reason, was_reindex = (
-                    self._process_single_file(file_path, stop_flag=stop_flag)
-                )
+                if stop_flag is None:
+                    chunks_added, skip_reason, was_reindex = (
+                        self._process_single_file(file_path)
+                    )
+                else:
+                    chunks_added, skip_reason, was_reindex = (
+                        self._process_single_file(file_path, stop_flag=stop_flag)
+                    )
                 if skip_reason:
                     self._maybe_divert_ocr_dependent_file(file_path, skip_reason, folder)
                     total_files_skipped += 1

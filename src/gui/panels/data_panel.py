@@ -880,6 +880,9 @@ class DataPanel(tk.Frame):
                 source_paths=[source],
                 dest_path=dest,
                 workers=8,
+                skip_full_discovery=str(
+                    os.getenv("HYBRIDRAG_SKIP_DISCOVERY", "0")
+                ).strip().lower() in ("1", "true", "yes", "on"),
             )
             self._engine = BulkTransferV2(cfg)
             self._engine.run()
