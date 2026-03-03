@@ -1,0 +1,60 @@
+software,version,repo_status,approval_status,license_purpose_comment,review_notes,last_checked
+openai,1.109.1,APPROVED-IN-REPO,TBD,"MIT -- PINNED v1.x forever; never 2.x syntax (latest 1.x, httpx 0.28 compatible)",,2026-03-02
+tiktoken,0.8.0,APPROVED-IN-REPO,TBD,"MIT -- OpenAI token counting (offline, no network)",,2026-03-02
+numpy,1.26.4,APPROVED-IN-REPO,TBD,BSD-3 -- Last 1.x release (2.x has breaking changes),,2026-03-02
+pydantic,2.11.1,APPROVED-IN-REPO,TBD,MIT -- Data validation (openai SDK dep),,2026-03-02
+typing-inspection,0.4.2,APPROVED-IN-REPO,TBD,MIT -- Pydantic dep,,2026-03-02
+annotated-types,0.7.0,APPROVED-IN-REPO,TBD,MIT -- Pydantic dep,,2026-03-02
+typing_extensions,4.15.0,APPROVED-IN-REPO,TBD,PSF-2.0 -- Python typing backports (PSF/USA),,2026-03-02
+pdfplumber,0.11.9,APPROVED-IN-REPO,TBD,MIT -- Primary PDF text extraction,,2026-03-02
+pdfminer.six,20251230,APPROVED-IN-REPO,TBD,MIT -- PDF parsing engine (pdfplumber dep),,2026-03-02
+pypdf,6.6.2,APPROVED-IN-REPO,TBD,BSD-3 -- PDF metadata and page counting,,2026-03-02
+pypdfium2,5.3.0,APPROVED-IN-REPO,TBD,Apache 2.0 -- Fast PDF rendering (Google PDFium engine),,2026-03-02
+python-docx,1.2.0,APPROVED-IN-REPO,TBD,MIT -- Word .docx reader,,2026-03-02
+python-pptx,1.0.2,APPROVED-IN-REPO,TBD,MIT -- PowerPoint .pptx reader,,2026-03-02
+openpyxl,3.1.5,APPROVED-IN-REPO,TBD,MIT -- Excel .xlsx reader,,2026-03-02
+xlsxwriter,3.2.9,APPROVED-IN-REPO,TBD,BSD-2 -- Excel .xlsx writer,,2026-03-02
+lxml,6.0.2,APPROVED-IN-REPO,TBD,BSD-3 -- XML/HTML parsing (Office XML dep),,2026-03-02
+et_xmlfile,2.0.0,APPROVED-IN-REPO,TBD,MIT -- XML utility (openpyxl dep),,2026-03-02
+pillow,12.1.0,APPROVED-IN-REPO,TBD,HPND -- Image processing,,2026-03-02
+pdf2image,1.17.0,APPROVED-IN-REPO,TBD,MIT -- PDF to image conversion (OCR pipeline),,2026-03-02
+pytesseract,0.3.13,APPROVED-IN-REPO,TBD,Apache 2.0 -- OCR bridge for scanned PDFs,,2026-03-02
+ocrmypdf,16.10.4,PENDING-IN-REPO,TBD,MPL-2.0 -- Scanned PDF OCR enhancement (YELLOW*: pending approval/validation),,2026-03-02
+httpx,0.28.1,APPROVED-IN-REPO,TBD,BSD-3 -- Async HTTP client (openai SDK dep + embedder),,2026-03-02
+requests,2.32.5,APPROVED-IN-REPO,TBD,"Apache 2.0 -- HTTP client (pip dep, likely pre-installed)",,2026-03-02
+urllib3,2.6.3,APPROVED-IN-REPO,TBD,"MIT -- HTTP internals (requests dep, likely pre-installed)",,2026-03-02
+sniffio,1.3.1,APPROVED-IN-REPO,TBD,MIT -- Async detection (httpx dep),,2026-03-02
+cryptography,44.0.2,APPROVED-IN-REPO,TBD,"Apache 2.0 -- AES-256 encryption (pip dep, likely pre-installed)",,2026-03-02
+fastapi,0.115.0,APPROVED-IN-REPO,TBD,MIT -- REST API framework (Tiangolo/USA),,2026-03-02
+uvicorn,0.41.0,APPROVED-IN-REPO,TBD,BSD-3 -- ASGI server (Encode/UK),,2026-03-02
+starlette,0.38.6,APPROVED-IN-REPO,TBD,"BSD-3 -- ASGI toolkit (fastapi dep, DoS fix in 0.38.2+)",,2026-03-02
+python-multipart,0.0.22,APPROVED-IN-REPO,TBD,Apache 2.0 -- Form data parsing (fastapi dep),,2026-03-02
+click,8.3.1,APPROVED-IN-REPO,TBD,"BSD-3 -- CLI toolkit (uvicorn dep, Pallets/USA)",,2026-03-02
+keyring,23.13.1,APPROVED-IN-REPO,TBD,MIT -- Windows Credential Manager access (Python 3.12 compatible),,2026-03-02
+jaraco.classes,3.4.0,APPROVED-IN-REPO,TBD,MIT -- keyring dependency,,2026-03-02
+more-itertools,10.8.0,APPROVED-IN-REPO,TBD,MIT -- keyring dependency,,2026-03-02
+pytest,9.0.2,PENDING-IN-REPO,TBD,MIT -- Test framework (YELLOW: applying for approval),,2026-03-02
+psutil,7.2.2,PENDING-IN-REPO,TBD,BSD-3 -- Process utilities (YELLOW: applying for approval),,2026-03-02
+pyyaml,6.0.2,APPROVED-IN-REPO,TBD,MIT -- YAML parsing (ALREADY APPROVED in store),,2026-03-02
+structlog,24.4.0,APPROVED-IN-REPO,TBD,MIT -- Structured JSON logging for audit trails,,2026-03-02
+rich,13.9.4,APPROVED-IN-REPO,TBD,MIT -- Terminal formatting (display-only),,2026-03-02
+tqdm,4.67.3,APPROVED-IN-REPO,TBD,MIT -- Progress bars (display-only),,2026-03-02
+regex,2026.1.15,APPROVED-IN-REPO,TBD,Apache 2.0 -- Enhanced regex (text processing),,2026-03-02
+colorama,0.4.6,APPROVED-IN-REPO,TBD,BSD-3 -- Console color output (Windows terminal support),,2026-03-02
+olefile,0.47,APPROVED-IN-REPO,TBD,"BSD -- Legacy Office binary format reader (.doc, .msg)",,2026-03-02
+ezdxf,1.4.3,APPROVED-IN-REPO,TBD,MIT -- AutoCAD DXF reader/writer (engineering drawings),,2026-03-02
+python-evtx,0.8.1,APPROVED-IN-REPO,TBD,"Apache 2.0 -- Windows Event Log parser (.evtx, sys admin)",,2026-03-02
+python-oxmsg,0.0.2,APPROVED-IN-REPO,TBD,MIT -- Outlook .msg email reader (by python-docx author),,2026-03-02
+dpkt,1.9.8,APPROVED-IN-REPO,TBD,"BSD -- Network packet capture parser (.pcap, cybersecurity)",,2026-03-02
+psd-tools,1.13.1,APPROVED-IN-REPO,TBD,MIT -- Photoshop .psd file reader,,2026-03-02
+striprtf,0.0.29,APPROVED-IN-REPO,TBD,BSD-3 -- Rich Text Format parser (.rtf documents),,2026-03-02
+numpy-stl,3.2.0,APPROVED-IN-REPO,TBD,BSD -- STL 3D mesh parser (engineering/manufacturing),,2026-03-02
+vsdx,0.6.1,APPROVED-IN-REPO,TBD,BSD-3 -- Visio .vsdx diagram parser (engineering/logistics),,2026-03-02
+pyparsing,3.3.2,APPROVED-IN-REPO,TBD,MIT -- ezdxf dep,,2026-03-02
+fonttools,4.61.1,APPROVED-IN-REPO,TBD,MIT -- ezdxf dep,,2026-03-02
+hexdump,3.3,APPROVED-IN-REPO,TBD,MIT -- python-evtx dep,,2026-03-02
+attrs,25.4.0,APPROVED-IN-REPO,TBD,MIT -- psd-tools dep,,2026-03-02
+python-utils,3.9.1,APPROVED-IN-REPO,TBD,BSD-3 -- numpy-stl dep,,2026-03-02
+Jinja2,3.1.6,APPROVED-IN-REPO,TBD,BSD-3 -- vsdx dep,,2026-03-02
+MarkupSafe,3.0.3,APPROVED-IN-REPO,TBD,BSD-3 -- Jinja2 dep,,2026-03-02
+deprecation,2.1.0,APPROVED-IN-REPO,TBD,Apache 2.0 -- vsdx dep,,2026-03-02
