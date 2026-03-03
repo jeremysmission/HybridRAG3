@@ -96,10 +96,9 @@ from .path_io import to_io_path
 # Configuration
 # ============================================================================
 
-# Default file extensions HybridRAG can parse.
-# Kept in sync with src/parsers/registry.py supported_extensions().
-# If you add a new parser, add the extension here too.
-_RAG_EXTENSIONS: Set[str] = {
+# Fallback parser extension list used only if registry import fails.
+# Primary source of truth is src/parsers/registry.py.
+_RAG_EXTENSIONS_FALLBACK: Set[str] = {
     # Plain text / config
     ".txt", ".md", ".csv", ".json", ".xml", ".log", ".yaml", ".yml",
     ".ini", ".cfg", ".conf", ".properties", ".reg",
@@ -120,6 +119,36 @@ _RAG_EXTENSIONS: Set[str] = {
     # Design
     ".psd", ".ai", ".wmf", ".emf",
 }
+
+
+def _resolve_rag_extensions() -> Set[str]:
+    """
+    Resolve copy allowlist from parser registry.
+
+    Uses parser registry as the single source of truth to prevent drift
+    between downloader discovery and actual parser coverage.
+    """
+    try:
+        from src.parsers.registry import REGISTRY
+        exts = {
+            str(ext).strip().lower()
+            for ext in REGISTRY.supported_extensions()
+            if str(ext).strip().startswith(".")
+        }
+        if exts:
+            return exts
+    except Exception as e:
+        logger.warning(
+            "[WARN] Could not load parser registry extensions; "
+            "using fallback allowlist: %s",
+            e,
+        )
+    return _RAG_EXTENSIONS_FALLBACK.copy()
+
+
+# Default file extensions HybridRAG can parse.
+# Dynamically loaded from parser registry to avoid allowlist drift.
+_RAG_EXTENSIONS: Set[str] = _resolve_rag_extensions()
 
 # Extensions that should NEVER be copied (not useful for RAG, often huge).
 # .pst = Outlook data file: it's a database container that is almost always

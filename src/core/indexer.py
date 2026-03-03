@@ -265,9 +265,8 @@ class Indexer:
         _discovery_count = 0
         _glob_iter = folder.rglob("*") if recursive else folder.glob("*")
         while True:
-            # Check cancellation every 500 files during discovery
-            if stop_flag is not None and _discovery_count % 500 == 0 and stop_flag.is_set():
-                raise IndexCancelled("Cancelled during discovery")
+            # Check cancellation every discovery iteration for responsive stop.
+            self._raise_if_cancelled(stop_flag, "during discovery")
             try:
                 f = next(_glob_iter)
             except StopIteration:
@@ -306,7 +305,7 @@ class Indexer:
                     str(file_path), idx, len(supported_files)
                 )
                 chunks_added, skip_reason, was_reindex = (
-                    self._process_single_file(file_path)
+                    self._process_single_file(file_path, stop_flag=stop_flag)
                 )
                 if skip_reason:
                     self._maybe_divert_ocr_dependent_file(file_path, skip_reason, folder)
@@ -395,7 +394,9 @@ class Indexer:
         return self._file_validator.preflight_check(file_path)
 
     def _process_single_file(
-        self, file_path: Path,
+        self,
+        file_path: Path,
+        stop_flag: Optional[Any] = None,
     ) -> Tuple[int, Optional[str], bool]:
         """
         Process one file: preflight -> hash check -> parse -> validate ->
@@ -406,12 +407,14 @@ class Indexer:
         chunks were deleted before re-indexing a modified file.
         """
         was_reindex = False
+        self._raise_if_cancelled(stop_flag, f"before preflight: {file_path.name}")
 
         preflight_reason = self._preflight_check(file_path)
         if preflight_reason:
             logger.info("BLOCKED: %s -- %s", file_path.name, preflight_reason)
             return 0, "preflight: {}".format(preflight_reason), False
 
+        self._raise_if_cancelled(stop_flag, f"before hash check: {file_path.name}")
         current_hash = self._compute_file_hash(file_path)
         stored_hash = self.vector_store.get_file_hash(str(file_path))
         if stored_hash:
@@ -426,7 +429,10 @@ class Indexer:
             )
             was_reindex = True
 
-        text, parse_details = self._process_file_with_retry(file_path)
+        self._raise_if_cancelled(stop_flag, f"before parse: {file_path.name}")
+        text, parse_details = self._process_file_with_retry(
+            file_path, stop_flag=stop_flag
+        )
         if not text or not text.strip():
             return 0, self._build_no_text_reason(file_path, parse_details), False
 
@@ -454,6 +460,7 @@ class Indexer:
         chunks_added = 0
         char_offset = 0
         for block in self._iter_text_blocks(text):
+            self._raise_if_cancelled(stop_flag, f"during chunk loop: {file_path.name}")
             if not block.strip():
                 char_offset += len(block)
                 continue
@@ -461,6 +468,7 @@ class Indexer:
             if not chunks:
                 char_offset += len(block)
                 continue
+            self._raise_if_cancelled(stop_flag, f"before embed: {file_path.name}")
             embeddings = self.embedder.embed_batch(chunks)
             metadata_list = []
             chunk_ids = []
@@ -502,11 +510,15 @@ class Indexer:
         return chunks_added, None, was_reindex
 
     def _process_file_with_retry(
-        self, file_path: Path, max_retries: int = 3
+        self,
+        file_path: Path,
+        max_retries: int = 3,
+        stop_flag: Optional[Any] = None,
     ) -> Tuple[str, Dict[str, Any]]:
         """Retry file processing up to max_retries times with backoff."""
         last_error = None
         for attempt in range(1, max_retries + 1):
+            self._raise_if_cancelled(stop_flag, f"before parse retry {attempt}: {file_path.name}")
             try:
                 return self._parse_file(file_path)
             except Exception as e:
@@ -517,8 +529,31 @@ class Indexer:
                         "[WARN] Retry %d/%d for %s in %ds: %s",
                         attempt, max_retries, file_path.name, wait, e,
                     )
-                    time.sleep(wait)
+                    self._sleep_with_cancel(wait, stop_flag, file_path.name)
         raise last_error
+
+    def _raise_if_cancelled(self, stop_flag: Optional[Any], where: str = "") -> None:
+        """Raise IndexCancelled when cooperative stop was requested."""
+        if stop_flag is not None and stop_flag.is_set():
+            where_suffix = f" ({where})" if where else ""
+            raise IndexCancelled(f"Cancelled{where_suffix}")
+
+    def _sleep_with_cancel(
+        self,
+        seconds: float,
+        stop_flag: Optional[Any],
+        file_name: str = "",
+    ) -> None:
+        """Sleep in short slices so stop requests interrupt retry backoff."""
+        if seconds <= 0:
+            return
+        end = time.monotonic() + float(seconds)
+        while True:
+            self._raise_if_cancelled(stop_flag, f"during retry backoff: {file_name}")
+            remaining = end - time.monotonic()
+            if remaining <= 0:
+                return
+            time.sleep(min(0.1, remaining))
 
     # =================================================================
     # BUG-001 FIX: _compute_file_hash unchanged but now USED properly

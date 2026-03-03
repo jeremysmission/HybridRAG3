@@ -14,6 +14,7 @@
 
 import os
 import time
+import threading
 import shutil
 import tempfile
 import hashlib
@@ -548,6 +549,64 @@ class TestIndexer:
         assert ".txt" in reason
         assert "DocParser" in reason
         assert "IMPORT_ERROR" in reason
+
+    # ------------------------------------------------------------------
+    # Test 5.17: stop_flag cancels during multi-block processing
+    # ------------------------------------------------------------------
+    def test_stop_flag_cancels_during_chunk_loop(self):
+        """
+        WHAT: stop_flag should abort while processing a single large file.
+        WHY:  Without cooperative checks inside _process_single_file(),
+              Stop appears stuck until all blocks finish embedding.
+        """
+        config = FakeConfig()
+        config.indexing.block_chars = 50
+        config.chunking.chunk_size = 25
+        config.chunking.overlap = 0
+
+        indexer, mocks = self._make_indexer(config=config)
+        stop_flag = threading.Event()
+
+        target = self.test_dir / "document.txt"
+
+        # Force many blocks/chunks so cancellation has a chance to trigger.
+        big_text = ("alpha bravo charlie delta " * 200).strip()
+        with patch.object(indexer, "_process_file_with_retry", return_value=(big_text, {})):
+            call_count = {"n": 0}
+
+            def embed_then_cancel(chunks):
+                call_count["n"] += 1
+                if call_count["n"] == 1:
+                    stop_flag.set()
+                return [[0.0] * 384 for _ in chunks]
+
+            mocks["embedder"].embed_batch.side_effect = embed_then_cancel
+
+            from src.core.indexing.cancel import IndexCancelled
+            with pytest.raises(IndexCancelled):
+                indexer._process_single_file(target, stop_flag=stop_flag)
+
+            assert call_count["n"] == 1, "Cancellation should stop before second embed batch"
+
+    # ------------------------------------------------------------------
+    # Test 5.18: stop_flag interrupts retry backoff immediately
+    # ------------------------------------------------------------------
+    def test_stop_flag_interrupts_retry_backoff(self):
+        """
+        WHAT: stop_flag should break out of retry sleep without waiting.
+        WHY:  Stop must be responsive even when parser retries are sleeping.
+        """
+        indexer, _ = self._make_indexer()
+        stop_flag = threading.Event()
+        stop_flag.set()
+
+        from src.core.indexing.cancel import IndexCancelled
+        with pytest.raises(IndexCancelled):
+            indexer._process_file_with_retry(
+                self.test_dir / "document.txt",
+                max_retries=3,
+                stop_flag=stop_flag,
+            )
 
 
 # ============================================================================
