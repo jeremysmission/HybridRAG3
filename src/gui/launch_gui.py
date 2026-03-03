@@ -29,6 +29,7 @@ import os
 import sys
 import logging
 import threading
+from glob import glob
 from concurrent.futures import ThreadPoolExecutor
 
 # Ensure project root is on sys.path BEFORE any src.* imports
@@ -410,6 +411,51 @@ def _step(msg):
     print("[STARTUP {}] {}".format(ts, msg), flush=True)
 
 
+def _sanitize_tk_env():
+    """Auto-heal common Tk startup failures caused by bad environment vars.
+
+    Corporate images and shell profiles sometimes leave stale TCL/TK/PYTHONHOME
+    values that point at removed Python installs. When that happens, tkinter
+    crashes with "can't find a usable tk.tcl/init.tcl". We defensively clear
+    invalid paths and set known-good defaults from sys.base_prefix if present.
+    """
+    # Clear invalid explicit overrides first.
+    for var, must_have in (
+        ("TCL_LIBRARY", "init.tcl"),
+        ("TK_LIBRARY", "tk.tcl"),
+    ):
+        val = os.environ.get(var)
+        if not val:
+            continue
+        marker = os.path.join(val, must_have)
+        if not (os.path.isdir(val) and os.path.isfile(marker)):
+            _step("Tk env fix: clearing invalid {}={}".format(var, val))
+            os.environ.pop(var, None)
+
+    pyhome = os.environ.get("PYTHONHOME")
+    if pyhome and not os.path.isdir(pyhome):
+        _step("Tk env fix: clearing invalid PYTHONHOME={}".format(pyhome))
+        os.environ.pop("PYTHONHOME", None)
+
+    # If no explicit override is set, use the interpreter's bundled Tcl/Tk.
+    tcl_root = os.path.join(sys.base_prefix, "tcl")
+    if os.path.isdir(tcl_root):
+        if not os.environ.get("TCL_LIBRARY"):
+            tcl_dirs = sorted(glob(os.path.join(tcl_root, "tcl*")))
+            for d in tcl_dirs:
+                if os.path.isfile(os.path.join(d, "init.tcl")):
+                    os.environ["TCL_LIBRARY"] = d
+                    _step("Tk env fix: set TCL_LIBRARY={}".format(d))
+                    break
+        if not os.environ.get("TK_LIBRARY"):
+            tk_dirs = sorted(glob(os.path.join(tcl_root, "tk*")))
+            for d in tk_dirs:
+                if os.path.isfile(os.path.join(d, "tk.tcl")):
+                    os.environ["TK_LIBRARY"] = d
+                    _step("Tk env fix: set TK_LIBRARY={}".format(d))
+                    break
+
+
 def main():
     """Boot config, open GUI immediately, load backends in background."""
     _step("main() entered")
@@ -418,6 +464,7 @@ def main():
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
     logger = logging.getLogger("gui_launcher")
+    _sanitize_tk_env()
 
     # NOTE: _preload_thread is already running (started at module load).
     # While we boot + load config + build the GUI (~2s), the Ollama
