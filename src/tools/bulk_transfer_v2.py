@@ -1581,9 +1581,11 @@ class BulkTransferV2:
                     if not seeded_any:
                         self._log(
                             "  [WARN] skip_full_discovery=True but no resume seed "
-                            "candidates were found in prior manifests."
+                            "candidates were found in prior manifests. "
+                            "Falling back to live discovery."
                         )
-                    return
+                    else:
+                        return
                 for item in discoverer.discover_iter():
                     yield item
 
