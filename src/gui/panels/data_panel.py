@@ -88,6 +88,14 @@ def _fmt_dur(s):
     return "{}h {}m".format(int(h), int(m))
 
 
+def _fmt_rate(bps):
+    """Format transfer rate with explicit MB/s and GB/s values."""
+    bps = float(max(0.0, bps))
+    mbps = bps / (1024 ** 2)
+    gbps = bps / (1024 ** 3)
+    return "{:.2f} MB/s ({:.3f} GB/s)".format(mbps, gbps)
+
+
 def _drive_from_path(path):
     """Return normalized drive root (e.g. 'I:\\') from a Windows path."""
     if not path:
@@ -1077,8 +1085,8 @@ class DataPanel(tk.Frame):
         )
         processed_total = int(getattr(stats, "files_processed", 0))
         self._stats_label.config(
-            text="{}/s | ETA {} | copied: {:,} | processed: {:,} | skipped: {:,} | err: {:,}".format(
-                _fmt_size(speed), eta_str,
+            text="{} | ETA {} | copied: {:,} | processed: {:,} | skipped: {:,} | err: {:,}".format(
+                _fmt_rate(speed), eta_str,
                 copied, processed_total, skipped_total, stats.files_failed,
             ),
             fg=t["gray"],
