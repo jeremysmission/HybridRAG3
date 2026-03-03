@@ -221,6 +221,7 @@ class DataPanel(tk.Frame):
         self._estimated_total_bytes = 0
         self._resumed_run = False
         self._manifest_note_tick = 0
+        self._total_copied_db_bytes = 0
 
         # Public testing state (same pattern as IndexPanel/QueryPanel)
         self.transfer_done_event = threading.Event()
@@ -1091,13 +1092,17 @@ class DataPanel(tk.Frame):
             ),
             fg=t["gray"],
         )
+        # Fast cumulative counter from transfer manifest DB (no source discovery).
+        if self._manifest_note_tick % 4 == 0:
+            self._total_copied_db_bytes = self._read_total_copied_bytes_from_manifest()
         self._stats_detail_label.config(
-            text="Elapsed {} | Data {} / {} | discovered {:,} | manifest {:,}".format(
+            text="Elapsed {} | Data {} / {} | discovered {:,} | manifest {:,} | total copied (all runs): {}".format(
                 _fmt_dur(stats.elapsed),
                 _fmt_size(stats.bytes_copied),
                 _fmt_size(self._estimated_total_bytes if self._estimated_total_bytes > 0 else stats.bytes_source_total),
                 stats.files_discovered,
                 int(getattr(stats, "files_manifest", 0)),
+                _fmt_size(self._total_copied_db_bytes),
             ),
             fg=t["gray"],
         )
@@ -1219,6 +1224,24 @@ class DataPanel(tk.Frame):
         except Exception as e:
             logger.debug("manifest_reason_lookup_failed: %s", e)
         return ""
+
+    def _read_total_copied_bytes_from_manifest(self):
+        """Return cumulative successful copied bytes from transfer manifest DB."""
+        try:
+            if self._engine is None:
+                return 0
+            manifest = getattr(self._engine, "manifest", None)
+            if manifest is None:
+                return 0
+            with manifest._lock:
+                row = manifest.conn.execute(
+                    "SELECT COALESCE(SUM(file_size_dest), 0) "
+                    "FROM transfer_log WHERE result='success'"
+                ).fetchone()
+            return int((row[0] if row and row[0] is not None else 0) or 0)
+        except Exception as e:
+            logger.debug("manifest_total_copied_lookup_failed: %s", e)
+            return 0
 
     # ================================================================
     # SECTION E: Post-Transfer Actions
