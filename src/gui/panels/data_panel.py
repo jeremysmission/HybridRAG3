@@ -839,9 +839,19 @@ class DataPanel(tk.Frame):
         self._run_id_var.set("Run ID: pending...")
         self._stop_ack_var.set("Stop Ack: --")
         self._last_reason_var.set("Last Manifest Reason: --")
+        skip_full_discovery = str(
+            os.getenv("HYBRIDRAG_SKIP_DISCOVERY", "0")
+        ).strip().lower() in ("1", "true", "yes", "on")
+
         if resume:
             self._transfer_status.config(
                 text="Resuming transfer from saved state...", fg=t["orange"])
+        elif skip_full_discovery:
+            self._transfer_status.config(
+                text="[WARN] Fast-start mode active: skipping full discovery; "
+                     "using resume seed candidates only.",
+                fg=t["orange"],
+            )
         else:
             self._transfer_status.config(text="Starting transfer...", fg=t["gray"])
 
@@ -853,7 +863,9 @@ class DataPanel(tk.Frame):
 
         # Launch in background
         self._transfer_thread = threading.Thread(
-            target=self._run_transfer, args=(source, dest), daemon=True,
+            target=self._run_transfer,
+            args=(source, dest, skip_full_discovery),
+            daemon=True,
         )
         self._transfer_thread.start()
 
@@ -861,7 +873,7 @@ class DataPanel(tk.Frame):
         self._poll_stats()
         return True
 
-    def _run_transfer(self, source, dest):
+    def _run_transfer(self, source, dest, skip_full_discovery=False):
         """Background thread: create engine and run transfer with diagnostics."""
         try:
             # Emit start event for observability
@@ -880,9 +892,7 @@ class DataPanel(tk.Frame):
                 source_paths=[source],
                 dest_path=dest,
                 workers=8,
-                skip_full_discovery=str(
-                    os.getenv("HYBRIDRAG_SKIP_DISCOVERY", "0")
-                ).strip().lower() in ("1", "true", "yes", "on"),
+                skip_full_discovery=bool(skip_full_discovery),
             )
             self._engine = BulkTransferV2(cfg)
             self._engine.run()

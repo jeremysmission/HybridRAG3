@@ -111,6 +111,47 @@ COMMON FIXES:
   Wait for backends (30-60s on 8GB laptop).
   Ollama Offline -> run 'ollama serve' in separate terminal.
   Credentials missing -> rag-store-key + rag-store-endpoint.
+
+DEMO-SAFE OFFLINE / 500 RECOVERY (added 2026-03-03):
+  If query errors include HTTP 500 / timeout / "LLM call failed",
+  set these in config/user_overrides.yaml:
+
+    mode: offline
+    ollama.model: phi4-mini
+    ollama.context_window: 4096
+    ollama.timeout_seconds: 180
+
+  Tradeoffs:
+    Lower context_window = less memory pressure, but less long-context recall.
+    Smaller model (phi4-mini) = higher stability/speed, lower deep reasoning.
+    Higher timeout = fewer false timeouts, but longer wait before fail.
+
+  Which memory matters:
+    context_window primarily drives runtime memory (GPU VRAM if CUDA active,
+    otherwise system RAM when running CPU path).
+    Model size stresses both load memory and runtime cache.
+
+  Quick checks:
+    ollama run phi4-mini "OK"
+    ollama ps
+
+CUDA VERIFY (Windows, NVIDIA):
+  1) nvidia-smi
+  2) taskkill /IM ollama.exe /F
+  3) ollama serve
+  4) ollama run phi4-mini "OK"
+  5) ollama ps   -> PROCESSOR should show GPU (not 100% CPU)
+
+  Note:
+    There is no manual VRAM->RAM slider in HybridRAG.
+    Ollama auto-manages offload. If model/context exceeds practical VRAM,
+    it can fall back toward CPU-heavy execution.
+
+SAFE ZONE RULES (workstation demos / production sessions):
+  1) No indexing during live demo/query windows.
+  2) No bulk download/transfer during live demo/query windows.
+  3) Keep one offline model loaded (phi4-mini) and avoid model switching mid-demo.
+  4) Close heavy background apps/tabs before demo start.
 """
 
 HELP_USER_GUIDE = """\

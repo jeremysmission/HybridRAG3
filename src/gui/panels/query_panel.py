@@ -25,7 +25,7 @@
 # ============================================================================
 
 import tkinter as tk
-from tkinter import ttk, scrolledtext
+from tkinter import ttk, scrolledtext, messagebox
 import threading
 import time
 import logging
@@ -216,6 +216,7 @@ class QueryPanel(tk.LabelFrame):
         self._auto_fallback_active = False
         self._auto_selected_model = ""
         self._auto_primary_model = ""
+        self._last_mem_popup_ts = 0.0
         self._grounding_bias_var = tk.IntVar(value=6)
         self._grounding_bias_hint = tk.StringVar(value=GROUNDING_BIAS_HINTS[6])
         self._reasoning_dial_var = tk.IntVar(value=5)
@@ -1313,7 +1314,8 @@ class QueryPanel(tk.LabelFrame):
         # Display sources and metrics from the final result
         t = current_theme()
         if result.error:
-            self._show_error("[FAIL] {}".format(result.error))
+            detail = (result.answer or result.error or "").strip()
+            self._show_error("[FAIL] {}".format(detail))
             return
 
         # Display grounding status if available
@@ -1372,7 +1374,8 @@ class QueryPanel(tk.LabelFrame):
 
         # Check for error
         if result.error:
-            self._show_error("[FAIL] {}".format(result.error))
+            detail = (result.answer or result.error or "").strip()
+            self._show_error("[FAIL] {}".format(detail))
             return
 
         # Display answer -- never leave the box blank
@@ -1454,6 +1457,59 @@ class QueryPanel(tk.LabelFrame):
 
         self.sources_label.config(text="Sources: (none)", fg=t["gray"])
         self.metrics_label.config(text="")
+        self._maybe_show_memory_tuning_popup(error_msg)
+
+    def _maybe_show_memory_tuning_popup(self, error_msg):
+        """Show targeted guidance for common offline 500/timeout memory failures."""
+        try:
+            msg = (error_msg or "").strip()
+            low = msg.lower()
+            if not low:
+                return
+
+            hit_500 = ("500" in low) or ("internal server error" in low)
+            hit_timeout = ("timed out" in low) or ("timeout" in low) or ("readtimeout" in low)
+            hit_runner = (
+                ("llama runner" in low)
+                or ("error calling llm" in low)
+                or ("llm call failed" in low)
+            )
+            if not (hit_500 or hit_timeout or hit_runner):
+                return
+
+            mode = str(getattr(self.config, "mode", "") or "").lower().strip()
+            if mode and mode != "offline":
+                return
+
+            now = time.time()
+            if (now - float(self._last_mem_popup_ts or 0.0)) < 120:
+                return
+            self._last_mem_popup_ts = now
+
+            ollama_cfg = getattr(self.config, "ollama", None)
+            model = getattr(ollama_cfg, "model", "unknown") if ollama_cfg else "unknown"
+            ctx = getattr(ollama_cfg, "context_window", "unknown") if ollama_cfg else "unknown"
+            timeout = getattr(ollama_cfg, "timeout_seconds", "unknown") if ollama_cfg else "unknown"
+
+            details = (
+                "HybridRAG detected an offline LLM failure commonly caused by model/context memory pressure.\n\n"
+                "Current settings:\n"
+                "model={}\ncontext_window={}\ntimeout_seconds={}\n\n"
+                "Recommended stability tweaks (in order):\n"
+                "1) Set model to phi4-mini\n"
+                "2) Set context_window to 4096\n"
+                "3) Set timeout_seconds to 180\n\n"
+                "Where to change:\n"
+                "- GUI: Engineering > Admin Settings (Offline/Ollama tuning)\n"
+                "- File: config/user_overrides.yaml (takes precedence over defaults)\n\n"
+                "Quick validation:\n"
+                "- ollama run phi4-mini \"OK\"\n"
+                "- ollama ps\n\n"
+                "Docs: docs/01_setup/MANUAL_INSTALL.md -> \"Ollama returns HTTP 500 on query/generate\""
+            ).format(model, ctx, timeout)
+            messagebox.showwarning("Offline LLM Memory Guidance", details, parent=self.winfo_toplevel())
+        except Exception as e:
+            logger.debug("Memory guidance popup skipped: %s", e)
 
     def set_ready(self, enabled):
         """Enable or disable the Ask button based on backend readiness."""

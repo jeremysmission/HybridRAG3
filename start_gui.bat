@@ -35,10 +35,18 @@ set "HYBRIDRAG_NETWORK_KILL_SWITCH=0"
 set "HYBRIDRAG_OFFLINE=0"
 REM Development UI controls (chunking/tuning). Set to 0 for production view.
 set "HYBRIDRAG_DEV_UI=1"
+REM Startup detach mode:
+REM   0 = run in current process (stable focus, easier debugging)
+REM   1 = relaunch detached background GUI process
+if "%HYBRIDRAG_GUI_DETACH%"=="" set "HYBRIDRAG_GUI_DETACH=0"
 
 REM ---- LAUNCH GUI ----
 echo [INFO] Launching HybridRAG GUI...
-"%PY%" src\gui\launch_gui.py --detach
+if /I "%HYBRIDRAG_GUI_DETACH%"=="1" (
+  "%PY%" src\gui\launch_gui.py --detach
+) else (
+  "%PY%" src\gui\launch_gui.py
+)
 if %errorlevel% NEQ 0 (
   echo.
   echo  [FAIL] GUI exited with code %errorlevel%

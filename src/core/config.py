@@ -198,9 +198,9 @@ class OllamaConfig:
     Ollama runs on your machine -- no internet needed, no API costs.
     """
     base_url: str = "http://127.0.0.1:11434"
-    model: str = "phi4:14b-q4_K_M"
-    timeout_seconds: int = 600     # How long to wait for a response
-    context_window: int = 16384    # Max tokens the model can see at once
+    model: str = "phi4-mini"
+    timeout_seconds: int = 180     # How long to wait for a response
+    context_window: int = 4096     # Max tokens the model can see at once
     keep_alive: int = -1           # Seconds to keep model loaded (-1 = forever)
     num_predict: int = 512         # Max output tokens per generation
     num_thread: int = 0            # CPU threads (0 = auto-detect)
@@ -230,6 +230,9 @@ class VLLMConfig:
     timeout_seconds: int = 120
     context_window: int = 16384
     enabled: bool = False
+
+    def __post_init__(self) -> None:
+        self.model = canonicalize_model_name(self.model)
 
 
 @dataclass
@@ -895,6 +898,11 @@ def save_config_field(key: str, value, config_filename: str = "user_overrides.ya
             data = yaml.safe_load(f) or {}
     else:
         data = {}
+
+    # Canonicalize persisted local-model tags so stale aliases do not drift
+    # back into user_overrides and startup diagnostics.
+    if key in ("ollama.model", "vllm.model") and isinstance(value, str):
+        value = canonicalize_model_name(value)
 
     parts = key.split(".")
     target = data

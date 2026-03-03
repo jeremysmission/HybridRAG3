@@ -179,6 +179,111 @@ def _set_stage(app, stage_text):
         pass
 
 
+def _probe_ollama_runtime(router, config, logger):
+    """Run lightweight embed/generate probes and auto-fallback on overload."""
+    errors = []
+    try:
+        if not router or not getattr(router, "ollama", None):
+            return errors
+        if not router.ollama.is_available():
+            return errors
+
+        base_url = router.ollama.base_url
+        client = router.ollama._client
+        embed_model = getattr(
+            getattr(config, "embedding", None), "model_name", "nomic-embed-text"
+        ) or "nomic-embed-text"
+        gen_model = str(
+            getattr(getattr(config, "ollama", None), "model", "") or ""
+        ).strip()
+        probe_timeout = float(
+            min(max(getattr(getattr(config, "ollama", None), "timeout_seconds", 30), 8), 20)
+        )
+
+        # Probe embeddings endpoint (fast health signal for retrieval path).
+        try:
+            r = client.post(
+                "{}/api/embed".format(base_url),
+                json={"model": embed_model, "input": ["startup probe"]},
+                timeout=probe_timeout,
+            )
+            r.raise_for_status()
+        except Exception as e:
+            errors.append(
+                "Ollama embed probe failed (model '{}'): {}"
+                .format(embed_model, str(e))
+            )
+
+        # Probe generate endpoint for the configured chat model.
+        def _probe_generate(model_name):
+            r = client.post(
+                "{}/api/generate".format(base_url),
+                json={
+                    "model": model_name,
+                    "prompt": "Reply with: OK",
+                    "stream": False,
+                    "keep_alive": getattr(config.ollama, "keep_alive", -1),
+                    "options": {
+                        "temperature": 0.0,
+                        "num_predict": 8,
+                        "num_ctx": min(
+                            int(getattr(config.ollama, "context_window", 4096) or 4096),
+                            4096,
+                        ),
+                    },
+                },
+                timeout=probe_timeout,
+            )
+            r.raise_for_status()
+
+        gen_error = None
+        if gen_model:
+            try:
+                _probe_generate(gen_model)
+            except Exception as e:
+                gen_error = e
+
+        # Auto-fallback for known heavy default when runtime is overloaded.
+        if gen_error is not None:
+            from src.core.model_identity import canonicalize_model_name
+            cfg_canon = canonicalize_model_name(gen_model)
+            if cfg_canon.startswith("phi4:14b"):
+                available = router.ollama._available_models() or []
+                available_canon = {
+                    canonicalize_model_name(m): m for m in available
+                }
+                fallback = (
+                    available_canon.get("phi4-mini")
+                    or available_canon.get("phi4-mini:latest")
+                )
+                if fallback:
+                    try:
+                        config.ollama.model = fallback
+                        _probe_generate(fallback)
+                        logger.warning(
+                            "[WARN] Ollama startup fallback applied: %s -> %s",
+                            gen_model, fallback,
+                        )
+                        errors.append(
+                            "Ollama model probe failed for '{}' ({}). "
+                            "Auto-fallback switched to '{}'."
+                            .format(gen_model, str(gen_error), fallback)
+                        )
+                        gen_error = None
+                    except Exception:
+                        # Keep original error report if fallback also fails.
+                        pass
+
+        if gen_error is not None:
+            errors.append(
+                "Ollama generate probe failed (model '{}'): {}"
+                .format(gen_model, str(gen_error))
+            )
+    except Exception as e:
+        logger.debug("ollama_runtime_probe_failed: %s", e)
+    return errors
+
+
 def _load_backends(app, logger):
     """Load heavy backends in a background thread, then attach to the GUI."""
     config = app.config
@@ -263,24 +368,9 @@ def _load_backends(app, logger):
                 logger.warning("[WARN] LLMRouter init failed: %s", e)
                 init_errors.append("LLM Router: {}".format(e))
 
-        # -- Ollama warmup: pre-load model weights into memory --
-        if router and getattr(router, "ollama", None) and router.ollama.is_available():
-            _set_stage(app, "Warming up model...")
-            try:
-                router.ollama._client.post(
-                    "{}/api/generate".format(router.ollama.base_url),
-                    json={
-                        "model": config.ollama.model,
-                        "prompt": "hi",
-                        "stream": False,
-                        "keep_alive": getattr(config.ollama, "keep_alive", -1),
-                        "options": router.ollama._build_options(),
-                    },
-                    timeout=30,
-                )
-                logger.info("[OK] Ollama model warmed up")
-            except Exception as e:
-                logger.debug("[WARN] Ollama warmup skipped: %s", e)
+        # -- Ollama runtime probes (embed + generate) + overload fallback --
+        _set_stage(app, "Probing Ollama runtime...")
+        init_errors.extend(_probe_ollama_runtime(router, config, logger))
 
         # -- Sequential phase: assemble QueryEngine + Indexer --
         _set_stage(app, "QueryEngine...")

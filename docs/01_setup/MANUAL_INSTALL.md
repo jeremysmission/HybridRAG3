@@ -604,3 +604,110 @@ Then pull the required models:
 ollama pull nomic-embed-text
 ollama pull phi4-mini
 ```
+
+### Enable CUDA and verify Ollama is using GPU
+
+Last updated: 2026-03-03
+
+If you have an NVIDIA GPU, use this checklist to confirm Ollama is actually
+running on CUDA (not CPU fallback):
+
+1. Install or update NVIDIA driver, then reboot.
+2. Verify NVIDIA runtime is available:
+   ```powershell
+   nvidia-smi
+   ```
+   If this command is not found or fails, CUDA is not ready for Ollama yet.
+3. Restart Ollama service cleanly:
+   ```powershell
+   taskkill /IM ollama.exe /F
+   ollama serve
+   ```
+4. Force a test inference:
+   ```powershell
+   ollama run phi4-mini "OK"
+   ```
+5. Verify active processor:
+   ```powershell
+   ollama ps
+   ```
+   Check the `PROCESSOR` column:
+   - `GPU` (or mixed GPU/CPU) = CUDA path active.
+   - `100% CPU` = GPU is not being used.
+
+Important:
+- There is no HybridRAG setting to manually "move extra VRAM into RAM."
+- Ollama automatically decides layer offload/split.
+- If VRAM is insufficient for the model/context, inference spills toward CPU
+  behavior and can become unstable/slow.
+
+Stability-first tuning when this happens:
+- `ollama.model: phi4-mini`
+- `ollama.context_window: 4096`
+- `ollama.timeout_seconds: 180`
+
+Operational safe-zone rule (workstation reliability):
+- Do not run indexing, bulk downloading, or large file transfers during live
+  demos/production query windows. Keep retrieval/query workload isolated.
+
+### Ollama returns HTTP 500 on query/generate
+
+Last updated: 2026-03-03
+
+This is an Ollama runtime issue (not parser/indexing). In recent incidents,
+the dominant cause was model/context memory pressure and runtime load churn,
+especially when large models were forced to CPU or when context was high.
+
+Confirm first with a direct model run before debugging HybridRAG:
+
+```powershell
+ollama run phi4-mini "reply with one word: OK"
+```
+
+If this returns 500, do this in order:
+
+1. Stop HybridRAG and Ollama.
+2. Remove and re-pull the model:
+   ```powershell
+   ollama rm phi4-mini
+   ollama pull phi4-mini
+   ```
+3. Test direct run again:
+   ```powershell
+   ollama run phi4-mini "OK"
+   ```
+4. Apply stability settings in `config/user_overrides.yaml`:
+   ```yaml
+   mode: offline
+   ollama:
+     base_url: http://localhost:11434
+     model: phi4-mini
+     context_window: 4096
+     timeout_seconds: 180
+   ```
+5. Verify runtime state:
+   ```powershell
+   ollama ps
+   ```
+   If it stays `100% CPU` with a large model, keep `phi4-mini` and
+   `context_window: 4096` until GPU runtime is confirmed healthy.
+6. If still 500, reinstall Ollama and clear caches:
+   - `%USERPROFILE%\.ollama`
+   - `%LOCALAPPDATA%\Ollama`
+7. Reinstall Ollama, then pull:
+   ```powershell
+   ollama pull phi4-mini
+   ollama pull nomic-embed-text
+   ```
+
+Only reopen HybridRAG after `ollama run ...` succeeds.
+
+### Startup warning: "Ollama model mismatch"
+
+If Backend Init Errors reports a model mismatch, fix by setting
+`ollama.model` in `config/user_overrides.yaml` to an installed tag from
+`ollama list` (for example `phi4-mini` or `phi4:14b-q4_K_M`), or run:
+
+```powershell
+ollama pull <configured-model-tag>
+```

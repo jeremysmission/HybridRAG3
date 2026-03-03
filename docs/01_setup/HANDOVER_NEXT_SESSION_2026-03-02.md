@@ -52,3 +52,44 @@ $env:HYBRIDRAG_OCR_TIMEOUT_S="45"
 $env:HYBRIDRAG_OCR_MAX_PAGES="20"
 $env:HYBRIDRAG_OCR_LANG="eng"
 ```
+
+## New To-Do (Added 2026-03-03) -- Demo Stability + Profile Tuning
+
+Goal: maximize demo quality without triggering workstation instability.
+
+1. Build a single "Demo Impact Settings Guide" doc:
+   - What each setting changes in demo behavior:
+     - `ollama.model`
+     - `ollama.context_window`
+     - `ollama.timeout_seconds`
+     - `retrieval.top_k`
+     - `retrieval.min_score`
+     - `retrieval.hybrid_search`
+   - For each setting include:
+     - visible demo impact
+     - stability/latency tradeoff
+     - safe range for workstation
+2. Create per-profile demo question pack:
+   - one "quick win" question per profile
+   - one "stress" question per profile
+   - one "citation confidence" question per profile
+3. Define workstation safe-zone operations policy:
+   - no indexing during live demos
+   - no bulk downloading/transfers during live demos
+   - pin `phi4-mini` + `context_window: 4096` for live reliability baseline
+4. Run overnight autonomous tuning/eval data collection:
+   - Role matrix:
+     - `python tools/run_role_tuning_matrix.py --mode offline`
+   - Baseline benchmark:
+     - `python tools/query_benchmark.py`
+   - GUI demo reliability smoke:
+     - `python tools/gui_demo_smoke.py`
+   - Capture artifacts:
+     - `eval_out/role_tuning/*`
+     - `logs/query_benchmark_*.json`
+     - `output/gui_demo_smoke_report.json`
+5. Next-session decision gate:
+   - pick default demo profile using evidence:
+     - no 500/timeouts
+     - acceptable p95 latency
+     - best answer quality on profile question pack

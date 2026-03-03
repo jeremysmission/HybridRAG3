@@ -64,8 +64,13 @@ class HybridRAGApp(tk.Tk):
         self.geometry("840x780")
         self.minsize(700, 400)
 
-        # Avoid launch flicker/pop on some Windows builds.
-        # Foreground focus is handled by launch/bootstrap helpers.
+        # Briefly bring the window to front on launch, then release topmost.
+        # This avoids the "window opened behind terminal" behavior on Windows.
+        try:
+            self.attributes("-topmost", True)
+            self.after(450, lambda: self.attributes("-topmost", False))
+        except Exception:
+            pass
 
         # Store backend references
         self.boot_result = boot_result
