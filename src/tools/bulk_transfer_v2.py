@@ -89,6 +89,7 @@ logger = logging.getLogger(__name__)
 
 from .transfer_manifest import TransferManifest
 from .transfer_staging import StagingManager
+from .path_io import to_io_path
 
 
 # ============================================================================
@@ -166,6 +167,8 @@ class TransferConfig:
     deduplicate: bool = True
     verify_copies: bool = True
     resume: bool = True                 # Skip already-transferred files
+    resume_seed_from_manifest: bool = True  # Start resume from prior manifest before full crawl
+    resume_seed_limit: int = 0          # 0 = no limit; >0 caps resume seed candidates
     max_retries: int = 3
     retry_backoff: float = 2.0          # Wait 2s, 4s, 8s between retries
     copy_buffer_size: int = 1_048_576   # 1 MB (optimal for network SMB)
@@ -624,6 +627,80 @@ class SourceDiscovery:
             self._discovery_stop.set()
             t.join(timeout=10.0)
 
+    def resume_seed_iter(self):
+        """
+        Yield pending files from the most recent prior run manifest.
+
+        This starts resumed copying immediately after restart, instead of
+        waiting for a full source crawl before first transfer work begins.
+        """
+        cfg = self.config
+        if not (cfg.resume and cfg.resume_seed_from_manifest):
+            return
+
+        prev_run = self.manifest.get_latest_run_id_before(self.run_id)
+        if not prev_run:
+            return
+
+        limit = int(cfg.resume_seed_limit or 0)
+        candidates = self.manifest.get_pending_candidates_from_run(
+            prev_run, limit=limit,
+        )
+        if not candidates:
+            return
+
+        self._log(
+            f"  [RESUME] Seeding {len(candidates):,} pending files "
+            f"from run {prev_run} before full discovery..."
+        )
+
+        for source, _, _ in candidates:
+            if self._stop.is_set():
+                break
+            try:
+                st = _stat_with_timeout(source, timeout=5.0)
+            except (OSError, PermissionError, TimeoutError):
+                continue
+
+            file_size = int(st.st_size)
+            ext = os.path.splitext(source)[1].lower()
+            if ext in _ALWAYS_SKIP or ext not in cfg.extensions:
+                continue
+            if file_size < cfg.min_file_size or file_size > cfg.max_file_size:
+                continue
+
+            source_root = self._match_source_root(source)
+            if not source_root:
+                continue
+
+            # If a previous run already completed this exact mtime, skip.
+            if cfg.resume and self.manifest.is_already_transferred(
+                source, current_mtime=st.st_mtime,
+            ):
+                continue
+
+            try:
+                rel = os.path.relpath(source, source_root)
+            except ValueError:
+                rel = os.path.basename(source)
+            yield (source, source_root, rel, file_size)
+
+    def _match_source_root(self, source_path: str) -> str:
+        """Return best matching configured source root for a file path."""
+        target = os.path.normcase(os.path.abspath(source_path))
+        best = ""
+        best_len = -1
+        for src in self.config.source_paths:
+            try:
+                s = os.path.normcase(os.path.abspath(src))
+            except Exception:
+                continue
+            if target == s or target.startswith(s + os.sep):
+                if len(s) > best_len:
+                    best = src
+                    best_len = len(s)
+        return best
+
     # ------------------------------------------------------------------
     # Directory walker
     # ------------------------------------------------------------------
@@ -846,15 +923,8 @@ class SourceDiscovery:
             )
             return
 
-        if path_len > cfg.long_path_warn:
-            if path_len > 260:
-                self.stats.files_skipped_long_path += 1
-                self.manifest.record_skip(
-                    self.run_id, full, file_size, ext,
-                    "path_too_long",
-                    f"{path_len} chars (MAX_PATH=260)",
-                )
-                return
+        # Do not hard-skip long paths. We preserve full folder/file names
+        # and rely on Windows long-path-aware IO helpers during transfer.
 
         if ext in _ALWAYS_SKIP:
             self.stats.files_skipped_ext += 1
@@ -1287,7 +1357,7 @@ class AtomicTransferWorker:
                 self.manifest.record_transfer(
                     self.run_id, source, dest_path=str(q_path),
                     file_size_source=file_size,
-                    file_size_dest=os.path.getsize(str(q_path)),
+                    file_size_dest=_stat_with_timeout(str(q_path)).st_size,
                     hash_source=hash_src, hash_dest=hash_dst,
                     transfer_start=t_start, transfer_end=t_end,
                     duration_sec=dur, speed_mbps=speed,
@@ -1306,7 +1376,7 @@ class AtomicTransferWorker:
             try:
                 orig_st = _stat_with_timeout(source)
                 os.utime(
-                    str(final),
+                    to_io_path(str(final)),
                     (orig_st.st_atime, orig_st.st_mtime),
                 )
             except Exception:
@@ -1317,7 +1387,7 @@ class AtomicTransferWorker:
             self.manifest.record_transfer(
                 self.run_id, source, dest_path=str(final),
                 file_size_source=file_size,
-                file_size_dest=os.path.getsize(str(final)),
+                file_size_dest=_stat_with_timeout(str(final)).st_size,
                 hash_source=hash_src, hash_dest=hash_dst,
                 transfer_start=t_start, transfer_end=t_end,
                 duration_sec=dur, speed_mbps=speed,
@@ -1427,6 +1497,8 @@ class BulkTransferV2:
                 "deduplicate": cfg.deduplicate,
                 "verify": cfg.verify_copies,
                 "extensions": len(cfg.extensions),
+                "resume_seed_from_manifest": cfg.resume_seed_from_manifest,
+                "resume_seed_limit": cfg.resume_seed_limit,
             }),
         )
 
@@ -1469,7 +1541,13 @@ class BulkTransferV2:
                 cfg, self.manifest, self.staging, self.stats,
                 self.run_id, self._stop, self._log_lock,
             )
-            worker.transfer(discoverer.discover_iter())
+            def _stream_candidates():
+                for item in discoverer.resume_seed_iter():
+                    yield item
+                for item in discoverer.discover_iter():
+                    yield item
+
+            worker.transfer(_stream_candidates())
             self.stats.files_manifest = self.stats.files_discovered
             print(
                 f"  Manifest: {self.stats.files_discovered:,} files, "
@@ -1687,7 +1765,7 @@ def _stat_with_timeout(path: str, timeout: float = 10.0) -> os.stat_result:
 
     def _do_stat():
         try:
-            result[0] = os.stat(path)
+            result[0] = os.stat(to_io_path(path))
         except Exception as e:
             error[0] = e
 
@@ -1732,7 +1810,7 @@ def _hash_file(path: str, timeout: float = 120.0) -> str:
             h = hashlib.sha256()
             t0 = time.monotonic()
             try:
-                with open(path, "rb") as f:
+                with open(to_io_path(path), "rb") as f:
                     while not cancel.is_set():
                         chunk = f.read(131072)  # 128 KB chunks
                         if not chunk:
@@ -1783,7 +1861,7 @@ def _can_read_file(path: str, timeout: float = 5.0) -> bool:
 
     def _try_read():
         try:
-            with open(path, "rb") as f:
+            with open(to_io_path(path), "rb") as f:
                 f.read(1)
             result[0] = True
         except (OSError, PermissionError):
@@ -1854,7 +1932,7 @@ def _buffered_copy_inner(
     progress_touch=None, progress_cb=None,
 ) -> None:
     """Inner copy logic (no timeout wrapper)."""
-    with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
+    with open(to_io_path(src), "rb") as fsrc, open(to_io_path(dst), "wb") as fdst:
         if progress_touch is not None:
             progress_touch()
         while True:
@@ -1943,6 +2021,12 @@ def main() -> None:
                     help="Skip SHA-256 hash verification")
     p.add_argument("--no-resume", action="store_true",
                     help="Ignore previous runs, transfer everything")
+    p.add_argument("--no-resume-seed", action="store_true",
+                    help="Disable manifest-first resume seeding")
+    p.add_argument(
+        "--resume-seed-limit", type=int, default=0,
+        help="Cap manifest-first resume candidates (0 = unlimited)",
+    )
     p.add_argument("--include-hidden", action="store_true",
                     help="Include hidden and system files")
     p.add_argument("--follow-symlinks", action="store_true",
@@ -1958,6 +2042,8 @@ def main() -> None:
         deduplicate=not args.no_dedup,
         verify_copies=not args.no_verify,
         resume=not args.no_resume,
+        resume_seed_from_manifest=not args.no_resume_seed,
+        resume_seed_limit=args.resume_seed_limit,
         include_hidden=args.include_hidden,
         follow_symlinks=args.follow_symlinks,
         bandwidth_limit=args.bandwidth_limit,

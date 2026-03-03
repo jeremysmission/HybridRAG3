@@ -396,15 +396,27 @@ class QueryPanel(tk.LabelFrame):
         )
         self.playbook_label.pack(fill=tk.X, pady=(0, 8))
 
-        # -- Row 2: Question label + entry + Ask button --
+        # -- Query/Answer split: compact controls on top, large resizable answer area --
+        io_pane = tk.PanedWindow(
+            self, orient=tk.VERTICAL, sashwidth=6, sashrelief=tk.RAISED,
+            bg=t["panel_bg"], bd=0, relief=tk.FLAT,
+        )
+        io_pane.pack(fill=tk.BOTH, expand=True, pady=(0, 0))
+
+        q_frame = tk.Frame(io_pane, bg=t["panel_bg"])
+        a_frame = tk.Frame(io_pane, bg=t["panel_bg"])
+        io_pane.add(q_frame, minsize=72, stretch="never")
+        io_pane.add(a_frame, minsize=260, stretch="always")
+
+        # -- Row 2: Question + Ask --
         self.question_label = tk.Label(
-            self, text="Question:", bg=t["panel_bg"],
+            q_frame, text="Question:", bg=t["panel_bg"],
             fg=t["fg"], font=FONT, anchor=tk.W,
         )
         self.question_label.pack(fill=tk.X, pady=(0, 4))
 
-        row2 = tk.Frame(self, bg=t["panel_bg"])
-        row2.pack(fill=tk.X, pady=(0, 8))
+        row2 = tk.Frame(q_frame, bg=t["panel_bg"])
+        row2.pack(fill=tk.X, pady=(0, 6))
 
         self.question_entry = tk.Entry(
             row2, font=FONT, bg=t["input_bg"], fg=t["input_fg"],
@@ -427,14 +439,14 @@ class QueryPanel(tk.LabelFrame):
 
         # -- Network activity indicator --
         self.network_label = tk.Label(
-            self, text="", fg=t["gray"], anchor=tk.W,
+            q_frame, text="", fg=t["gray"], anchor=tk.W,
             bg=t["panel_bg"], font=FONT,
         )
         self.network_label.pack(fill=tk.X)
 
         # -- Answer area (scrollable, selectable) --
         self.answer_text = scrolledtext.ScrolledText(
-            self, height=10, wrap=tk.WORD, state=tk.DISABLED,
+            a_frame, height=16, wrap=tk.WORD, state=tk.DISABLED,
             font=FONT, bg=t["input_bg"], fg=t["input_fg"],
             insertbackground=t["fg"], relief=tk.FLAT, bd=1,
             selectbackground=t["accent"],
@@ -444,7 +456,7 @@ class QueryPanel(tk.LabelFrame):
 
         # -- Sources line (wraps when wider than panel) --
         self.sources_label = tk.Label(
-            self, text="Sources: (none)", anchor=tk.W, fg=t["gray"],
+            a_frame, text="Sources: (none)", anchor=tk.W, fg=t["gray"],
             bg=t["panel_bg"], font=FONT, justify=tk.LEFT, wraplength=1,
         )
         self.sources_label.pack(fill=tk.X, pady=(8, 0))
@@ -455,7 +467,7 @@ class QueryPanel(tk.LabelFrame):
 
         # -- Metrics line (monospace for aligned numbers, wraps if needed) --
         self.metrics_label = tk.Label(
-            self, text="", anchor=tk.W, fg=t["gray"],
+            a_frame, text="", anchor=tk.W, fg=t["gray"],
             bg=t["panel_bg"], font=FONT_MONO, justify=tk.LEFT, wraplength=1,
         )
         self.metrics_label.pack(fill=tk.X)
@@ -471,25 +483,32 @@ class QueryPanel(tk.LabelFrame):
         """Re-apply theme colors to all widgets."""
         self.configure(bg=t["panel_bg"], fg=t["accent"])
 
-        for row in self.winfo_children():
-            if isinstance(row, tk.Frame):
-                row.configure(bg=t["panel_bg"])
-                for child in row.winfo_children():
-                    # Skip ttk widgets -- they don't support -bg/-fg
-                    if isinstance(child, (ttk.Combobox, ttk.Widget)):
-                        continue
-                    if isinstance(child, tk.Label):
-                        child.configure(bg=t["panel_bg"], fg=t["fg"])
-                    elif isinstance(child, tk.Entry):
-                        child.configure(bg=t["input_bg"], fg=t["input_fg"],
-                                        insertbackground=t["fg"])
-                    elif isinstance(child, tk.Button):
-                        if str(child.cget("state")) == "disabled":
-                            child.configure(bg=t["inactive_btn_bg"],
-                                            fg=t["inactive_btn_fg"])
-                        else:
-                            child.configure(bg=t["accent"], fg=t["accent_fg"],
-                                            activebackground=t["accent_hover"])
+        def _theme_walk(widget):
+            for child in widget.winfo_children():
+                if isinstance(child, (tk.Frame, tk.PanedWindow, tk.LabelFrame)):
+                    try:
+                        child.configure(bg=t["panel_bg"])
+                    except Exception:
+                        pass
+                    _theme_walk(child)
+                    continue
+                # Skip ttk widgets -- they don't support -bg/-fg
+                if isinstance(child, (ttk.Combobox, ttk.Widget)):
+                    continue
+                if isinstance(child, tk.Label):
+                    child.configure(bg=t["panel_bg"], fg=t["fg"])
+                elif isinstance(child, tk.Entry):
+                    child.configure(bg=t["input_bg"], fg=t["input_fg"],
+                                    insertbackground=t["fg"])
+                elif isinstance(child, tk.Button):
+                    if str(child.cget("state")) == "disabled":
+                        child.configure(bg=t["inactive_btn_bg"],
+                                        fg=t["inactive_btn_fg"])
+                    else:
+                        child.configure(bg=t["accent"], fg=t["accent_fg"],
+                                        activebackground=t["accent_hover"])
+
+        _theme_walk(self)
 
         self.model_info_label.configure(fg=t["accent"], bg=t["panel_bg"])
         self.question_label.configure(bg=t["panel_bg"], fg=t["fg"])

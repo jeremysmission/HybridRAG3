@@ -341,6 +341,7 @@ served by Ollama (nomic-embed-text) instead of HuggingFace/PyTorch.
 | openai | 1.109.1 | MIT | Apply for approval (bumped from 1.51.2 for httpx 0.28 compat) |
 | pytest | 9.0.2 | MIT | Apply for approval (test framework) |
 | psutil | 7.2.2 | BSD-3 | Apply for approval (process monitoring) |
+| ocrmypdf | 16.10.4 | MPL-2.0 | Apply for approval (scanned PDF OCR enhancement) |
 | Ollama | latest | MIT | Apply for approval (offline LLM server) |
 
 ### Priority 2 (Needed for Scale-Out)
@@ -365,10 +366,17 @@ served by Ollama (nomic-embed-text) instead of HuggingFace/PyTorch.
 | Category | Count | Size |
 |----------|-------|------|
 | GREEN (approved, installed) | 35 direct + 25 transitive | ~200 MB |
-| YELLOW (applying, installed) | 4 direct + 4 transitive + Ollama + 6 models | ~50 MB + Ollama |
+| YELLOW (applying, installed) | 5 direct + 4 transitive + Ollama + 6 models | ~50 MB + Ollama |
 | BLUE (recommended, not yet installed) | 4 direct + 1 transitive | ~350 MB |
 | **Total when fully approved** | **~75 packages** | **~600 MB** |
 | RETIRED (removed) | 8 | -2.5 GB saved |
+
+### Approval Status Rules
+
+- `APPROVED`: Already cleared in enterprise-approved baseline.
+- `NEEDS_CHECK`: Must be validated against current enterprise approved catalog.
+- `APPLYING`: Not approved yet; waiver request is in progress.
+- China-origin software is prohibited for this stack. Unknown origin defaults to `NEEDS_CHECK`.
 
 ---
 

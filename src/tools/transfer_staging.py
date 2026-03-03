@@ -52,6 +52,8 @@ import threading
 from pathlib import Path
 from typing import Dict, Optional
 
+from .path_io import to_io_path
+
 logger = logging.getLogger(__name__)
 
 
@@ -162,10 +164,10 @@ class StagingManager:
                 self._collision_counters[relative_path] = 1
 
             try:
-                os.replace(str(tmp_path), str(final))
+                os.replace(to_io_path(str(tmp_path)), to_io_path(str(final)))
             except OSError:
                 try:
-                    shutil.move(str(tmp_path), str(final))
+                    shutil.move(to_io_path(str(tmp_path)), to_io_path(str(final)))
                 except Exception as e:
                     logger.error(
                         "promote_to_verified failed for %s: %s",
@@ -211,10 +213,10 @@ class StagingManager:
                     counter += 1
 
             try:
-                os.replace(str(file_path), str(dest))
+                os.replace(to_io_path(str(file_path)), to_io_path(str(dest)))
             except OSError:
                 try:
-                    shutil.move(str(file_path), str(dest))
+                    shutil.move(to_io_path(str(file_path)), to_io_path(str(dest)))
                 except Exception as e:
                     logger.error(
                         "quarantine_file failed for %s: %s",

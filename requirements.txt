@@ -4,6 +4,8 @@
 # Security audit reference: docs/05_security/ (model audit document)
 #
 # Changelog:
+# 2026-03-03 -- Added ocrmypdf==16.10.4 for scanned PDF OCR enhancement pipeline.
+#               Keep pinned to vetted version; upgrade only after security review.
 # 2026-03-01 -- Added 9 parser deps (olefile, ezdxf, python-evtx, python-oxmsg,
 #               dpkt, psd-tools, striprtf, numpy-stl, vsdx) + transitive deps.
 #               These enable .doc, .msg, .dxf, .evtx, .pcap, .psd, .rtf, .stl, .vsdx parsing.
@@ -52,6 +54,7 @@ python-multipart==0.0.22
 pypdf==6.6.2
 pypdfium2==5.3.0
 pytesseract==0.3.13
+ocrmypdf==16.10.4
 python-docx==1.2.0
 python-pptx==1.0.2
 PyYAML==6.0.2

@@ -74,6 +74,7 @@ $pipPackages = @(
     'pdfplumber',
     'pytesseract',
     'pdf2image',
+    'ocrmypdf',
     'pillow',
     'olefile',
     'ezdxf',

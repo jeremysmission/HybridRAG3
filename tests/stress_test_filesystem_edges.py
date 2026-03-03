@@ -393,6 +393,18 @@ class TestUnicodeFilenames:
         engine = BulkTransferV2(cfg)
         engine.manifest = _make_manifest(os.path.join(tmp, "dest"))
         engine.manifest.start_run(engine.run_id, [source_dir], cfg.dest_path)
+        discoverer = SourceDiscovery(
+            cfg, engine.manifest, engine.stats, engine.run_id,
+            threading.Lock(), threading.Event(),
+        )
+        discoverer = SourceDiscovery(
+            cfg, engine.manifest, engine.stats, engine.run_id,
+            threading.Lock(), threading.Event(),
+        )
+        discoverer = SourceDiscovery(
+            cfg, engine.manifest, engine.stats, engine.run_id,
+            threading.Lock(), threading.Event(),
+        )
 
         queue: List[Tuple[str, str, str, int]] = []
         engine._process_discovery(full_path, source_dir, queue)
@@ -518,11 +530,8 @@ class TestUnicodeFilenames:
 
 class TestPathLengthBoundaries:
     """
-    Windows MAX_PATH is 260. The code warns at >250 and skips at >260.
-    Test exact boundaries: 259 (pass), 260 (pass), 261 (skip).
-
-    KEY INSIGHT: The check is `if path_len > 260` (line 736), meaning
-    260-char paths are ALLOWED (not skipped). Only 261+ are skipped.
+    Long paths should be preserved (no truncation, no discovery skip).
+    Test exact boundaries: 259, 260, 261 all pass discovery.
     """
 
     def _make_path_of_length(self, tmp: str, target_len: int) -> str:
@@ -558,6 +567,10 @@ class TestPathLengthBoundaries:
         engine = BulkTransferV2(cfg)
         engine.manifest = _make_manifest(os.path.join(tmp, "dest"))
         engine.manifest.start_run(engine.run_id, [source_dir], cfg.dest_path)
+        discoverer = SourceDiscovery(
+            cfg, engine.manifest, engine.stats, engine.run_id,
+            threading.Lock(), threading.Event(),
+        )
 
         fake_stat = MagicMock()
         fake_stat.st_size = 200
@@ -567,12 +580,13 @@ class TestPathLengthBoundaries:
 
         queue: List[Tuple[str, str, str, int]] = []
 
-        with patch("src.tools.bulk_transfer_v2._stat_with_timeout",
-                    return_value=fake_stat):
-            with patch("os.path.islink", return_value=False):
-                engine._process_discovery(full_path, source_dir, queue)
-
-        engine.manifest.close()
+        try:
+            with patch("src.tools.bulk_transfer_v2._stat_with_timeout",
+                        return_value=fake_stat):
+                with patch("os.path.islink", return_value=False):
+                    discoverer._process_discovery(full_path, source_dir, queue)
+        finally:
+            engine.manifest.close()
         return engine, queue
 
     def test_259_chars_passes(self):
@@ -596,13 +610,13 @@ class TestPathLengthBoundaries:
                 "260-char path should be queued (code uses > 260, not >= 260)"
             )
 
-    def test_261_chars_skipped(self):
-        """261-char path should be skipped as too long."""
+    def test_261_chars_passes(self):
+        """261-char path should pass; long paths are no longer skipped."""
         with tempfile.TemporaryDirectory() as tmp:
             path = self._make_path_of_length(tmp, 261)
             engine, queue = self._run_with_path(tmp, path)
-            assert engine.stats.files_skipped_long_path == 1
-            assert len(queue) == 0, "261-char path should be skipped"
+            assert engine.stats.files_skipped_long_path == 0
+            assert len(queue) == 1, "261-char path should be queued"
 
 
 # ============================================================================

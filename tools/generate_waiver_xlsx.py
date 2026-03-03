@@ -300,6 +300,12 @@ YELLOW_DATA = [
      "localhost only (127.0.0.1:11434)",
      "Zero outbound connections during operation. Model downloads are one-time via CLI (ollama pull).",
      "No known CVEs"],
+    [5, "ocrmypdf", "16.10.4", "MPL-2.0", "OCRmyPDF maintainers / US-EU OSS", "OCR Enhancement",
+     "Scanned PDF OCR enhancement pipeline",
+     "Adds OCR text layer to scanned PDFs before ingestion. Keep version pinned to vetted release. Approval pending in enterprise environment.",
+     "Reads local PDFs; writes OCR-enhanced local PDFs",
+     "No required outbound network during runtime",
+     "Track dependency-chain advisories (Tesseract/Ghostscript)"],
 ]
 
 YELLOW_MODELS_HEADERS = ["#", "Model", "Size", "License", "Publisher / Origin",
@@ -433,6 +439,13 @@ RETIRED_DATA = [
 
 def create_workbook():
     wb = Workbook()
+    wb.properties.creator = "HybridRAG Team"
+    wb.properties.lastModifiedBy = "HybridRAG Team"
+    wb.properties.title = "Software Applications Waiver Reference v5"
+    wb.properties.subject = "HybridRAG software approval inventory"
+    wb.properties.description = "Pinned package inventory with approval status."
+    wb.properties.keywords = "HybridRAG,waiver,software-approval,python,security"
+    wb.properties.category = "Security Compliance"
 
     # -----------------------------------------------------------------------
     # SHEET 1: Summary
@@ -457,7 +470,7 @@ def create_workbook():
                             "Count (Transitive)", "Est. Size"], BLUE_FILL)
     summaries = [
         ["GREEN", "Approved & Installed", "35", "25", "~200 MB"],
-        ["YELLOW", "Applying for Approval", "4 + Ollama + 6 models", "4", "~50 MB + Ollama"],
+        ["YELLOW", "Applying for Approval", "5 + Ollama + 6 models", "4", "~50 MB + Ollama"],
         ["BLUE", "Recommended (Not Installed)", "4", "1", "~350 MB"],
         ["RED", "Banned (DO NOT SUBMIT)", "11", "--", "N/A"],
         ["RETIRED", "Removed from Stack", "8", "--", "-2.5 GB saved"],
@@ -495,6 +508,7 @@ def create_workbook():
         ["P1 (Now)", "openai", "1.109.1", "MIT", "Apply for approval (Azure API client)"],
         ["P1 (Now)", "pytest", "9.0.2", "MIT", "Apply for approval (test framework)"],
         ["P1 (Now)", "psutil", "7.2.2", "BSD-3", "Apply for approval (process monitoring)"],
+        ["P1 (Now)", "ocrmypdf", "16.10.4", "MPL-2.0", "Apply for approval (scanned PDF OCR enhancement)"],
         ["P1 (Now)", "Ollama", "latest", "MIT", "Apply for approval (offline LLM server)"],
         ["P2 (Scale)", "faiss-cpu", "1.9.0", "MIT", "Apply for approval (vector search)"],
         ["P2 (Scale)", "lancedb", "0.29.2", "Apache 2.0", "Apply for approval (vector DB)"],
@@ -642,7 +656,7 @@ def main():
     print("[OK] Generated: %s" % output_path)
     print("     Sheets: Summary, GREEN, YELLOW, BLUE, RED, RETIRED")
     print("     35 GREEN direct + 25 transitive")
-    print("     4 YELLOW packages + Ollama + 6 models")
+    print("     5 YELLOW packages + Ollama + 6 models")
     print("     4 BLUE recommendations")
     print("     11 RED banned entries")
     print("     8 RETIRED packages")

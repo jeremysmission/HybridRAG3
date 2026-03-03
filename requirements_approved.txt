@@ -18,10 +18,16 @@
 # HuggingFace RETIRED -- embeddings now served by Ollama (nomic-embed-text)
 # China-origin models EXCLUDED (Qwen, DeepSeek, BGE-M3)
 # Meta Llama models BANNED (Meta AUP prohibits weapons/military use)
+# China-origin software policy: PROHIBITED for this stack. Unknown origin => NEEDS_CHECK.
 # ============================================================================
 
+# -- Approval Status Legend -------------------------------------------------
+# APPROVED: Cleared in repo baseline for enterprise install.
+# NEEDS_CHECK: Validate against current enterprise approved software catalog.
+# APPLYING: Not yet approved; waiver request/approval workflow in progress.
+
 # -- Core AI / Model APIs --------------------------------------------------
-openai==1.109.1                # MIT -- PINNED v1.x forever; never 2.x syntax (latest 1.x, httpx 0.28 compatible)
+openai==1.109.1                # MIT -- APPLYING: Azure/OpenAI API client (PINNED v1.x forever; never 2.x syntax)
 tiktoken==0.8.0                # MIT -- OpenAI token counting (offline, no network)
 
 # -- Embeddings ------------------------------------------------------------
@@ -57,19 +63,19 @@ xlsxwriter==3.2.9              # BSD-2 -- Excel .xlsx writer
 lxml==6.0.2                    # BSD-3 -- XML/HTML parsing (Office XML dep)
 et_xmlfile==2.0.0              # MIT -- XML utility (openpyxl dep)
 pillow==12.1.0                 # HPND -- Image processing
-pdf2image==1.17.0              # MIT -- PDF to image conversion (OCR pipeline)
-pytesseract==0.3.13            # Apache 2.0 -- OCR bridge for scanned PDFs
-ocrmypdf==16.10.4              # MPL-2.0 -- Scanned PDF OCR enhancement (YELLOW*: pending approval/validation)
+pdf2image==1.17.0              # MIT -- NEEDS_CHECK: PDF to image conversion (OCR pipeline)
+pytesseract==0.3.13            # Apache 2.0 -- NEEDS_CHECK: OCR bridge for scanned PDFs
+ocrmypdf==16.10.4              # MPL-2.0 -- APPLYING: scanned PDF OCR enhancement (pending approval/validation)
 
 # -- OCR System Binaries (NOT pip -- separate install required) ---------------
 # * These are standalone executables that the Python wrappers above call.
 #   They must be installed via system installer, software store, or scoop.
 #   Added 2026-03-01 -- required for scanned PDF and image OCR pipeline.
-# Tesseract OCR 5.x             # Apache 2.0 -- Google-maintained OCR engine (APPROVED*)
+# Tesseract OCR 5.x             # Apache 2.0 -- NEEDS_CHECK/APPLYING per enterprise catalog
 #   Publisher: Google / tesseract-ocr (github.com/tesseract-ocr/tesseract)
 #   Install: software store "Tesseract OCR" or UB-Mannheim Windows builds
 #   Pinned: pytesseract==0.3.13 (Python wrapper already approved above)
-# Poppler 26.x                  # GPL-2.0 -- PDF rendering library (APPLYING*)
+# Poppler 26.x                  # GPL-2.0 -- APPLYING: PDF rendering library
 #   Publisher: freedesktop.org (poppler.freedesktop.org)
 #   Install: software store "poppler-utils" or scoop install poppler
 #   Note: GPL-2.0 -- used as standalone tool only (no linking), same engine as Chrome/LibreOffice
@@ -100,8 +106,8 @@ jaraco.classes==3.4.0          # MIT -- keyring dependency
 more-itertools==10.8.0         # MIT -- keyring dependency
 
 # -- Testing / Development (APPLYING FOR APPROVAL) ----------------------------
-pytest==9.0.2                  # MIT -- Test framework (YELLOW: applying for approval)
-psutil==7.2.2                  # BSD-3 -- Process utilities (YELLOW: applying for approval)
+pytest==9.0.2                  # MIT -- APPLYING: test framework
+psutil==7.2.2                  # BSD-3 -- APPLYING: process utilities
 
 # -- Configuration / Logging ------------------------------------------------
 pyyaml==6.0.2                  # MIT -- YAML parsing (ALREADY APPROVED in store)
@@ -111,7 +117,7 @@ tqdm==4.67.3                   # MIT -- Progress bars (display-only)
 regex==2026.1.15               # Apache 2.0 -- Enhanced regex (text processing)
 colorama==0.4.6                # BSD-3 -- Console color output (Windows terminal support)
 
-# -- Extended Parser Dependencies (YELLOW*: applying for approval 2026-03-01) --
+# -- Extended Parser Dependencies (APPLYING 2026-03-01) --
 # These enable the specialty parsers in src/parsers/. Without them, files with
 # these extensions silently return empty text and are skipped as "no text extracted."
 # All licenses are permissive (MIT, BSD, Apache 2.0). No GPL. No China-origin.

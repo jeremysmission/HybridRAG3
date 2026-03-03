@@ -379,6 +379,45 @@ class TransferManifest:
             ).fetchall()
             return {r[0]: r[1] for r in rows}
 
+    def get_latest_run_id_before(self, run_id: str) -> Optional[str]:
+        """Return most recent run_id older than the given run_id, or None."""
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT run_id FROM transfer_runs "
+                "WHERE run_id < ? "
+                "ORDER BY run_id DESC LIMIT 1",
+                (run_id,),
+            ).fetchone()
+            return row[0] if row else None
+
+    def get_pending_candidates_from_run(
+        self, run_id: str, limit: int = 0,
+    ) -> List[Tuple[str, float, int]]:
+        """
+        Return pending source files from a prior run.
+
+        "Pending" means the file was discovered in that run but did not
+        record a successful transfer result for that same run.
+        """
+        with self._lock:
+            sql = (
+                "SELECT sm.source_path, sm.file_mtime, sm.file_size "
+                "FROM source_manifest sm "
+                "LEFT JOIN transfer_log tl "
+                "  ON tl.source_path = sm.source_path "
+                " AND tl.run_id = sm.run_id "
+                "WHERE sm.run_id = ? "
+                "  AND sm.is_accessible = 1 "
+                "  AND (tl.result IS NULL OR tl.result <> 'success') "
+                "ORDER BY sm.source_path"
+            )
+            params: Tuple = (run_id,)
+            if limit > 0:
+                sql += " LIMIT ?"
+                params = (run_id, int(limit))
+            rows = self.conn.execute(sql, params).fetchall()
+            return [(r[0], float(r[1] or 0.0), int(r[2] or 0)) for r in rows]
+
     def is_already_transferred(
         self, source_path: str, current_mtime: float = 0,
     ) -> bool:

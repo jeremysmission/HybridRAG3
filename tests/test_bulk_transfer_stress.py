@@ -33,6 +33,7 @@ if _root not in sys.path:
 
 from src.tools.bulk_transfer_v2 import (
     BulkTransferV2,
+    SourceDiscovery,
     TransferConfig,
     _hash_file,
     _can_read_file,
@@ -213,6 +214,38 @@ class TestResume:
         stats = _run_transfer(src, dst, resume=True)
         assert stats.files_copied == 1
         assert stats.files_skipped_unchanged == 1
+
+    def test_resume_seeds_from_manifest_before_discovery(self, tmp_dirs):
+        """
+        Resume can copy pending files from prior manifest even when
+        current discovery yields no items yet.
+        """
+        src, dst = tmp_dirs
+        ok = _make_file(src / "ok.txt", size=200)
+        bad = _make_file(src / "bad.txt", size=200)
+
+        # First run: force bad.txt to fail so it remains pending.
+        real_copy = _buffered_copy
+        def fail_bad(s, d, buf_size=1048576, bw_limit=0, **kwargs):
+            if str(s).endswith("bad.txt"):
+                raise OSError("simulated first-run failure")
+            return real_copy(s, d, buf_size, bw_limit, **kwargs)
+
+        with mock.patch("src.tools.bulk_transfer_v2._buffered_copy", fail_bad):
+            stats1 = _run_transfer(
+                src, dst, resume=True, workers=1, max_retries=1,
+            )
+        assert stats1.files_copied == 1
+        assert stats1.files_failed >= 1
+
+        # Second run: disable discovery stream to prove manifest-seed works.
+        with mock.patch.object(
+            SourceDiscovery, "discover_iter", return_value=iter(()),
+        ):
+            stats2 = _run_transfer(src, dst, resume=True, workers=1)
+
+        assert stats2.files_copied == 1
+        assert (dst / "verified" / src.name / "bad.txt").exists()
 
 
 # ============================================================================
@@ -580,6 +613,30 @@ class TestTransferManifest:
         prev = m.get_previous_manifest("run2")
         assert "/src/a.txt" in prev
         assert prev["/src/a.txt"] == "hash_a"
+        m.close()
+
+    def test_pending_candidates_from_latest_run(self, tmp_path):
+        """Pending candidates include files not successful in prior run."""
+        db = str(tmp_path / "test_manifest.db")
+        m = TransferManifest(db)
+
+        # run1: one success, one failed, one undispatched
+        m.start_run("run1", ["/src"], "/dst")
+        m.record_source_file("run1", "/src/success.txt", file_mtime=1.0)
+        m.record_source_file("run1", "/src/failed.txt", file_mtime=1.0)
+        m.record_source_file("run1", "/src/pending.txt", file_mtime=1.0)
+        m.record_transfer("run1", "/src/success.txt", result="success")
+        m.record_transfer("run1", "/src/failed.txt", result="failed")
+        m.finish_run("run1")
+
+        m.start_run("run2", ["/src"], "/dst")
+        latest = m.get_latest_run_id_before("run2")
+        assert latest == "run1"
+        pending = m.get_pending_candidates_from_run(latest)
+        pending_paths = {p for p, _, _ in pending}
+        assert "/src/success.txt" not in pending_paths
+        assert "/src/failed.txt" in pending_paths
+        assert "/src/pending.txt" in pending_paths
         m.close()
 
 
@@ -1611,7 +1668,10 @@ class TestChaos:
 
         # Resume should skip the 12 already-done and copy the 8 that failed
         # (or dedup them if hashes match)
-        assert stats2.files_skipped_unchanged == 12
+        # Manifest-first resume can complete pending files before the
+        # full discovery pass reaches them, so unchanged skip count may
+        # be >= 12 on the second pass.
+        assert stats2.files_skipped_unchanged >= 12
         total_second = stats2.files_copied + stats2.files_deduplicated
         assert total_second >= 5  # Most of the 8 should now succeed
 
