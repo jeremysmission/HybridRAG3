@@ -49,7 +49,6 @@ paths:
   embeddings_cache: "D:\\RAG Indexed Data\\_embeddings"
   source_folder: "D:\\RAG Source Data"
   download_folder: "D:\\RAG Source Data"
-  ocr_diversion_folder: "D:\\RAG Source Data\\_ocr_diversions"
   transfer_source_folder: ""
 performance:
   gc_between_blocks: true

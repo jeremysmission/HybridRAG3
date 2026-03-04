@@ -69,7 +69,7 @@ def test_indexer_discovers_registry_formats_via_allowlist():
 
         from src.core.indexer import Indexer
         idx = Indexer(cfg, MagicMock(), MagicMock(), MagicMock())
-        idx._process_single_file = lambda _: (0, "synthetic-skip", False)
+        idx._process_single_file = lambda _: (0, "synthetic-skip", False, {})
 
         result = idx.index_folder(str(tmp_path))
         assert result["total_files_scanned"] == len(test_exts), (

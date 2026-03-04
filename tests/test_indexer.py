@@ -541,7 +541,7 @@ class TestIndexer:
             "_process_file_with_retry",
             return_value=("", {"parser": "DocParser", "likely_reason": "IMPORT_ERROR"}),
         ):
-            chunks, reason, _ = indexer._process_single_file(target)
+            chunks, reason, _, _details = indexer._process_single_file(target)
 
         assert chunks == 0
         assert reason is not None

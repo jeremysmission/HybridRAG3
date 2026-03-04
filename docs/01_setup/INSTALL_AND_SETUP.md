@@ -35,9 +35,6 @@ What is now in place (as of 2026-03-02):
 Full postmortem and root-cause analysis:
 - `docs/cross_ai_collabs/003_parser_coverage_gap_analysis.md`
 
-OCR diversion + recovery process flow:
-- `docs/01_setup/OCR_DIVERSION_PROCESS_FLOW_CHEATSHEET.md`
-
 ---
 
 ## Prerequisites
@@ -65,9 +62,8 @@ OCR diversion + recovery process flow:
 | Tesseract OCR | Image text extraction | Apache 2.0 |
 | OCRmyPDF (optional) | Improve scanned PDF OCR quality before re-index | MPL-2.0 |
 
-If you are indexing large scan-heavy corpora, use:
-- `docs/01_setup/OCR_DIVERSION_PROCESS_FLOW_CHEATSHEET.md`
-- Route OCR-dependent files to `_ocr_diversions` for targeted triage.
+After each indexing run, review the report in `logs/index_report_*.txt` for
+skipped files, OCR failures, and tuning hints.
 
 **Note on managed machines:** Corporate Group Policy may block PowerShell
 script execution. See Step 2 below for workarounds before creating the

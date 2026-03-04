@@ -87,7 +87,7 @@ pytest tests -q --ignore=tests/test_fastapi_server.py
 
 1. Index a small mixed sample set first.
 2. Confirm skip-reason output shows specific reasons (not opaque failures).
-3. Confirm OCR-dependent failures are routed to `_ocr_diversions` when applicable.
+3. Review `logs/index_report_*.txt` for skip reasons and OCR failures.
 
 ---
 
@@ -116,4 +116,3 @@ Then troubleshoot from:
 - `docs/01_setup/INSTALL_AND_SETUP.md`
 - `docs/01_setup/MANUAL_INSTALL.md`
 - `docs/01_setup/WORK_REINDEX_READINESS_CHEATSHEET.md`
-- `docs/01_setup/OCR_DIVERSION_PROCESS_FLOW_CHEATSHEET.md`

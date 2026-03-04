@@ -2,66 +2,16 @@
 # HybridRAG -- Indexer (src/core/indexer.py)
 # ============================================================================
 #
-# WHAT THIS FILE DOES:
-#   This is the "brain" of the indexing pipeline. It orchestrates:
-#     scan folder -> preflight check -> parse each file -> chunk -> embed -> store
+# Orchestrates: scan folder -> preflight -> parse -> chunk -> embed -> store
 #
-#   This is the module that runs for your week-long indexing job.
+# Key design: block-based processing (200K chars at a time for stable RAM),
+# deterministic chunk IDs (crash-safe resume), hash-based skip (size+mtime),
+# never crash on single file failure, pre-flight integrity checks.
 #
-# KEY DESIGN DECISIONS:
+# After each run, writes a consolidated report to logs/index_report_*.txt
+# with skip reasons, OCR stats, errors, and tuning hints.
 #
-#   1. Process files in blocks (not all text at once)
-#      WHY: A single 500-page PDF can produce 2 million characters of text.
-#      Loading that all into RAM, chunking it, and embedding it would spike
-#      memory. Instead we break the text into blocks of ~200K chars, process
-#      each block, write to disk, then move on. RAM stays stable.
-#
-#   2. Deterministic chunk IDs (from chunk_ids.py)
-#      WHY: If indexing crashes at file #4,000 out of 10,000 and you restart,
-#      deterministic IDs mean "INSERT OR IGNORE" in SQLite skips the first
-#      4,000 files' chunks automatically. No duplicates, no manual cleanup.
-#
-#   3. Skip unchanged files (hash-based change detection)
-#      WHY: Your enterprise drive has 100GB of documents. Most don't change
-#      week to week. We store a hash (size + mtime) with each file's chunks.
-#      On restart, we compare the stored hash to the current file. If they
-#      match, skip it. If they differ, the file was modified -- delete old
-#      chunks and re-index. This turns a 7-day re-index into minutes.
-#
-#   4. Never crash on a single file failure
-#      WHY: File #3,000 might be a corrupted PDF. If we crash, you lose
-#      3 days of indexing progress. Instead, we log the error and continue
-#      to file #3,001. You can review failures in the log after.
-#
-#   5. Pre-flight integrity checks (NEW 2026-02-15)
-#      WHY: BUG-004 showed that _validate_text() only checks the first
-#      2000 chars of parsed output. Corrupt files (incomplete torrents,
-#      Word temp files, broken ZIPs) can pass that check but still
-#      produce garbage that pollutes the vector store. The pre-flight
-#      gate catches these BEFORE the parser even runs -- zero wasted time,
-#      zero garbage in the index. Results are logged to the indexing
-#      summary so the admin knows what was blocked and why.
-#
-# BUGS FIXED (2026-02-08):
-#   BUG-001: Hash detection uses vector_store.get_file_hash() in index_folder()
-#            of raw SQL against a column that didn't exist.
-#   BUG-002: Change detection logic inlined in index_folder() using
-#            _compute_file_hash() + get_file_hash(). Dead _file_changed()
-#            method removed 2026-02-14.
-#            Previously only _file_already_indexed() was called, which just
-#            checked "do chunks exist?" without checking if the file changed.
-#   BUG-003: Added close() method to release the embedder model from RAM.
-#   BUG-004: Added _validate_text() to catch binary garbage before chunking.
-#   BUG-004b: Added _preflight_check() to catch corrupt files before parsing.
-#             This catches Word temp files, zero-byte, broken ZIPs, truncated
-#             PDFs, and high null-byte ratios BEFORE the parser runs.
-#
-# ALTERNATIVES CONSIDERED:
-#   - LangChain DirectoryLoader: hides logic in "magic" class, impossible
-#     to debug. We control every step.
-#   - Async/parallel indexing: faster but much harder to debug and resume.
-#   - Hash-based detection using xxhash on file content: more accurate but
-#     reads every file on every run. Size+mtime is instant and good enough.
+# INTERNET ACCESS: NONE
 # ============================================================================
 
 from __future__ import annotations
@@ -69,7 +19,6 @@ from __future__ import annotations
 import logging
 import os
 import time
-import shutil
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime, timezone
@@ -83,6 +32,7 @@ from .embedder import Embedder
 from .chunk_ids import make_chunk_id
 from .file_validator import FileValidator
 from .indexing.cancel import IndexCancelled
+from .index_report import FileRecord, populate_from_parse_details, write_report
 import gc
 
 
@@ -122,12 +72,7 @@ class IndexingProgressCallback:
 # -------------------------------------------------------------------
 
 class Indexer:
-    """
-    Scans a folder, parses files, chunks text, embeds, and stores.
-
-    Designed for multi-day indexing runs on laptops (24/7 for a week),
-    resumable-safe operation, low memory usage, and auditable environments.
-    """
+    """Scans a folder, parses files, chunks text, embeds, and stores."""
 
     def __init__(
         self,
@@ -173,32 +118,19 @@ class Indexer:
             ".yaml", ".yml", ".ini", ".cfg", ".conf", ".properties",
             ".reg", ".html", ".htm", ".rtf",
         }
-        # OCR diversion: copy OCR-dependent no-text files into a triage folder.
-        paths_cfg = getattr(config, "paths", None)
-        self._ocr_diversion_folder = Path(
-            getattr(paths_cfg, "ocr_diversion_folder", "") or ""
-        )
-        self._ocr_diversion_enabled = str(
-            os.getenv("HYBRIDRAG_OCR_DIVERT_ENABLED", "1")
-        ).strip().lower() in ("1", "true", "yes", "on")
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     def index_file(self, file_path: str) -> Dict[str, Any]:
-        """
-        Index a single file. Convenience method for debugging and testing.
-
-        Returns dict with: indexed (bool), chunks_added (int),
-        skipped_reason (str or None), elapsed_seconds (float).
-        """
+        """Index a single file. Returns dict with indexed, chunks_added, etc."""
         start_time = time.time()
         fp = Path(file_path)
         if not fp.exists() or not fp.is_file():
             raise FileNotFoundError("File not found: {}".format(file_path))
 
-        chunks_added, reason, _ = self._process_single_file(fp)
+        chunks_added, reason, _, _details = self._process_single_file(fp)
         elapsed = time.time() - start_time
         if reason:
             return {"indexed": False, "chunks_added": 0,
@@ -215,20 +147,7 @@ class Indexer:
         recursive: bool = True,
         stop_flag: Optional[Any] = None,
     ) -> Dict[str, Any]:
-        """
-        Index all supported files in a folder.
-
-        Parameters
-        ----------
-        stop_flag : threading.Event or None
-            If set, indexing aborts cleanly by raising IndexCancelled.
-            Checked during discovery (every 500 files) and before each
-            file is processed.
-
-        Returns dict with: total_files_scanned, total_files_indexed,
-        total_files_skipped, total_chunks_added, elapsed_seconds,
-        preflight_blocked (list of files blocked by pre-flight checks).
-        """
+        """Index all supported files in a folder. Writes report to logs/ when done."""
         if progress_callback is None:
             progress_callback = IndexingProgressCallback()
 
@@ -244,23 +163,7 @@ class Indexer:
         folder = Path(folder_path)
         if not folder.exists() or not folder.is_dir():
             raise FileNotFoundError(f"Source folder not found: {folder_path}")
-        if self._ocr_diversion_enabled and not self._ocr_diversion_folder:
-            self._ocr_diversion_folder = folder / "_ocr_diversions"
-        if self._ocr_diversion_enabled:
-            try:
-                self._ocr_diversion_folder.mkdir(parents=True, exist_ok=True)
-            except Exception as e:
-                logger.warning("[WARN] Could not create OCR diversion folder: %s", e)
-
         # --- Step 1: Discover all supported files ---
-        # Lazy iteration avoids materializing the full rglob list,
-        # saving memory on large directories and providing live
-        # feedback via the discovery callback.
-        #
-        # The rglob generator can raise PermissionError or OSError
-        # mid-iteration (e.g., on network paths with restricted
-        # subdirectories). We catch these so a single inaccessible
-        # folder does not abort the entire discovery.
         supported_files: List[Path] = []
         _discovery_count = 0
         _glob_iter = folder.rglob("*") if recursive else folder.glob("*")
@@ -293,32 +196,42 @@ class Indexer:
         logger.info("Found %d supported files in %s", len(supported_files), folder)
 
         # --- Step 2: Process each file ---
+        file_records: List[FileRecord] = []
         for idx, file_path in enumerate(supported_files, start=1):
-            # Cancel check at the top of the loop -- before any work.
-            # IndexCancelled inherits BaseException so it propagates
-            # through the "except Exception" handler below.
             if stop_flag is not None and stop_flag.is_set():
                 raise IndexCancelled("Cancelled before file {}".format(idx))
+
+            ext = file_path.suffix.lower() or "<no_ext>"
+            record = FileRecord(str(file_path), ext)
+            file_start = time.time()
 
             try:
                 progress_callback.on_file_start(
                     str(file_path), idx, len(supported_files)
                 )
                 if stop_flag is None:
-                    chunks_added, skip_reason, was_reindex = (
+                    chunks_added, skip_reason, was_reindex, parse_details = (
                         self._process_single_file(file_path)
                     )
                 else:
-                    chunks_added, skip_reason, was_reindex = (
+                    chunks_added, skip_reason, was_reindex, parse_details = (
                         self._process_single_file(file_path, stop_flag=stop_flag)
                     )
+
+                record.parse_time_ms = (time.time() - file_start) * 1000
+                if parse_details:
+                    text_len = parse_details.get(
+                        "normal_extract", {}
+                    ).get("chars", 0)
+                    populate_from_parse_details(record, parse_details, text_len)
+
                 if skip_reason:
-                    self._maybe_divert_ocr_dependent_file(file_path, skip_reason, folder)
                     total_files_skipped += 1
+                    record.status = "skipped"
+                    record.skip_reason = skip_reason
                     skip_reason_counts[skip_reason] = (
                         skip_reason_counts.get(skip_reason, 0) + 1
                     )
-                    ext = file_path.suffix.lower() or "<no_ext>"
                     skip_extension_counts[ext] = (
                         skip_extension_counts.get(ext, 0) + 1
                     )
@@ -332,6 +245,8 @@ class Indexer:
                 else:
                     total_files_indexed += 1
                     total_chunks += chunks_added
+                    record.status = "indexed"
+                    record.chunks_added = chunks_added
                     if was_reindex:
                         total_files_reindexed += 1
                     progress_callback.on_file_complete(
@@ -339,8 +254,13 @@ class Indexer:
                     )
             except Exception as e:
                 error_msg = "{}: {}".format(type(e).__name__, e)
+                record.status = "error"
+                record.error_msg = error_msg
+                record.parse_time_ms = (time.time() - file_start) * 1000
                 logger.error("[FAIL] %s: %s", file_path.name, error_msg)
                 progress_callback.on_error(str(file_path), error_msg)
+
+            file_records.append(record)
 
         # --- Done ---
         elapsed = time.time() - start_time
@@ -385,8 +305,15 @@ class Indexer:
             for blocked_path, blocked_reason in preflight_blocked:
                 blocked_name = Path(blocked_path).name
                 logger.warning("    - %s: %s", blocked_name, blocked_reason)
-            logger.info("  To review and clean up, run:  rag-scan --deep")
-            logger.info("  To quarantine automatically:  rag-scan --auto-quarantine")
+
+        # --- Write consolidated index report ---
+        try:
+            report_path = write_report(
+                result, file_records, str(folder), logs_dir="logs"
+            )
+            logger.info("[OK] Index report: %s", report_path)
+        except Exception as e:
+            logger.warning("[WARN] Could not write index report: %s", e)
 
         return result
 
@@ -399,32 +326,23 @@ class Indexer:
         return self._file_validator.preflight_check(file_path)
 
     def _process_single_file(
-        self,
-        file_path: Path,
-        stop_flag: Optional[Any] = None,
-    ) -> Tuple[int, Optional[str], bool]:
-        """
-        Process one file: preflight -> hash check -> parse -> validate ->
-        chunk -> embed -> store.
-
-        Returns (chunks_added, skip_reason, was_reindex).
-        skip_reason is None on success. was_reindex is True when old
-        chunks were deleted before re-indexing a modified file.
-        """
+        self, file_path: Path, stop_flag: Optional[Any] = None,
+    ) -> Tuple[int, Optional[str], bool, Dict[str, Any]]:
+        """Returns (chunks_added, skip_reason, was_reindex, parse_details)."""
         was_reindex = False
         self._raise_if_cancelled(stop_flag, f"before preflight: {file_path.name}")
 
         preflight_reason = self._preflight_check(file_path)
         if preflight_reason:
             logger.info("BLOCKED: %s -- %s", file_path.name, preflight_reason)
-            return 0, "preflight: {}".format(preflight_reason), False
+            return 0, "preflight: {}".format(preflight_reason), False, {}
 
         self._raise_if_cancelled(stop_flag, f"before hash check: {file_path.name}")
         current_hash = self._compute_file_hash(file_path)
         stored_hash = self.vector_store.get_file_hash(str(file_path))
         if stored_hash:
             if stored_hash == current_hash:
-                return 0, "unchanged (hash match)", False
+                return 0, "unchanged (hash match)", False, {}
             deleted = self.vector_store.delete_chunks_by_source(
                 str(file_path)
             )
@@ -439,14 +357,15 @@ class Indexer:
             file_path, stop_flag=stop_flag
         )
         if not text or not text.strip():
-            return 0, self._build_no_text_reason(file_path, parse_details), False
+            return (0, self._build_no_text_reason(file_path, parse_details),
+                    False, parse_details)
 
         if not self._validate_text(text):
             logger.warning(
                 "[WARN] %s -- text looks like binary garbage, skipping",
                 file_path.name,
             )
-            return 0, "binary garbage detected", False
+            return 0, "binary garbage detected", False, parse_details
 
         if len(text) > self.max_chars_per_file:
             logger.warning(
@@ -509,18 +428,16 @@ class Indexer:
             char_offset += len(block)
 
         if chunks_added == 0:
-            return 0, "no chunks produced", was_reindex
+            return 0, "no chunks produced", was_reindex, parse_details
 
         gc.collect()
-        return chunks_added, None, was_reindex
+        return chunks_added, None, was_reindex, parse_details
 
     def _process_file_with_retry(
-        self,
-        file_path: Path,
-        max_retries: int = 3,
+        self, file_path: Path, max_retries: int = 3,
         stop_flag: Optional[Any] = None,
     ) -> Tuple[str, Dict[str, Any]]:
-        """Retry file processing up to max_retries times with backoff."""
+        """Retry file parsing up to max_retries times with exponential backoff."""
         last_error = None
         for attempt in range(1, max_retries + 1):
             self._raise_if_cancelled(stop_flag, f"before parse retry {attempt}: {file_path.name}")
@@ -544,9 +461,7 @@ class Indexer:
             raise IndexCancelled(f"Cancelled{where_suffix}")
 
     def _sleep_with_cancel(
-        self,
-        seconds: float,
-        stop_flag: Optional[Any],
+        self, seconds: float, stop_flag: Optional[Any],
         file_name: str = "",
     ) -> None:
         """Sleep in short slices so stop requests interrupt retry backoff."""
@@ -560,30 +475,10 @@ class Indexer:
                 return
             time.sleep(min(0.1, remaining))
 
-    # =================================================================
-    # BUG-001 FIX: _compute_file_hash unchanged but now USED properly
-    # =================================================================
     def _compute_file_hash(self, file_path):
-        """
-        Compute a fast fingerprint of a file: "filesize:mtime_nanoseconds".
-
-        Example: "284519:132720938471230000"
-
-        WHY size + mtime instead of reading file content?
-          Reading file content (e.g., SHA-256) would require reading every
-          byte of every file on every indexing run -- that's 100GB+ of I/O
-          on an enterprise network drive. Size + mtime is instant (just a
-          stat() call) and catches the vast majority of real modifications.
-
-        WHEN THIS FAILS:
-          If someone modifies a file but the OS doesn't update mtime (rare),
-          or if a file is replaced with a same-size different file at the
-          exact same nanosecond (essentially impossible). For higher
-          assurance, we could add SHA-256 as a future config option.
-        """
+        """Fast fingerprint: 'filesize:mtime_ns'. Instant stat() call."""
         stat = file_path.stat()
-        fast_key = f"{stat.st_size}:{stat.st_mtime_ns}"
-        return fast_key
+        return f"{stat.st_size}:{stat.st_mtime_ns}"
 
     def _parse_file(self, file_path: Path) -> Tuple[str, Dict[str, Any]]:
         """
@@ -649,65 +544,6 @@ class Indexer:
             return f"no text extracted ({extension}, {parser_name}, {err_token})"
         return f"no text extracted ({extension}, {parser_name})"
 
-    def _is_ocr_dependent_skip(self, file_path: Path, skip_reason: str) -> bool:
-        """Heuristic: identify skips likely requiring OCR/manual triage."""
-        if not skip_reason.startswith("no text extracted"):
-            return False
-        ext = file_path.suffix.lower()
-        if ext in {
-            ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp",
-            ".gif", ".webp", ".wmf", ".emf", ".psd",
-        }:
-            return True
-        if ext == ".pdf":
-            s = skip_reason.upper()
-            return (
-                "LIKELY_SCANNED" in s
-                or "OCR_" in s
-                or "IMAGE_ONLY" in s
-                or "UNUSUAL_ENCODING" in s
-            )
-        return False
-
-    def _maybe_divert_ocr_dependent_file(
-        self,
-        file_path: Path,
-        skip_reason: str,
-        source_root: Path,
-    ) -> None:
-        """
-        Copy (never move) OCR-dependent skipped files to diversion folder,
-        preserving relative path and writing a .reason sidecar.
-        """
-        if not self._ocr_diversion_enabled:
-            return
-        if not self._ocr_diversion_folder:
-            return
-        if not self._is_ocr_dependent_skip(file_path, skip_reason):
-            return
-        try:
-            rel = file_path.relative_to(source_root)
-        except Exception:
-            rel = Path(file_path.name)
-        dest = self._ocr_diversion_folder / rel
-        try:
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            # COPY ONLY: original source data is never moved or deleted.
-            if not dest.exists():
-                shutil.copy2(str(file_path), str(dest))
-            reason_path = dest.with_name(dest.name + ".reason.txt")
-            if not reason_path.exists():
-                reason_path.write_text(
-                    f"source={file_path}\nreason={skip_reason}\n",
-                    encoding="utf-8",
-                )
-        except Exception as e:
-            logger.warning(
-                "[WARN] OCR diversion copy failed for %s: %s",
-                file_path.name,
-                e,
-            )
-
     def _validate_text(self, text: str) -> bool:
         """Delegate to FileValidator. See file_validator.py for details."""
         return self._file_validator.validate_text(text)
@@ -717,12 +553,7 @@ class Indexer:
         return self._file_validator.is_excluded(file_path)
 
     def _iter_text_blocks(self, text: str):
-        """
-        Yield text in blocks of self.block_chars.
-
-        Breaks on newlines when possible to avoid splitting mid-sentence.
-        200K chars ~ 100 pages. Keeps RAM usage predictable.
-        """
+        """Yield text in blocks of self.block_chars, breaking on newlines."""
         n = len(text)
         start = 0
         while start < n:
@@ -734,20 +565,8 @@ class Indexer:
             yield text[start:end]
             start = end
 
-    # =================================================================
-    # BUG-003 FIX: close() to release the embedding model from RAM
-    # =================================================================
     def close(self) -> None:
-        """
-        Release resources held by the indexer.
-
-        BUG-003 FIX: The embedding model (SentenceTransformer) stays in
-        RAM (~100MB) until explicitly deleted. Over repeated indexing
-        runs without restarting Python, this leaks memory. The embedder
-        and vector_store now have close() methods that this calls.
-
-        Safe to call multiple times. Call in a "finally" block.
-        """
+        """Release resources (embedder + vector_store). Safe to call multiple times."""
         if hasattr(self, 'embedder') and self.embedder is not None:
             self.embedder.close()
         if hasattr(self, 'vector_store') and self.vector_store is not None:
