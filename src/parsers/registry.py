@@ -52,6 +52,7 @@ from .access_db_parser import AccessDbParser
 from .mbox_parser import MboxParser
 from .pcap_parser import PcapParser
 from .placeholder_parser import PlaceholderParser
+from .archive_parser import ArchiveParser
 
 
 @dataclass(frozen=True)
@@ -169,6 +170,14 @@ class ParserRegistry:
         # ==============================================================
         self.register(".accdb", "AccessDbParser", AccessDbParser)  # Access 2007+
         self.register(".mdb",   "AccessDbParser", AccessDbParser)  # Access 97-2003
+
+        # ==============================================================
+        # ARCHIVE FORMATS (extract contents and parse each file inside)
+        # ==============================================================
+        self.register(".zip",    "ArchiveParser", ArchiveParser)
+        self.register(".tar",    "ArchiveParser", ArchiveParser)
+        self.register(".tgz",    "ArchiveParser", ArchiveParser)
+        self.register(".gz",     "ArchiveParser", ArchiveParser)
 
         # ==============================================================
         # PLACEHOLDER FORMATS (recognized but not fully parseable)

@@ -423,6 +423,8 @@ class IndexingConfig:
         ".evtx", ".pcap", ".pcapng", ".cer", ".crt", ".pem",
         # Database
         ".accdb", ".mdb",
+        # Archives (extract and parse contents)
+        ".zip", ".tar", ".tgz", ".gz",
         # Placeholder (metadata only -- recognized but not fully parseable)
         ".prt", ".sldprt", ".asm", ".sldasm", ".dwg", ".dwt",
         ".mpp", ".vsd", ".one", ".ost", ".eps",
