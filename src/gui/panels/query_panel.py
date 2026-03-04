@@ -409,8 +409,8 @@ class QueryPanel(tk.LabelFrame):
 
         q_frame = tk.Frame(io_pane, bg=t["panel_bg"])
         a_frame = tk.Frame(io_pane, bg=t["panel_bg"])
-        io_pane.add(q_frame, minsize=72, stretch="never")
-        io_pane.add(a_frame, minsize=260, stretch="always")
+        io_pane.add(q_frame, minsize=52, stretch="always")
+        io_pane.add(a_frame, minsize=120, stretch="always")
 
         # -- Row 2: Question + Ask --
         self.question_label = tk.Label(
@@ -1292,7 +1292,7 @@ class QueryPanel(tk.LabelFrame):
         t = current_theme()
         if running:
             self.ask_btn.config(state=tk.DISABLED, bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"])
-            self.stop_btn.config(state=tk.NORMAL, bg=t["orange"], fg=t["accent_fg"])
+            self.stop_btn.config(state=tk.NORMAL, bg=t["red"], fg=t["accent_fg"])
         else:
             self.ask_btn.config(state=tk.NORMAL, bg=t["accent"], fg=t["accent_fg"])
             self.stop_btn.config(state=tk.DISABLED, bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"])
