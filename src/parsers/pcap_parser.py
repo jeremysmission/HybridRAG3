@@ -5,7 +5,7 @@
 # WHAT THIS FILE DOES (plain English):
 #   Reads network packet capture files (.pcap, .pcapng) and extracts
 #   summary metadata: packet count, protocol breakdown, IP addresses,
-#   time range, and any cleartext content.
+#   time range, and summary metadata (no payload content is extracted).
 #
 # WHY THIS MATTERS:
 #   Cybersecurity analysts store packet captures for incident analysis.
@@ -129,7 +129,7 @@ class PcapParser:
 
         parts.append(f"Packets analyzed: {pkt_count:,}")
 
-        if ts_first and ts_last:
+        if ts_first is not None and ts_last is not None:
             from datetime import datetime, timezone
             t1 = datetime.fromtimestamp(ts_first, tz=timezone.utc)
             t2 = datetime.fromtimestamp(ts_last, tz=timezone.utc)

@@ -154,6 +154,20 @@ class NetworkAuditEntry:
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_DEFAULT_PORTS = {"https": 443, "http": 80}
+
+
+def _effective_port(scheme: str, port) -> int:
+    """Normalize port: None -> default for scheme (443 for https, 80 for http)."""
+    if port is not None:
+        return int(port)
+    return _DEFAULT_PORTS.get(scheme, 0)
+
+
+# ---------------------------------------------------------------------------
 # NETWORK GATE (Singleton)
 # ---------------------------------------------------------------------------
 
@@ -221,11 +235,11 @@ class NetworkGate:
         # for historical reasons:
         #   HYBRIDRAG_OFFLINE              (legacy, from http_client.py era)
         #   HYBRIDRAG_NETWORK_KILL_SWITCH  (set by start_gui.bat / start_hybridrag.ps1)
-        _truthy = ("1", "true", "yes")
-        _offline_env = os.environ.get("HYBRIDRAG_OFFLINE", "").strip() in _truthy
+        _truthy = ("1", "true", "yes", "on")
+        _offline_env = os.environ.get("HYBRIDRAG_OFFLINE", "").strip().lower() in _truthy
         _kill_env = os.environ.get(
             "HYBRIDRAG_NETWORK_KILL_SWITCH", ""
-        ).strip() in _truthy
+        ).strip().lower() in _truthy
         if _offline_env or _kill_env:
             mode_lower = "offline"
             which = "HYBRIDRAG_OFFLINE" if _offline_env else "HYBRIDRAG_NETWORK_KILL_SWITCH"
@@ -366,14 +380,14 @@ class NetworkGate:
                     p_parsed = urlparse(prefix)
                     p_host = (p_parsed.hostname or "").lower()
                     p_scheme = (p_parsed.scheme or "").lower()
-                    p_port = p_parsed.port
+                    p_port = _effective_port(p_scheme, p_parsed.port)
                     p_path = p_parsed.path or "/"
 
                     if scheme != p_scheme:
                         continue
                     if host != p_host:
                         continue
-                    if parsed.port != p_port:
+                    if _effective_port(scheme, parsed.port) != p_port:
                         continue
                     req_path = parsed.path or "/"
                     # Path boundary check: /api must NOT match /api2.

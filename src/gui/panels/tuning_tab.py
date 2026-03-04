@@ -401,6 +401,13 @@ class TuningTab(tk.Frame):
 
         new_config.mode = self.config.mode
 
+        # Reconfigure network gate to match preserved mode (prevents desync)
+        try:
+            from src.core.network_gate import configure_gate
+            configure_gate(mode=new_config.mode)
+        except Exception:
+            pass
+
         new_embed_model = getattr(
             getattr(new_config, "embedding", None), "model_name", ""
         )
