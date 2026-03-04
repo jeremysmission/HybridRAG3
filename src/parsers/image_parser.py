@@ -114,12 +114,12 @@ class ImageOCRParser:
         try:
             img = Image.open(path)
 
-            # Convert to RGB to avoid some palette/alpha issues
-            img = img.convert("RGB")
+            # Preprocess for better OCR accuracy on scanned documents
+            img = self._preprocess(img)
 
-            # OCR language can be set later (e.g. eng)
-            # For technical/engineering docs, "eng" is fine initially.
-            text = pytesseract.image_to_string(img)
+            # OCR with LSTM engine + auto page segmentation
+            tess_config = "--oem 1 --psm 3"
+            text = pytesseract.image_to_string(img, config=tess_config)
 
             text = (text or "").strip()
             details["total_len"] = len(text)
@@ -135,6 +135,20 @@ class ImageOCRParser:
             details["likely_reason"] = "OCR_UNAVAILABLE_OR_FAILED"
             details["error"] = f"RUNTIME_ERROR: {type(e).__name__}: {e}"
             return self._metadata_fallback(path, details, None)
+
+    @staticmethod
+    def _preprocess(pil_image):
+        """Clean up image for better OCR: grayscale, contrast, sharpen."""
+        try:
+            from PIL import ImageFilter, ImageOps
+            img = pil_image.convert("L")
+            img = ImageOps.autocontrast(img, cutoff=1)
+            img = img.filter(ImageFilter.SHARPEN)
+            threshold = int(os.getenv("HYBRIDRAG_OCR_BIN_THRESHOLD", "130"))
+            img = img.point(lambda px: 255 if px > threshold else 0, mode="1")
+            return img
+        except Exception:
+            return pil_image
 
     def _metadata_fallback(
         self,

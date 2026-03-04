@@ -116,7 +116,14 @@ ship with already-approved software. **No new waiver needed.**
 | 34 | python-multipart | 0.0.22 | Apache 2.0 | USA | Form data parsing (fastapi dep) |
 | 35 | click | 8.3.1 | BSD-3 | Pallets / USA | CLI toolkit (uvicorn dep) |
 
-**Total GREEN: 35 packages (all MIT/BSD/Apache, all USA/UK/EU/Allied)**
+### External Binaries (not pip packages)
+
+| # | Software | Version | License | Publisher / Origin | Purpose |
+|---|----------|---------|---------|-------------------|---------|
+| 36 | Tesseract OCR | 5.x | Apache 2.0 | Google / USA | OCR engine for scanned PDFs and images |
+| 37 | Poppler | 24.x | GPL-2.0 | freedesktop.org / International OSS | PDF page rendering for OCR pipeline |
+
+**Total GREEN: 37 (35 pip + 2 binaries, all MIT/BSD/Apache/GPL, all USA/UK/EU/Allied)**
 
 ### Transitive Dependencies (auto-installed, no separate waiver)
 

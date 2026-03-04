@@ -80,6 +80,77 @@ class PDFParser:
         # Each call to parse() is independent.
         pass
 
+    @staticmethod
+    def _try_ocrmypdf(file_path, lang, dpi, details):
+        """
+        Try ocrmypdf to add a searchable text layer, then re-extract with pypdf.
+
+        ocrmypdf handles deskewing, denoising, and text layer baking in one
+        pass over the whole PDF. Much faster and higher quality than
+        page-by-page Tesseract for multi-page scanned documents.
+
+        Returns extracted text string, or empty string if ocrmypdf unavailable.
+        """
+        try:
+            import ocrmypdf
+        except ImportError:
+            details["ocr_fallback"]["ocrmypdf"] = "NOT_INSTALLED"
+            return ""
+
+        import tempfile
+        tmp_path = None
+        try:
+            # Create a temp file for the OCR'd output
+            fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+            os.close(fd)
+
+            # Run ocrmypdf: deskew + force OCR on all pages
+            # Note: --clean requires 'unpaper' which may not be installed.
+            # Deskew alone handles most scan quality issues.
+            ocrmypdf.ocr(
+                file_path,
+                tmp_path,
+                language=lang,
+                deskew=True,
+                force_ocr=True,
+                image_dpi=dpi,
+                progress_bar=False,
+            )
+
+            # Re-extract text from the OCR'd PDF using pypdf
+            from pypdf import PdfReader
+            reader = PdfReader(tmp_path)
+            parts = []
+            for page in reader.pages:
+                page_text = page.extract_text() or ""
+                if page_text.strip():
+                    parts.append(page_text)
+
+            result = "\n\n".join(parts).strip()
+            details["ocr_fallback"]["used"] = True
+            details["ocr_fallback"]["ocrmypdf"] = "OK"
+            details["ocr_fallback"]["ocrmypdf_chars"] = len(result)
+
+            if result:
+                details["ocr_fallback"]["status"] = "OCRMYPDF_TEXT_PRODUCED"
+                details["ocr_fallback"]["result"] = "OCR_TEXT_PRODUCED"
+                details["likely_reason"] = "SCANNED_PDF_OCRMYPDF_RECOVERED_TEXT"
+                return result
+
+            details["ocr_fallback"]["ocrmypdf"] = "NO_TEXT"
+            return ""
+
+        except Exception as e:
+            details["ocr_fallback"]["ocrmypdf"] = f"ERROR:{type(e).__name__}"
+            return ""
+        finally:
+            # Clean up temp file
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+
     def parse(self, file_path: str) -> str:
         """
         Simple interface: extract text from a PDF file.
@@ -256,13 +327,12 @@ class PDFParser:
             # ============================================================
             # STEP 4: Run OCR fallback
             # ============================================================
-            # OCR (Optical Character Recognition) converts page images to text.
-            # It requires two external tools:
-            #   - Tesseract: The OCR engine (reads images -> text)
-            #   - pdf2image: Converts PDF pages to images for Tesseract
-            #
-            # OCR is SLOW (several seconds per page) and imperfect, so we
-            # only use it when normal extraction fails.
+            # Two OCR paths, tried in order:
+            #   A) ocrmypdf (if installed) -- processes the whole PDF at once,
+            #      deskews, denoises, and bakes a searchable text layer.
+            #      Then we re-extract with pypdf (fast, high quality).
+            #   B) Page-by-page Tesseract (always available if deps present) --
+            #      slower but works without ocrmypdf.
             # ============================================================
             details["ocr_fallback"]["triggered"] = True
             details["normal_extract"]["status"] = details["normal_extract"]["status"] or "NO_TEXT"
@@ -272,19 +342,17 @@ class PDFParser:
             details["ocr_fallback"]["dependency_check"] = dep_details
 
             # Read OCR settings from environment variables (with sensible defaults)
-            ocr_max_pages = _get_int_env("HYBRIDRAG_OCR_MAX_PAGES", 200)   # Don't OCR more than this
-            ocr_dpi = _get_int_env("HYBRIDRAG_OCR_DPI", 200)               # Image quality (higher = slower)
-            ocr_timeout_s = _get_int_env("HYBRIDRAG_OCR_TIMEOUT_S", 20)    # Timeout per page
-            ocr_lang = _get_str_env("HYBRIDRAG_OCR_LANG", "eng")           # Language for OCR
+            ocr_max_pages = _get_int_env("HYBRIDRAG_OCR_MAX_PAGES", 200)
+            ocr_dpi = _get_int_env("HYBRIDRAG_OCR_DPI", 200)
+            ocr_timeout_s = _get_int_env("HYBRIDRAG_OCR_TIMEOUT_S", 20)
+            ocr_lang = _get_str_env("HYBRIDRAG_OCR_LANG", "eng")
 
-            # Don't try to OCR more pages than the PDF actually has
             page_count = details.get("pdf_page_count")
             if isinstance(page_count, int) and page_count > 0:
                 effective_max_pages = min(ocr_max_pages, page_count)
             else:
                 effective_max_pages = ocr_max_pages
 
-            # Record the settings used (for diagnostics)
             details["ocr_fallback"]["settings"] = {
                 "trigger_min_chars": trigger_min_chars,
                 "max_pages": effective_max_pages,
@@ -293,14 +361,22 @@ class PDFParser:
                 "lang": ocr_lang,
             }
 
-            # If OCR tools aren't installed, we can't proceed
+            # ============================================================
+            # STEP 4A: Try ocrmypdf first (best quality, handles deskew)
+            # ============================================================
+            ocrmypdf_text = self._try_ocrmypdf(file_path, ocr_lang, ocr_dpi, details)
+            if ocrmypdf_text:
+                return ocrmypdf_text, details
+
+            # ============================================================
+            # STEP 4B: Fall back to page-by-page Tesseract
+            # ============================================================
             if not ok:
                 details["ocr_fallback"]["used"] = False
                 details["ocr_fallback"]["status"] = "OCR_DEPS_MISSING"
                 details["likely_reason"] = "LIKELY_SCANNED_OR_IMAGE_ONLY_OR_UNUSUAL_ENCODING"
                 return "", details
 
-            # Actually run OCR
             try:
                 ocr_text, ocr_stats = ocr_pdf_pages(
                     file_path,
@@ -314,19 +390,16 @@ class PDFParser:
                 details["ocr_fallback"]["status"] = "OCR_ATTEMPTED"
                 details["ocr_fallback"]["stats"] = ocr_stats
 
-                # Check if OCR actually produced usable text
                 if (ocr_text or "").strip():
                     details["ocr_fallback"]["result"] = "OCR_TEXT_PRODUCED"
                     details["likely_reason"] = "SCANNED_OR_IMAGE_ONLY_PDF_OCR_RECOVERED_TEXT"
                     return ocr_text, details
 
-                # OCR ran but produced no text (blank pages, bad scan quality, etc.)
                 details["ocr_fallback"]["result"] = "OCR_PRODUCED_NO_TEXT"
                 details["likely_reason"] = "LIKELY_SCANNED_OR_IMAGE_ONLY_OR_UNUSUAL_ENCODING"
                 return "", details
 
             except Exception as e:
-                # OCR crashed -- return empty text with diagnostic info
                 details["ocr_fallback"]["used"] = False
                 details["ocr_fallback"]["status"] = f"OCR_ERROR:{type(e).__name__}"
                 details["likely_reason"] = "LIKELY_SCANNED_OR_IMAGE_ONLY_OR_UNUSUAL_ENCODING"

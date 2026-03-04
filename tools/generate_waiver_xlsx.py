@@ -246,6 +246,10 @@ GREEN_DATA = [
      "OCR engine for scanned PDFs and images (pytesseract calls this binary)",
      "Open-source OCR engine maintained by Google. On enterprise approved software list. Required by pytesseract (#18) and ocrmypdf. Installed via UW-Madison education site. PATH configured manually.",
      "No known CVEs"],
+    [37, "Poppler", "24.x", "GPL-2.0", "freedesktop.org / International OSS", "External Binary / PDF",
+     "PDF page rendering engine (pdf2image calls this binary)",
+     "Renders PDF pages to images for OCR pipeline. Required by pdf2image (#17). Used by LibreOffice, GIMP, and most Linux PDF viewers. Installed via winget. Zero network activity.",
+     "No known CVEs"],
 ]
 
 GREEN_TRANSITIVE_HEADERS = ["#", "Package", "Version", "License", "Pulled In By",
@@ -477,7 +481,7 @@ def create_workbook():
     _apply_header(ws, row, ["Category", "Status", "Count (Direct)",
                             "Count (Transitive)", "Est. Size"], BLUE_FILL)
     summaries = [
-        ["GREEN", "Approved & Installed", "36 (35 pip + 1 binary)", "25", "~200 MB"],
+        ["GREEN", "Approved & Installed", "37 (35 pip + 2 binaries)", "25", "~200 MB"],
         ["YELLOW", "Applying for Approval", "5 + Ollama + 6 models", "4", "~50 MB + Ollama"],
         ["BLUE", "Recommended (Not Installed)", "4", "1", "~350 MB"],
         ["RED", "Banned (DO NOT SUBMIT)", "11", "--", "N/A"],
@@ -535,7 +539,7 @@ def create_workbook():
     ws2.sheet_properties.tabColor = "228B22"
 
     ws2.merge_cells("A1:I1")
-    ws2.cell(row=1, column=1, value="GREEN -- Approved and Installed (36 direct: 35 pip + 1 binary)").font = TITLE_FONT
+    ws2.cell(row=1, column=1, value="GREEN -- Approved and Installed (37 direct: 35 pip + 2 binaries)").font = TITLE_FONT
 
     _apply_header(ws2, 3, GREEN_HEADERS, GREEN_FILL)
     for i, vals in enumerate(GREEN_DATA):
@@ -663,7 +667,7 @@ def main():
     wb.save(output_path)
     print("[OK] Generated: %s" % output_path)
     print("     Sheets: Summary, GREEN, YELLOW, BLUE, RED, RETIRED")
-    print("     36 GREEN direct (35 pip + 1 binary) + 25 transitive")
+    print("     37 GREEN direct (35 pip + 2 binaries) + 25 transitive")
     print("     5 YELLOW packages + Ollama + 6 models")
     print("     4 BLUE recommendations")
     print("     11 RED banned entries")
