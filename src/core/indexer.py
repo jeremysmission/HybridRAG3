@@ -33,6 +33,7 @@ from .chunk_ids import make_chunk_id
 from .file_validator import FileValidator
 from .indexing.cancel import IndexCancelled
 from .index_report import FileRecord, populate_from_parse_details, write_report
+from .ocr_cleanup import clean_ocr_text, score_text_quality
 import gc
 
 
@@ -88,16 +89,9 @@ class Indexer:
 
         idx_cfg = config.indexing if config else None
 
-        # max_chars_per_file: Safety limit -- truncate files larger than this.
-        # 2 million chars ~ a 1,000-page document.
         self.max_chars_per_file = getattr(idx_cfg, "max_chars_per_file", 2_000_000)
-
-        # block_chars: How much text to process at a time before writing to
-        # disk. 200K chars ~ 100 pages. Keeps RAM usage predictable.
         self.block_chars = getattr(idx_cfg, "block_chars", 200_000)
 
-        # File extensions we know how to parse.
-        # Primary source: config. Fallback: parser registry (single source of truth).
         from src.parsers.registry import REGISTRY
         cfg_exts = getattr(idx_cfg, "supported_extensions", None)
         self._supported_extensions = set(cfg_exts) if cfg_exts else set(REGISTRY.supported_extensions())
@@ -359,6 +353,10 @@ class Indexer:
         if not text or not text.strip():
             return (0, self._build_no_text_reason(file_path, parse_details),
                     False, parse_details)
+
+        text = clean_ocr_text(text)
+        parse_details["quality_score"] = score_text_quality(text)
+        parse_details["chars_after_cleanup"] = len(text)
 
         if not self._validate_text(text):
             logger.warning(

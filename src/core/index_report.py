@@ -45,7 +45,7 @@ class FileRecord:
         "path", "extension", "status", "skip_reason", "chunks_added",
         "chars_extracted", "parser_used", "parse_time_ms",
         "ocr_triggered", "ocr_used", "ocr_status", "ocr_chars",
-        "ocr_method", "error_msg", "parse_details",
+        "ocr_method", "error_msg", "parse_details", "quality_score",
     )
 
     def __init__(self, path: str, extension: str) -> None:
@@ -64,6 +64,7 @@ class FileRecord:
         self.ocr_method = ""             # tesseract | ocrmypdf
         self.error_msg = ""
         self.parse_details: Dict[str, Any] = {}
+        self.quality_score: int = -1     # 0-100, -1 = not scored
 
     def to_dict(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {
@@ -74,6 +75,7 @@ class FileRecord:
             "chars_extracted": self.chars_extracted,
             "parser": self.parser_used,
             "parse_time_ms": round(self.parse_time_ms, 1),
+            "quality_score": self.quality_score,
         }
         if self.skip_reason:
             d["skip_reason"] = self.skip_reason
@@ -99,6 +101,7 @@ def populate_from_parse_details(
     record.parse_details = parse_details
     record.chars_extracted = text_len
     record.parser_used = parse_details.get("parser", "")
+    record.quality_score = int(parse_details.get("quality_score", -1))
 
     # OCR details (from pdf_parser.py)
     ocr = parse_details.get("ocr_fallback", {})
@@ -324,6 +327,33 @@ def write_report(
         _w("")
 
     # ------------------------------------------------------------------
+    # Quality Scores (lowest first -- files that need attention)
+    # ------------------------------------------------------------------
+    scored = [r for r in file_records if r.quality_score >= 0 and r.status == "indexed"]
+    if scored:
+        low_quality = sorted(
+            [r for r in scored if r.quality_score < 70],
+            key=lambda r: r.quality_score,
+        )
+        avg_score = sum(r.quality_score for r in scored) / len(scored)
+        _w("TEXT QUALITY SCORES")
+        _w("-" * 78)
+        _w(f"  Average quality:   {avg_score:.0f}/100")
+        _w(f"  Files scored:      {len(scored)}")
+        _w(f"  Below 70 (noisy):  {len(low_quality)}")
+        _w("")
+        if low_quality:
+            _w("  Lowest quality files (may hurt retrieval):")
+            _w(f"  {'Score':>5}  {'Ext':<6}  File")
+            _w(f"  {'-'*5}  {'-'*6}  {'-'*50}")
+            for r in low_quality[:30]:
+                name = Path(r.path).name
+                _w(f"  {r.quality_score:>5}  {r.extension:<6}  {name}")
+            if len(low_quality) > 30:
+                _w(f"  ... and {len(low_quality) - 30} more")
+        _w("")
+
+    # ------------------------------------------------------------------
     # Tuning Hints
     # ------------------------------------------------------------------
     hints = _generate_hints(result, file_records, ocr_deps_missing, no_text, errors)
@@ -372,7 +402,7 @@ def write_report(
         "skip_reasons": skip_reasons,
         "skip_extensions": skip_exts,
         "files": [r.to_dict() for r in file_records if r.status != "indexed"
-                  or r.ocr_triggered],
+                  or r.ocr_triggered or r.quality_score < 70],
     }
     try:
         json_file.write_text(
@@ -469,6 +499,16 @@ def _generate_hints(
         hints.append(
             f"{hash_skipped} files skipped (unchanged). "
             "To force re-index: delete the SQLite DB and re-run."
+        )
+
+    # Low quality text (noisy OCR)
+    scored = [r for r in records if r.quality_score >= 0 and r.status == "indexed"]
+    low_q = [r for r in scored if r.quality_score < 50]
+    if len(low_q) > 5:
+        hints.append(
+            f"{len(low_q)} indexed files scored below 50/100 quality. "
+            "These files have noisy text that may hurt retrieval accuracy. "
+            "Consider re-scanning or manual cleanup for high-value documents."
         )
 
     return hints
