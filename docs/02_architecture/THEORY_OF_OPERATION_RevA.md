@@ -473,5 +473,5 @@ just change the configuration.
 
 ## Glossary
 
-See the [Glossary](GLOSSARY.md) for definitions of all technical terms
+See the [Glossary](../03_guides/GLOSSARY.md) for definitions of all technical terms
 and acronyms used in this document and throughout the project.

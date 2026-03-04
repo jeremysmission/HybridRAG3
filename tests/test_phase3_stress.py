@@ -413,6 +413,36 @@ class TestNetworkGateIntegration:
             gate.configure(mode="online")
         assert gate.mode == NetworkMode.OFFLINE
 
+    def test_online_blocks_http_downgrade(self, monkeypatch):
+        """HTTPS endpoint must NOT allow HTTP access to same host."""
+        monkeypatch.delenv("HYBRIDRAG_NETWORK_KILL_SWITCH", raising=False)
+        monkeypatch.delenv("HYBRIDRAG_OFFLINE", raising=False)
+        from src.core.network_gate import NetworkGate, NetworkBlockedError
+        gate = NetworkGate()
+        gate.configure(mode="online", api_endpoint="https://api.example.com/v1")
+        with pytest.raises(NetworkBlockedError):
+            gate.check_allowed("http://api.example.com/v1/chat")
+
+    def test_online_blocks_wrong_port(self, monkeypatch):
+        """Endpoint on port 8443 must NOT allow access on port 443."""
+        monkeypatch.delenv("HYBRIDRAG_NETWORK_KILL_SWITCH", raising=False)
+        monkeypatch.delenv("HYBRIDRAG_OFFLINE", raising=False)
+        from src.core.network_gate import NetworkGate, NetworkBlockedError
+        gate = NetworkGate()
+        gate.configure(mode="online", api_endpoint="https://api.example.com:8443/v1")
+        with pytest.raises(NetworkBlockedError):
+            gate.check_allowed("https://api.example.com/v1/chat")
+        gate.check_allowed("https://api.example.com:8443/v1/chat")
+
+    def test_online_allows_default_port_match(self, monkeypatch):
+        """https://host (implicit 443) must match https://host:443 (explicit)."""
+        monkeypatch.delenv("HYBRIDRAG_NETWORK_KILL_SWITCH", raising=False)
+        monkeypatch.delenv("HYBRIDRAG_OFFLINE", raising=False)
+        from src.core.network_gate import NetworkGate
+        gate = NetworkGate()
+        gate.configure(mode="online", api_endpoint="https://api.example.com/v1")
+        gate.check_allowed("https://api.example.com:443/v1/chat")
+
 
 # ============================================================================
 # SECTION 5: PARSER REGISTRY TESTS

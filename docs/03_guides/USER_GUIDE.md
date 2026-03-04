@@ -3,7 +3,7 @@
 Last Updated: 2026-02-24
 
 This guide covers daily use of HybridRAG after installation is
-complete. For first-time setup, see [INSTALL_AND_SETUP.md](INSTALL_AND_SETUP.md).
+complete. For first-time setup, see [INSTALL_AND_SETUP.md](../01_setup/INSTALL_AND_SETUP.md).
 
 ---
 
@@ -130,7 +130,7 @@ HybridRAG supports 49+ file formats. The most common:
 | Security | .evtx, .pcap, .cer, .pem |
 | Database | .accdb, .mdb |
 
-For the full list, see [FORMAT_SUPPORT.md](FORMAT_SUPPORT.md).
+For the full list, see [FORMAT_SUPPORT.md](../02_architecture/FORMAT_SUPPORT.md).
 
 ### Re-Indexing
 

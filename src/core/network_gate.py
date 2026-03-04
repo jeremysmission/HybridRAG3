@@ -192,6 +192,7 @@ class NetworkGate:
         """Initialize the gate in OFFLINE mode (safest default)."""
         self._mode = NetworkMode.OFFLINE
         self._allowed_hosts: List[str] = []
+        self._allowed_endpoints: List[Tuple[str, str, int]] = []
         self._allowed_prefixes: List[str] = []
         from collections import deque
         self._audit_log: deque = deque(maxlen=1000)
@@ -259,15 +260,20 @@ class NetworkGate:
             # Default to OFFLINE for any unrecognized mode
             self._mode = NetworkMode.OFFLINE
 
-        # Build the allowed hosts list from the API endpoint
+        # Build the allowed hosts/endpoints list from the API endpoint
         self._allowed_hosts = []
+        self._allowed_endpoints = []
         self._allowed_prefixes = list(allowed_prefixes or [])
 
         if api_endpoint:
             try:
                 parsed = urlparse(api_endpoint)
                 if parsed.hostname:
-                    self._allowed_hosts.append(parsed.hostname.lower())
+                    h = parsed.hostname.lower()
+                    s = (parsed.scheme or "https").lower()
+                    p = _effective_port(s, parsed.port)
+                    self._allowed_hosts.append(h)
+                    self._allowed_endpoints.append((s, h, p))
             except Exception:
                 pass
 
@@ -365,10 +371,12 @@ class NetworkGate:
                 self._log_access(url, host, purpose, caller, True, "localhost_allowed")
                 return
 
-            # Check against allowed hosts (extracted from API endpoint config)
-            if host in self._allowed_hosts:
-                self._log_access(url, host, purpose, caller, True, "allowed_host")
-                return
+            # Check against allowed endpoints (scheme + host + port must match)
+            req_port = _effective_port(scheme, parsed.port)
+            for ep_scheme, ep_host, ep_port in self._allowed_endpoints:
+                if host == ep_host and scheme == ep_scheme and req_port == ep_port:
+                    self._log_access(url, host, purpose, caller, True, "allowed_endpoint")
+                    return
 
             # Check against allowed URL prefixes.
             # SECURITY: naive startswith() allows bypass via host

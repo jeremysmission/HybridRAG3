@@ -449,20 +449,22 @@ async def set_mode(req: ModeRequest):
                    "Use rag-store-endpoint to set it first.",
         )
 
-    # Build new router FIRST (atomic: only swap on success)
+    # Build new router with a config copy so concurrent readers never
+    # see new_mode until the swap is complete (no transient partial state).
+    import copy
     from src.core.llm_router import LLMRouter
-    old_mode = s.config.mode
     old_router = getattr(s, "llm_router", None)
-    s.config.mode = new_mode
+    build_config = copy.copy(s.config)
+    build_config.mode = new_mode
     try:
-        new_router = LLMRouter(s.config)
+        new_router = LLMRouter(build_config)
     except Exception as e:
-        s.config.mode = old_mode  # rollback
         raise HTTPException(status_code=500, detail=f"Router creation failed: {e}")
 
-    # New router succeeded -- swap and close old
+    # All succeeded -- atomic swap: router first, then mode
     s.llm_router = new_router
     s.query_engine.llm_router = new_router
+    s.config.mode = new_mode
     if old_router and hasattr(old_router, "close"):
         old_router.close()
 

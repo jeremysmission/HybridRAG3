@@ -404,7 +404,19 @@ class TuningTab(tk.Frame):
         # Reconfigure network gate to match preserved mode (prevents desync)
         try:
             from src.core.network_gate import configure_gate
-            configure_gate(mode=new_config.mode)
+            if new_config.mode == "online":
+                configure_gate(
+                    mode="online",
+                    api_endpoint=getattr(
+                        getattr(new_config, "api", None), "endpoint", "",
+                    ) or "",
+                    allowed_prefixes=getattr(
+                        getattr(new_config, "api", None),
+                        "allowed_endpoint_prefixes", [],
+                    ),
+                )
+            else:
+                configure_gate(mode=new_config.mode)
         except Exception:
             pass
 

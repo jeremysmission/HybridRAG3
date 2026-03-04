@@ -1,3 +1,4 @@
+# Online mode settings (Azure OpenAI / OpenAI cloud endpoints)
 api:
   api_version: ''
   auth_scheme: ''
@@ -17,6 +18,7 @@ cost:
   input_cost_per_1k: 0.0015
   output_cost_per_1k: 0.002
   track_enabled: true
+# Embedding model settings (Ollama nomic-embed-text)
 embedding:
   batch_size: 16
   device: cpu
@@ -36,6 +38,7 @@ indexing:
   block_chars: 200000
   max_chars_per_file: 2000000
 mode: offline
+# Offline mode settings (local Ollama LLM inference)
 ollama:
   base_url: http://127.0.0.1:11434
   context_window: 4096
@@ -44,6 +47,7 @@ ollama:
   num_predict: 512
   num_thread: 0
   timeout_seconds: 180
+# File system paths for data storage
 paths:
   database: "D:\\RAG Indexed Data\\hybridrag.sqlite3"
   embeddings_cache: "D:\\RAG Indexed Data\\_embeddings"
@@ -54,6 +58,7 @@ performance:
   gc_between_blocks: true
   gc_between_files: true
   max_concurrent_files: 1
+# Retrieval and ranking parameters
 retrieval:
   hybrid_search: true
   min_chunks: 1
@@ -63,6 +68,7 @@ retrieval:
   reranker_top_n: 20
   rrf_k: 60
   top_k: 5
+# Security and compliance settings
 security:
   audit_logging: true
   pii_sanitization: true

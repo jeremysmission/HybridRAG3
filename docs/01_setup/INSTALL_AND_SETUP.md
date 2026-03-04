@@ -686,7 +686,7 @@ python src/gui/launch_gui.py      Launch desktop GUI (dark/light theme)
 .\tools\launch_gui.ps1            Launch desktop GUI (PowerShell)
 ```
 
-For full GUI documentation, see [GUI_GUIDE.md](GUI_GUIDE.md).
+For full GUI documentation, see [GUI_GUIDE.md](../03_guides/GUI_GUIDE.md).
 
 ---
 
@@ -882,9 +882,8 @@ For a fresh start: delete `.venv`, then re-run `tools\setup_home.bat`.
 
 ## See Also
 
-- [../START_HERE.txt](../START_HERE.txt) -- Plain-language entry point (read this first)
-- [USER_GUIDE.md](USER_GUIDE.md) -- Daily use, all commands, tuning, troubleshooting
+- [USER_GUIDE.md](../03_guides/USER_GUIDE.md) -- Daily use, all commands, tuning, troubleshooting
 - [OFFLINE_PRESTAGE_DVD_GUIDE.md](OFFLINE_PRESTAGE_DVD_GUIDE.md) -- Multi-disc prestage workflow for no-download installs
-- [SHORTCUT_SHEET.md](SHORTCUT_SHEET.md) -- Quick reference card
-- [GUI_GUIDE.md](GUI_GUIDE.md) -- Graphical interface walkthrough
-- [FORMAT_SUPPORT.md](FORMAT_SUPPORT.md) -- All 49+ supported file formats
+- [SHORTCUT_SHEET.md](../03_guides/SHORTCUT_SHEET.md) -- Quick reference card
+- [GUI_GUIDE.md](../03_guides/GUI_GUIDE.md) -- Graphical interface walkthrough
+- [FORMAT_SUPPORT.md](../02_architecture/FORMAT_SUPPORT.md) -- All 49+ supported file formats
