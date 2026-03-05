@@ -1,6 +1,6 @@
 # HybridRAG3 -- Installation and Setup Guide
 
-Last Updated: 2026-03-02
+Last Updated: 2026-03-05
 
 ---
 
@@ -15,6 +15,17 @@ If you are setting up Azure/OpenAI online mode on a new machine, use:
 It includes both:
 - one-command setup (`tools/py/setup_online_api.py`)
 - manual setup + verification flow
+
+---
+
+## Current Design Snapshot (2026-03-05)
+
+- 8 work-role subagents are deployed in model routing (`scripts/_model_meta.py`):
+  `sw`, `eng`, `sys`, `draft`, `log`, `pm`, `fe`, `cyber`.
+- 1 additional non-work profile is available: `gen` (General AI).
+- Default mode is offline (Ollama); online mode is opt-in with stored credentials.
+- `retrieval.offline_top_k` can now be set to cap offline retrieval context and improve offline latency on slower hardware.
+- `openai` is pinned to `1.109.1` across baseline dependency manifests.
 
 ---
 

@@ -1,8 +1,8 @@
 <!-- Waiver -->
 # Software Waiver Request Summary
 
-**Date:** 2026-02-28
-**Revision:** v5c (openai 1.109.1, 410 tests, corporate proxy fixes)
+**Date:** 2026-03-05
+**Revision:** v6 (design alignment: 8 work-role routing profiles + updated dependency posture)
 **Project:** HybridRAG v3 -- Offline-First RAG System
 **Requested By:** Jeremy Randa
 
@@ -15,8 +15,8 @@ waiver/approval for the HybridRAG v3 knowledge retrieval system. The
 system is designed for offline-first operation with zero telemetry and
 no external data transmission.
 
-Cross-referenced against waiver cheat sheet v5c on 2026-02-28.
-Fresh deployment test: 410/410 tests passed (225 warnings, 0 failures).
+Cross-referenced against current manifests on 2026-03-05.
+Latest recorded full-suite baseline in project handoff context: 116 passed, 0 failed (2026-03-04 run profile).
 
 ---
 
@@ -24,6 +24,7 @@ Fresh deployment test: 410/410 tests passed (225 warnings, 0 failures).
 
 | Date | Change |
 |------|--------|
+| 2026-03-05 | v6: Synced waiver narrative to current design, clarified vLLM dependency posture, aligned with 8 work-role profiles + 1 general profile |
 | 2026-02-28 | v5c: openai bumped 1.51.2 -> 1.109.1 (httpx 0.28 compat), 410 tests, corporate proxy fixes |
 | 2026-02-24 | v5: Removed 8 retired HuggingFace packages, added pytest/psutil, added all transitive deps, categorized by approval status |
 | 2026-02-24 | Cross-referenced pip install against waiver_cheat_sheet_v4b.xlsx |
@@ -161,10 +162,10 @@ licensed, USA origin, zero network activity.
 
 ---
 
-## Waiver Request 2: vLLM + OpenAI SDK Upgrade (Future -- Workstation)
+## Waiver Request 2: vLLM (Future -- Workstation)
 
-**IMPORTANT:** These two packages must be approved together. vLLM
-depends on openai>=1.99.1 and cannot install without it.
+**IMPORTANT:** vLLM requires openai>=1.99.1. Current baseline already
+uses openai==1.109.1, so no SDK major-version migration is required.
 
 | Field | Detail |
 |-------|--------|
@@ -173,11 +174,11 @@ depends on openai>=1.99.1 and cannot install without it.
 | Publisher | UC Berkeley / USA |
 | Purpose | GPU-optimized model serving with batching and caching |
 | Requirement | Dual RTX 3090 workstation (on order) |
-| Package 2 | openai>=1.99.1 (upgrade from current 1.109.1) |
+| Package 2 | openai==1.109.1 (already meets vLLM minimum) |
 | License | MIT |
 | Publisher | OpenAI / USA |
 | Purpose | Required dependency for vLLM; API client for cloud models |
-| Impact | Code changes needed to migrate from openai 1.x to 2.x API |
+| Impact | No mandatory openai major-version migration for baseline |
 | Timeline | Not needed until workstation hardware arrives |
 
 ---

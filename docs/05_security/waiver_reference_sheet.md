@@ -2,8 +2,8 @@
 # Software Applications Waiver Reference Sheet
 
 **Project:** HybridRAG v3 -- Offline-First RAG System
-**Updated:** 2026-03-01
-**Revision:** v6 (full audit: added pdf2image, pytesseract, colorama; fixed faiss-cpu status; added justification notes; 25 transitive deps cataloged; xlsx v5 generated)
+**Updated:** 2026-03-05
+**Revision:** v7 (design sync pass: dependency posture cleanup and role-routing alignment)
 
 ---
 
@@ -266,7 +266,7 @@ LanceDB transitive dependencies requiring approval:
 | pyarrow | >=16.0 | Apache 2.0 | Apache Software Foundation / USA | Columnar data format |
 | lance | (bundled) | Apache 2.0 | LanceDB Inc. / USA | Lance storage engine |
 
-### Waiver Request: vLLM + openai 2.x (Future -- Workstation Only)
+### Waiver Request: vLLM (Future -- Workstation Only)
 
 | Field | Detail |
 |-------|--------|
@@ -275,11 +275,11 @@ LanceDB transitive dependencies requiring approval:
 | Publisher | UC Berkeley / USA |
 | Purpose | GPU-optimized model serving (batching, prefix caching, tensor parallelism) |
 | Requirement | Dual RTX 3090 workstation (48 GB VRAM) |
-| Package 2 | openai>=1.99.1 (upgrade from current 1.109.1) |
+| Package 2 | openai==1.109.1 (already satisfies vLLM minimum) |
 | License | MIT |
 | Publisher | OpenAI / USA |
 | Purpose | Required dependency for vLLM; API client for cloud models |
-| Impact | Code changes needed to migrate from openai 1.x to 2.x API syntax |
+| Impact | No forced openai major-version migration for current baseline |
 | Note | These two MUST be approved together (vLLM depends on openai>=1.99.1) |
 | Timeline | Not needed until workstation hardware arrives |
 

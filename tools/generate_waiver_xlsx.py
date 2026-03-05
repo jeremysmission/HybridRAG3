@@ -6,13 +6,14 @@
 # Safety notes: Update small sections at a time and run relevant tests after edits.
 # ============================
 """
-Generate waiver_cheat_sheet_v5.xlsx -- comprehensive software approval workbook.
+Generate waiver_cheat_sheet_v6.xlsx -- comprehensive software approval workbook.
 FILE: tools/generate_waiver_xlsx.py
 
 Run: python tools/generate_waiver_xlsx.py
-Output: docs/05_security/waiver_cheat_sheet_v5.xlsx
+Output: docs/05_security/waiver_cheat_sheet_v6.xlsx
 
 CHANGELOG:
+  2026-03-05: v6 -- Metadata and workbook revision aligned to latest waiver docs.
   2026-03-03: v5b -- Added Tesseract OCR 5.x (external binary) to GREEN.
               Updated summary counts (35->36 direct). Updated ocrmypdf
               YELLOW notes to reflect Tesseract dependency now satisfied.
@@ -460,9 +461,9 @@ def create_workbook():
     wb = Workbook()
     wb.properties.creator = "HybridRAG Team"
     wb.properties.lastModifiedBy = "HybridRAG Team"
-    wb.properties.title = "Software Applications Waiver Reference v5"
+    wb.properties.title = "Software Applications Waiver Reference v6"
     wb.properties.subject = "HybridRAG software approval inventory"
-    wb.properties.description = "Pinned package inventory with approval status. v5b 2026-03-03."
+    wb.properties.description = "Pinned package inventory with approval status. v6 2026-03-05."
     wb.properties.keywords = "HybridRAG,waiver,software-approval,python,security"
     wb.properties.category = "Security Compliance"
 
@@ -474,7 +475,7 @@ def create_workbook():
     ws.sheet_properties.tabColor = "4169E1"
 
     ws.merge_cells("A1:E1")
-    cell = ws.cell(row=1, column=1, value="Software Applications Waiver Reference -- v5")
+    cell = ws.cell(row=1, column=1, value="Software Applications Waiver Reference -- v6")
     cell.font = TITLE_FONT
 
     ws.cell(row=2, column=1, value="Project:").font = SUBTITLE_FONT
@@ -482,7 +483,7 @@ def create_workbook():
     ws.cell(row=3, column=1, value="Updated:").font = SUBTITLE_FONT
     ws.cell(row=3, column=2, value=date.today().strftime("%Y-%m-%d"))
     ws.cell(row=4, column=1, value="Revision:").font = SUBTITLE_FONT
-    ws.cell(row=4, column=2, value="v5 (full rebuild, justification notes, CVE status)")
+    ws.cell(row=4, column=2, value="v6 (aligned to current waiver docs, human-readable Excel format)")
 
     row = 6
     _apply_header(ws, row, ["Category", "Status", "Count (Direct)",
@@ -667,7 +668,7 @@ def create_workbook():
 
 def main():
     output_path = os.path.join(PROJECT_ROOT, "docs", "05_security",
-                               "waiver_cheat_sheet_v5.xlsx")
+                               "waiver_cheat_sheet_v6.xlsx")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     wb = create_workbook()

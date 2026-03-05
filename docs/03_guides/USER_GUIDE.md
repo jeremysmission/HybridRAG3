@@ -1,9 +1,14 @@
 # HybridRAG3 -- User Guide
 
-Last Updated: 2026-02-24
+Last Updated: 2026-03-05
 
 This guide covers daily use of HybridRAG after installation is
 complete. For first-time setup, see [INSTALL_AND_SETUP.md](../01_setup/INSTALL_AND_SETUP.md).
+
+Current design snapshot (2026-03-05):
+- 8 deployed work-role subagents in model routing: Software Engineering, Engineering/STEM, Systems Administration, Drafting/AutoCAD, Logistics Analyst, Program Management, Field Engineer, Cybersecurity Analyst.
+- 1 additional non-work profile: General AI.
+- `retrieval.offline_top_k` is available to cap offline retrieval context for latency control.
 
 ---
 
@@ -624,6 +629,7 @@ content extraction yet.
 | Answers include irrelevant information | Raise `min_score` to 0.25-0.30 |
 | Answer is missing context from multiple docs | Raise `top_k` from 5 to 12-15 |
 | Answers are too verbose/wandering | Lower `top_k` from 12 to 5-8 |
+| Offline answers are too slow | Set `retrieval.offline_top_k` to 3-5 (keeps offline prompts shorter) |
 | Need faster answers | Switch to online mode |
 | Need better accuracy | Switch to online mode with a larger model |
 

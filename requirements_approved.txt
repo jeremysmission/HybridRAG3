@@ -111,7 +111,7 @@ click==8.3.1                   # BSD-3 -- CLI toolkit (uvicorn dep, Pallets/USA)
 
 # -- GPU LLM Inference (Workstation Only) ------------------------------------
 # vllm==0.10.1                 # Apache 2.0 -- GPU LLM inference (YELLOW: waiver request 2)
-#   ^^^ COMMENTED OUT: conflicts with openai==1.109.1 (vllm needs openai>=1.99.1)
+#   ^^^ COMMENTED OUT: workstation-only option; keep disabled in baseline image
 #   Not needed for demo -- Ollama handles local GPU inference for now.
 
 # -- Credential Storage -------------------------------------------------------
