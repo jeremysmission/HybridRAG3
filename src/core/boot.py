@@ -335,6 +335,8 @@ def boot_hybridrag(config_path=None) -> BootResult:
     # for 3s if Ollama is down or slow to respond.
     _boot_step("Step 4: checking Ollama (2s timeout)...")
 
+    ollama_probe = {"available": False, "warning": ""}
+
     def _check_ollama():
         """Plain-English: This function handles check ollama."""
         try:
@@ -357,14 +359,14 @@ def boot_hybridrag(config_path=None) -> BootResult:
             )
             with opener.open(req, timeout=3) as response:
                 if response.status == 200:
-                    result.offline_available = True
+                    ollama_probe["available"] = True
                     logger.info("BOOT Step 4: Ollama is running")
                 else:
-                    result.warnings.append(
+                    ollama_probe["warning"] = (
                         "Ollama responded but with unexpected status"
                     )
         except Exception:
-            result.warnings.append(
+            ollama_probe["warning"] = (
                 "Ollama is not running -- offline mode unavailable"
             )
             logger.info("BOOT Step 4: Ollama not reachable")
@@ -383,6 +385,10 @@ def boot_hybridrag(config_path=None) -> BootResult:
             "Offline mode will activate when Ollama responds."
         )
         logger.info("BOOT Step 4: Ollama check timed out, NOT assuming available")
+    else:
+        result.offline_available = bool(ollama_probe["available"])
+        if ollama_probe["warning"]:
+            result.warnings.append(ollama_probe["warning"])
 
     # === STEP 4.5: Check vLLM (if enabled) ===
     vllm_cfg = config.get("vllm", {}) if isinstance(config, dict) else {}

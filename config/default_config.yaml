@@ -83,7 +83,7 @@ transformers_llm:
   max_new_tokens: 2048
   model: microsoft/phi-4
   temperature: 0.05
-  trust_remote_code: true
+  trust_remote_code: false
 vllm:
   base_url: http://localhost:8000
   context_window: 16384

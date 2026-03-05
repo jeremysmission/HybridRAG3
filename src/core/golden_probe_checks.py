@@ -29,6 +29,7 @@
 from __future__ import annotations
 
 import shutil
+import sys
 import time
 from typing import Any
 
@@ -175,6 +176,10 @@ def check_memory_usage() -> ProbeResult:
     """
     start = time.time()
     try:
+        # Windows has no stdlib `resource`; prefer psutil there.
+        if sys.platform.startswith("win"):
+            raise ImportError("resource module unavailable on Windows")
+
         import resource
         usage_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         usage_mb = usage_kb / 1024

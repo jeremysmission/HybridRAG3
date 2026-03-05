@@ -31,25 +31,17 @@
 # ===================================================================
 
 import os
-import yaml
+from _config_io import load_default_config
 
 
 def _config_path():
-    """Build the full path to default_config.yaml using the project root.
-
-    WHY THIS EXISTS:
-      If PowerShell's working directory is not the repo root, a bare
-      relative path like 'config/default_config.yaml' would fail.
-      HYBRIDRAG_PROJECT_ROOT (set by start_hybridrag.ps1) ensures we
-      always find the config regardless of the current directory.
-    """
+    """Compatibility shim for legacy validation tests."""
     root = os.environ.get('HYBRIDRAG_PROJECT_ROOT', '.')
     return os.path.join(root, 'config', 'default_config.yaml')
 
 
-# Read the config file using the portable path
-with open(_config_path(), 'r') as f:
-    cfg = yaml.safe_load(f)
+# Read the config file using the shared portable resolver
+cfg = load_default_config()
 
 # Extract the key settings that define a profile.
 # .get() with a default of '?' means "if the setting doesn't exist,

@@ -422,12 +422,9 @@ class Indexer:
             embeddings = self.embedder.embed_batch(chunks)
             metadata_list = []
             chunk_ids = []
+            chunk_offsets = self._locate_chunk_offsets(block, chunks)
             for i, chunk_text in enumerate(chunks):
-                chunk_size = self.config.chunking.chunk_size
-                chunk_overlap = self.config.chunking.overlap
-                chunk_start = char_offset + (
-                    i * (chunk_size - chunk_overlap)
-                )
+                chunk_start = char_offset + chunk_offsets[i]
                 chunk_end = chunk_start + len(chunk_text)
                 cid = make_chunk_id(
                     file_path=str(file_path),
@@ -461,6 +458,29 @@ class Indexer:
         if self.gc_between_files:
             gc.collect()
         return chunks_added, None, was_reindex, parse_details
+
+    def _locate_chunk_offsets(self, block: str, chunks: List[str]) -> List[int]:
+        """
+        Locate chunk start offsets within the block text.
+
+        Smart chunking does not guarantee fixed stride spacing, so we
+        compute offsets from actual text positions to keep chunk IDs
+        deterministic across re-index runs.
+        """
+        offsets: List[int] = []
+        search_from = 0
+        for i, chunk_text in enumerate(chunks):
+            idx = block.find(chunk_text, search_from)
+            if idx < 0:
+                idx = block.find(chunk_text)
+            if idx < 0:
+                # Fallback keeps deterministic monotonic offsets even if
+                # chunk text was normalized by parser/chunker internals.
+                prev = offsets[-1] if offsets else 0
+                idx = min(len(block), prev + max(1, len(chunk_text) // 2))
+            offsets.append(idx)
+            search_from = min(len(block), idx + max(1, len(chunk_text)))
+        return offsets
 
     def _process_file_with_retry(
         self, file_path: Path, max_retries: int = 3,

@@ -334,6 +334,27 @@ def test_05b_use_case_change_does_not_increase_context_window():
     root.destroy()
 
 
+def test_05c_use_case_change_preserves_higher_context_window():
+    """Use-case switching must not silently lower a user-selected context window."""
+    root = _make_root()
+    config = FakeGUIConfig()
+    config.ollama.context_window = 16384
+
+    from src.gui.panels.query_panel import QueryPanel
+
+    panel = QueryPanel(root, config=config)
+    panel.pack()
+    _pump_events(root, 50)
+
+    panel.uc_var.set("Software Engineering")
+    panel._on_use_case_change()
+    _pump_events(root, 50)
+
+    assert config.ollama.context_window == 16384
+
+    root.destroy()
+
+
 # ============================================================================
 # TEST 06: Index panel shows read-only paths from config
 # ============================================================================

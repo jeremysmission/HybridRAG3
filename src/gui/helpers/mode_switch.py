@@ -40,7 +40,7 @@ def _rebuild_router(app, credentials=None):
     """Close old LLM router, build a new one, and propagate to query engine.
 
     Accepts pre-resolved credentials to avoid redundant keyring lookups.
-    Returns True on success, False on failure.
+    Returns router instance on success, or Exception on failure.
     """
     try:
         from src.core.llm_router import LLMRouter, invalidate_deployment_cache
@@ -49,15 +49,23 @@ def _rebuild_router(app, credentials=None):
             old_router.close()
         invalidate_deployment_cache()
         new_router = LLMRouter(app.config, credentials=credentials)
+        return new_router
+    except Exception as e:
+        logger.warning("Router rebuild failed: %s", e)
+        return e
+
+
+def _commit_router_and_mode(app, new_router, new_mode):
+    """Apply router/mode mutation on GUI thread to avoid cross-thread writes."""
+    if new_router is not None:
         app.router = new_router
         if hasattr(app, "query_engine") and app.query_engine:
             app.query_engine.llm_router = new_router
         if hasattr(app, "status_bar"):
             app.status_bar.router = new_router
-        return True
-    except Exception as e:
-        logger.warning("Router rebuild failed: %s", e)
-        return e
+    if app.config:
+        app.config.mode = new_mode
+        persist_mode(app, new_mode)
 
 
 def toggle_mode(app, new_mode):
@@ -209,10 +217,8 @@ def _do_switch_to_online(app):
                    "Mode remains offline.".format(result))
         return
 
-    # -- Success: commit mode change now --
-    if app.config:
-        app.config.mode = "online"
-        persist_mode(app, "online")
+    # -- Success: commit mode change now (on GUI thread) --
+    safe_after(app, 0, _commit_router_and_mode, app, result, "online")
 
     logger.info("Switched to ONLINE mode")
 
@@ -258,10 +264,8 @@ def _do_switch_to_offline(app):
                    "Check that Ollama is running.".format(result))
         return
 
-    # -- Success: commit mode change now --
-    if app.config:
-        app.config.mode = "offline"
-        persist_mode(app, "offline")
+    # -- Success: commit mode change now (on GUI thread) --
+    safe_after(app, 0, _commit_router_and_mode, app, result, "offline")
 
     logger.info("Switched to OFFLINE mode")
 

@@ -465,7 +465,8 @@ async def start_indexing(request: Request, req: IndexRequest = None):
         finally:
             s.indexing_active = False
 
-    thread = threading.Thread(target=_run_indexing, daemon=True)
+    thread = threading.Thread(target=_run_indexing, daemon=False)
+    s.indexing_thread = thread
     thread.start()
 
     return IndexStartResponse(

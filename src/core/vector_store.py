@@ -422,18 +422,20 @@ class VectorStore:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?);
             """, rows)
 
-            # Step 4: Populate FTS5 keyword search index
-            for row_data in rows:
-                cid = row_data[0]
-                text_val = row_data[3]
-                pk_row = self.conn.execute(
-                    "SELECT chunk_pk FROM chunks WHERE chunk_id = ?", (cid,)
-                ).fetchone()
-                if pk_row:
-                    self.conn.execute(
-                        "INSERT OR REPLACE INTO chunks_fts(rowid, text) VALUES (?, ?)",
-                        (pk_row[0], text_val),
-                    )
+            # Step 4: Populate FTS5 keyword search index in one set-based
+            # statement (avoids N+1 SELECT loop for chunk_pk lookups).
+            self.conn.execute("""
+                INSERT OR REPLACE INTO chunks_fts(rowid, text)
+                SELECT chunk_pk, text
+                FROM chunks
+                WHERE source_path = ?
+                  AND embedding_row >= ?
+                  AND embedding_row < ?;
+            """, (
+                str(metadata_list[0].source_path),
+                int(start_row),
+                int(start_row + n),
+            ))
             self.conn.commit()
 
     # =================================================================

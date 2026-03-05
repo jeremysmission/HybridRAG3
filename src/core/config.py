@@ -258,7 +258,7 @@ class TransformersConfig:
     temperature: float = 0.05
     load_in_4bit: bool = True
     device_map: str = "auto"
-    trust_remote_code: bool = True
+    trust_remote_code: bool = False
 
 
 @dataclass

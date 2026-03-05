@@ -465,16 +465,12 @@ class Retriever:
         return hits
 
     def _load_reranker(self):
-        """Load the cross-encoder model. Returns None if unavailable."""
-        try:
-            from sentence_transformers import CrossEncoder  # RETIRED (Session 15)
-            return CrossEncoder(self.reranker_model_name)
-        except ImportError:
-            logger.warning("Reranker unavailable: sentence-transformers retired.")
-            return None
-        except Exception as e:
-            logger.error("Failed to load reranker: %s", e)
-            return None
+        """Load the cross-encoder model. Retired dependency path is disabled."""
+        logger.warning(
+            "Reranker requested but sentence-transformers is retired; "
+            "running without reranker."
+        )
+        return None
 
     # ------------------------------------------------------------------
     # Context building -- format hits for the LLM prompt

@@ -30,39 +30,19 @@
 # INTERNET ACCESS: NONE. Only modifies a local file.
 # ===================================================================
 
-# os gives us access to environment variables and path building.
-# yaml reads and writes YAML files (the .yaml config format).
+# Shared config I/O helper provides portable path resolution and atomic write.
 import os
-import yaml
+from _config_io import load_default_config, save_default_config_atomic
 
 
 def _config_path():
-    """Build the full path to default_config.yaml using the project root.
-
-    WHY THIS EXISTS:
-      If PowerShell's working directory is not the repo root (for example,
-      if you cd somewhere else before running a script), a bare relative
-      path like 'config/default_config.yaml' would fail with FileNotFoundError.
-      By reading HYBRIDRAG_PROJECT_ROOT (set by start_hybridrag.ps1), we
-      always find the config regardless of the current directory.
-    """
+    """Compatibility shim for legacy validation tests."""
     root = os.environ.get('HYBRIDRAG_PROJECT_ROOT', '.')
     return os.path.join(root, 'config', 'default_config.yaml')
 
 
-def _write_yaml_atomic(path, data):
-    """Write YAML via temp file + replace to avoid partial truncation."""
-    tmp = path + ".tmp"
-    with open(tmp, 'w', encoding='utf-8') as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-    os.replace(tmp, path)
-
-
 # Step 1: Open the config file and read its contents into a Python dictionary.
-# _config_path() builds the full portable path instead of a bare relative one.
-cfg_file = _config_path()
-with open(cfg_file, 'r') as f:
-    cfg = yaml.safe_load(f)
+cfg = load_default_config()
 
 # Step 2: Change the mode setting to "online".
 # This is like editing the file by hand and changing "mode: offline"
@@ -74,7 +54,7 @@ cfg['mode'] = 'online'
 # read and write the same file in a single expression.
 # default_flow_style=False keeps the YAML in the readable multi-line format
 # instead of compressing it into one long line.
-_write_yaml_atomic(cfg_file, cfg)
+save_default_config_atomic(cfg)
 
 # Step 4: Confirm the change
 print('Mode set to: online')

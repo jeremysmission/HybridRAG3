@@ -30,7 +30,7 @@ USAGE:
 INTERNET ACCESS: NONE -- this script makes zero network calls.
 """
 
-import argparse, gc, json, os, platform, sqlite3, subprocess, sys
+import argparse, gc, json, os, platform, shutil, sqlite3, subprocess, sys
 import tempfile, time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -90,6 +90,32 @@ def collect_hardware_fingerprint():
         if out:
             try: hw["ram_gb"] = float(out)
             except Exception: pass
+        if hw["ram_gb"] <= 0:
+            # Fallback path when CIM output cannot be parsed in localized shells.
+            try:
+                import psutil  # type: ignore
+                hw["ram_gb"] = round(float(psutil.virtual_memory().total) / (1024 ** 3), 1)
+            except Exception:
+                try:
+                    import ctypes
+                    class _MEMORYSTATUSEX(ctypes.Structure):
+                        _fields_ = [
+                            ("dwLength", ctypes.c_ulong),
+                            ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong),
+                            ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong),
+                            ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong),
+                            ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+                        ]
+                    stat = _MEMORYSTATUSEX()
+                    stat.dwLength = ctypes.sizeof(_MEMORYSTATUSEX)
+                    if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+                        hw["ram_gb"] = round(float(stat.ullTotalPhys) / (1024 ** 3), 1)
+                except Exception:
+                    pass
 
         # --- Disk ---
         out = _ps("Get-CimInstance Win32_DiskDrive | Select-Object Model,"
@@ -116,16 +142,38 @@ def collect_hardware_fingerprint():
         # for GPUs with >4GB VRAM.
         nvsmi_vram = 0
         try:
+            nvsmi_exe = shutil.which("nvidia-smi")
+            if not nvsmi_exe:
+                candidate = os.path.join(
+                    os.environ.get("ProgramFiles", r"C:\Program Files"),
+                    "NVIDIA Corporation",
+                    "NVSMI",
+                    "nvidia-smi.exe",
+                )
+                if os.path.exists(candidate):
+                    nvsmi_exe = candidate
             r = subprocess.run(
-                ["nvidia-smi", "--query-gpu=name,memory.total",
+                [nvsmi_exe or "nvidia-smi", "--query-gpu=name,memory.total",
                  "--format=csv,noheader,nounits"],
                 capture_output=True, text=True, timeout=10)
             if r.returncode == 0 and r.stdout.strip():
-                line = r.stdout.strip().splitlines()[0]
-                parts = [p.strip() for p in line.split(",")]
-                if len(parts) >= 2:
-                    hw["gpu"] = parts[0]
-                    nvsmi_vram = round(int(parts[1]) / 1024, 1)
+                best_name = "None detected"
+                best_vram = 0.0
+                for line in r.stdout.strip().splitlines():
+                    parts = [p.strip() for p in line.split(",")]
+                    if len(parts) < 2:
+                        continue
+                    name = parts[0]
+                    try:
+                        vram = round(int(parts[1]) / 1024, 1)
+                    except Exception:
+                        vram = 0.0
+                    if vram > best_vram:
+                        best_vram = vram
+                        best_name = name
+                if best_name != "None detected":
+                    hw["gpu"] = best_name
+                    nvsmi_vram = best_vram
                     hw["gpu_vram_gb"] = nvsmi_vram
         except Exception:
             pass

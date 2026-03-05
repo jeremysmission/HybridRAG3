@@ -35,12 +35,15 @@
 import os
 import subprocess
 import sys
-import yaml
 
 sys.path.insert(0, os.environ.get("HYBRIDRAG_PROJECT_ROOT", "."))
+sys.path.insert(0, os.path.join(
+    os.environ.get("HYBRIDRAG_PROJECT_ROOT", "."), "scripts"
+))
 
 from src.core.llm_router import get_available_deployments
 from src.security.credentials import resolve_credentials as canonical_resolve
+from _config_io import load_default_config
 
 
 def get_ollama_models():
@@ -95,8 +98,7 @@ def get_online_models(max_display=25):
 def main():
     # ---- Load config ----
     try:
-        with open("config/default_config.yaml", "r") as f:
-            cfg = yaml.safe_load(f)
+        cfg = load_default_config()
     except FileNotFoundError:
         print("  [FAIL] config/default_config.yaml not found")
         sys.exit(1)

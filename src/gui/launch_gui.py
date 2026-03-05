@@ -108,8 +108,16 @@ def _preload_embedder():
         _preload_done.set()
 
 
-_preload_thread = threading.Thread(target=_preload_embedder, daemon=True)
-_preload_thread.start()
+_preload_thread = None
+
+
+def _ensure_preload_started():
+    """Start embedder preload lazily (avoids import-time side effects)."""
+    global _preload_thread
+    if _preload_thread is not None:
+        return
+    _preload_thread = threading.Thread(target=_preload_embedder, daemon=True)
+    _preload_thread.start()
 
 # ============================================================================
 # Module-level embedder cache -- survives Reset clicks so the expensive
@@ -124,6 +132,8 @@ _cached_embedder_lock = threading.Lock()
 def _get_or_build_embedder(model_name, logger, dimension=0):
     """Return a cached Embedder if model_name matches, else build a new one."""
     global _cached_embedder
+
+    _ensure_preload_started()
 
     # Try the preload first (bounded wait -- GUI must not hang if Ollama is down)
     if not _preload_done.is_set():

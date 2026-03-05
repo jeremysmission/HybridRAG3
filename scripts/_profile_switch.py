@@ -47,26 +47,18 @@
 
 import os
 import sys
-import yaml
 
 sys.path.insert(0, os.environ.get("HYBRIDRAG_PROJECT_ROOT", "."))
 sys.path.insert(0, os.path.join(
     os.environ.get("HYBRIDRAG_PROJECT_ROOT", "."), "scripts"
 ))
+from _config_io import load_default_config, save_default_config_atomic
 
 
 def _config_path():
-    """Build the full path to default_config.yaml using the project root."""
+    """Compatibility shim for legacy validation tests."""
     root = os.environ.get('HYBRIDRAG_PROJECT_ROOT', '.')
     return os.path.join(root, 'config', 'default_config.yaml')
-
-
-def _write_yaml_atomic(path, data):
-    """Write YAML via temp file + replace to avoid partial truncation."""
-    tmp = path + ".tmp"
-    with open(tmp, 'w', encoding='utf-8') as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-    os.replace(tmp, path)
 
 
 # -- Define the three profiles --
@@ -163,9 +155,7 @@ profile = sys.argv[1]
 settings = profiles[profile]
 
 # -- Read the current config --
-cfg_file = _config_path()
-with open(cfg_file, 'r') as f:
-    cfg = yaml.safe_load(f)
+cfg = load_default_config()
 
 # -- Detect embedding model change (requires re-index) --
 old_model = cfg.get('embedding', {}).get('model_name', '')
@@ -182,7 +172,7 @@ for section_name, values in settings.items():
         cfg[section_name][key] = val
 
 # -- Save the updated config --
-_write_yaml_atomic(cfg_file, cfg)
+save_default_config_atomic(cfg)
 
 # -- Print confirmation --
 desc = {

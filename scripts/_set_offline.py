@@ -22,41 +22,24 @@
 # ===================================================================
 
 import os
-import yaml
+from _config_io import load_default_config, save_default_config_atomic
 
 
 def _config_path():
-    """Build the full path to default_config.yaml using the project root.
-
-    WHY THIS EXISTS:
-      If PowerShell's working directory is not the repo root, a bare
-      relative path like 'config/default_config.yaml' would fail.
-      HYBRIDRAG_PROJECT_ROOT (set by start_hybridrag.ps1) ensures we
-      always find the config regardless of the current directory.
-    """
+    """Compatibility shim for legacy validation tests."""
     root = os.environ.get('HYBRIDRAG_PROJECT_ROOT', '.')
     return os.path.join(root, 'config', 'default_config.yaml')
 
 
-def _write_yaml_atomic(path, data):
-    """Write YAML via temp file + replace to avoid partial truncation."""
-    tmp = path + ".tmp"
-    with open(tmp, 'w', encoding='utf-8') as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-    os.replace(tmp, path)
-
-
 # Step 1: Read the current config
-cfg_file = _config_path()
-with open(cfg_file, 'r') as f:
-    cfg = yaml.safe_load(f)
+cfg = load_default_config()
 
 # Step 2: Change mode to offline
 cfg['mode'] = 'offline'
 
 # Step 3: Write back (separate from read -- never read+write same file
 # in one expression)
-_write_yaml_atomic(cfg_file, cfg)
+save_default_config_atomic(cfg)
 
 # Step 4: Confirm
 print('Mode set to: offline')

@@ -75,6 +75,7 @@ class AppState:
 
     # Indexing state (background thread)
     indexing_active: bool = False
+    indexing_thread: Optional[threading.Thread] = None
     indexing_lock: threading.Lock = threading.Lock()
     index_progress: dict = {
         "files_processed": 0,
@@ -182,6 +183,12 @@ async def lifespan(app: FastAPI):
 
     # -- Shutdown --
     logger.info("[OK] Shutting down...")
+    thread = state.indexing_thread
+    if thread and thread.is_alive():
+        logger.info("[OK] Waiting for indexing thread to finish...")
+        thread.join(timeout=30.0)
+        if thread.is_alive():
+            logger.warning("[WARN] Indexing thread still running after 30s timeout.")
     if state.vector_store:
         state.vector_store.close()
     if state.embedder:

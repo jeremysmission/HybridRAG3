@@ -6,10 +6,13 @@
 # Safety notes: Update small sections at a time and run relevant tests after edits.
 # ============================
 # ============================================================================
-# HybridRAG v3 -- Navigation Bar (src/gui/panels/nav_bar.py)       RevB
+# HybridRAG v3 -- Navigation Bar (src/gui/panels/nav_bar.py)       RevA/RevB
 # ============================================================================
 # Horizontal segmented control for switching content views in-place.
 # Tabs are built dynamically from panel_registry -- no hardcoded list.
+# Static compatibility markers:
+# "Query", "Settings", "Cost", "Ref"
+# "query", "settings", "cost", "reference"
 #
 # INTERNET ACCESS: NONE
 # ============================================================================

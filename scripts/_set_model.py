@@ -40,7 +40,6 @@
 
 import os
 import sys
-import yaml
 
 sys.path.insert(0, os.environ.get("HYBRIDRAG_PROJECT_ROOT", "."))
 sys.path.insert(0, os.path.join(
@@ -59,27 +58,13 @@ from _model_meta import (
     RECOMMENDED_OFFLINE,
     use_case_score,
 )
+from _config_io import load_default_config, save_default_config_atomic
 
 
 def _config_path():
-    """Build the full path to default_config.yaml using the project root.
-
-    WHY THIS EXISTS:
-      If PowerShell's working directory is not the repo root, a bare
-      relative path like 'config/default_config.yaml' would fail.
-      HYBRIDRAG_PROJECT_ROOT (set by start_hybridrag.ps1) ensures we
-      always find the config regardless of the current directory.
-    """
+    """Compatibility shim for legacy validation tests."""
     root = os.environ.get('HYBRIDRAG_PROJECT_ROOT', '.')
     return os.path.join(root, 'config', 'default_config.yaml')
-
-
-def _write_yaml_atomic(path, data):
-    """Write YAML via temp file + replace to avoid partial truncation."""
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-    os.replace(tmp, path)
 
 
 TI = 1000   # tokens in per Q&A
@@ -136,8 +121,7 @@ def _resolve_creds():
         # Read config for the YAML fallback path
         cfg_dict = None
         try:
-            with open(_config_path(), "r") as f:
-                cfg_dict = yaml.safe_load(f)
+            cfg_dict = load_default_config()
         except Exception:
             pass
         creds = resolve_credentials(cfg_dict)
@@ -313,8 +297,7 @@ def _detect_current_profile():
     Returns profile name string. Falls back to 'laptop_safe'.
     """
     try:
-        with open(_config_path(), "r") as f:
-            cfg = yaml.safe_load(f)
+        cfg = load_default_config()
         # Check for explicit profile key
         prof = (cfg or {}).get("profile")
         if prof and prof in _PROFILE_VRAM:
@@ -619,8 +602,7 @@ def prompt_pick_fallback(uc_key, current_model, endpoint):
 
 def main():
     try:
-        with open(_config_path(), "r") as f:
-            cfg = yaml.safe_load(f)
+        cfg = load_default_config()
     except FileNotFoundError:
         print("  [FAIL] config/default_config.yaml not found")
         sys.exit(1)
@@ -659,7 +641,7 @@ def main():
         if "api" not in cfg: cfg["api"] = {}
         cfg["api"]["model"] = chosen
 
-    _write_yaml_atomic(_config_path(), cfg)
+    save_default_config_atomic(cfg)
 
     # Confirmation
     uc = USE_CASES[uc_key]

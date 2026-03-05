@@ -41,6 +41,9 @@ import os
 # our own modules (like src.security.credentials). The project root is
 # stored in an environment variable by start_hybridrag.ps1.
 sys.path.insert(0, os.environ.get('HYBRIDRAG_PROJECT_ROOT', '.'))
+sys.path.insert(0, os.path.join(
+    os.environ.get("HYBRIDRAG_PROJECT_ROOT", "."), "scripts"
+))
 
 # Import the credential resolver -- this is the canonical function that
 # checks keyring, env vars, and config in priority order.
@@ -48,11 +51,10 @@ sys.path.insert(0, os.environ.get('HYBRIDRAG_PROJECT_ROOT', '.'))
 from src.security.credentials import resolve_credentials
 
 # Load config dict so resolve_credentials can check config file as fallback
-import yaml
+from _config_io import load_default_config
 config_dict = None
 try:
-    with open('config/default_config.yaml', 'r') as f:
-        config_dict = yaml.safe_load(f)
+    config_dict = load_default_config()
 except Exception:
     pass
 
