@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Verifies behavior for the fastapi server area and protects against regressions.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ===================================================================
 # WHAT: Tests for the FastAPI REST API server endpoints (/health,
 #       /query, /index, /config, /status, /mode)
@@ -132,13 +139,32 @@ class TestQuery:
         assert r.status_code == 422
 
     def test_query_accepts_valid_question(self, client):
-        r = client.post("/query", json={"question": "What is HybridRAG?"})
-        assert r.status_code == 200
-        data = r.json()
-        assert "answer" in data
-        assert "sources" in data
-        assert "chunks_used" in data
-        assert "latency_ms" in data
+        # Hermetic: mock query path so this test never depends on live LLM availability.
+        from src.api.server import state
+        from src.core.query_engine import QueryResult
+
+        original = state.query_engine.query
+        try:
+            state.query_engine.query = lambda _q: QueryResult(
+                answer="HybridRAG is a local-first retrieval-augmented QA system.",
+                sources=[{"path": "README.md", "chunks": 1, "avg_relevance": 0.91}],
+                chunks_used=1,
+                tokens_in=12,
+                tokens_out=20,
+                cost_usd=0.0,
+                latency_ms=3.0,
+                mode="offline",
+                error=None,
+            )
+            r = client.post("/query", json={"question": "What is HybridRAG?"})
+            assert r.status_code == 200
+            data = r.json()
+            assert "answer" in data
+            assert "sources" in data
+            assert "chunks_used" in data
+            assert "latency_ms" in data
+        finally:
+            state.query_engine.query = original
 
 
 # -------------------------------------------------------------------
@@ -165,3 +191,65 @@ class TestIndexStart:
     def test_index_rejects_bad_folder(self, client):
         r = client.post("/index", json={"source_folder": "/nonexistent/path"})
         assert r.status_code == 400
+
+
+# -------------------------------------------------------------------
+# Security controls (auth + rate limiting)
+# -------------------------------------------------------------------
+
+class TestSecurityControls:
+    def test_query_auth_token_enforced_when_configured(self, client, monkeypatch):
+        from src.api.server import state
+        from src.core.query_engine import QueryResult
+        from src.api import routes as api_routes
+
+        monkeypatch.setenv("HYBRIDRAG_API_AUTH_TOKEN", "test-token")
+        with api_routes._RATE_LOCK:
+            api_routes._RATE_STATE.clear()
+
+        original = state.query_engine.query
+        try:
+            state.query_engine.query = lambda _q: QueryResult(
+                answer="ok", sources=[], chunks_used=0,
+                tokens_in=0, tokens_out=0, cost_usd=0.0,
+                latency_ms=1.0, mode="offline", error=None,
+            )
+            denied = client.post("/query", json={"question": "x"})
+            assert denied.status_code == 401
+
+            allowed = client.post(
+                "/query",
+                json={"question": "x"},
+                headers={"Authorization": "Bearer test-token"},
+            )
+            assert allowed.status_code == 200
+        finally:
+            state.query_engine.query = original
+            monkeypatch.delenv("HYBRIDRAG_API_AUTH_TOKEN", raising=False)
+
+    def test_query_rate_limit_enforced(self, client, monkeypatch):
+        from src.api.server import state
+        from src.core.query_engine import QueryResult
+        from src.api import routes as api_routes
+
+        monkeypatch.setenv("HYBRIDRAG_RATE_QUERY_MAX", "1")
+        monkeypatch.setenv("HYBRIDRAG_RATE_QUERY_WINDOW", "60")
+        monkeypatch.delenv("HYBRIDRAG_API_AUTH_TOKEN", raising=False)
+        with api_routes._RATE_LOCK:
+            api_routes._RATE_STATE.clear()
+
+        original = state.query_engine.query
+        try:
+            state.query_engine.query = lambda _q: QueryResult(
+                answer="ok", sources=[], chunks_used=0,
+                tokens_in=0, tokens_out=0, cost_usd=0.0,
+                latency_ms=1.0, mode="offline", error=None,
+            )
+            first = client.post("/query", json={"question": "x"})
+            assert first.status_code == 200
+            second = client.post("/query", json={"question": "x"})
+            assert second.status_code == 429
+        finally:
+            state.query_engine.query = original
+            monkeypatch.delenv("HYBRIDRAG_RATE_QUERY_MAX", raising=False)
+            monkeypatch.delenv("HYBRIDRAG_RATE_QUERY_WINDOW", raising=False)

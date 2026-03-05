@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the mode switch part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Mode-Switch Subsystem (src/gui/helpers/mode_switch.py)
 # ============================================================================
@@ -96,6 +103,7 @@ def _switch_async(app, switch_fn):
             pass
 
     def _worker():
+        """Plain-English: This function handles worker."""
         try:
             switch_fn(app)
         except Exception as e:

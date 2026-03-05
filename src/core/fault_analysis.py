@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the fault analysis part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG3 -- Fault Analysis System (src/monitoring/fault_analysis.py)
 # ============================================================================
@@ -953,6 +960,7 @@ class ProbeResult:
     timestamp: str = ""
 
     def __post_init__(self):
+        """Plain-English: This function handles post init."""
         if not self.timestamp:
             self.timestamp = datetime.now(timezone.utc).isoformat()
 
@@ -1097,6 +1105,7 @@ class FaultAnalysisEngine:
         embedder: Any = None,
         llm_router: Any = None,
     ):
+        """Plain-English: This function handles init."""
         self.config = config
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)

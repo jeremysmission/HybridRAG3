@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the loading overlay part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Vector Field Loading Overlay                        RevA
 # (src/gui/panels/loading_overlay.py)
@@ -62,6 +69,7 @@ class _Node:
     __slots__ = ("x", "y", "vx", "vy", "r", "brightness")
 
     def __init__(self, w, h):
+        """Plain-English: This function handles init."""
         self.x = random.uniform(20, w - 20)
         self.y = random.uniform(20, h - 20)
         speed = random.uniform(DRIFT_MIN, DRIFT_MAX)
@@ -77,6 +85,7 @@ class _Spark:
     __slots__ = ("a", "b", "frame", "total")
 
     def __init__(self, node_a, node_b):
+        """Plain-English: This function handles init."""
         self.a = node_a
         self.b = node_b
         self.frame = 0
@@ -84,9 +93,11 @@ class _Spark:
 
     @property
     def done(self):
+        """Plain-English: This function handles done."""
         return self.frame >= self.total
 
     def pos(self):
+        """Plain-English: This function handles pos."""
         t = self.frame / self.total
         x = self.a.x + (self.b.x - self.a.x) * t
         y = self.a.y + (self.b.y - self.a.y) * t
@@ -102,6 +113,7 @@ class VectorFieldOverlay(tk.Canvas):
     """
 
     def __init__(self, parent, theme=None):
+        """Plain-English: This function handles init."""
         t = theme or current_theme()
         super().__init__(
             parent, bg=t["bg"], highlightthickness=0, bd=0,

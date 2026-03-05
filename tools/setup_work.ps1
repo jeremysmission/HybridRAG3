@@ -1,3 +1,12 @@
+<#
+=== NON-PROGRAMMER GUIDE ===
+Purpose: Automates the setup work operational workflow for developers or operators.
+How to follow: Read variables first, then each command block in order.
+Inputs: Environment variables, script parameters, and local files.
+Outputs: Console messages, changed files, or system configuration updates.
+Safety notes: Run in a test environment before using on production systems.
+=============================
+#>
 ﻿# ============================================================================
 # HybridRAG3 -- Automated Work/Educational Setup
 # Date: 2026-02-25

@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the server part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG -- FastAPI Server (src/api/server.py)
 # ============================================================================
@@ -64,6 +71,7 @@ class AppState:
     embedder: Optional[Embedder] = None
     llm_router: Optional[LLMRouter] = None
     query_engine: Optional[QueryEngine] = None
+    deployment_mode: str = "development"
 
     # Indexing state (background thread)
     indexing_active: bool = False
@@ -122,6 +130,28 @@ async def lifespan(app: FastAPI):
     # -- Startup --
     logger.info("[OK] Loading configuration...")
     state.config = load_config(_project_root)
+
+    # Deployment mode guard for API auth token policy.
+    sec = getattr(state.config, "security", None)
+    cfg_mode = getattr(sec, "deployment_mode", "development") if sec else "development"
+    deployment_mode = (
+        os.environ.get("HYBRIDRAG_DEPLOYMENT_MODE", cfg_mode) or "development"
+    ).strip().lower()
+    if deployment_mode not in ("development", "production"):
+        logger.warning("[WARN] Invalid deployment mode '%s'. Using development.", deployment_mode)
+        deployment_mode = "development"
+    token = (os.environ.get("HYBRIDRAG_API_AUTH_TOKEN") or "").strip()
+    if deployment_mode == "production" and not token:
+        raise RuntimeError(
+            "Production API Auth Guard is enabled, but HYBRIDRAG_API_AUTH_TOKEN is empty. "
+            "Set a token before starting the API server."
+        )
+    if deployment_mode == "development" and not token:
+        logger.warning(
+            "[WARN] API auth token is not set (development mode). "
+            "Protected endpoints are open."
+        )
+    state.deployment_mode = deployment_mode
 
     logger.info("[OK] Connecting to vector store...")
     state.vector_store = VectorStore(

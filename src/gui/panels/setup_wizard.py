@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the setup wizard part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- First-Run Setup Wizard (src/gui/panels/setup_wizard.py)
 # ============================================================================
@@ -122,6 +129,7 @@ class SetupWizard(tk.Toplevel):
     """
 
     def __init__(self, parent, project_root):
+        """Plain-English: This function handles init."""
         t = current_theme()
         super().__init__(parent)
         self.title("HybridRAG Setup")

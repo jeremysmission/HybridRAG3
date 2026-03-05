@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the model identity part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 """
 Model name canonicalization and resolution helpers.
 """
@@ -22,6 +29,7 @@ def canonicalize_model_name(name: str) -> str:
 
 
 def _ordered_unique(values):
+    """Plain-English: This function handles ordered unique."""
     seen = set()
     out = []
     for v in values:

@@ -332,6 +332,7 @@ class DataPathsPanel(tk.LabelFrame):
         self.info_label.config(text="  |  ".join(parts), fg=t["gray"])
 
     def apply_theme(self, t):
+        """Plain-English: This function handles apply theme."""
         self.configure(bg=t["panel_bg"], fg=t["accent"])
         _theme_widget(self, t)
 
@@ -564,6 +565,7 @@ class ModelSelectionPanel(tk.LabelFrame):
     # -- Theme --
 
     def apply_theme(self, t):
+        """Plain-English: This function handles apply theme."""
         self.configure(bg=t["panel_bg"], fg=t["accent"])
         if t["name"] == "dark":
             self.tree.tag_configure("recommended", background="#1a3a1a")
@@ -585,6 +587,7 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
     """
 
     def __init__(self, parent, config, app_ref=None):
+        """Plain-English: This function handles init."""
         t = current_theme()
         super().__init__(parent, text="Offline Model Selection", padx=16, pady=8,
                          bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
@@ -672,6 +675,7 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
         self._dl_status.pack(side=tk.LEFT, padx=(10, 0), fill=tk.X, expand=True)
 
     def _get_uc_key(self):
+        """Plain-English: This function handles get uc key."""
         from scripts._model_meta import USE_CASES
         label = self.uc_var.get()
         for k, uc in USE_CASES.items():
@@ -680,6 +684,7 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
         return "sw"
 
     def _on_uc_change(self, event=None):
+        """Plain-English: This function handles on uc change."""
         self._populate()
 
     def _populate(self):
@@ -983,6 +988,7 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
                 dlg.update_idletasks()
 
                 def _worker():
+                    """Plain-English: This function handles worker."""
                     import subprocess
                     from src.gui.helpers.safe_after import safe_after
                     results = []
@@ -1008,6 +1014,7 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
                         msg += ", {} failed".format(fail)
 
                     def _finish():
+                        """Plain-English: This function handles finish."""
                         pull_status.config(
                             text=msg,
                             fg=t.get("green", "#4ec96f") if not fail
@@ -1050,6 +1057,7 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
         ).pack(pady=(8, 12))
 
     def apply_theme(self, t):
+        """Plain-English: This function handles apply theme."""
         self.configure(bg=t["panel_bg"], fg=t["accent"])
         if t["name"] == "dark":
             self.tree.tag_configure("primary", background="#1a3a1a")
@@ -1331,6 +1339,7 @@ class ApiAdminTab(tk.Frame):
                 self.key_var.set(creds.api_key)
 
             def _source_label(raw):
+                """Plain-English: This function handles source label."""
                 src = (raw or "?").strip()
                 if src.lower() == "keyring":
                     return "Credential Manager"
@@ -1795,12 +1804,15 @@ class ApiAdminTab(tk.Frame):
         started = time.time()
 
         def _ok(msg):
+            """Plain-English: This function handles ok."""
             checks.append(("OK", msg))
 
         def _warn(msg):
+            """Plain-English: This function handles warn."""
             checks.append(("WARN", msg))
 
         def _fail(msg):
+            """Plain-English: This function handles fail."""
             checks.append(("FAIL", msg))
 
         try:
@@ -2402,6 +2414,7 @@ class ApiAdminTab(tk.Frame):
     # ================================================================
 
     def apply_theme(self, t):
+        """Plain-English: This function handles apply theme."""
         self.configure(bg=t["panel_bg"])
         self._scroll.apply_theme({"bg": t["panel_bg"]})
         self._paths_panel.apply_theme(t)

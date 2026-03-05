@@ -1,3 +1,12 @@
+<#
+=== NON-PROGRAMMER GUIDE ===
+Purpose: Supports the build usb package workflow in this repository.
+How to follow: Read variables first, then each command block in order.
+Inputs: Environment variables, script parameters, and local files.
+Outputs: Console messages, changed files, or system configuration updates.
+Safety notes: Run in a test environment before using on production systems.
+=============================
+#>
 # ============================================================================
 # HybridRAG3 -- Build USB Offline Installer Package
 # Date: 2026-02-25

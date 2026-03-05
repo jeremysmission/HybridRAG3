@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the startup health probe part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Startup Health Probe (src/core/bootstrap/startup_health_probe.py)
 # ============================================================================
@@ -21,12 +28,14 @@ import socket
 
 @dataclass
 class ProbeResult:
+    """Plain-English: This class groups logic for proberesult."""
     ok: bool
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
 
 def run_startup_probe(database_path: str, source_folder: str, ollama_host: str = "127.0.0.1", ollama_port: int = 11434) -> ProbeResult:
+    """Plain-English: This function handles run startup probe."""
     errors: list[str] = []
     warnings: list[str] = []
 

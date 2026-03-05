@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the reference panel part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Reference Panel (src/gui/panels/reference_panel.py) RevB
 # Revision: RevA
@@ -40,6 +47,7 @@ class ReferencePanel(tk.Frame):
     """Quick-reference view with tabbed content (5 tabs, read-only + notes)."""
 
     def __init__(self, parent, project_root=None):
+        """Plain-English: This function handles init."""
         t = current_theme()
         super().__init__(parent, bg=t["bg"])
         self._project_root = project_root or os.environ.get(
@@ -92,6 +100,7 @@ class ReferencePanel(tk.Frame):
         sidebar_scroll.pack(side="right", fill="y")
 
         def _on_sidebar_scroll(event):
+            """Plain-English: This function handles on sidebar scroll."""
             sidebar_canvas.yview_scroll(-1 * (event.delta // 120), "units")
 
         sidebar_canvas.bind("<MouseWheel>", _on_sidebar_scroll)

@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the routes part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG -- API Routes (src/api/routes.py)
 # ============================================================================
@@ -34,11 +41,14 @@ import os
 import time
 import threading
 import logging
+import hmac
 import yaml
 from pathlib import Path
+from collections import deque
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import iterate_in_threadpool
 
 from src.api.models import (
     QueryRequest,
@@ -58,6 +68,66 @@ from src.api.models import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_RATE_LOCK = threading.Lock()
+_RATE_STATE = {}
+
+
+def _require_api_auth(request: Request) -> None:
+    """Optional token auth: enforced only when HYBRIDRAG_API_AUTH_TOKEN is set."""
+    expected = (os.environ.get("HYBRIDRAG_API_AUTH_TOKEN") or "").strip()
+    if not expected:
+        return
+
+    auth_header = (request.headers.get("authorization") or "").strip()
+    api_key_header = (request.headers.get("x-api-key") or "").strip()
+
+    provided = ""
+    if auth_header.lower().startswith("bearer "):
+        provided = auth_header[7:].strip()
+    elif api_key_header:
+        provided = api_key_header
+
+    if not provided or not hmac.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def _enforce_rate_limit(request: Request, scope: str) -> None:
+    """Simple in-memory sliding-window limiter for expensive/mutable endpoints."""
+    defaults = {
+        "query": (30, 60),
+        "query_stream": (15, 60),
+        "index": (5, 300),
+        "mode": (12, 300),
+    }
+    max_hits, window_s = defaults.get(scope, (30, 60))
+    env_max = os.environ.get(f"HYBRIDRAG_RATE_{scope.upper()}_MAX", "").strip()
+    env_window = os.environ.get(f"HYBRIDRAG_RATE_{scope.upper()}_WINDOW", "").strip()
+    if env_max.isdigit():
+        max_hits = max(1, int(env_max))
+    if env_window.isdigit():
+        window_s = max(1, int(env_window))
+    now = time.monotonic()
+    host = (
+        getattr(getattr(request, "client", None), "host", None)
+        or "unknown"
+    )
+    key = (host, scope)
+
+    with _RATE_LOCK:
+        q = _RATE_STATE.get(key)
+        if q is None:
+            q = deque()
+            _RATE_STATE[key] = q
+        cutoff = now - window_s
+        while q and q[0] < cutoff:
+            q.popleft()
+        if len(q) >= max_hits:
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded. Please retry later.",
+            )
+        q.append(now)
 
 
 # -------------------------------------------------------------------
@@ -166,7 +236,7 @@ async def get_config():
 # POST /query
 # -------------------------------------------------------------------
 @router.post("/query", response_model=QueryResponse)
-async def query(req: QueryRequest):
+async def query(req: QueryRequest, request: Request):
     """
     Ask a question about your indexed documents.
 
@@ -178,6 +248,8 @@ async def query(req: QueryRequest):
     s = _state()
     if not s.query_engine:
         raise HTTPException(status_code=503, detail="Query engine not initialized")
+    _require_api_auth(request)
+    _enforce_rate_limit(request, "query")
 
     # Timeout: prevent hung LLM calls from blocking indefinitely.
     # Online mode uses api.timeout_seconds (default 60s);
@@ -252,7 +324,7 @@ async def query(req: QueryRequest):
 # POST /query/stream  (Server-Sent Events)
 # -------------------------------------------------------------------
 @router.post("/query/stream")
-async def query_stream(req: QueryRequest):
+async def query_stream(req: QueryRequest, request: Request):
     """
     Stream a query response as Server-Sent Events.
 
@@ -265,6 +337,8 @@ async def query_stream(req: QueryRequest):
     s = _state()
     if not s.query_engine:
         raise HTTPException(status_code=503, detail="Query engine not initialized")
+    _require_api_auth(request)
+    _enforce_rate_limit(request, "query_stream")
 
     if not hasattr(s.query_engine, "query_stream"):
         raise HTTPException(status_code=501, detail="Streaming not supported")
@@ -298,7 +372,7 @@ async def query_stream(req: QueryRequest):
             yield "event: error\ndata: Internal server error\n\n"
 
     return StreamingResponse(
-        _generate(),
+        iterate_in_threadpool(_generate()),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -311,7 +385,7 @@ async def query_stream(req: QueryRequest):
 # POST /index
 # -------------------------------------------------------------------
 @router.post("/index", response_model=IndexStartResponse)
-async def start_indexing(req: IndexRequest = None):
+async def start_indexing(request: Request, req: IndexRequest = None):
     """
     Start document indexing in a background thread.
 
@@ -321,6 +395,8 @@ async def start_indexing(req: IndexRequest = None):
     s = _state()
     if not s.config or not s.vector_store or not s.embedder:
         raise HTTPException(status_code=503, detail="Server not initialized")
+    _require_api_auth(request)
+    _enforce_rate_limit(request, "index")
 
     # Validate source folder BEFORE acquiring lock so validation
     # failures don't leave indexing_active stuck True.
@@ -428,7 +504,7 @@ async def index_status():
 # PUT /mode
 # -------------------------------------------------------------------
 @router.put("/mode", response_model=ModeResponse)
-async def set_mode(req: ModeRequest):
+async def set_mode(req: ModeRequest, request: Request):
     """
     Switch between offline (Ollama) and online (API) mode.
 
@@ -438,6 +514,8 @@ async def set_mode(req: ModeRequest):
     s = _state()
     if not s.config:
         raise HTTPException(status_code=503, detail="Server not initialized")
+    _require_api_auth(request)
+    _enforce_rate_limit(request, "mode")
 
     new_mode = req.mode
 

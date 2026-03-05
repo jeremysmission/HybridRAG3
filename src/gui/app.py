@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the app part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Main GUI Application (src/gui/app.py)              RevB
 # ============================================================================
@@ -16,7 +23,7 @@
 #   3. Content Frame (swaps views via pack_forget/pack, <1ms)
 #   4. Status bar (LLM, Ollama, Gate indicators)
 #
-# Menu bar: File | View | Help (Admin removed -- accessible via nav tab)
+# Menu bar: File | View | Admin | Help
 #
 # INTERNET ACCESS: Depends on mode.
 #   Offline: NONE (all local)
@@ -28,6 +35,7 @@ from tkinter import messagebox
 import logging
 import threading
 import traceback
+import os
 
 from src.gui.panels.query_panel import QueryPanel
 from src.gui.panels.index_panel import IndexPanel
@@ -58,6 +66,7 @@ class HybridRAGApp(tk.Tk):
 
     def __init__(self, boot_result=None, config=None, query_engine=None,
                  indexer=None, router=None):
+        """Plain-English: Sets up the HybridRAGApp object and prepares state used by its methods."""
         super().__init__()
 
         self.title("HybridRAG v3")
@@ -82,6 +91,9 @@ class HybridRAGApp(tk.Tk):
         self.shutdown = AppShutdownCoordinator()
         self._poll_timer_id = None
         self._backend_reload_thread = None
+        self._deployment_guard_var = tk.BooleanVar(
+            value=self._get_deployment_mode() == "production"
+        )
 
         # Apply initial theme
         self._theme = current_theme()
@@ -110,11 +122,11 @@ class HybridRAGApp(tk.Tk):
         self._drain_pump()
 
     # ----------------------------------------------------------------
-    # MENU BAR -- File | View | Help (no Admin cascade -- it is a tab)
+    # MENU BAR -- File | View | Admin | Help
     # ----------------------------------------------------------------
 
     def _build_menu_bar(self):
-        """Build File | View | Help menu bar."""
+        """Build File | View | Admin | Help menu bar."""
         t = self._theme
         menubar = tk.Menu(self, bg=t["menu_bg"], fg=t["menu_fg"],
                           activebackground=t["accent"],
@@ -144,6 +156,25 @@ class HybridRAGApp(tk.Tk):
             )
         menubar.add_cascade(label="View", menu=view_menu)
 
+        # Admin menu
+        admin_menu = tk.Menu(menubar, tearoff=0,
+                             bg=t["menu_bg"], fg=t["menu_fg"],
+                             activebackground=t["accent"],
+                             activeforeground=t["accent_fg"], font=FONT)
+        admin_menu.add_command(
+            label="Open Admin Tab",
+            command=lambda: self.show_view("admin"),
+        )
+        self._deployment_guard_var.set(self._get_deployment_mode() == "production")
+        admin_menu.add_checkbutton(
+            label="Production API Auth Guard",
+            variable=self._deployment_guard_var,
+            command=self._toggle_deployment_guard,
+            onvalue=True,
+            offvalue=False,
+        )
+        menubar.add_cascade(label="Admin", menu=admin_menu)
+
         # Help menu
         help_menu = tk.Menu(menubar, tearoff=0,
                             bg=t["menu_bg"], fg=t["menu_fg"],
@@ -154,6 +185,46 @@ class HybridRAGApp(tk.Tk):
 
         self.config_menu = menubar
         self.configure(menu=menubar)
+
+    def _get_deployment_mode(self):
+        """Return deployment mode from config security section."""
+        sec = getattr(self.config, "security", None)
+        mode = getattr(sec, "deployment_mode", "development") if sec else "development"
+        mode = str(mode or "development").strip().lower()
+        return mode if mode in ("development", "production") else "development"
+
+    def _toggle_deployment_guard(self):
+        """Toggle development vs production guard for API token enforcement."""
+        enabled = bool(self._deployment_guard_var.get())
+        new_mode = "production" if enabled else "development"
+        sec = getattr(self.config, "security", None)
+        if sec is not None:
+            sec.deployment_mode = new_mode
+        os.environ["HYBRIDRAG_DEPLOYMENT_MODE"] = new_mode
+
+        try:
+            from src.core.config import save_config_field
+            save_config_field("security.deployment_mode", new_mode)
+        except Exception as e:
+            logger.warning("Could not persist deployment mode: %s", e)
+
+        if enabled:
+            messagebox.showinfo(
+                "Production Guard Enabled",
+                "Production API Auth Guard is ON.\n\n"
+                "Meaning:\n"
+                "- API startup will fail if HYBRIDRAG_API_AUTH_TOKEN is not set.\n"
+                "- Protected API endpoints require the token header.\n\n"
+                "Applies to API server process startup.",
+            )
+        else:
+            messagebox.showinfo(
+                "Development Guard Enabled",
+                "Production API Auth Guard is OFF.\n\n"
+                "Meaning:\n"
+                "- API can start without HYBRIDRAG_API_AUTH_TOKEN.\n"
+                "- Endpoint auth remains optional unless a token is set.",
+            )
 
     # ----------------------------------------------------------------
     # TITLE BAR with mode toggle + theme toggle

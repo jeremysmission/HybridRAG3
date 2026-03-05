@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the grounded query engine part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Grounded Query Engine (src/core/grounded_query_engine.py)
 # ============================================================================
@@ -108,6 +115,7 @@ class GroundedQueryEngine(QueryEngine):
         llm_router: LLMRouter,
     ):
         # Initialize base QueryEngine (sets up retriever, logger, etc.)
+        """Plain-English: Sets up the GroundedQueryEngine object and prepares state used by its methods."""
         super().__init__(config, vector_store, embedder, llm_router)
 
         self.guard_logger = get_app_logger("grounding_guard")
@@ -537,6 +545,7 @@ class GroundedQueryEngine(QueryEngine):
 
     @staticmethod
     def _fallback_score(claims, source_texts, threshold):
+        """Plain-English: Produces a backup confidence score when full grounding metrics are unavailable."""
         return _gqe_fallback_score(claims, source_texts, threshold)
 
     def _no_evidence_result(self, start_time: float) -> GroundedQueryResult:

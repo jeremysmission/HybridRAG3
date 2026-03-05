@@ -1,3 +1,10 @@
+@REM === NON-PROGRAMMER GUIDE ===
+@REM Purpose: Supports the hybrid3 troubleshooter workflow in this repository.
+@REM How to follow: Read each command line in order from top to bottom.
+@REM Inputs: Command arguments, environment variables, and local files.
+@REM Outputs: Terminal messages and any files changed by called tools.
+@REM Safety notes: Confirm paths before running on important data.
+@REM ============================
 @echo off
 title Hybrid3 Enterprise Troubleshooter
 setlocal enabledelayedexpansion

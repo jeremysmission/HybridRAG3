@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the status bar part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Status Bar Panel (src/gui/panels/status_bar.py)
 # ============================================================================
@@ -33,6 +40,7 @@ class StatusBar(tk.Frame):
     CBIT_MS = 60000     # 60 seconds -- continuous health check
 
     def __init__(self, parent, config, router=None):
+        """Plain-English: This function handles init."""
         t = current_theme()
         super().__init__(parent, relief=tk.FLAT, bd=1,
                          bg=t["panel_bg"])
@@ -522,6 +530,7 @@ class StatusBar(tk.Frame):
             return
 
         def _do():
+            """Plain-English: This function handles do."""
             try:
                 from src.core.ibit import run_cbit
                 results = run_cbit(

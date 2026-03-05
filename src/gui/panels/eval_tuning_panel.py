@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the eval tuning panel part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Eval / Tuning Panel (src/gui/panels/eval_tuning_panel.py)
 # ============================================================================
@@ -388,6 +395,7 @@ class EvalTuningPanel(tk.Frame):
     }
 
     def __init__(self, parent, config, app_ref=None):
+        """Plain-English: This function handles init."""
         t = current_theme()
         super().__init__(parent, bg=t["panel_bg"])
         self.config = config
@@ -726,12 +734,15 @@ class EvalTuningPanel(tk.Frame):
         self._cost_lbl.config(text="${:.4f}".format(total_cost))
 
     def _display_type_breakdown(self, summary):
+        """Plain-English: This function handles display type breakdown."""
         set_text(self._type_text, format_type_breakdown(summary))
 
     def _display_role_breakdown(self, summary):
+        """Plain-English: This function handles display role breakdown."""
         set_text(self._role_text, format_role_breakdown(summary))
 
     def _display_failures(self, scored_rows):
+        """Plain-English: This function handles display failures."""
         set_text(self._fail_text, format_failures(scored_rows))
 
     # ==================================================================

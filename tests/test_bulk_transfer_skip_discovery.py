@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Verifies behavior for the bulk transfer skip discovery area and protects against regressions.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 from pathlib import Path
 
 from src.tools.bulk_transfer_v2 import BulkTransferV2, TransferConfig, SourceDiscovery, AtomicTransferWorker

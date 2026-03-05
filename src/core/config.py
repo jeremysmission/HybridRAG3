@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the config part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG -- Configuration (src/core/config.py)
 # ============================================================================
@@ -107,6 +114,7 @@ class PathsConfig:
         # We use it to apply environment variable overrides.
 
         # If HYBRIDRAG_DATA_DIR is set, use it to build database + cache paths
+        """Plain-English: Applies defaults, validation, and value cleanup right after object creation."""
         data_dir = os.getenv("HYBRIDRAG_DATA_DIR")
         if data_dir:
             if not self.database:
@@ -155,6 +163,7 @@ class EmbeddingConfig:
 
     def __post_init__(self) -> None:
         # Allow env var override for batch size (useful for tuning per-machine)
+        """Plain-English: Applies defaults, validation, and value cleanup right after object creation."""
         env_batch = os.getenv("HYBRIDRAG_EMBED_BATCH")
         if env_batch:
             self.batch_size = int(env_batch)
@@ -199,6 +208,7 @@ class OllamaConfig:
     temperature: float = 0.05      # Generation temperature (0=deterministic)
 
     def __post_init__(self) -> None:
+        """Plain-English: Applies defaults, validation, and value cleanup right after object creation."""
         self.base_url = sanitize_ollama_base_url(self.base_url)
         self.model = canonicalize_model_name(self.model)
 
@@ -224,6 +234,7 @@ class VLLMConfig:
     enabled: bool = False
 
     def __post_init__(self) -> None:
+        """Plain-English: Applies defaults, validation, and value cleanup right after object creation."""
         self.model = canonicalize_model_name(self.model)
 
 
@@ -314,6 +325,7 @@ class APIConfig:
 
     def __post_init__(self) -> None:
         # Allow env var override for endpoint
+        """Plain-English: Applies defaults, validation, and value cleanup right after object creation."""
         env_endpoint = os.getenv("HYBRIDRAG_API_ENDPOINT")
         if env_endpoint:
             self.endpoint = env_endpoint.strip()
@@ -366,10 +378,11 @@ class RetrievalConfig:
     rrf_k: int = 60                # RRF constant (higher = less aggressive merging)
 
     # --- Cross-encoder reranker ---
-    # CHANGED 2026-02-07: Default ON for technical document accuracy.
-    # The 1-2 second penalty is acceptable for engineering reference lookups.
-    # Toggle off via YAML or future GUI engineering menu for speed testing.
-    reranker_enabled: bool = True   # Cross-encoder reranker ON by default
+    # CHANGED 2026-02-07: Default OFF. sentence-transformers was retired in
+    # Session 15 (HuggingFace removal). The import silently fails and search
+    # proceeds without reranking regardless -- config should reflect reality.
+    # Re-enable when a replacement reranker (e.g. Ollama-served) is available.
+    reranker_enabled: bool = False  # Cross-encoder reranker OFF (no backend)
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     reranker_top_n: int = 20       # Retrieve this many candidates, rerank, keep top_k
 
@@ -377,6 +390,7 @@ class RetrievalConfig:
     min_chunks: int = 1            # Minimum chunks required before calling LLM
 
     def __post_init__(self) -> None:
+        """Plain-English: Applies defaults, validation, and value cleanup right after object creation."""
         env_block = os.getenv("HYBRIDRAG_RETRIEVAL_BLOCK_ROWS")
         if env_block:
             self.block_rows = int(env_block)
@@ -436,6 +450,7 @@ class IndexingConfig:
     ocr_lang: str = "eng"
 
     def __post_init__(self) -> None:
+        """Plain-English: Applies defaults, validation, and value cleanup right after object creation."""
         env_ocr = os.getenv("HYBRIDRAG_OCR_FALLBACK")
         if env_ocr:
             self.ocr_fallback = env_ocr.strip() in ("1", "true", "True", "yes")
@@ -450,6 +465,7 @@ class SecurityConfig:
     """
     audit_logging: bool = True
     pii_sanitization: bool = False
+    deployment_mode: str = "development"  # development|production
 
 
 # -------------------------------------------------------------------
@@ -480,6 +496,7 @@ def _make_frozen(obj) -> None:
     base = type(obj)
     if base not in _frozen_class_cache:
         def _blocked_setattr(self, name, value):
+            """Plain-English: Blocks writes to immutable fields after configuration is locked."""
             raise RuntimeError("Cannot modify frozen config snapshot")
 
         frozen_cls = type(
@@ -602,14 +619,17 @@ class Config:
     # --- Convenience properties for guard settings ---
     @property
     def hallucination_guard_enabled(self) -> bool:
+        """Plain-English: Returns whether hallucination-guard checks are currently enabled."""
         return self.hallucination_guard.enabled
 
     @property
     def hallucination_guard_threshold(self) -> float:
+        """Plain-English: Returns the confidence threshold used by hallucination-guard decisions."""
         return self.hallucination_guard.threshold
 
     @property
     def hallucination_guard_action(self) -> str:
+        """Plain-English: Returns the configured action to take when hallucination checks fail."""
         return self.hallucination_guard.failure_action
 
 
@@ -884,8 +904,16 @@ def save_config_field(key: str, value, config_filename: str = "user_overrides.ya
         YAML file inside config/ to update.  Defaults to
         user_overrides.yaml to protect shipped defaults.
     """
-    root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
-    cfg_path = os.path.join(root, "config", config_filename)
+    root = os.path.abspath(os.environ.get("HYBRIDRAG_PROJECT_ROOT", "."))
+    cfg_dir = os.path.join(root, "config")
+    safe_name = os.path.basename(config_filename or "user_overrides.yaml")
+    if safe_name != (config_filename or ""):
+        raise ValueError("config_filename must be a base filename inside config/")
+    if not safe_name.lower().endswith((".yaml", ".yml")):
+        raise ValueError("config_filename must be a .yaml/.yml file")
+    cfg_path = os.path.abspath(os.path.join(cfg_dir, safe_name))
+    if not os.path.normcase(cfg_path).startswith(os.path.normcase(cfg_dir + os.sep)):
+        raise ValueError("config_filename resolves outside config/")
 
     if os.path.isfile(cfg_path):
         with open(cfg_path, "r", encoding="utf-8") as f:
@@ -906,8 +934,11 @@ def save_config_field(key: str, value, config_filename: str = "user_overrides.ya
         target = target[part]
     target[parts[-1]] = value
 
-    with open(cfg_path, "w", encoding="utf-8") as f:
+    os.makedirs(cfg_dir, exist_ok=True)
+    tmp_path = cfg_path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    os.replace(tmp_path, cfg_path)
 
 
 def ensure_directories(config: Config) -> None:

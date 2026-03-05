@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the cost tracker part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Cost Tracker (src/core/cost_tracker.py)
 # ============================================================================
@@ -134,6 +141,7 @@ class CostTracker:
     def __init__(self, db_path: str = "", rates: Optional[CostRates] = None):
         # Each app launch gets a unique session ID so we can tell apart
         # different users' sessions in the cumulative team stats.
+        """Plain-English: This function handles init."""
         self._session_id = uuid.uuid4().hex[:12]
         self._start_time = datetime.now().isoformat(timespec="seconds")
 

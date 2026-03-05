@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the controller part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # Central controller coordinating GUI state, jobs, diagnostics, and downloads
 from __future__ import annotations
 import os
@@ -15,13 +22,16 @@ from .paths import AppPaths, dated_download_dir, make_download_filename
 
 @dataclass
 class AppState:
+    """Plain-English: Holds shared AppState values that other methods read and update."""
     mode: str = "offline"
     last_error: Optional[str] = None
     last_query_answer: Optional[str] = None
 
 
 class Controller:
+    """Plain-English: Centralizes Controller behavior for the controller runtime workflow."""
     def __init__(self, paths: AppPaths) -> None:
+        """Plain-English: Sets up the Controller object and prepares state used by its methods."""
         run_id = f"run_{uuid.uuid4()}"
         run_dir = paths.new_run_folder(run_id)
         self.paths = paths
@@ -45,6 +55,7 @@ class Controller:
         self._emit(make_event("gui_ready", self.diag.run_id, message="GUI core ready"))
 
     def _emit(self, ev: GuiEvent) -> None:
+        """Plain-English: Records and publishes a GUI event so logs, manifests, and listeners stay in sync."""
         self.diag.write_event(ev)
         self.diag.log(f"{ev.timestamp} {ev.event} job_id={ev.job_id or ''} {ev.message}")
         # keep manifest updated for downloads
@@ -53,12 +64,15 @@ class Controller:
 
     def _on_event(self, ev: GuiEvent) -> None:
         # store last error for UI
+        """Plain-English: Handles incoming job events and captures error state for the UI when needed."""
         if ev.event == "job_failed":
             self.state.last_error = ev.message
         self._emit(ev)
 
     def dispatch_import_source(self, act: ImportSourceAction) -> None:
+        """Plain-English: Starts the import source workflow and routes work to the right handler."""
         def _work() -> None:
+            """Plain-English: Contains the background-job body that does the heavy work for this action."""
             from src.tools.bulk_transfer_v2 import BulkTransferV2, TransferConfig
             from src.core.config import load_config
             cfg = load_config()
@@ -84,7 +98,9 @@ class Controller:
         self.runner.run_bg("import_source", _work)
 
     def dispatch_index(self, act: IndexAction) -> None:
+        """Plain-English: Starts the index workflow and routes work to the right handler."""
         def _work() -> None:
+            """Plain-English: Contains the background-job body that does the heavy work for this action."""
             from src.core.config import load_config
             from src.core.embedder import Embedder
             from src.core.vector_store import VectorStore
@@ -99,7 +115,9 @@ class Controller:
         self.runner.run_bg("index", _work)
 
     def dispatch_query(self, act: QueryAction) -> None:
+        """Plain-English: Starts the query workflow and routes work to the right handler."""
         def _work() -> None:
+            """Plain-English: Contains the background-job body that does the heavy work for this action."""
             from src.core.config import load_config
             from src.core.embedder import Embedder
             from src.core.query_engine import QueryEngine
@@ -142,7 +160,9 @@ class Controller:
         self.runner.run_bg("query", _work)
 
     def dispatch_export_csv(self, act: ExportCsvAction) -> None:
+        """Plain-English: Starts the export csv workflow and routes work to the right handler."""
         def _work() -> None:
+            """Plain-English: Contains the background-job body that does the heavy work for this action."""
             out_dir = dated_download_dir(self.paths.downloads_root)
             os.makedirs(out_dir, exist_ok=True)
             filename = make_download_filename(act.suggested_name, "csv")
@@ -166,7 +186,9 @@ class Controller:
         self.runner.run_bg(f"export_csv:{act.kind}", _work)
 
     def dispatch_save_note(self, act: SaveNoteAction) -> None:
+        """Plain-English: Starts the save note workflow and routes work to the right handler."""
         def _work() -> None:
+            """Plain-English: Contains the background-job body that does the heavy work for this action."""
             out_dir = dated_download_dir(self.paths.downloads_root)
             os.makedirs(out_dir, exist_ok=True)
             filename = make_download_filename(f"note_{act.note_id}", "txt")

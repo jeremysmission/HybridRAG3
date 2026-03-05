@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the settings panel part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # Settings panel UI for viewing and editing application configuration
 from __future__ import annotations
 
@@ -37,6 +44,7 @@ class SettingsPanel(tk.Frame):
     """
 
     def __init__(self, parent, config=None, app_ref=None):
+        """Plain-English: Sets up the SettingsPanel object and prepares state used by its methods."""
         t = current_theme()
         super().__init__(parent, bg=t["panel_bg"])
         self.config = config
@@ -45,6 +53,7 @@ class SettingsPanel(tk.Frame):
 
     def _build(self, t):
         # -- Header --
+        """Plain-English: Creates this panel's widgets and lays them out in the visible UI."""
         tk.Label(
             self, text="System Settings", font=FONT_BOLD,
             bg=t["panel_bg"], fg=t["fg"],
@@ -146,10 +155,12 @@ class SettingsPanel(tk.Frame):
         self._status_label.pack(fill=tk.X)
 
     def _on_reset(self):
+        """Plain-English: Resets setting controls back to defaults and refreshes visible values."""
         if self._app and hasattr(self._app, "reset_backends"):
             self._app.reset_backends()
             self._status_label.config(text="Backends reset -- reloading...")
 
     def apply_theme(self, t):
+        """Plain-English: Reapplies colors and style settings so the view matches the active theme."""
         self.configure(bg=t["panel_bg"])
         _theme_widget(self, t)

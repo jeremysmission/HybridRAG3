@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the tk part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Tk Window Utilities (src/gui/tk_utils.py)
 # ============================================================================
@@ -56,6 +63,7 @@ def force_foreground(win: tk.Toplevel, parent: tk.Tk | None = None) -> None:
 
 
 def _safe_topmost_off(win: tk.Toplevel) -> None:
+    """Plain-English: This function handles safe topmost off."""
     try:
         if win.winfo_exists():
             win.attributes("-topmost", False)
@@ -64,6 +72,7 @@ def _safe_topmost_off(win: tk.Toplevel) -> None:
 
 
 def _center_window(win: tk.Toplevel) -> None:
+    """Plain-English: This function handles center window."""
     try:
         win.update_idletasks()
         w = win.winfo_width() or win.winfo_reqwidth()

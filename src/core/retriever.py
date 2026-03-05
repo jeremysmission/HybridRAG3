@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the retriever part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG -- Retriever (src/core/retriever.py)
 # ============================================================================
@@ -26,12 +33,14 @@
 #      one list. This is the same algorithm used by Elasticsearch and other
 #      production search engines.
 #
-#   2. The "* 30" display score scaling
+#   2. Weighted combination scoring (0.4 vector + 0.6 RRF)
 #      WHY: RRF scores are tiny fractions (e.g., 0.016 for a top result).
-#      The min_score threshold (default 0.20) is calibrated for cosine
-#      similarity (0.0-1.0 range). Multiplying RRF by 30 rescales it into
-#      roughly the same 0.0-1.0 range so the same min_score works for both
-#      hybrid and vector-only modes. We then cap at 1.0.
+#      We normalize RRF by its theoretical maximum (2/(k+1) for k=60)
+#      to map it into [0.0, 1.0], then blend with cosine similarity via
+#      a weighted sum. This properly combines both retrieval signals
+#      instead of discarding one via max(). RRF gets 0.6 weight because
+#      it already incorporates the vector ranking; vector gets 0.4 to
+#      let high cosine similarity boost borderline results.
 #
 #   3. Optional cross-encoder reranker
 #      WHY: The initial retrieval (vector or hybrid) is fast but approximate.
@@ -76,6 +85,7 @@ class _EmbeddingCache:
     """Thread-safe LRU cache for query embeddings (maxsize entries)."""
 
     def __init__(self, maxsize: int = 64):
+        """Plain-English: Sets up the _EmbeddingCache object and prepares state used by its methods."""
         self._maxsize = maxsize
         self._cache: OrderedDict = OrderedDict()
         self._lock = threading.Lock()
@@ -350,17 +360,27 @@ class Retriever:
         sorted_results = sorted(combined.values(), key=lambda x: x["rrf_score"], reverse=True)
 
         # Convert to SearchHit objects with a display-friendly score
+        #
+        # Scoring strategy: weighted combination of vector cosine similarity
+        # and normalized RRF rank score. This properly blends both signals
+        # instead of discarding one via max().
+        #
+        # RRF normalization: the theoretical maximum RRF score is
+        # 2 / (rrf_k + 1) -- a chunk ranked #1 in BOTH lists.
+        # Dividing by this ceiling maps RRF into [0.0, 1.0].
+        #
+        # Weights: 0.4 vector + 0.6 RRF. RRF gets higher weight because
+        # it already incorporates the vector signal (vector rank feeds
+        # into RRF). Giving vector 0.4 still lets high cosine similarity
+        # boost borderline results.
+        max_rrf = 2.0 / (self.rrf_k + 1)  # theoretical ceiling
         hits = []
         for item in sorted_results:
-            # Raw RRF scores are tiny (0.01-0.03 range). We need a score in
-            # the 0.0-1.0 range so min_score filtering works consistently
-            # whether we're in hybrid mode or vector-only mode.
-            #
-            # The "* 30" scaling maps the typical RRF range (~0.016 for a
-            # top-ranked-in-both-lists result) into roughly 0.5-0.9.
-            # We take the max of the vector score and the scaled RRF score,
-            # then cap at 1.0 to keep the display clean.
-            display_score = max(item["vector_score"], item["rrf_score"] * 30)
+            rrf_normalized = min(item["rrf_score"] / max_rrf, 1.0)
+            display_score = (
+                0.4 * item["vector_score"]
+                + 0.6 * rrf_normalized
+            )
             hits.append(SearchHit(
                 score=min(display_score, 1.0),
                 source_path=item["source_path"],

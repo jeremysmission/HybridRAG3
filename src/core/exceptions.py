@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the exceptions part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ===========================================================================
 # HybridRAG v3 -- TYPED EXCEPTIONS
 # ===========================================================================
@@ -61,6 +68,7 @@ class HybridRAGError(Exception):
     """
 
     def __init__(self, message, fix_suggestion=None, error_code=None):
+        """Plain-English: This function handles init."""
         self.fix_suggestion = fix_suggestion
         self.error_code = error_code
         super().__init__(message)
@@ -93,6 +101,7 @@ class EndpointNotConfiguredError(HybridRAGError):
       - If config.yaml has api.endpoint: '' (empty string)
     """
     def __init__(self, message=None):
+        """Plain-English: This function handles init."""
         super().__init__(
             message or "API endpoint is not configured.",
             fix_suggestion="Run 'rag-store-endpoint' to set your Azure endpoint URL.",
@@ -110,6 +119,7 @@ class ApiKeyNotConfiguredError(HybridRAGError):
       - If environment variable was set in a session that has closed
     """
     def __init__(self, message=None):
+        """Plain-English: This function handles init."""
         super().__init__(
             message or "API key is not configured.",
             fix_suggestion="Run 'rag-store-key' to store your Azure API key.",
@@ -129,6 +139,7 @@ class InvalidEndpointError(HybridRAGError):
       - URL contains spaces
     """
     def __init__(self, message=None, url=None):
+        """Plain-English: This function handles init."""
         detail = f" Got: '{url}'" if url else ""
         super().__init__(
             message or f"API endpoint URL is malformed.{detail}",
@@ -150,6 +161,7 @@ class DeploymentNotConfiguredError(HybridRAGError):
       - No AZURE_OPENAI_DEPLOYMENT environment variable set
     """
     def __init__(self, message=None):
+        """Plain-English: This function handles init."""
         super().__init__(
             message or "Azure deployment name is not configured.",
             fix_suggestion=(
@@ -169,6 +181,7 @@ class ProviderConfigError(HybridRAGError):
       - auth scheme doesn't match provider requirements
     """
     def __init__(self, message=None):
+        """Plain-English: This function handles init."""
         super().__init__(
             message or "API provider configuration is invalid.",
             fix_suggestion=(
@@ -187,6 +200,7 @@ class ApiVersionNotConfiguredError(HybridRAGError):
       - Azure provider but no api-version in URL or env vars
     """
     def __init__(self, message=None):
+        """Plain-English: This function handles init."""
         super().__init__(
             message or "Azure API version is not configured.",
             fix_suggestion=(
@@ -215,6 +229,7 @@ class ConnectionFailedError(HybridRAGError):
       - Server is down
     """
     def __init__(self, message=None, host=None):
+        """Plain-English: This function handles init."""
         detail = f" Host: {host}" if host else ""
         super().__init__(
             message or f"Cannot connect to API server.{detail}",
@@ -238,6 +253,7 @@ class TLSValidationError(HybridRAGError):
       - Wrong CA bundle configured
     """
     def __init__(self, message=None):
+        """Plain-English: This function handles init."""
         super().__init__(
             message or "SSL/TLS certificate verification failed.",
             fix_suggestion=(
@@ -259,6 +275,7 @@ class ProxyError(HybridRAGError):
       - Wrong proxy address configured
     """
     def __init__(self, message=None):
+        """Plain-English: This function handles init."""
         super().__init__(
             message or "Proxy connection failed.",
             fix_suggestion=(
@@ -279,6 +296,7 @@ class RequestTimeoutError(HybridRAGError):
       - Request payload is too large
     """
     def __init__(self, message=None, timeout_seconds=None):
+        """Plain-English: This function handles init."""
         detail = f" (timeout: {timeout_seconds}s)" if timeout_seconds else ""
         super().__init__(
             message or f"API request timed out.{detail}",
@@ -305,6 +323,7 @@ class AuthRejectedError(HybridRAGError):
       - Key doesn't have access to this resource
     """
     def __init__(self, message=None, status_code=None):
+        """Plain-English: This function handles init."""
         code = f" (HTTP {status_code})" if status_code else ""
         super().__init__(
             message or f"Authentication rejected by server.{code}",
@@ -328,6 +347,7 @@ class ForbiddenError(HybridRAGError):
       - Resource access policy blocks the request
     """
     def __init__(self, message=None):
+        """Plain-English: This function handles init."""
         super().__init__(
             message or "Access forbidden. Key lacks permission.",
             fix_suggestion=(
@@ -348,6 +368,7 @@ class DeploymentNotFoundError(HybridRAGError):
       - URL path is incorrect
     """
     def __init__(self, message=None, deployment=None):
+        """Plain-English: This function handles init."""
         detail = f" Deployment: '{deployment}'" if deployment else ""
         super().__init__(
             message or f"API endpoint not found (404).{detail}",
@@ -370,6 +391,7 @@ class RateLimitedError(HybridRAGError):
       - Shared key being used by multiple people simultaneously
     """
     def __init__(self, message=None, retry_after=None):
+        """Plain-English: This function handles init."""
         detail = f" Retry after: {retry_after}s" if retry_after else ""
         super().__init__(
             message or f"Rate limited by API server.{detail}",
@@ -390,6 +412,7 @@ class ServerError(HybridRAGError):
       - Temporary server-side failure
     """
     def __init__(self, message=None, status_code=None):
+        """Plain-English: This function handles init."""
         code = f" (HTTP {status_code})" if status_code else ""
         super().__init__(
             message or f"API server error.{code}",
@@ -412,6 +435,7 @@ class UnexpectedResponseError(HybridRAGError):
       - Response is HTML (often a proxy error page)
     """
     def __init__(self, message=None):
+        """Plain-English: This function handles init."""
         super().__init__(
             message or "Unexpected response format from API.",
             fix_suggestion=(
@@ -430,6 +454,7 @@ class UnexpectedResponseError(HybridRAGError):
 class OllamaNotRunningError(HybridRAGError):
     """Ollama service is not running."""
     def __init__(self, message=None):
+        """Plain-English: This function handles init."""
         super().__init__(
             message or "Ollama is not running.",
             fix_suggestion="Run 'rag-ollama-start' to start the Ollama service.",
@@ -440,6 +465,7 @@ class OllamaNotRunningError(HybridRAGError):
 class OllamaModelNotFoundError(HybridRAGError):
     """Requested Ollama model is not installed."""
     def __init__(self, message=None, model=None):
+        """Plain-English: This function handles init."""
         detail = f" Model: '{model}'" if model else ""
         super().__init__(
             message or f"Ollama model not found.{detail}",
@@ -455,6 +481,7 @@ class OllamaModelNotFoundError(HybridRAGError):
 class IndexNotFoundError(HybridRAGError):
     """No index database found."""
     def __init__(self, message=None):
+        """Plain-English: This function handles init."""
         super().__init__(
             message or "No index database found.",
             fix_suggestion="Run 'rag-index' to index your documents first.",
@@ -465,6 +492,7 @@ class IndexNotFoundError(HybridRAGError):
 class IndexCorruptedError(HybridRAGError):
     """Index database is corrupted."""
     def __init__(self, message=None):
+        """Plain-English: This function handles init."""
         super().__init__(
             message or "Index database appears corrupted.",
             fix_suggestion=(
@@ -536,5 +564,6 @@ def exception_from_http_status(status_code, response_body="", deployment=None):
 class IndexingError(HybridRAGError):
     """Raised when the indexing pipeline encounters an unrecoverable file error."""
     def __init__(self, message, file_path=None, fix_suggestion=None):
+        """Plain-English: This function handles init."""
         self.file_path = file_path
-        super().__init__(message, fix_suggestion, error_code="IDX-002")
+        super().__init__(message, fix_suggestion, error_code="IDX-003")

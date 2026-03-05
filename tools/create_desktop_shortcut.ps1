@@ -1,3 +1,12 @@
+<#
+=== NON-PROGRAMMER GUIDE ===
+Purpose: Automates the create desktop shortcut operational workflow for developers or operators.
+How to follow: Read variables first, then each command block in order.
+Inputs: Environment variables, script parameters, and local files.
+Outputs: Console messages, changed files, or system configuration updates.
+Safety notes: Run in a test environment before using on production systems.
+=============================
+#>
 ﻿# ============================================================================
 # create_desktop_shortcut.ps1 -- Create Desktop shortcuts for HybridRAG v3
 # ============================================================================

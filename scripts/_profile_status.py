@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Provides a command-line shortcut for the profile status operation.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ===================================================================
 # WHAT: Show the current hardware performance profile settings
 # WHY:  Users need to verify which profile is active (laptop_safe,
@@ -48,12 +55,12 @@ with open(_config_path(), 'r') as f:
 # .get() with a default of '?' means "if the setting doesn't exist,
 # show a question mark instead of crashing"
 eb = cfg.get('embedding', {}).get('batch_size', '?')    # Embedding batch size
-ck = cfg.get('chunking', {}).get('max_tokens', '?')     # Chunk size in tokens
-tk = cfg.get('vector_search', {}).get('top_k', '?')     # How many results to return
+ck = cfg.get('chunking', {}).get('chunk_size', '?')     # Chunk size in chars
+tk = cfg.get('retrieval', {}).get('top_k', '?')         # How many results to return
 
 # Print the current values
 print('  Embedding batch_size: ' + str(eb))
-print('  Chunk max_tokens:     ' + str(ck))
+print('  Chunk chunk_size:     ' + str(ck))
 print('  Search top_k:         ' + str(tk))
 
 # Infer which profile is active based on the batch size.

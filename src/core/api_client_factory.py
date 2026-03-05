@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the api client factory part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ===========================================================================
 # HybridRAG v3 -- API CLIENT FACTORY
 # ===========================================================================
@@ -129,6 +136,7 @@ class ApiClient:
     """
 
     def __init__(self, config: ApiClientConfig, http_client: HttpClient):
+        """Plain-English: Sets up the ApiClient object and prepares state used by its methods."""
         self.config = config
         self.http = http_client
 
@@ -314,6 +322,7 @@ class ApiClientFactory:
     """
 
     def __init__(self, config_dict: Optional[dict] = None):
+        """Plain-English: Sets up the ApiClientFactory object and prepares state used by its methods."""
         self.config_dict = config_dict or {}
         self.api_config = self.config_dict.get("api", {})
         if not isinstance(self.api_config, dict):

@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the backend loader part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Backend Loader (src/core/bootstrap/backend_loader.py)
 # ============================================================================
@@ -43,6 +50,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class BackendBundle:
+    """Plain-English: This class groups logic for backendbundle."""
     store: Optional[Any] = None
     embedder: Optional[Any] = None
     router: Optional[Any] = None
@@ -53,6 +61,7 @@ class BackendBundle:
 
 
 class BackendLoader:
+    """Plain-English: This class groups logic for backendloader."""
     def __init__(
         self,
         config: Any,
@@ -60,12 +69,14 @@ class BackendLoader:
         preloaded_embedder: Any = None,
         stage_cb: Optional[Callable[[str], None]] = None,
     ):
+        """Plain-English: This function handles init."""
         self.config = config
         self.boot_result = boot_result
         self.preloaded_embedder = preloaded_embedder
         self.stage_cb = stage_cb
 
     def load(self, timeout_seconds: int = 60) -> BackendBundle:
+        """Plain-English: This function handles load."""
         bundle = BackendBundle()
         t_all = time.perf_counter()
 
@@ -84,6 +95,7 @@ class BackendLoader:
 
 
         def stage(msg: str) -> None:
+            """Plain-English: This function handles stage."""
             if self.stage_cb:
                 try:
                     self.stage_cb(msg)
@@ -91,6 +103,7 @@ class BackendLoader:
                     pass
 
         def init_store():
+            """Plain-English: This function handles init store."""
             stage("VectorStore...")
             t0 = time.perf_counter()
             db_path = getattr(getattr(self.config, "paths", None), "database", "")
@@ -108,6 +121,7 @@ class BackendLoader:
             return s
 
         def init_embedder():
+            """Plain-English: This function handles init embedder."""
             stage("Embedder...")
             t0 = time.perf_counter()
             if self.preloaded_embedder is not None:
@@ -131,6 +145,7 @@ class BackendLoader:
             return LimitingEmbedder(e, limiter)
 
         def init_router():
+            """Plain-English: This function handles init router."""
             stage("LLM Router...")
             t0 = time.perf_counter()
             creds = getattr(self.boot_result, "credentials", None)
@@ -141,6 +156,7 @@ class BackendLoader:
         # Per-component bounded timeouts (fast fail for GUI reliability).
         # Env overrides: HYBRIDRAG_INIT_TIMEOUT_STORE/EMBEDDER/ROUTER (seconds).
         def _to_int(env_name: str, default: int) -> int:
+            """Plain-English: This function handles to int."""
             try:
                 return int(os.getenv(env_name, str(default)))
             except Exception:
@@ -182,6 +198,7 @@ class BackendLoader:
         return bundle
 
     def _await(self, label: str, fut, errors: List[str], timeout_s: int):
+        """Plain-English: This function handles await."""
         try:
             return fut.result(timeout=timeout_s)
         except Exception as e:
@@ -191,6 +208,7 @@ class BackendLoader:
 
     def _warm_offline(self, router: Any) -> None:
         # Warm Ollama weights into memory so first demo query is fast.
+        """Plain-English: This function handles warm offline."""
         try:
             if not router or not getattr(router, "ollama", None):
                 return
@@ -256,6 +274,7 @@ class BackendLoader:
     def _warm_online(self, boot_result: Any) -> None:
         # Warm online API connection: DNS/TLS/connection pooling.
         # Do not fail if not configured.
+        """Plain-English: This function handles warm online."""
         try:
             if not boot_result or not getattr(boot_result, "api_client", None):
                 return

@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the vector store part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG -- Vector Store (src/core/vector_store.py)
 # ============================================================================
@@ -54,11 +61,15 @@ import os
 import json
 import sqlite3
 import threading
+import logging
 from dataclasses import dataclass
 import re
 from typing import Optional, List, Dict, Any, Tuple
 
 import numpy as np
+
+
+logger = logging.getLogger(__name__)
 
 
 # --- DATA CLASSES -----------------------------------------------------------
@@ -99,6 +110,7 @@ class EmbeddingMemmapStore:
 
     def __init__(self, data_dir: str, dim: int = 768,
                  embedding_model: str = ""):
+        """Plain-English: Sets up the EmbeddingMemmapStore object and prepares state used by its methods."""
         self.data_dir = data_dir
         self.dim = int(dim)
         self.embedding_model = embedding_model  # e.g. "nomic-embed-text"
@@ -237,6 +249,7 @@ class VectorStore:
 
     def __init__(self, db_path: str, embedding_dim: int = 768,
                  embedding_model: str = ""):
+        """Plain-English: Sets up the VectorStore object and prepares state used by its methods."""
         self.db_path = db_path
         self.embedding_dim = embedding_dim
         self.embedding_model = embedding_model
@@ -707,6 +720,7 @@ class VectorStore:
                 self.conn = None
 
     def __enter__(self):
+        """Plain-English: Starts a managed resource block and returns the ready-to-use object."""
         self._was_connected = self.conn is not None
         self._ensure_connected()
         return self
@@ -715,6 +729,7 @@ class VectorStore:
         # Only close if WE opened the connection in __enter__.
         # This prevents accidentally killing a shared server-wide
         # instance when someone wraps it in a `with` block.
+        """Plain-English: Closes or cleans up resources when a managed block ends."""
         if not self._was_connected:
             self.close()
         return False

@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the settings view part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Settings View (src/gui/panels/settings_view.py)    RevA
 # ============================================================================
@@ -175,6 +182,7 @@ class SettingsView(tk.Frame):
     """
 
     def __init__(self, parent, config, app_ref):
+        """Plain-English: This function handles init."""
         t = current_theme()
         super().__init__(parent, bg=t["bg"])
         self.config = config
@@ -206,54 +214,67 @@ class SettingsView(tk.Frame):
 
     @property
     def topk_var(self):
+        """Plain-English: This function handles topk var."""
         return self._tuning_tab.topk_var
 
     @property
     def minscore_var(self):
+        """Plain-English: This function handles minscore var."""
         return self._tuning_tab.minscore_var
 
     @property
     def hybrid_var(self):
+        """Plain-English: This function handles hybrid var."""
         return self._tuning_tab.hybrid_var
 
     @property
     def reranker_var(self):
+        """Plain-English: This function handles reranker var."""
         return self._tuning_tab.reranker_var
 
     @property
     def maxtokens_var(self):
+        """Plain-English: This function handles maxtokens var."""
         return self._tuning_tab.maxtokens_var
 
     @property
     def temp_var(self):
+        """Plain-English: This function handles temp var."""
         return self._tuning_tab.temp_var
 
     @property
     def timeout_var(self):
+        """Plain-English: This function handles timeout var."""
         return self._tuning_tab.timeout_var
 
     @property
     def profile_var(self):
+        """Plain-English: This function handles profile var."""
         return self._tuning_tab.profile_var
 
     @property
     def profile_dropdown(self):
+        """Plain-English: This function handles profile dropdown."""
         return self._tuning_tab.profile_dropdown
 
     @property
     def profile_apply_btn(self):
+        """Plain-English: This function handles profile apply btn."""
         return self._tuning_tab.profile_apply_btn
 
     @property
     def profile_info_label(self):
+        """Plain-English: This function handles profile info label."""
         return self._tuning_tab.profile_info_label
 
     @property
     def profile_status_label(self):
+        """Plain-English: This function handles profile status label."""
         return self._tuning_tab.profile_status_label
 
     @property
     def model_table(self):
+        """Plain-English: This function handles model table."""
         return self._tuning_tab.model_table
 
     # ----------------------------------------------------------------
@@ -261,12 +282,15 @@ class SettingsView(tk.Frame):
     # ----------------------------------------------------------------
 
     def _on_retrieval_change(self):
+        """Plain-English: This function handles on retrieval change."""
         self._tuning_tab._on_retrieval_change()
 
     def _on_llm_change(self):
+        """Plain-English: This function handles on llm change."""
         self._tuning_tab._on_llm_change()
 
     def _on_profile_change(self, event=None):
+        """Plain-English: This function handles on profile change."""
         self._tuning_tab._on_profile_change(event)
 
     def _on_reset(self):
@@ -274,9 +298,11 @@ class SettingsView(tk.Frame):
         self._tuning_tab._on_reset()
 
     def _sync_sliders_to_config(self):
+        """Plain-English: This function handles sync sliders to config."""
         self._tuning_tab._sync_sliders_to_config()
 
     def _capture_values(self):
+        """Plain-English: This function handles capture values."""
         return self._tuning_tab._capture_values()
 
     # ----------------------------------------------------------------

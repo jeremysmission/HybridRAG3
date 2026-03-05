@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the shutdown coordinator part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # AppShutdownCoordinator -- centralized thread stop + timer cancel for clean
 # GUI shutdown.
@@ -20,11 +27,13 @@ class AppShutdownCoordinator:
     """Tiny coordinator that tracks background threads and timers for cleanup."""
 
     def __init__(self):
+        """Plain-English: This function handles init."""
         self._threads = []      # [(name, thread, stop_event_or_None)]
         self._shutting_down = threading.Event()
 
     @property
     def is_shutting_down(self):
+        """Plain-English: This function handles is shutting down."""
         return self._shutting_down.is_set()
 
     def register_thread(self, name, thread, stop_event=None):

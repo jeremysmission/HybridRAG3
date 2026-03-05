@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the query engine part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG -- Query Engine (src/core/query_engine.py)
 # ============================================================================
@@ -98,6 +105,7 @@ class QueryEngine:
         embedder: Embedder,
         llm_router: LLMRouter,
     ):
+        """Plain-English: Sets up the QueryEngine object and prepares state used by its methods."""
         self.config = config
         self.vector_store = vector_store
         self.embedder = embedder
@@ -416,11 +424,14 @@ class QueryEngine:
 
         Estimates tokens at ~4 chars/token. Reserves space for the prompt
         rules (~800 tokens), the question, and the model's answer
-        (num_predict). If context is too long, truncates from the end
-        (lowest-relevance chunks are appended last by the retriever).
+        (num_predict).
+
+        Instead of hard-truncating mid-sentence, this removes whole chunks
+        from the end (lowest relevance -- the retriever appends in descending
+        relevance order). This preserves the highest-quality context intact.
         """
         ctx_window = getattr(
-            getattr(self.config, "ollama", None), "context_window", 16384
+            getattr(self.config, "ollama", None), "context_window", 4096
         )
         num_predict = getattr(
             getattr(self.config, "ollama", None), "num_predict", 512
@@ -430,15 +441,38 @@ class QueryEngine:
         max_context_tokens = max(ctx_window - prompt_overhead_tokens, 512)
         max_context_chars = max_context_tokens * 4
 
-        if len(context) > max_context_chars:
-            self.logger.warning(
-                "context_trimmed",
-                original_chars=len(context),
-                trimmed_chars=max_context_chars,
-                ctx_window=ctx_window,
-            )
-            context = context[:max_context_chars]
-        return context
+        if len(context) <= max_context_chars:
+            return context
+
+        # Split on the chunk separator used by Retriever.build_context()
+        separator = "\n\n---\n\n"
+        chunks = context.split(separator)
+
+        # Drop chunks from the end (lowest relevance) until it fits
+        while len(chunks) > 1 and len(separator.join(chunks)) > max_context_chars:
+            chunks.pop()
+
+        trimmed = separator.join(chunks)
+
+        # If even one chunk is too large, truncate that single chunk
+        # at the last sentence boundary that fits.
+        if len(trimmed) > max_context_chars:
+            cut = trimmed[:max_context_chars]
+            last_period = cut.rfind(". ")
+            if last_period > max_context_chars // 2:
+                trimmed = cut[: last_period + 1]
+            else:
+                trimmed = cut
+
+        self.logger.warning(
+            "context_trimmed",
+            original_chars=len(context),
+            trimmed_chars=len(trimmed),
+            chunks_original=len(context.split(separator)),
+            chunks_kept=len(trimmed.split(separator)),
+            ctx_window=ctx_window,
+        )
+        return trimmed
 
     def _build_prompt(self, user_query: str, context: str) -> str:
         """
@@ -550,14 +584,17 @@ class QueryEngine:
         return bool(getattr(self, "allow_open_knowledge", False))
 
     def _build_relaxed_prompt(self, user_query: str, context: str) -> str:
+        """Plain-English: Builds a looser prompt template for open-knowledge fallback responses."""
         return _qe_build_relaxed_prompt(user_query, context)
 
     def _query_open_knowledge(
         self, user_query: str, start_time: float, sources: Optional[list] = None
     ) -> QueryResult:
+        """Plain-English: Sends a model query that can answer without retrieved document context."""
         return _qe_query_open_knowledge(self, user_query, start_time, sources)
 
     def _calculate_cost(self, llm_response: LLMResponse) -> float:
+        """Plain-English: Estimates API cost from token usage and provider pricing settings."""
         return _qe_calculate_cost(self, llm_response)
 
 

@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the file validator part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG -- File Validator (src/core/file_validator.py)
 # ============================================================================
@@ -78,6 +85,7 @@ class FileValidator:
     """
 
     def __init__(self, excluded_dirs: Optional[Set[str]] = None):
+        """Plain-English: This function handles init."""
         self._excluded_dirs = excluded_dirs or set()
 
     def preflight_check(self, file_path: Path) -> Optional[str]:

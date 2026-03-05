@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the theme part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- GUI Theme Engine (src/gui/theme.py)
 # ============================================================================
@@ -148,6 +155,7 @@ def set_zoom(factor):
     _zoom_factor = factor
 
     def _sz(key):
+        """Plain-English: This function handles sz."""
         return max(7, int(_BASE_SIZES[key] * factor))
 
     FONT_SIZE = _sz("FONT")
@@ -278,10 +286,12 @@ def bind_hover(widget, normal_bg=None, normal_fg=None):
     hover_bg = _lighten_hex(normal_bg)
 
     def on_enter(event):
+        """Plain-English: This function handles on enter."""
         if str(widget.cget("state")) != "disabled":
             widget.config(bg=hover_bg)
 
     def on_leave(event):
+        """Plain-English: This function handles on leave."""
         if str(widget.cget("state")) != "disabled":
             widget.config(bg=normal_bg)
 

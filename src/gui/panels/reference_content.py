@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the reference content part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Embedded Reference Content
 # (src/gui/panels/reference_content.py)                                 RevA
@@ -99,6 +106,14 @@ ADMIN MENU (Admin > Admin Settings):
   Hybrid search (ON), Reranker (OFF -- keep OFF for eval accuracy)
   Max tokens (256-4096), Temperature (0.00-1.00, default 0.05)
   Timeout (10-120s), Profile selector
+
+ADMIN MENU SWITCH (Admin > Production API Auth Guard):
+  OFF = Development mode (API auth token optional).
+  ON  = Production guard mode:
+       - API server startup fails if HYBRIDRAG_API_AUTH_TOKEN is not set.
+       - Protected API endpoints require Bearer token or X-API-Key header.
+  This is NOT your model provider key; it is a local server access token.
+  Set once in environment/start script; you do not re-enter it every day.
 
 PM COST DASHBOARD (Admin > PM Cost Dashboard):
   Session spend, queries, avg cost/query, budget gauge.

@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the boot coordinator part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Boot Coordinator (src/core/bootstrap/boot_coordinator.py)
 # ============================================================================
@@ -31,6 +38,7 @@ from .startup_validator import StartupValidator, StartupStatus
 
 
 class BootState(str, Enum):
+    """Plain-English: This class groups logic for bootstate."""
     INITIALIZING = "INITIALIZING"
     VALIDATING = "VALIDATING"
     SETUP_REQUIRED = "SETUP_REQUIRED"
@@ -42,6 +50,7 @@ class BootState(str, Enum):
 
 @dataclass
 class BootStep:
+    """Plain-English: This class groups logic for bootstep."""
     name: str
     ok: bool
     elapsed_ms: float
@@ -50,6 +59,7 @@ class BootStep:
 
 @dataclass
 class BootReport:
+    """Plain-English: This class groups logic for bootreport."""
     state: BootState
     env: Environment
     startup_status: StartupStatus
@@ -59,15 +69,19 @@ class BootReport:
 
     @property
     def ok(self) -> bool:
+        """Plain-English: This function handles ok."""
         return self.state == BootState.READY_FOR_GUI and (self.boot_result is None or getattr(self.boot_result, "success", True))
 
 
 class BootCoordinator:
+    """Plain-English: This class groups logic for bootcoordinator."""
     def __init__(self, project_root_hint: str | None = None):
+        """Plain-English: This function handles init."""
         self.env = Environment.detect(project_root_hint)
         self.state = BootState.INITIALIZING
 
     def run(self) -> BootReport:
+        """Plain-English: This function handles run."""
         startup_status = StartupStatus()
         steps: List[BootStep] = []
 

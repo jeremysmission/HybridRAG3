@@ -1,4 +1,11 @@
 #!/usr/bin/env python
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Automates the setup online api operational workflow for developers or operators.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # setup_online_api.py -- One-shot online API setup + validation
 # ============================================================================

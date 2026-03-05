@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the llm router part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # llm_router.py -- LLM Backend Router (Offline + Online)
 # ============================================================================
@@ -1140,15 +1147,19 @@ class APIRouter:
             self._init_http_fallback_client()
 
     def _init_http_fallback_client(self):
+        """Plain-English: Initializes a basic HTTP fallback client when the main SDK client is unavailable."""
         _api_init_http_fallback_client(self)
 
     def _reinit_sdk_client(self):
+        """Plain-English: Rebuilds the SDK client after endpoint, credential, or mode changes."""
         _api_reinit_sdk_client(self)
 
     def _attempt_late_init(self):
+        """Plain-English: Attempts lazy client initialization at first use if startup initialization was deferred."""
         _api_attempt_late_init(self)
 
     def _extract_azure_base(self, url: str) -> str:
+        """Plain-English: Derives the Azure base URL from a deployment-style endpoint string."""
         return _api_extract_azure_base(url)
 
     def query(self, prompt: str) -> Optional[LLMResponse]:
@@ -1359,6 +1370,7 @@ class APIRouter:
             return None
 
     def get_status(self) -> Dict[str, Any]:
+        """Plain-English: Returns a concise status snapshot for display and diagnostics."""
         return _api_get_status(self)
 
 

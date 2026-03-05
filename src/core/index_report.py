@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the index report part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG -- Indexing Report Writer (src/core/index_report.py)
 # ============================================================================
@@ -49,6 +56,7 @@ class FileRecord:
     )
 
     def __init__(self, path: str, extension: str) -> None:
+        """Plain-English: This function handles init."""
         self.path = path
         self.extension = extension
         self.status = "pending"          # indexed | skipped | error
@@ -67,6 +75,7 @@ class FileRecord:
         self.quality_score: int = -1     # 0-100, -1 = not scored
 
     def to_dict(self) -> Dict[str, Any]:
+        """Plain-English: This function handles to dict."""
         d: Dict[str, Any] = {
             "path": self.path,
             "extension": self.extension,

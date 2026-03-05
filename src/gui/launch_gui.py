@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the launch gui part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- GUI Launcher (src/gui/launch_gui.py)
 # ============================================================================
@@ -216,6 +223,7 @@ def _probe_ollama_runtime(router, config, logger):
 
         # Probe generate endpoint for the configured chat model.
         def _probe_generate(model_name):
+            """Plain-English: This function handles probe generate."""
             r = client.post(
                 "{}/api/generate".format(base_url),
                 json={
@@ -309,6 +317,7 @@ def _load_backends(app, logger):
 
         # -- Parallel phase: VectorStore, Embedder, LLMRouter --
         def _init_store():
+            """Plain-English: This function handles init store."""
             _set_stage(app, "VectorStore...")
             db_path = getattr(getattr(config, "paths", None), "database", "")
             if not db_path:
@@ -330,6 +339,7 @@ def _load_backends(app, logger):
             return s
 
         def _init_embedder():
+            """Plain-English: This function handles init embedder."""
             _set_stage(app, "Embedder...")
             embed_dim = getattr(
                 getattr(config, "embedding", None), "dimension", 0
@@ -337,6 +347,7 @@ def _load_backends(app, logger):
             return _get_or_build_embedder(model_name, logger, dimension=embed_dim)
 
         def _init_router():
+            """Plain-English: This function handles init router."""
             _set_stage(app, "LLM Router...")
             boot_creds = getattr(
                 getattr(app, "boot_result", None), "credentials", None,
@@ -387,6 +398,7 @@ def _load_backends(app, logger):
 
     # Attach backends to the GUI (schedule on main thread)
     def _attach():
+        """Plain-English: This function handles attach."""
         app.query_engine = query_engine
         app.indexer = indexer
         app.router = router
@@ -421,6 +433,7 @@ def _load_backends(app, logger):
         # Safety net: if IBIT hasn't cleared loading after 90s, force clear.
         # Prevents the GUI from being stuck in "Loading..." forever.
         def _loading_timeout():
+            """Plain-English: This function handles loading timeout."""
             if hasattr(app, "status_bar") and app.status_bar._loading:
                 logger.warning("[WARN] Loading timeout -- forcing ready state")
                 app.status_bar.set_ibit_result(0, 0, [])
@@ -448,6 +461,7 @@ def _run_ibit_sequence(app, config, query_engine, indexer, router, logger):
     STEP_DELAY_MS = 150  # Per-check display hold (ms)
 
     def _do_ibit():
+        """Plain-English: This function handles do ibit."""
         from src.gui.helpers.safe_after import safe_after
         try:
             results = run_ibit(config, query_engine, indexer, router)

@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the indexer part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG -- Indexer (src/core/indexer.py)
 # ============================================================================
@@ -50,21 +57,27 @@ class IndexingProgressCallback:
     """
 
     def on_file_start(self, file_path: str, file_num: int, total_files: int) -> None:
+        """Plain-English: Responds to the file start event and updates state or UI accordingly."""
         pass
 
     def on_file_complete(self, file_path: str, chunks_created: int) -> None:
+        """Plain-English: Responds to the file complete event and updates state or UI accordingly."""
         pass
 
     def on_file_skipped(self, file_path: str, reason: str) -> None:
+        """Plain-English: Responds to the file skipped event and updates state or UI accordingly."""
         pass
 
     def on_indexing_complete(self, total_chunks: int, elapsed_seconds: float) -> None:
+        """Plain-English: Responds to the indexing complete event and updates state or UI accordingly."""
         pass
 
     def on_error(self, file_path: str, error: str) -> None:
+        """Plain-English: Responds to the error event and updates state or UI accordingly."""
         pass
 
     def on_discovery_progress(self, files_found: int) -> None:
+        """Plain-English: Responds to the discovery progress event and updates state or UI accordingly."""
         pass
 
 
@@ -82,6 +95,7 @@ class Indexer:
         embedder: Embedder,
         chunker: Chunker,
     ):
+        """Plain-English: Sets up the Indexer object and prepares state used by its methods."""
         self.config = config
         self.vector_store = vector_store
         self.embedder = embedder

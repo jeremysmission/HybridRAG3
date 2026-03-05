@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the startup validator part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Startup Validator (src/core/bootstrap/startup_validator.py)
 # ============================================================================
@@ -30,27 +37,33 @@ import yaml  # already a dependency
 
 @dataclass(frozen=True)
 class Fault:
+    """Plain-English: This class groups logic for fault."""
     code: str
     message: str
 
 
 @dataclass
 class StartupStatus:
+    """Plain-English: This class groups logic for startupstatus."""
     requires_setup: bool = False
     faults: List[Fault] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
+        """Plain-English: This function handles ok."""
         return not self.requires_setup and not self.faults
 
 
 class StartupValidator:
+    """Plain-English: This class groups logic for startupvalidator."""
     def __init__(self, project_root: Path, config_path: Path):
+        """Plain-English: This function handles init."""
         self.project_root = project_root
         self.config_path = config_path
 
     def validate(self) -> StartupStatus:
+        """Plain-English: This function handles validate."""
         status = StartupStatus()
 
         # If caller explicitly provided HYBRIDRAG_DATA_DIR, we assume a managed deployment
@@ -115,6 +128,7 @@ class StartupValidator:
         return status
 
     def _load_yaml(self, status: StartupStatus) -> Optional[Dict[str, Any]]:
+        """Plain-English: This function handles load yaml."""
         if not self.config_path.exists():
             status.faults.append(Fault("CFG_MISSING", f"Missing config file: {str(self.config_path)}"))
             return None
@@ -134,6 +148,7 @@ class StartupValidator:
             return None
 
     def _resolve_path(self, p: Any) -> Optional[Path]:
+        """Plain-English: This function handles resolve path."""
         if not p or not isinstance(p, str):
             return None
         try:

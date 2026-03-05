@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the query panel part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Query Panel (src/gui/panels/query_panel.py)
 # ============================================================================
@@ -499,6 +506,7 @@ class QueryPanel(tk.LabelFrame):
         self.configure(bg=t["panel_bg"], fg=t["accent"])
 
         def _theme_walk(widget):
+            """Plain-English: Walks nested widgets and reapplies theme colors to each supported control."""
             for child in widget.winfo_children():
                 if isinstance(child, (tk.Frame, tk.PanedWindow, tk.LabelFrame)):
                     try:
@@ -762,6 +770,7 @@ class QueryPanel(tk.LabelFrame):
             self.primary_check_var.set("")
 
     def _current_use_case_key(self):
+        """Plain-English: Returns the active use-case key that drives query routing and presets."""
         idx = self._uc_labels.index(self.uc_var.get()) if self.uc_var.get() in self._uc_labels else 0
         return self._uc_keys[idx]
 
@@ -782,6 +791,7 @@ class QueryPanel(tk.LabelFrame):
         self._apply_grounding_bias_live(bias)
 
     def _on_reasoning_dial_change(self, _value=None):
+        """Plain-English: Applies user reasoning-level changes to prompt behavior and UI indicators."""
         lvl = int(self._reasoning_dial_var.get())
         self._reasoning_dial_hint.set(
             REASONING_DIAL_HINTS.get(lvl, "Reasoning dial updated")
@@ -871,6 +881,7 @@ class QueryPanel(tk.LabelFrame):
             safe_after(self, 0, self._check_primary_done, False, "Primary check failed")
 
     def _switch_to_primary_offline(self, primary):
+        """Plain-English: Switches query routing back to the primary offline model path."""
         self._installed_models = list(self._installed_models or [])
         if primary not in self._installed_models:
             self._installed_models.append(primary)
@@ -881,6 +892,7 @@ class QueryPanel(tk.LabelFrame):
         self._check_primary_done(True, "Primary restored and selected")
 
     def _switch_to_primary_online(self, primary, deployments):
+        """Plain-English: Switches query routing back to the primary online model path."""
         self._online_models = list(deployments or [primary])
         self.model_var.set(f"Online: {primary}")
         self._apply_online_selection(primary, False, "online recovered")
@@ -889,6 +901,7 @@ class QueryPanel(tk.LabelFrame):
         self._check_primary_done(True, "Primary restored and selected")
 
     def _check_primary_done(self, ok, message):
+        """Plain-English: Checks whether the primary response path completed before triggering fallback behavior."""
         t = current_theme()
         self.primary_check_var.set(message)
         self.primary_check_label.config(fg=t["green"] if ok else t["orange"])
@@ -1322,31 +1335,37 @@ class QueryPanel(tk.LabelFrame):
         self.network_label.config(text="Query stopped.", fg=t["orange"])
 
     def _set_status_if_active(self, query_id, text):
+        """Plain-English: Updates status text only if this panel still owns the active request."""
         if self._is_query_aborted(query_id):
             return
         self._set_status(text)
 
     def _start_elapsed_timer_if_active(self, query_id):
+        """Plain-English: Starts the elapsed-time indicator only if this panel still owns the active request."""
         if self._is_query_aborted(query_id):
             return
         self._start_elapsed_timer()
 
     def _prepare_streaming_if_active(self, query_id):
+        """Plain-English: Prepares streaming output buffers only if this panel still owns the active request."""
         if self._is_query_aborted(query_id):
             return
         self._prepare_streaming()
 
     def _append_token_if_active(self, query_id, token):
+        """Plain-English: Appends streamed tokens only if this panel still owns the active request."""
         if self._is_query_aborted(query_id):
             return
         self._append_token(token)
 
     def _finish_stream_if_active(self, query_id, result):
+        """Plain-English: Finalizes stream rendering only if this panel still owns the active request."""
         if self._is_query_aborted(query_id):
             return
         self._finish_stream(result)
 
     def _stop_overlay_if_active(self, query_id):
+        """Plain-English: Hides the loading overlay only if this panel still owns the active request."""
         if self._is_query_aborted(query_id):
             return
         self._overlay.stop()

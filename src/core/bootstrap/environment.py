@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the environment part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Environment Resolver (src/core/bootstrap/environment.py)
 # ============================================================================
@@ -25,6 +32,7 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class Environment:
+    """Plain-English: This class groups logic for environment."""
     project_root: Path
     config_path: Path
     data_root: Path
@@ -34,6 +42,7 @@ class Environment:
     @staticmethod
     def detect(project_root_hint: str | None = None) -> "Environment":
         # 1) explicit param
+        """Plain-English: This function handles detect."""
         if project_root_hint:
             pr = Path(project_root_hint).expanduser().resolve()
         else:
@@ -76,6 +85,7 @@ class Environment:
         )
 
     def ensure_directories(self) -> None:
+        """Plain-English: This function handles ensure directories."""
         self.data_root.mkdir(parents=True, exist_ok=True)
         self.index_root.mkdir(parents=True, exist_ok=True)
         self.source_root.mkdir(parents=True, exist_ok=True)

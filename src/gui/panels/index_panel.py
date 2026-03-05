@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the index panel part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Index Panel (src/gui/panels/index_panel.py)
 # ============================================================================
@@ -30,6 +37,7 @@ class IndexPanel(tk.LabelFrame):
     """
 
     def __init__(self, parent, config, indexer=None):
+        """Plain-English: Sets up the IndexPanel object and prepares state used by its methods."""
         t = current_theme()
         super().__init__(parent, text="Index Panel", padx=16, pady=8,
                          bg=t["panel_bg"], fg=t["accent"],
@@ -522,6 +530,7 @@ class _GUIProgressCallback:
     _THROTTLE_SEC = 0.1  # max 10 GUI updates per second
 
     def __init__(self, panel):
+        """Plain-English: Sets up the _GUIProgressCallback object and prepares state used by its methods."""
         self.panel = panel
         self._start_time = time.monotonic()
         self._file_count = 0
@@ -572,6 +581,7 @@ class _GUIProgressCallback:
             safe_after(self.panel, 0, self._update_telemetry)
 
     def _update_file_start(self, fname, file_num, total_files):
+        """Plain-English: Updates progress UI when indexing starts for an individual file."""
         t = current_theme()
         self.panel.progress_file_label.config(
             text="Processing: {}".format(fname), fg=t["gray"],
@@ -592,6 +602,7 @@ class _GUIProgressCallback:
             safe_after(self.panel, 0, self._update_telemetry)
 
     def _update_file_complete(self):
+        """Plain-English: Updates progress UI when an individual file finishes indexing."""
         self.panel.progress_bar["value"] = self._file_count
 
     def _update_telemetry(self):
@@ -665,6 +676,7 @@ class _GUIProgressCallback:
             safe_after(self.panel, 0, self._update_discovery, files_found)
 
     def _update_discovery(self, files_found):
+        """Plain-English: Refreshes discovery counters as the scanner finds candidate files."""
         t = current_theme()
         self.panel.progress_file_label.config(
             text="Scanning folder... {:,} files found".format(files_found),

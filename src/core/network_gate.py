@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the network gate part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ===========================================================================
 # HybridRAG v3 -- NETWORK GATE (Centralized Network Access Control)
 # ===========================================================================
@@ -92,7 +99,6 @@ _LOCALHOST_HOSTS = frozenset([
     "localhost",
     "127.0.0.1",
     "::1",
-    "0.0.0.0",
 ])
 
 
@@ -110,6 +116,7 @@ class NetworkBlockedError(Exception):
         reason: Human-readable explanation of why it was blocked.
     """
     def __init__(self, url: str, mode: str, reason: str):
+        """Plain-English: Sets up the NetworkBlockedError object and prepares state used by its methods."""
         self.url = url
         self.mode = mode
         self.reason = reason

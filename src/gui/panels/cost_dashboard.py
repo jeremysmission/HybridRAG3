@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the cost dashboard part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- PM Cost Dashboard (src/gui/panels/cost_dashboard.py) RevA
 # ============================================================================
@@ -410,54 +417,67 @@ class CostDashboard(tk.Frame):
 
     @property
     def _roi_hourly(self):
+        """Plain-English: This function handles roi hourly."""
         return self._roi.roi_hourly
 
     @_roi_hourly.setter
     def _roi_hourly(self, v):
+        """Plain-English: This function handles roi hourly."""
         self._roi.roi_hourly = v
 
     @property
     def _roi_team(self):
+        """Plain-English: This function handles roi team."""
         return self._roi.roi_team
 
     @_roi_team.setter
     def _roi_team(self, v):
+        """Plain-English: This function handles roi team."""
         self._roi.roi_team = v
 
     @property
     def _roi_min_saved(self):
+        """Plain-English: This function handles roi min saved."""
         return self._roi.roi_min_saved
 
     @_roi_min_saved.setter
     def _roi_min_saved(self, v):
+        """Plain-English: This function handles roi min saved."""
         self._roi.roi_min_saved = v
 
     @property
     def _roi_hourly_var(self):
+        """Plain-English: This function handles roi hourly var."""
         return self._roi.roi_hourly_var
 
     @property
     def _roi_team_var(self):
+        """Plain-English: This function handles roi team var."""
         return self._roi.roi_team_var
 
     @property
     def _roi_minsaved_var(self):
+        """Plain-English: This function handles roi minsaved var."""
         return self._roi.roi_minsaved_var
 
     @property
     def _roi_time_label(self):
+        """Plain-English: This function handles roi time label."""
         return self._roi.roi_time_label
 
     @property
     def _roi_value_label(self):
+        """Plain-English: This function handles roi value label."""
         return self._roi.roi_value_label
 
     @property
     def _roi_net_label(self):
+        """Plain-English: This function handles roi net label."""
         return self._roi.roi_net_label
 
     @property
     def _roi_projection(self):
+        """Plain-English: This function handles roi projection."""
         return self._roi.roi_projection
 
     def _on_update_roi(self):

@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the rounded button part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Rounded Button Widget (src/gui/widgets/rounded_button.py)
 # ============================================================================
@@ -26,6 +33,7 @@ class RoundedButton(tk.Canvas):
     def __init__(self, parent, *, text="", command=None, font=None,
                  bg="#0078d4", fg="#ffffff", hover_bg=None,
                  padx=16, pady=8, width=None, height=None, **kw):
+        """Plain-English: This function handles init."""
         self._text = text
         self._command = command
         self._font = font or FONT
@@ -81,15 +89,18 @@ class RoundedButton(tk.Canvas):
     # -- events ---------------------------------------------------------
 
     def _on_enter(self, _event):
+        """Plain-English: This function handles on enter."""
         if not self._disabled:
             self.itemconfig(self._rect_id, fill=self._hover_bg,
                             outline=self._hover_bg)
 
     def _on_leave(self, _event):
+        """Plain-English: This function handles on leave."""
         if not self._disabled:
             self.itemconfig(self._rect_id, fill=self._bg, outline=self._bg)
 
     def _on_click(self, _event):
+        """Plain-English: This function handles on click."""
         if not self._disabled and self._command:
             self._command()
 

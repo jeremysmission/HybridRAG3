@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the embedder part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG -- Embedder (src/core/embedder.py)
 # ============================================================================
@@ -288,8 +295,10 @@ class Embedder:
             self._client = None
 
     def __enter__(self):
+        """Plain-English: Starts a managed resource block and returns the ready-to-use object."""
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        """Plain-English: Closes or cleans up resources when a managed block ends."""
         self.close()
         return False

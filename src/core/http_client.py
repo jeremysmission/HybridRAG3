@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the http client part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ===========================================================================
 # HybridRAG v3 -- CENTRALIZED HTTP CLIENT
 # ===========================================================================
@@ -108,6 +115,7 @@ class HttpResponse:
 
     @property
     def is_success(self) -> bool:
+        """Plain-English: This function handles is success."""
         return 200 <= self.status_code < 300
 
     @property
@@ -246,6 +254,7 @@ class _GateAwareRedirectHandler(urllib.request.HTTPRedirectHandler):
     """
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        """Plain-English: This function handles redirect request."""
         try:
             from src.core.network_gate import get_gate
             get_gate().check_allowed(newurl, "redirect", "http_client")
@@ -274,6 +283,7 @@ class HttpClient:
     """
 
     def __init__(self, config: Optional[HttpClientConfig] = None):
+        """Plain-English: This function handles init."""
         self.config = config or HttpClientConfig()
 
         # NOTE: The HYBRIDRAG_OFFLINE env var is now handled by the

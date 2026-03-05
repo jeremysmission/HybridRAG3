@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the gui engine part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # Hybrid3 GUI Testing -- Behavioral Engine (src/gui/testing/gui_engine.py)
 # ============================================================================
@@ -21,6 +28,7 @@ class HybridGuiEngine:
     """Full behavioral test engine for HybridRAG GUI."""
 
     def __init__(self, app: tk.Tk):
+        """Plain-English: This function handles init."""
         self.app = app
         self._times: list[float] = []
 
@@ -32,6 +40,7 @@ class HybridGuiEngine:
         found: list[tk.Button] = []
 
         def walk(widget: tk.Widget) -> None:
+            """Plain-English: This function handles walk."""
             for child in widget.winfo_children():
                 if isinstance(child, tk.Button):
                     found.append(child)
@@ -50,6 +59,7 @@ class HybridGuiEngine:
         return entries
 
     def _walk_menu(self, menu: tk.Menu, prefix: str, out: list) -> None:
+        """Plain-English: This function handles walk menu."""
         last = menu.index("end")
         if last is None:
             return
@@ -143,6 +153,7 @@ class HybridGuiEngine:
         }
 
     def _snapshot_files(self) -> dict[str, str]:
+        """Plain-English: This function handles snapshot files."""
         data: dict[str, str] = {}
         base = Path("output")
         if base.exists():
@@ -155,6 +166,7 @@ class HybridGuiEngine:
         return data
 
     def _snapshot_core(self) -> dict[str, bool]:
+        """Plain-English: This function handles snapshot core."""
         return {
             "has_router": hasattr(self.app, "router") and self.app.router is not None,
             "has_query_engine": hasattr(self.app, "query_engine") and self.app.query_engine is not None,
@@ -186,6 +198,7 @@ class HybridGuiEngine:
     # Performance summary
     # ------------------------------------------------------------------
     def perf_summary(self) -> dict[str, Any]:
+        """Plain-English: This function handles perf summary."""
         if not self._times:
             return {}
         return {

@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the data panel part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Data Transfer Panel (src/gui/panels/data_panel.py)  RevA
 # ============================================================================
@@ -135,6 +142,7 @@ def _probe_source_ready(path, timeout_s=2.0):
     result = {"ok": False, "error": ""}
 
     def _worker():
+        """Plain-English: This function handles worker."""
         try:
             with os.scandir(path) as it:
                 # Touch one entry (or none) to force a real access probe.
@@ -204,6 +212,7 @@ class DataPanel(tk.Frame):
     """
 
     def __init__(self, parent, config, app_ref):
+        """Plain-English: This function handles init."""
         t = current_theme()
         super().__init__(parent, bg=t["panel_bg"])
         self.config = config

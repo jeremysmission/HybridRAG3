@@ -1,3 +1,12 @@
+<#
+=== NON-PROGRAMMER GUIDE ===
+Purpose: Supports the start hybridrag workflow in this repository.
+How to follow: Read variables first, then each command block in order.
+Inputs: Environment variables, script parameters, and local files.
+Outputs: Console messages, changed files, or system configuration updates.
+Safety notes: Run in a test environment before using on production systems.
+=============================
+#>
 ﻿# =============================================================
 # EXECUTION ENVIRONMENT DETECTION -- HybridRAG3
 # =============================================================
