@@ -36,15 +36,18 @@
 #   All other operations: NONE
 # ============================================================================
 
-import tkinter as tk
-from tkinter import ttk, filedialog
 import json
-import os
-import threading
 import logging
+import os
 import re
+import subprocess
+import threading
 import time
+import tkinter as tk
 from datetime import datetime
+from tkinter import filedialog, ttk
+
+import psutil
 
 from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_SMALL, FONT_MONO, bind_hover
 from src.gui.scrollable import ScrollableFrame
@@ -1843,6 +1846,78 @@ def _api_admintab__build_troubleshoot_section(self, t):
     )
     self._verify_text.pack(fill=tk.X)
 
+
+def _api_admintab__build_resource_monitor_section(self, t):
+    """Build resource monitoring line (RAM, CPU, optional GPU)."""
+    frame = tk.LabelFrame(
+        self._inner, text="Resource Monitor", padx=16, pady=8,
+        bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD,
+    )
+    frame.pack(fill=tk.X, padx=16, pady=8)
+    self._resource_monitor_label = tk.Label(
+        frame, text="Gathering resource usage...", anchor=tk.W,
+        bg=t["panel_bg"], fg=t["gray"], font=FONT,
+    )
+    self._resource_monitor_label.pack(fill=tk.X)
+
+    self._resource_monitor_after_id = None
+    self._refresh_resource_section()
+
+
+def _api_admintab__refresh_resource_section(self):
+    if not hasattr(self, "_resource_monitor_label"):
+        return
+    ram = psutil.virtual_memory()
+    cpu = psutil.cpu_percent(interval=None)
+    gpu = _api_admintab__query_gpu_status()
+    cpu_text = f"{cpu:.0f}% CPU"
+    ram_text = f"{ram.percent:.0f}% RAM ({_api_admintab__format_bytes(ram.used)} / {_api_admintab__format_bytes(ram.total)})"
+    text = f"{cpu_text} | {ram_text} | {gpu}"
+    self._resource_monitor_label.config(
+        text=text,
+        fg=_api_admintab__resource_color(cpu, ram.percent),
+    )
+    if self._resource_monitor_after_id is not None:
+        self.after_cancel(self._resource_monitor_after_id)
+    self._resource_monitor_after_id = self.after(5000, self._refresh_resource_section)
+
+
+def _api_admintab__resource_color(cpu_pct, ram_pct):
+    if cpu_pct > 90 or ram_pct > 90:
+        return current_theme()["red"]
+    if cpu_pct > 75 or ram_pct > 80:
+        return current_theme()["orange"]
+    return current_theme()["green"]
+
+
+def _api_admintab__format_bytes(value):
+    units = ["B", "KB", "MB", "GB"]
+    i = 0
+    v = float(value)
+    while v >= 1024 and i < len(units) - 1:
+        v /= 1024.0
+        i += 1
+    return f"{v:,.1f}{units[i]}"
+
+
+def _api_admintab__query_gpu_status():
+    try:
+        output = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=2,
+        )
+        if output.returncode == 0:
+            usage = output.stdout.strip().splitlines()[0]
+            used, total = [part.strip() for part in usage.split(",")]
+            return f"GPU {used}/{total} MiB"
+    except Exception:
+        pass
+    return "GPU N/A"
+
+    self._resource_monitor_after_id = None
+    self._build_resource_monitor_section(t)
+    self._refresh_resource_section()
+
 def _api_admintab__on_run_quick_verify(self):
     """Start quick verification in a background thread."""
     t = current_theme()
@@ -2491,6 +2566,8 @@ def _bind_api_admin_tab_runtime_methods() -> None:
     ApiAdminTab._set_verify_text = _api_admintab__set_verify_text
     ApiAdminTab._build_offline_runtime_section = _api_admintab__build_offline_runtime_section
     ApiAdminTab._on_save_offline_runtime = _api_admintab__on_save_offline_runtime
+    ApiAdminTab._build_resource_monitor_section = _api_admintab__build_resource_monitor_section
+    ApiAdminTab._refresh_resource_section = _api_admintab__refresh_resource_section
     ApiAdminTab._apply_mode_state = _api_admintab__apply_mode_state
     ApiAdminTab._build_chunking_section = _api_admintab__build_chunking_section
     ApiAdminTab._on_save_chunking = _api_admintab__on_save_chunking

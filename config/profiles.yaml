@@ -76,13 +76,13 @@ desktop_power:
     device: "cuda"               # 12GB VRAM handles nomic easily
   ollama:
     model: "phi4:14b-q4_K_M"    # 14B, 9.1GB, MIT, strongest reasoning
-    context_window: 16384        # More context = better answers
+    context_window: 4096         # Stability baseline for 12GB VRAM
   chunking:
     chunk_size: 1200
     overlap: 200
   retrieval:
-    top_k: 10                   # More results = better recall
-    reranker_top_n: 40
+    top_k: 5                    # Keep prompt small for lower latency
+    reranker_top_n: 20
   indexing:
     block_chars: 500000          # 500K chars per block
     max_chars_per_file: 5000000
@@ -91,9 +91,9 @@ desktop_power:
     gc_between_files: false
     gc_between_blocks: false
   notes: >
-    Aggressive settings for 64GB RAM / 12GB VRAM machines.
+    Balanced settings for 64GB RAM / 12GB VRAM machines.
     Embedding: nomic-embed-text (768d, CUDA via Ollama). LLM: phi4:14b-q4_K_M (14B, MIT).
-    4x faster embedding than laptop_safe.
+    Context window 4096 to avoid VRAM overflow. Raise via Admin > Tuning if needed.
 
 # --- SERVER MAX ---
 # For: Rack servers, cloud instances, dual-GPU workstations
@@ -107,13 +107,13 @@ server_max:
     device: "cuda"               # 24GB+ VRAM
   ollama:
     model: "phi4:14b-q4_K_M"    # 14B, 9.1GB, MIT, strongest reasoning
-    context_window: 16384
+    context_window: 4096         # Safe default; raise via Admin > Tuning if 24GB+ VRAM
   chunking:
     chunk_size: 1200
     overlap: 200
   retrieval:
-    top_k: 15                   # Maximum recall
-    reranker_top_n: 60
+    top_k: 10                   # Higher recall for server-class hardware
+    reranker_top_n: 30
   indexing:
     block_chars: 1000000         # 1M chars per block
     max_chars_per_file: 10000000

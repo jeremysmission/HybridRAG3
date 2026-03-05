@@ -1808,6 +1808,14 @@ class LLMRouter:
         else:
             self.transformers_rt = None
 
+        # Offline mode does not need API credentials or APIRouter bootstrap.
+        # Skipping this avoids expensive keyring lookups that can block first query.
+        mode = str(getattr(config, "mode", "offline")).lower()
+        if mode != "online" and api_key is None and credentials is None:
+            self.api = None
+            self.logger.info("llm_router_init", api_mode="skipped_offline")
+            return
+
         # -- Resolve credentials -------------------------------------------
         # Use pre-resolved credentials from boot if available (saves the
         # 10-50ms keyring lookup). Otherwise resolve from scratch.
@@ -2093,4 +2101,3 @@ class LLMRouter:
                 status["api_clean_endpoint"] = api_status.get("clean_endpoint", "")
 
         return status
-

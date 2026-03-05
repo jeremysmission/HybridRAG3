@@ -1,37 +1,23 @@
-# === NON-PROGRAMMER GUIDE ===
-# Purpose: Implements the tuning tab part of the application runtime.
-# What to read first: Start at the top-level function/class definitions and follow calls downward.
-# Inputs: Configuration values, command arguments, or data files used by this module.
-# Outputs: Returned values, written files, logs, or UI updates produced by this module.
-# Safety notes: Update small sections at a time and run relevant tests after edits.
-# ============================
 # ============================================================================
-# HybridRAG v3 -- Tuning Tab (src/gui/panels/tuning_tab.py)           RevA
+# HybridRAG v3 -- Tuning Tab (src/gui/panels/tuning_tab.py)           RevB
 # ============================================================================
-# WHAT: Retrieval and LLM parameter sliders, hardware profile switcher,
-#       and ranked model table -- the performance tuning cockpit.
-# WHY:  Admins need to adjust search sensitivity (top_k, min_score),
-#       LLM behavior (temperature, timeout), and switch between hardware
-#       profiles (laptop vs workstation) without editing config files.
-#       Live sliders make it easy to experiment and see results instantly.
-# HOW:  Each slider writes directly to the live config object on change,
-#       so the next query immediately uses the new value.  Profile
-#       switching runs _profile_switch.py as a subprocess, then reloads
-#       config and resets backends -- the user sees a brief "Switching..."
-#       status, then the new profile takes effect.
+# WHAT: Retrieval and LLM parameter sliders with per-setting "Default"
+#       checkboxes, hardware-aware latency warnings, and profile switcher.
+# WHY:  Admins need live tuning AND a safe demo-day mode. Default checkboxes
+#       lock each setting to a hardware-appropriate value; unchecking unlocks
+#       custom tuning. Warning popups fire when a change would cause
+#       unrealistic wait times on the detected hardware class.
+# HOW:  Reads config/system_profile.json (written by system_diagnostic.py)
+#       to detect VRAM and RAM. Each slider/toggle has a paired Default
+#       checkbox. When Default is checked, the control is disabled and the
+#       value is forced to the safe baseline for the hardware class.
 # USAGE: Embedded inside SettingsView notebook as the "Tuning" tab.
-#
-# Sections:
-#   1. Retrieval Settings (top_k, min_score, hybrid_search, reranker)
-#   2. LLM Settings (max_tokens, temperature, timeout)
-#   3. Profile & Model Ranking (dropdown, apply, model table)
-#   4. Reset to Defaults
-#
-# INTERNET ACCESS: NONE (profile switch runs a local subprocess)
+# INTERNET ACCESS: NONE
 # ============================================================================
 
+import json
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import subprocess
 import sys
 import os
@@ -46,304 +32,530 @@ from src.gui.panels.settings_view import (
 
 logger = logging.getLogger(__name__)
 
+# Hardware-safe defaults per profile class.
+# These are the "demo-day safe" values that avoid latency surprises.
+SAFE_DEFAULTS = {
+    'laptop_safe': {
+        'top_k': 5, 'min_score': 0.10, 'hybrid_search': True,
+        'reranker_enabled': False, 'reranker_top_n': 20,
+        'context_window': 4096, 'num_predict': 512,
+        'max_tokens': 2048, 'temperature': 0.05, 'timeout_seconds': 180,
+    },
+    'desktop_power': {
+        'top_k': 5, 'min_score': 0.10, 'hybrid_search': True,
+        'reranker_enabled': False, 'reranker_top_n': 20,
+        'context_window': 4096, 'num_predict': 512,
+        'max_tokens': 2048, 'temperature': 0.05, 'timeout_seconds': 180,
+    },
+    'server_max': {
+        'top_k': 10, 'min_score': 0.10, 'hybrid_search': True,
+        'reranker_enabled': False, 'reranker_top_n': 30,
+        'context_window': 4096, 'num_predict': 512,
+        'max_tokens': 2048, 'temperature': 0.05, 'timeout_seconds': 180,
+    },
+}
+
+
+def _detect_hardware_class():
+    """Read system_profile.json, falling back to live nvidia-smi + psutil probe."""
+    root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
+    path = os.path.join(root, "config", "system_profile.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        hw = data.get("hardware", {})
+        vram = hw.get("gpu_vram_gb", 0.0)
+        ram = hw.get("ram_gb", 0.0)
+        profile = data.get("profile", {}).get("recommended_profile", "desktop_power")
+        if vram > 0 or ram > 0:
+            return profile, vram, ram
+    except Exception:
+        pass
+
+    # Live probe fallback when system_profile.json is missing or empty.
+    vram = 0.0
+    ram = 0.0
+    try:
+        import psutil
+        ram = round(psutil.virtual_memory().total / (1024 ** 3), 1)
+    except Exception:
+        pass
+    try:
+        import subprocess as _sp
+        out = _sp.run(
+            ["nvidia-smi", "--query-gpu=memory.total",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if out.returncode == 0:
+            vram = round(float(out.stdout.strip().splitlines()[0]) / 1024, 1)
+    except Exception:
+        pass
+
+    if vram >= 24:
+        profile = "server_max"
+    elif vram >= 8:
+        profile = "desktop_power"
+    else:
+        profile = "laptop_safe"
+    return profile, vram, ram
+
+
+# Approximate model weights and KV cache cost for VRAM overflow detection.
+_MODEL_SPECS = {
+    "phi4-mini":        {"weight_gb": 2.3, "kv_per_1k_mb": 150, "gpu_tok_s": 45},
+    "phi4:14b-q4_K_M":  {"weight_gb": 9.1, "kv_per_1k_mb": 400, "gpu_tok_s": 20},
+    "mistral:7b":       {"weight_gb": 4.1, "kv_per_1k_mb": 200, "gpu_tok_s": 35},
+    "mistral-nemo:12b": {"weight_gb": 7.1, "kv_per_1k_mb": 350, "gpu_tok_s": 22},
+    "gemma3:4b":        {"weight_gb": 3.3, "kv_per_1k_mb": 150, "gpu_tok_s": 40},
+}
+
+
+def _vram_overflows(model_name, ctx_window, vram_gb):
+    """True if model + KV cache at ctx_window exceeds available VRAM."""
+    if vram_gb <= 0:
+        return True
+    spec = _MODEL_SPECS.get(model_name, _MODEL_SPECS.get("phi4:14b-q4_K_M"))
+    kv_gb = (ctx_window / 1000) * spec["kv_per_1k_mb"] / 1024
+    return (spec["weight_gb"] + kv_gb) > vram_gb * 0.95
+
+
+def _estimate_query_seconds(top_k, ctx_window, num_predict, vram_gb,
+                            model_name="phi4:14b-q4_K_M"):
+    """Estimate query time in seconds for given settings and hardware."""
+    spec = _MODEL_SPECS.get(model_name, _MODEL_SPECS.get("phi4:14b-q4_K_M"))
+    chunk_tokens = 300
+    prompt_tokens = 520 + top_k * chunk_tokens
+    output_tokens = min(num_predict, 200)
+    overflow = _vram_overflows(model_name, ctx_window, vram_gb)
+    if overflow:
+        prompt_rate = max(spec["gpu_tok_s"] // 5, 3)
+        gen_rate = max(spec["gpu_tok_s"] // 8, 2)
+    else:
+        prompt_rate = spec["gpu_tok_s"] * 3  # prompt eval ~3x gen speed
+        gen_rate = spec["gpu_tok_s"]
+    return prompt_tokens / prompt_rate + output_tokens / gen_rate
+
+
+def _run_profile_switch(tab, profile):
+    """Background thread: run subprocess, reload config, reset backends."""
+    root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
+    old_embed = getattr(getattr(tab.config, "embedding", None), "model_name", "")
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, os.path.join(root, "scripts", "_profile_switch.py"), profile],
+            capture_output=True, text=True, timeout=10, cwd=root)
+        if proc.returncode != 0:
+            safe_after(tab, 0, tab._profile_switch_failed, proc.stderr.strip()[:80])
+            return
+    except Exception as e:
+        safe_after(tab, 0, tab._profile_switch_failed, str(e)[:80])
+        return
+
+    try:
+        from src.core.config import load_config
+        new_config = load_config(root)
+    except Exception as e:
+        safe_after(tab, 0, tab._profile_switch_failed,
+                   "Config reload: {}".format(str(e)[:60]))
+        return
+
+    new_config.mode = tab.config.mode
+    try:
+        from src.core.network_gate import configure_gate
+        if new_config.mode == "online":
+            configure_gate(
+                mode="online",
+                api_endpoint=getattr(
+                    getattr(new_config, "api", None), "endpoint", "") or "",
+                allowed_prefixes=getattr(
+                    getattr(new_config, "api", None),
+                    "allowed_endpoint_prefixes", []))
+        else:
+            configure_gate(mode=new_config.mode)
+    except Exception:
+        pass
+
+    new_embed = getattr(getattr(new_config, "embedding", None), "model_name", "")
+    embed_changed = old_embed and new_embed and old_embed != new_embed
+    if embed_changed:
+        try:
+            from src.gui.launch_gui import clear_embedder_cache
+            clear_embedder_cache()
+        except Exception as e:
+            logger.warning("Could not clear embedder cache: %s", e)
+
+    safe_after(tab, 0, tab._profile_switch_done,
+               new_config, profile, embed_changed, old_embed, new_embed)
+
 
 class TuningTab(tk.Frame):
-    """
-    Retrieval/LLM tuning sliders, profile/model ranking, and reset.
-
-    Embeddable Frame -- placed inside the Settings notebook Tuning tab.
-    """
+    """Retrieval/LLM tuning with per-setting Default checkboxes and latency warnings."""
 
     def __init__(self, parent, config, app_ref):
-        """Create the tuning tab with all slider sections.
-
-        Args:
-            parent: Parent tk widget (the SettingsView notebook).
-            config: Live config object -- sliders read from and write to this.
-            app_ref: Reference to HybridRAGApp for backend reset after profile switch.
-        """
         t = current_theme()
         super().__init__(parent, bg=t["panel_bg"])
         self.config = config
         self._app = app_ref
 
-        # Snapshot current values so Reset can restore them
+        self._hw_class, self._vram_gb, self._ram_gb = _detect_hardware_class()
+        self._safe = SAFE_DEFAULTS.get(self._hw_class, SAFE_DEFAULTS['desktop_power'])
+
+        # Track default checkbox vars and lockable widgets for all settings
+        self._default_vars = {}
+        self._scales = {}
+        self._check_widgets = {}
+
+        self._last_popup_key = None
         self._original_values = self._capture_values()
 
-        # Build sections
         self._build_retrieval_section(t)
         self._build_llm_section(t)
         self._build_profile_section(t)
         self._build_reset_button(t)
 
     def _capture_values(self):
-        """Capture current config values for reset."""
         retrieval = getattr(self.config, "retrieval", None)
         api = getattr(self.config, "api", None)
+        ollama = getattr(self.config, "ollama", None)
         return {
-            "top_k": getattr(retrieval, "top_k", 8) if retrieval else 8,
-            "min_score": getattr(retrieval, "min_score", 0.20) if retrieval else 0.20,
+            "top_k": getattr(retrieval, "top_k", 5) if retrieval else 5,
+            "min_score": getattr(retrieval, "min_score", 0.10) if retrieval else 0.10,
             "hybrid_search": getattr(retrieval, "hybrid_search", True) if retrieval else True,
             "reranker_enabled": getattr(retrieval, "reranker_enabled", False) if retrieval else False,
+            "reranker_top_n": getattr(retrieval, "reranker_top_n", 20) if retrieval else 20,
+            "context_window": getattr(ollama, "context_window", 4096) if ollama else 4096,
+            "num_predict": getattr(ollama, "num_predict", 512) if ollama else 512,
             "max_tokens": getattr(api, "max_tokens", 2048) if api else 2048,
             "temperature": getattr(api, "temperature", 0.1) if api else 0.1,
             "timeout_seconds": getattr(api, "timeout_seconds", 30) if api else 30,
         }
 
     def get_profile_options(self):
-        """Return the list of available profile names (public testing API)."""
         return list(self.profile_dropdown["values"])
+
+    # ----------------------------------------------------------------
+    # HELPER: slider row with Default checkbox
+    # ----------------------------------------------------------------
+
+    def _build_slider_row(self, parent, t, key, label, var, from_, to_,
+                          resolution=1, on_change=None):
+        """Build a labeled slider with a Default checkbox."""
+        row = tk.Frame(parent, bg=t["panel_bg"])
+        row.pack(fill=tk.X, pady=3)
+
+        tk.Label(row, text=label, width=16, anchor=tk.W,
+                 bg=t["panel_bg"], fg=t["fg"], font=FONT).pack(side=tk.LEFT)
+
+        scale = tk.Scale(
+            row, from_=from_, to=to_, resolution=resolution,
+            orient=tk.HORIZONTAL, variable=var,
+            command=lambda v: on_change() if on_change else None,
+            bg=t["panel_bg"], fg=t["fg"], troughcolor=t["input_bg"],
+            highlightthickness=0, font=FONT,
+        )
+        scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        safe_val = self._safe.get(key)
+        def_var = tk.BooleanVar(value=(var.get() == safe_val))
+        cb = tk.Checkbutton(
+            row, text="Default", variable=def_var,
+            command=lambda: self._on_default_toggle(key, var, scale, def_var, on_change),
+            bg=t["panel_bg"], fg=t["fg"],
+            selectcolor=t["input_bg"], activebackground=t["panel_bg"],
+            activeforeground=t["fg"], font=FONT_SMALL,
+        )
+        cb.pack(side=tk.RIGHT, padx=(4, 0))
+
+        if def_var.get():
+            scale.config(state=tk.DISABLED)
+
+        self._default_vars[key] = def_var
+        self._scales[key] = scale
+        return scale
+
+    def _build_check_row(self, parent, t, key, label, var, on_change=None):
+        """Build a labeled checkbox with a Default checkbox."""
+        row = tk.Frame(parent, bg=t["panel_bg"])
+        row.pack(fill=tk.X, pady=3)
+
+        tk.Label(row, text=label, width=16, anchor=tk.W,
+                 bg=t["panel_bg"], fg=t["fg"], font=FONT).pack(side=tk.LEFT)
+
+        cb = tk.Checkbutton(
+            row, variable=var, command=on_change,
+            bg=t["panel_bg"], fg=t["fg"],
+            selectcolor=t["input_bg"], activebackground=t["panel_bg"],
+            activeforeground=t["fg"], font=FONT,
+        )
+        cb.pack(side=tk.LEFT)
+
+        safe_val = self._safe.get(key)
+        def_var = tk.BooleanVar(value=(var.get() == safe_val))
+        def_cb = tk.Checkbutton(
+            row, text="Default", variable=def_var,
+            command=lambda: self._on_default_check_toggle(key, var, cb, def_var, on_change),
+            bg=t["panel_bg"], fg=t["fg"],
+            selectcolor=t["input_bg"], activebackground=t["panel_bg"],
+            activeforeground=t["fg"], font=FONT_SMALL,
+        )
+        def_cb.pack(side=tk.RIGHT, padx=(4, 0))
+
+        if def_var.get():
+            cb.config(state=tk.DISABLED)
+
+        self._default_vars[key] = def_var
+        self._check_widgets[key] = cb
+        return cb
+
+    def _on_default_toggle(self, key, var, scale, def_var, on_change):
+        """Handle Default checkbox toggle for a slider."""
+        if def_var.get():
+            var.set(self._safe[key])
+            scale.config(state=tk.DISABLED)
+        else:
+            scale.config(state=tk.NORMAL)
+        if on_change:
+            on_change()
+
+    def _on_default_check_toggle(self, key, var, cb, def_var, on_change):
+        """Handle Default checkbox toggle for a checkbutton."""
+        if def_var.get():
+            var.set(self._safe[key])
+            cb.config(state=tk.DISABLED)
+        else:
+            cb.config(state=tk.NORMAL)
+        if on_change:
+            on_change()
 
     # ----------------------------------------------------------------
     # RETRIEVAL SETTINGS
     # ----------------------------------------------------------------
 
     def _build_retrieval_section(self, t):
-        """Build retrieval settings section."""
         frame = tk.LabelFrame(self, text="Retrieval Settings", padx=16, pady=8,
-                               bg=t["panel_bg"], fg=t["accent"],
-                               font=FONT_BOLD)
+                               bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=16, pady=(8, 4))
         self._retrieval_frame = frame
 
         retrieval = getattr(self.config, "retrieval", None)
 
-        # top_k slider
-        row_tk = tk.Frame(frame, bg=t["panel_bg"])
-        row_tk.pack(fill=tk.X, pady=4)
-        self._topk_label = tk.Label(
-            row_tk, text="top_k:", width=14, anchor=tk.W,
-            bg=t["panel_bg"], fg=t["fg"], font=FONT)
-        self._topk_label.pack(side=tk.LEFT)
         self.topk_var = tk.IntVar(
-            value=getattr(retrieval, "top_k", 8) if retrieval else 8
-        )
-        self.topk_scale = tk.Scale(
-            row_tk, from_=1, to=50, orient=tk.HORIZONTAL,
-            variable=self.topk_var, command=lambda v: self._on_retrieval_change(),
-            bg=t["panel_bg"], fg=t["fg"], troughcolor=t["input_bg"],
-            highlightthickness=0, font=FONT,
-        )
-        self.topk_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            value=getattr(retrieval, "top_k", 5) if retrieval else 5)
+        self._build_slider_row(frame, t, 'top_k', "top_k:", self.topk_var,
+                               1, 50, on_change=self._on_retrieval_change)
 
-        # min_score slider
-        row_ms = tk.Frame(frame, bg=t["panel_bg"])
-        row_ms.pack(fill=tk.X, pady=4)
-        self._minscore_label = tk.Label(
-            row_ms, text="min_score:", width=14, anchor=tk.W,
-            bg=t["panel_bg"], fg=t["fg"], font=FONT)
-        self._minscore_label.pack(side=tk.LEFT)
         self.minscore_var = tk.DoubleVar(
-            value=getattr(retrieval, "min_score", 0.20) if retrieval else 0.20
-        )
-        self.minscore_scale = tk.Scale(
-            row_ms, from_=0.0, to=1.0, resolution=0.01, orient=tk.HORIZONTAL,
-            variable=self.minscore_var, command=lambda v: self._on_retrieval_change(),
-            bg=t["panel_bg"], fg=t["fg"], troughcolor=t["input_bg"],
-            highlightthickness=0, font=FONT,
-        )
-        self.minscore_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            value=getattr(retrieval, "min_score", 0.10) if retrieval else 0.10)
+        self._build_slider_row(frame, t, 'min_score', "min_score:", self.minscore_var,
+                               0.0, 1.0, resolution=0.01,
+                               on_change=self._on_retrieval_change)
 
-        # Hybrid search toggle
-        row_hs = tk.Frame(frame, bg=t["panel_bg"])
-        row_hs.pack(fill=tk.X, pady=4)
-        self._hybrid_label = tk.Label(
-            row_hs, text="Hybrid search:", width=14, anchor=tk.W,
-            bg=t["panel_bg"], fg=t["fg"], font=FONT)
-        self._hybrid_label.pack(side=tk.LEFT)
         self.hybrid_var = tk.BooleanVar(
-            value=getattr(retrieval, "hybrid_search", True) if retrieval else True
-        )
-        self._hybrid_cb = tk.Checkbutton(
-            row_hs, variable=self.hybrid_var,
-            command=self._on_retrieval_change,
-            bg=t["panel_bg"], fg=t["fg"],
-            selectcolor=t["input_bg"], activebackground=t["panel_bg"],
-            activeforeground=t["fg"], font=FONT,
-        )
-        self._hybrid_cb.pack(side=tk.LEFT)
+            value=getattr(retrieval, "hybrid_search", True) if retrieval else True)
+        self._build_check_row(frame, t, 'hybrid_search', "Hybrid search:",
+                              self.hybrid_var, on_change=self._on_retrieval_change)
 
-        # Reranker toggle
-        row_rr = tk.Frame(frame, bg=t["panel_bg"])
-        row_rr.pack(fill=tk.X, pady=4)
-        self._reranker_label = tk.Label(
-            row_rr, text="Reranker:", width=14, anchor=tk.W,
-            bg=t["panel_bg"], fg=t["fg"], font=FONT)
-        self._reranker_label.pack(side=tk.LEFT)
         self.reranker_var = tk.BooleanVar(
-            value=getattr(retrieval, "reranker_enabled", False) if retrieval else False
-        )
-        self._reranker_cb = tk.Checkbutton(
-            row_rr, variable=self.reranker_var,
-            command=self._on_retrieval_change,
-            bg=t["panel_bg"], fg=t["fg"],
-            selectcolor=t["input_bg"], activebackground=t["panel_bg"],
-            activeforeground=t["fg"], font=FONT,
-        )
-        self._reranker_cb.pack(side=tk.LEFT)
+            value=getattr(retrieval, "reranker_enabled", False) if retrieval else False)
+        self._build_check_row(frame, t, 'reranker_enabled', "Reranker:",
+                              self.reranker_var, on_change=self._on_retrieval_change)
 
-        # Latency warning label (below retrieval controls)
+        self.reranker_topn_var = tk.IntVar(
+            value=getattr(retrieval, "reranker_top_n", 20) if retrieval else 20)
+        self._build_slider_row(frame, t, 'reranker_top_n', "Reranker top_n:",
+                               self.reranker_topn_var, 10, 100,
+                               on_change=self._on_retrieval_change)
+
+        # Latency warning label
         self._latency_warn_label = tk.Label(
             frame, text="", anchor=tk.W, wraplength=600,
             bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
         )
         self._latency_warn_label.pack(fill=tk.X, pady=(4, 0))
-        self._update_retrieval_latency_warning()
+        self._update_latency_warning()
 
     def _on_retrieval_change(self):
-        """Write retrieval settings to config immediately."""
         retrieval = getattr(self.config, "retrieval", None)
         if retrieval:
             retrieval.top_k = self.topk_var.get()
             retrieval.min_score = self.minscore_var.get()
             retrieval.hybrid_search = self.hybrid_var.get()
             retrieval.reranker_enabled = self.reranker_var.get()
-        self._update_retrieval_latency_warning()
-
-    def _update_retrieval_latency_warning(self):
-        """Show warning when retrieval settings will cause high latency."""
-        if not hasattr(self, "_latency_warn_label"):
-            return
-        top_k = self.topk_var.get()
-        reranker_on = self.reranker_var.get()
-        warnings = []
-        if top_k > 10:
-            warnings.append(
-                "top_k={} -- each extra chunk adds ~1-3s LLM inference "
-                "time on 12GB GPUs".format(top_k)
-            )
-        if top_k > 20:
-            warnings.append(
-                "top_k>{} requires 24GB+ VRAM to avoid excessive latency"
-                .format(20)
-            )
-        if reranker_on:
-            warnings.append(
-                "Reranker backend is retired (sentence-transformers removed). "
-                "Enable has no effect."
-            )
-        t = current_theme()
-        if warnings:
-            self._latency_warn_label.config(
-                text="[WARN] " + "; ".join(warnings),
-                fg=t["orange"],
-            )
-        else:
-            self._latency_warn_label.config(text="", fg=t["gray"])
+            retrieval.reranker_top_n = self.reranker_topn_var.get()
+        self._update_latency_warning()
+        self._check_dangerous_change()
 
     # ----------------------------------------------------------------
     # LLM SETTINGS
     # ----------------------------------------------------------------
 
     def _build_llm_section(self, t):
-        """Build LLM settings section."""
-        frame = tk.LabelFrame(self, text="LLM Settings", padx=16, pady=8,
-                               bg=t["panel_bg"], fg=t["accent"],
-                               font=FONT_BOLD)
+        frame = tk.LabelFrame(self, text="LLM Settings (Offline)", padx=16, pady=8,
+                               bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=16, pady=8)
         self._llm_frame = frame
 
+        ollama = getattr(self.config, "ollama", None)
         api = getattr(self.config, "api", None)
 
-        # Max tokens slider
-        row_mt = tk.Frame(frame, bg=t["panel_bg"])
-        row_mt.pack(fill=tk.X, pady=4)
-        self._maxtokens_label = tk.Label(
-            row_mt, text="Max tokens:", width=14, anchor=tk.W,
-            bg=t["panel_bg"], fg=t["fg"], font=FONT)
-        self._maxtokens_label.pack(side=tk.LEFT)
+        self.ctx_window_var = tk.IntVar(
+            value=getattr(ollama, "context_window", 4096) if ollama else 4096)
+        self._build_slider_row(frame, t, 'context_window', "Context window:",
+                               self.ctx_window_var, 1024, 32768,
+                               on_change=self._on_llm_change)
+
+        self.num_predict_var = tk.IntVar(
+            value=getattr(ollama, "num_predict", 512) if ollama else 512)
+        self._build_slider_row(frame, t, 'num_predict', "Num predict:",
+                               self.num_predict_var, 64, 4096,
+                               on_change=self._on_llm_change)
+
         self.maxtokens_var = tk.IntVar(
-            value=getattr(api, "max_tokens", 2048) if api else 2048
-        )
-        self.maxtokens_scale = tk.Scale(
-            row_mt, from_=256, to=4096, orient=tk.HORIZONTAL,
-            variable=self.maxtokens_var, command=lambda v: self._on_llm_change(),
-            bg=t["panel_bg"], fg=t["fg"], troughcolor=t["input_bg"],
-            highlightthickness=0, font=FONT,
-        )
-        self.maxtokens_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            value=getattr(api, "max_tokens", 2048) if api else 2048)
+        self._build_slider_row(frame, t, 'max_tokens', "Max tokens (API):",
+                               self.maxtokens_var, 256, 4096,
+                               on_change=self._on_llm_change)
 
-        # Optional persistence for max_tokens (off by default).
-        row_mt_persist = tk.Frame(frame, bg=t["panel_bg"])
-        row_mt_persist.pack(fill=tk.X, pady=(0, 4))
-        self.persist_maxtokens_var = tk.BooleanVar(value=False)
-        self._persisted_maxtokens = None
-        self._persist_maxtokens_cb = tk.Checkbutton(
-            row_mt_persist, text="Set as default",
-            variable=self.persist_maxtokens_var,
-            command=self._on_llm_change,
-            bg=t["panel_bg"], fg=t["fg"],
-            selectcolor=t["input_bg"], activebackground=t["panel_bg"],
-            activeforeground=t["fg"], font=FONT_SMALL,
-        )
-        self._persist_maxtokens_cb.pack(side=tk.LEFT, padx=(14, 0))
-
-        # Temperature slider
-        row_temp = tk.Frame(frame, bg=t["panel_bg"])
-        row_temp.pack(fill=tk.X, pady=4)
-        self._temp_label = tk.Label(
-            row_temp, text="Temperature:", width=14, anchor=tk.W,
-            bg=t["panel_bg"], fg=t["fg"], font=FONT)
-        self._temp_label.pack(side=tk.LEFT)
         self.temp_var = tk.DoubleVar(
-            value=getattr(api, "temperature", 0.1) if api else 0.1
-        )
-        self.temp_scale = tk.Scale(
-            row_temp, from_=0.0, to=1.0, resolution=0.01, orient=tk.HORIZONTAL,
-            variable=self.temp_var, command=lambda v: self._on_llm_change(),
-            bg=t["panel_bg"], fg=t["fg"], troughcolor=t["input_bg"],
-            highlightthickness=0, font=FONT,
-        )
-        self.temp_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            value=getattr(api, "temperature", 0.1) if api else 0.1)
+        self._build_slider_row(frame, t, 'temperature', "Temperature:",
+                               self.temp_var, 0.0, 1.0, resolution=0.01,
+                               on_change=self._on_llm_change)
 
-        # Timeout slider
-        row_to = tk.Frame(frame, bg=t["panel_bg"])
-        row_to.pack(fill=tk.X, pady=4)
-        self._timeout_label = tk.Label(
-            row_to, text="Timeout (s):", width=14, anchor=tk.W,
-            bg=t["panel_bg"], fg=t["fg"], font=FONT)
-        self._timeout_label.pack(side=tk.LEFT)
         self.timeout_var = tk.IntVar(
-            value=getattr(api, "timeout_seconds", 30) if api else 30
-        )
-        self.timeout_scale = tk.Scale(
-            row_to, from_=10, to=120, orient=tk.HORIZONTAL,
-            variable=self.timeout_var, command=lambda v: self._on_llm_change(),
-            bg=t["panel_bg"], fg=t["fg"], troughcolor=t["input_bg"],
-            highlightthickness=0, font=FONT,
-        )
-        self.timeout_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            value=getattr(api, "timeout_seconds", 30) if api else 30)
+        self._build_slider_row(frame, t, 'timeout_seconds', "Timeout (s):",
+                               self.timeout_var, 10, 300,
+                               on_change=self._on_llm_change)
 
     def _on_llm_change(self):
-        """Write LLM settings to config immediately."""
+        ollama = getattr(self.config, "ollama", None)
         api = getattr(self.config, "api", None)
+        if ollama:
+            ollama.context_window = self.ctx_window_var.get()
+            ollama.num_predict = self.num_predict_var.get()
         if api:
-            max_tokens = self.maxtokens_var.get()
-            api.max_tokens = max_tokens
+            api.max_tokens = self.maxtokens_var.get()
             api.temperature = self.temp_var.get()
             api.timeout_seconds = self.timeout_var.get()
-            if getattr(self, "persist_maxtokens_var", None) and self.persist_maxtokens_var.get():
-                if self._persisted_maxtokens != max_tokens:
-                    try:
-                        from src.core.config import save_config_field
-                        save_config_field("api.max_tokens", max_tokens)
-                        self._persisted_maxtokens = max_tokens
-                    except Exception as e:
-                        logger.warning("Could not persist api.max_tokens: %s", e)
+        self._update_latency_warning()
+        self._check_dangerous_change()
+
+    # ----------------------------------------------------------------
+    # LATENCY WARNING (inline label + popup for dangerous thresholds)
+    # ----------------------------------------------------------------
+
+    def _get_current_model(self):
+        """Return the active Ollama model name."""
+        ollama = getattr(self.config, "ollama", None)
+        return getattr(ollama, "model", "phi4:14b-q4_K_M") if ollama else "phi4:14b-q4_K_M"
+
+    def _update_latency_warning(self):
+        if not hasattr(self, "_latency_warn_label"):
+            return
+        top_k = self.topk_var.get()
+        ctx = self.ctx_window_var.get() if hasattr(self, "ctx_window_var") else 4096
+        num_pred = self.num_predict_var.get() if hasattr(self, "num_predict_var") else 512
+        model = self._get_current_model()
+        est = _estimate_query_seconds(top_k, ctx, num_pred, self._vram_gb, model)
+        overflow = _vram_overflows(model, ctx, self._vram_gb)
+
+        warnings = []
+        if overflow and self._vram_gb > 0:
+            warnings.append("VRAM overflow: {} + ctx={} on {:.0f}GB".format(
+                model, ctx, self._vram_gb))
+        if top_k > 10:
+            warnings.append("top_k={} adds ~{:.0f}s extra".format(
+                top_k, (top_k - 5) * 300 / 60))
+        if self.reranker_var.get():
+            warnings.append("Reranker backend retired (no effect)")
+
+        t = current_theme()
+        if est > 120:
+            self._latency_warn_label.config(
+                text="[WARN] Est. ~{:.0f}s/query -- {}".format(
+                    est, " | ".join(warnings) if warnings else "reduce settings"),
+                fg=t["red"])
+        elif warnings:
+            self._latency_warn_label.config(
+                text="[WARN] Est. ~{:.0f}s/query -- {}".format(
+                    est, " | ".join(warnings)),
+                fg=t["orange"])
+        else:
+            self._latency_warn_label.config(
+                text="Est. ~{:.0f}s/query ({:.0f}GB VRAM, {})".format(
+                    est, self._vram_gb, model),
+                fg=t["green"])
+
+    def _check_dangerous_change(self):
+        """Show a one-time popup when settings cross dangerous thresholds."""
+        ctx = self.ctx_window_var.get() if hasattr(self, "ctx_window_var") else 4096
+        top_k = self.topk_var.get()
+        num_pred = self.num_predict_var.get() if hasattr(self, "num_predict_var") else 512
+        reranker = self.reranker_var.get()
+        model = self._get_current_model()
+
+        popup_key = None
+        title = ""
+        msg = ""
+
+        overflow = _vram_overflows(model, ctx, self._vram_gb)
+        if overflow and self._vram_gb > 0:
+            spec = _MODEL_SPECS.get(model, _MODEL_SPECS.get("phi4:14b-q4_K_M"))
+            kv_gb = (ctx / 1000) * spec["kv_per_1k_mb"] / 1024
+            total = spec["weight_gb"] + kv_gb
+            est = _estimate_query_seconds(top_k, ctx, num_pred, self._vram_gb, model)
+            popup_key = "ctx_{}".format(ctx // 4096)
+            title = "VRAM Overflow -- High Latency"
+            msg = (
+                "context_window={} with {} needs ~{:.1f}GB VRAM\n"
+                "but this machine has {:.0f}GB.\n\n"
+                "Model weights: {:.1f}GB\n"
+                "KV cache at {}: ~{:.1f}GB\n\n"
+                "Ollama will spill to CPU.\n"
+                "Estimated query time: {:.0f}s (vs {:.0f}s at 4096).\n\n"
+                "Recommended: 4096 for 12GB, 8192+ for 24GB+."
+            ).format(
+                ctx, model, total, self._vram_gb,
+                spec["weight_gb"], ctx, kv_gb,
+                est,
+                _estimate_query_seconds(top_k, 4096, num_pred, self._vram_gb, model),
+            )
+        elif top_k > 15:
+            est = _estimate_query_seconds(top_k, ctx, num_pred, self._vram_gb, model)
+            popup_key = "topk_high"
+            title = "High top_k -- Slow Queries"
+            msg = (
+                "top_k={} injects ~{} tokens of context.\n\n"
+                "Estimated query time: {:.0f}s on {:.0f}GB VRAM.\n\n"
+                "Recommended: top_k <= 8 for 12GB GPU."
+            ).format(top_k, top_k * 300, est, self._vram_gb)
+        elif reranker:
+            popup_key = "reranker_on"
+            title = "Reranker Backend Retired"
+            msg = (
+                "The cross-encoder reranker was removed with "
+                "sentence-transformers.\n\n"
+                "Enabling this has no effect. Setting preserved "
+                "for forward compatibility."
+            )
+
+        if popup_key and popup_key != self._last_popup_key:
+            self._last_popup_key = popup_key
+            messagebox.showwarning(title, msg)
 
     # ----------------------------------------------------------------
     # PERFORMANCE PROFILE
     # ----------------------------------------------------------------
 
     def _build_profile_section(self, t):
-        """Build performance profile section with ranked model table."""
         frame = tk.LabelFrame(self, text="Profile & Model Ranking", padx=16, pady=8,
-                               bg=t["panel_bg"], fg=t["accent"],
-                               font=FONT_BOLD)
+                               bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=16, pady=8)
         self._profile_frame = frame
 
-        # Profile selector row
         row = tk.Frame(frame, bg=t["panel_bg"])
         row.pack(fill=tk.X, pady=4)
 
@@ -364,12 +576,17 @@ class TuningTab(tk.Frame):
             row, text="Apply", command=self._on_profile_change, width=8,
             bg=t["accent"], fg=t["accent_fg"], font=FONT,
             relief=tk.FLAT, bd=0, padx=6, pady=2,
-            activebackground=t["accent_hover"],
-            activeforeground=t["accent_fg"],
+            activebackground=t["accent_hover"], activeforeground=t["accent_fg"],
         )
         self.profile_apply_btn.pack(side=tk.LEFT, padx=(8, 0))
 
-        # Profile info line
+        # Hardware info line
+        hw_text = "Detected: {:.0f}GB RAM, {:.0f}GB VRAM -> {}".format(
+            self._ram_gb, self._vram_gb, self._hw_class)
+        tk.Label(frame, text=hw_text, anchor=tk.W,
+                 bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+                 ).pack(fill=tk.X, pady=(2, 0))
+
         self.profile_info_label = tk.Label(
             frame, text="", anchor=tk.W, fg=t["fg"],
             bg=t["panel_bg"], font=FONT_SMALL,
@@ -382,7 +599,6 @@ class TuningTab(tk.Frame):
         )
         self.profile_status_label.pack(fill=tk.X, pady=2)
 
-        # Ranked model table (read-only text widget)
         self.model_table = tk.Text(
             frame, height=12, wrap=tk.NONE, state=tk.DISABLED,
             font=("Consolas", 9), bg=t["input_bg"], fg=t["input_fg"],
@@ -390,17 +606,14 @@ class TuningTab(tk.Frame):
         )
         self.model_table.pack(fill=tk.X, pady=(4, 2))
 
-        # Load current profile and show ranking
         self._detect_current_profile()
         self._refresh_profile_info()
         self._refresh_model_table()
 
     def _detect_current_profile(self):
-        """Infer current profile from config by matching embedding model."""
         self.profile_var.set(_detect_profile_name(self.config))
 
     def _refresh_profile_info(self):
-        """Show embedder + LLM info for the currently detected profile."""
         embed = getattr(self.config, "embedding", None)
         ollama = getattr(self.config, "ollama", None)
         model_name = getattr(embed, "model_name", "?") if embed else "?"
@@ -409,12 +622,10 @@ class TuningTab(tk.Frame):
         llm = getattr(ollama, "model", "?") if ollama else "?"
         self.profile_info_label.config(
             text="Embedder: {} ({}d, {})  |  LLM: {}".format(
-                model_name, dim, device, llm
-            ),
+                model_name, dim, device, llm),
         )
 
     def _refresh_model_table(self):
-        """Populate the ranked model table for the current profile."""
         text = _build_ranking_text(self.profile_var.get())
         self.model_table.config(state=tk.NORMAL)
         self.model_table.delete("1.0", tk.END)
@@ -422,169 +633,92 @@ class TuningTab(tk.Frame):
         self.model_table.config(state=tk.DISABLED)
 
     def _on_profile_change(self, event=None):
-        """Apply profile switch in a background thread."""
         t = current_theme()
         profile = self.profile_var.get()
-
         self.profile_apply_btn.config(state=tk.DISABLED)
         self.profile_status_label.config(
             text="Switching to {}...".format(profile), fg=t["gray"],
         )
-
         threading.Thread(
-            target=self._do_profile_switch,
-            args=(profile,),
-            daemon=True,
+            target=self._do_profile_switch, args=(profile,), daemon=True,
         ).start()
 
     def _do_profile_switch(self, profile):
-        """Background thread: run subprocess, reload config, reset backends."""
-        from src.gui.helpers.safe_after import safe_after
-        root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
-
-        old_embed_model = getattr(
-            getattr(self.config, "embedding", None), "model_name", ""
-        )
-
-        try:
-            proc = subprocess.run(
-                [sys.executable,
-                 os.path.join(root, "scripts", "_profile_switch.py"),
-                 profile],
-                capture_output=True, text=True, timeout=10,
-                cwd=root,
-            )
-            if proc.returncode != 0:
-                safe_after(self, 0, self._profile_switch_failed,
-                           proc.stderr.strip()[:80])
-                return
-        except Exception as e:
-            safe_after(self, 0, self._profile_switch_failed, str(e)[:80])
-            return
-
-        try:
-            from src.core.config import load_config
-            new_config = load_config(root)
-        except Exception as e:
-            safe_after(self, 0, self._profile_switch_failed,
-                       "Config reload: {}".format(str(e)[:60]))
-            return
-
-        new_config.mode = self.config.mode
-
-        # Reconfigure network gate to match preserved mode (prevents desync)
-        try:
-            from src.core.network_gate import configure_gate
-            if new_config.mode == "online":
-                configure_gate(
-                    mode="online",
-                    api_endpoint=getattr(
-                        getattr(new_config, "api", None), "endpoint", "",
-                    ) or "",
-                    allowed_prefixes=getattr(
-                        getattr(new_config, "api", None),
-                        "allowed_endpoint_prefixes", [],
-                    ),
-                )
-            else:
-                configure_gate(mode=new_config.mode)
-        except Exception:
-            pass
-
-        new_embed_model = getattr(
-            getattr(new_config, "embedding", None), "model_name", ""
-        )
-        embedding_changed = (
-            old_embed_model
-            and new_embed_model
-            and old_embed_model != new_embed_model
-        )
-
-        if embedding_changed:
-            try:
-                from src.gui.launch_gui import clear_embedder_cache
-                clear_embedder_cache()
-                logger.info("Embedder cache cleared (model changed)")
-            except Exception as e:
-                logger.warning("Could not clear embedder cache: %s", e)
-
-        safe_after(self, 0, self._profile_switch_done,
-                   new_config, profile, embedding_changed,
-                   old_embed_model, new_embed_model)
+        _run_profile_switch(self, profile)
 
     def _profile_switch_done(self, new_config, profile, embedding_changed,
                              old_embed_model, new_embed_model):
-        """Main-thread callback after background profile switch succeeds."""
         t = current_theme()
 
         if embedding_changed:
-            from tkinter import messagebox
             messagebox.showwarning(
                 "Re-Index Required",
                 "Embedding model changed:\n\n"
-                "  Old: {}\n"
-                "  New: {}\n\n"
-                "Existing vectors are INCOMPATIBLE with the\n"
-                "new model. You MUST re-index all documents\n"
-                "before querying.\n\n"
-                "Use the Index panel to start a new index.".format(
-                    old_embed_model, new_embed_model,
-                ),
+                "  Old: {}\n  New: {}\n\n"
+                "Existing vectors are INCOMPATIBLE.\n"
+                "You MUST re-index before querying.".format(
+                    old_embed_model, new_embed_model),
             )
 
         self.config = new_config
         try:
             if hasattr(self._app, "reload_config"):
                 self._app.reload_config(new_config)
-
             if hasattr(self._app, "reset_backends"):
                 self._app.reset_backends()
         except Exception as e:
-            logger.warning("Profile apply failed during backend reset: %s", e)
+            logger.warning("Profile apply failed: %s", e)
             safe_after(self, 0, self._profile_switch_failed,
                        "Backend reset: {}".format(str(e)[:60]))
             return
+
+        # Update safe defaults to match new profile
+        self._hw_class = profile
+        self._safe = SAFE_DEFAULTS.get(profile, SAFE_DEFAULTS['desktop_power'])
 
         self._refresh_profile_info()
         self._refresh_model_table()
         self._sync_sliders_to_config()
 
-        status_parts = ["[OK] Switched to {}".format(profile)]
+        status = "[OK] Switched to {}".format(profile)
         if embedding_changed:
-            status_parts.append("-- RE-INDEX REQUIRED")
-        self.profile_status_label.config(
-            text=" ".join(status_parts), fg=t["green"],
-        )
+            status += " -- RE-INDEX REQUIRED"
+        self.profile_status_label.config(text=status, fg=t["green"])
         self.profile_apply_btn.config(state=tk.NORMAL)
 
     def _profile_switch_failed(self, error_msg):
-        """Main-thread callback when profile switch fails."""
         t = current_theme()
         self.profile_status_label.config(
-            text="[FAIL] {}".format(error_msg), fg=t["red"],
-        )
+            text="[FAIL] {}".format(error_msg), fg=t["red"])
         self.profile_apply_btn.config(state=tk.NORMAL)
 
     def _sync_sliders_to_config(self):
-        """Sync slider values to match the newly loaded config."""
-        retrieval = getattr(self.config, "retrieval", None)
-        api = getattr(self.config, "api", None)
-        if retrieval:
-            self.topk_var.set(getattr(retrieval, "top_k", 8))
-            self.minscore_var.set(getattr(retrieval, "min_score", 0.20))
-            self.hybrid_var.set(getattr(retrieval, "hybrid_search", True))
-            self.reranker_var.set(getattr(retrieval, "reranker_enabled", False))
-        if api:
-            self.maxtokens_var.set(getattr(api, "max_tokens", 2048))
-            self.temp_var.set(getattr(api, "temperature", 0.1))
-            self.timeout_var.set(getattr(api, "timeout_seconds", 30))
+        self._apply_values(self._capture_values())
+        self._update_latency_warning()
+
+    def _all_vars(self):
+        """Map setting keys to their tk variables."""
+        return {
+            'top_k': self.topk_var, 'min_score': self.minscore_var,
+            'hybrid_search': self.hybrid_var,
+            'reranker_enabled': self.reranker_var,
+            'reranker_top_n': self.reranker_topn_var,
+            'context_window': self.ctx_window_var,
+            'num_predict': self.num_predict_var,
+            'max_tokens': self.maxtokens_var,
+            'temperature': self.temp_var,
+            'timeout_seconds': self.timeout_var,
+        }
+
+    def _var_matches_safe(self, key):
+        var = self._all_vars().get(key)
+        return var is None or var.get() == self._safe.get(key)
 
     # ----------------------------------------------------------------
     # RESET TO DEFAULTS
     # ----------------------------------------------------------------
 
     def _build_reset_button(self, t):
-        """Build Reset to Defaults button."""
         btn_frame = tk.Frame(self, bg=t["panel_bg"])
         btn_frame.pack(fill=tk.X, padx=16, pady=16)
         self._reset_frame = btn_frame
@@ -597,36 +731,55 @@ class TuningTab(tk.Frame):
         self._reset_btn.pack(side=tk.LEFT)
         bind_hover(self._reset_btn)
 
-    def _on_reset(self):
-        """Reset all sliders to original values."""
-        orig = self._original_values
-        self.topk_var.set(orig["top_k"])
-        self.minscore_var.set(orig["min_score"])
-        self.hybrid_var.set(orig["hybrid_search"])
-        self.reranker_var.set(orig["reranker_enabled"])
-        self.maxtokens_var.set(orig["max_tokens"])
-        self.temp_var.set(orig["temperature"])
-        self.timeout_var.set(orig["timeout_seconds"])
+        self._lock_all_btn = tk.Button(
+            btn_frame, text="Lock All to Safe", command=self._lock_all_defaults,
+            width=16, bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"],
+            font=FONT, relief=tk.FLAT, bd=0, padx=12, pady=8,
+        )
+        self._lock_all_btn.pack(side=tk.LEFT, padx=(8, 0))
+        bind_hover(self._lock_all_btn)
 
+    def _apply_values(self, vals):
+        """Set all slider/check vars from a dict and refresh default checkboxes."""
+        for key, var in self._all_vars().items():
+            if key in vals:
+                var.set(vals[key])
+        for key, def_var in self._default_vars.items():
+            matches = self._var_matches_safe(key)
+            def_var.set(matches)
+            w = self._scales.get(key) or self._check_widgets.get(key)
+            if w:
+                w.config(state=tk.DISABLED if matches else tk.NORMAL)
         self._on_retrieval_change()
         self._on_llm_change()
+
+    def _on_reset(self):
+        self._apply_values(self._original_values)
+
+    def _lock_all_defaults(self):
+        """Lock every setting to its hardware-safe default (demo-day mode)."""
+        for key, def_var in self._default_vars.items():
+            def_var.set(True)
+            w = self._scales.get(key) or self._check_widgets.get(key)
+            if w:
+                w.config(state=tk.DISABLED)
+        self._apply_values(self._safe)
 
     # ----------------------------------------------------------------
     # THEME
     # ----------------------------------------------------------------
 
     def apply_theme(self, t):
-        """Re-apply theme colors to all widgets."""
         self.configure(bg=t["panel_bg"])
-
         for frame_attr in ("_retrieval_frame", "_llm_frame", "_profile_frame"):
             frame = getattr(self, frame_attr, None)
             if frame:
                 frame.configure(bg=t["panel_bg"], fg=t["accent"])
                 for child in frame.winfo_children():
                     _theme_widget(child, t)
-
         if hasattr(self, "_reset_frame"):
             self._reset_frame.configure(bg=t["panel_bg"])
             self._reset_btn.configure(
+                bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"])
+            self._lock_all_btn.configure(
                 bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"])

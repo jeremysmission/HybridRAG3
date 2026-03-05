@@ -29,13 +29,13 @@
 #
 #   desktop_power (64GB RAM, 12GB VRAM):
 #     - Embedder: nomic-embed-text (768d, CUDA)
-#     - LLM: phi4:14b-q4_K_M (14B, 16K context)
-#     - batch_size=64, top_k=10, block=500K
+#     - LLM: phi4:14b-q4_K_M (14B, 4K context)
+#     - batch_size=64, top_k=5, block=500K
 #
 #   server_max (64GB+ RAM, 24GB+ VRAM):
 #     - Embedder: nomic-embed-text (768d, Ollama)
-#     - LLM: phi4:14b-q4_K_M (14B, 16K context)
-#     - batch_size=128, top_k=15, block=1M
+#     - LLM: phi4:14b-q4_K_M (14B, 4K context)
+#     - batch_size=128, top_k=10, block=1M
 #
 # IMPORTANT:
 #   If the embedding model changes, ALL documents must be RE-INDEXED.
@@ -100,7 +100,7 @@ profiles = {
             'chunk_size': 1200,
             'overlap': 200,
         },
-        'retrieval': {'top_k': 10, 'reranker_top_n': 40},
+        'retrieval': {'top_k': 5, 'reranker_top_n': 20},
         'indexing': {
             'block_chars': 500000,
             'max_chars_per_file': 5000000,
@@ -126,7 +126,7 @@ profiles = {
             'chunk_size': 1200,
             'overlap': 200,
         },
-        'retrieval': {'top_k': 15, 'reranker_top_n': 60},
+        'retrieval': {'top_k': 10, 'reranker_top_n': 30},
         'indexing': {
             'block_chars': 1000000,
             'max_chars_per_file': 10000000,
@@ -178,12 +178,12 @@ desc = {
     'desktop_power': (
         'Desktop (64GB RAM, 12GB VRAM)\n'
         '  Embedder: nomic-embed-text (768d, cuda)\n'
-        '  Default LLM: phi4:14b-q4_K_M (14B, 16K ctx)'
+        '  Default LLM: phi4:14b-q4_K_M (14B, 4K ctx)'
     ),
     'server_max': (
         'Server (64GB+ RAM, 24GB+ VRAM)\n'
         '  Embedder: nomic-embed-text (768d, Ollama)\n'
-        '  Default LLM: phi4:14b-q4_K_M (14B, 16K ctx)'
+        '  Default LLM: phi4:14b-q4_K_M (14B, 4K ctx)'
     ),
 }
 print('[OK]  Profile applied: ' + profile)

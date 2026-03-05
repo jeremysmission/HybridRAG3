@@ -233,18 +233,27 @@ class SettingsView(tk.Frame):
         return self._tuning_tab.reranker_var
 
     @property
+    def reranker_topn_var(self):
+        return self._tuning_tab.reranker_topn_var
+
+    @property
+    def ctx_window_var(self):
+        return self._tuning_tab.ctx_window_var
+
+    @property
+    def num_predict_var(self):
+        return self._tuning_tab.num_predict_var
+
+    @property
     def maxtokens_var(self):
-        """Plain-English: This function handles maxtokens var."""
         return self._tuning_tab.maxtokens_var
 
     @property
     def temp_var(self):
-        """Plain-English: This function handles temp var."""
         return self._tuning_tab.temp_var
 
     @property
     def timeout_var(self):
-        """Plain-English: This function handles timeout var."""
         return self._tuning_tab.timeout_var
 
     @property
