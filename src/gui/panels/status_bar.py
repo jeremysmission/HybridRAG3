@@ -230,6 +230,13 @@ class StatusBar(tk.Frame):
 
         # Backend health line (mode-aware)
         if mode == "online":
+            if not status.get("api_configured") and getattr(self.router, "api", None):
+                # Attempt one late init before declaring a persistent pending state.
+                try:
+                    self.router.api._attempt_late_init()
+                    status = self.router.get_status()
+                except Exception:
+                    pass
             if status.get("api_configured"):
                 self.ollama_label.config(
                     text="Backend Health: Application Programming Interface (API) Ready",

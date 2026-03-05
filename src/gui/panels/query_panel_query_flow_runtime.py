@@ -22,6 +22,24 @@ def _call_engine_with_optional_cancel(method, question, cancel_event):
         return method(question)
 
 
+def _resolve_query_engine(self):
+    """Return a usable query engine, healing stale panel references."""
+    if self.query_engine is not None:
+        return self.query_engine
+
+    # Mode switches can briefly desync panel-local reference from app-level
+    # engine; pull from toplevel app if available.
+    try:
+        app = self.winfo_toplevel()
+        engine = getattr(app, "query_engine", None)
+        if engine is not None:
+            self.query_engine = engine
+            return engine
+    except Exception:
+        pass
+    return None
+
+
 def _on_ask(self, event=None):
     """Handle Ask button click or Enter key.
 
@@ -32,7 +50,8 @@ def _on_ask(self, event=None):
     if not question or question == "Type your question here...":
         return
 
-    if self.query_engine is None:
+    engine = _resolve_query_engine(self)
+    if engine is None:
         self._show_error("[FAIL] Query engine not initialized. Run boot first.")
         return
     if self.is_querying:
@@ -68,7 +87,7 @@ def _on_ask(self, event=None):
     self._overlay.start("Searching documents...")
 
     # Choose streaming path (token-by-token) or fallback (wait for full result)
-    has_stream = hasattr(self.query_engine, "query_stream")
+    has_stream = hasattr(engine, "query_stream")
     if has_stream:
         self._query_thread = threading.Thread(
             target=self._run_query_stream,

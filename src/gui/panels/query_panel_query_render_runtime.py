@@ -19,6 +19,9 @@ def _set_status(self, text):
 def _prepare_streaming(self):
     """Set answer area to NORMAL for live token insertion."""
     self._streaming = True
+    # Re-assert active query controls in case external readiness updates
+    # toggled buttons while generation is still in-flight.
+    self._set_query_controls(running=True)
     self.answer_text.config(state=tk.NORMAL)
     self.answer_text.delete("1.0", tk.END)
 
@@ -273,6 +276,11 @@ def _maybe_show_memory_tuning_popup(self, error_msg):
 
 def set_ready(self, enabled):
     """Enable or disable the Ask button based on backend readiness."""
+    # Never hide/disable Stop while a query is still active.
+    if self.is_querying or self._streaming:
+        self._set_query_controls(running=True)
+        return
+
     t = current_theme()
     if enabled:
         self.ask_btn.config(state=tk.NORMAL, bg=t["accent"],

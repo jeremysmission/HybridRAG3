@@ -178,6 +178,15 @@ def _build_title_bar(self):
     self.theme_btn.pack(side=tk.RIGHT, padx=4)
     bind_hover(self.theme_btn)
 
+    self.maximize_btn = tk.Button(
+        self.title_frame, text="Maximize", width=8, font=FONT,
+        command=self._toggle_maximize,
+        relief=tk.FLAT, bd=0, padx=12, pady=4,
+        bg=t["input_bg"], fg=t["fg"],
+    )
+    self.maximize_btn.pack(side=tk.RIGHT, padx=4)
+    bind_hover(self.maximize_btn)
+
     self.theme_icon_label = tk.Label(
         self.title_frame, text="Theme:", bg=t["panel_bg"],
         fg=t["label_fg"], font=FONT,
@@ -415,6 +424,20 @@ def _toggle_theme(self):
     self._theme = new_theme
     apply_ttk_styles(new_theme)
     self._apply_theme_to_all()
+
+
+def _toggle_maximize(self):
+    """Toggle window maximize/restore focused on query view."""
+    try:
+        if getattr(self, "_maximized", False):
+            self.state("normal")
+            self.maximize_btn.config(text="Maximize")
+        else:
+            self.state("zoomed")
+            self.maximize_btn.config(text="Restore")
+        self._maximized = not getattr(self, "_maximized", False)
+    except Exception:
+        pass
 
 def _apply_theme_to_all(self):
     """Re-apply theme colors to all widgets without rebuilding."""
@@ -683,6 +706,7 @@ def bind_app_runtime_methods(cls):
         "toggle_mode": toggle_mode,
         "_switch_to_online": _switch_to_online,
         "_switch_to_offline": _switch_to_offline,
+        "_toggle_maximize": _toggle_maximize,
         "_persist_mode": _persist_mode,
         "reset_backends": reset_backends,
         "set_ready": set_ready,
