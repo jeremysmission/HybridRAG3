@@ -339,14 +339,20 @@ class QueryPanel(tk.LabelFrame):
         self.network_label.pack(fill=tk.X)
 
         # -- Answer area (scrollable, selectable) --
-        self.answer_text = scrolledtext.ScrolledText(
-            a_frame, height=16, wrap=tk.WORD, state=tk.DISABLED,
+        text_panel = tk.Frame(a_frame, bg=t["panel_bg"])
+        text_panel.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+        scrollbar = tk.Scrollbar(text_panel, orient=tk.VERTICAL)
+        self.answer_text = tk.Text(
+            text_panel, height=16, wrap=tk.WORD, state=tk.DISABLED,
             font=FONT, bg=t["input_bg"], fg=t["input_fg"],
             insertbackground=t["fg"], relief=tk.FLAT, bd=1,
             selectbackground=t["accent"],
             selectforeground=t["accent_fg"],
+            yscrollcommand=scrollbar.set,
         )
-        self.answer_text.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+        scrollbar.config(command=self.answer_text.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.answer_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # -- Sources line (wraps when wider than panel) --
         self.sources_label = tk.Label(

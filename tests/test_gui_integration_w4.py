@@ -288,6 +288,26 @@ def test_04_ask_button_disable_reenable():
     root.destroy()
 
 
+def test_04b_set_ready_keeps_stop_enabled_while_querying():
+    """set_ready() must not disable Stop while a query is in progress."""
+    root = _make_root()
+    config = FakeGUIConfig()
+
+    from src.gui.panels.query_panel import QueryPanel
+    panel = QueryPanel(root, config=config, query_engine=MagicMock())
+    panel.pack()
+
+    panel.is_querying = True
+    panel._streaming = True
+    panel.set_ready(True)
+    _pump_events(root, 20)
+
+    assert str(panel.ask_btn["state"]) == "disabled"
+    assert str(panel.stop_btn["state"]) == "normal"
+
+    root.destroy()
+
+
 # ============================================================================
 # TEST 05: Use case dropdown populates from USE_CASES
 # ============================================================================
