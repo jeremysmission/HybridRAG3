@@ -316,6 +316,9 @@ FORCE_INCLUDE = [
     "waiver_reference_sheet.md",       # software approval justifications (needed for waiver email)
     "CORPORATE_PROXY_NOTES.md",        # proxy research notes (useful for work laptop debugging)
 ]
+# Parent directory basenames that contain FORCE_INCLUDE files.
+# Used to short-circuit expensive os.walk on large skipped dirs (.venv, etc.)
+_FORCE_INCLUDE_PARENTS = {"05_security", "docs"}
 
 
 def _has_passthrough_marker(path):
@@ -494,7 +497,10 @@ def main():
             full = os.path.join(root, d)
             if not should_skip(full):
                 return True
-            # Check if any force-include file lives under this dir
+            # Only walk skipped dirs that MIGHT contain force-include files.
+            # Cheap basename check avoids expensive os.walk on .venv, etc.
+            if not any(d in fi_parent for fi_parent in _FORCE_INCLUDE_PARENTS):
+                return False
             for _r, _ds, _fs in os.walk(full):
                 for _f in _fs:
                     if _f in FORCE_INCLUDE:
