@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the tuning tab part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- Tuning Tab (src/gui/panels/tuning_tab.py)           RevA
 # ============================================================================
@@ -216,6 +223,21 @@ class TuningTab(tk.Frame):
         )
         self.maxtokens_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
+        # Optional persistence for max_tokens (off by default).
+        row_mt_persist = tk.Frame(frame, bg=t["panel_bg"])
+        row_mt_persist.pack(fill=tk.X, pady=(0, 4))
+        self.persist_maxtokens_var = tk.BooleanVar(value=False)
+        self._persisted_maxtokens = None
+        self._persist_maxtokens_cb = tk.Checkbutton(
+            row_mt_persist, text="Set as default",
+            variable=self.persist_maxtokens_var,
+            command=self._on_llm_change,
+            bg=t["panel_bg"], fg=t["fg"],
+            selectcolor=t["input_bg"], activebackground=t["panel_bg"],
+            activeforeground=t["fg"], font=FONT_SMALL,
+        )
+        self._persist_maxtokens_cb.pack(side=tk.LEFT, padx=(14, 0))
+
         # Temperature slider
         row_temp = tk.Frame(frame, bg=t["panel_bg"])
         row_temp.pack(fill=tk.X, pady=4)
@@ -256,9 +278,18 @@ class TuningTab(tk.Frame):
         """Write LLM settings to config immediately."""
         api = getattr(self.config, "api", None)
         if api:
-            api.max_tokens = self.maxtokens_var.get()
+            max_tokens = self.maxtokens_var.get()
+            api.max_tokens = max_tokens
             api.temperature = self.temp_var.get()
             api.timeout_seconds = self.timeout_var.get()
+            if getattr(self, "persist_maxtokens_var", None) and self.persist_maxtokens_var.get():
+                if self._persisted_maxtokens != max_tokens:
+                    try:
+                        from src.core.config import save_config_field
+                        save_config_field("api.max_tokens", max_tokens)
+                        self._persisted_maxtokens = max_tokens
+                    except Exception as e:
+                        logger.warning("Could not persist api.max_tokens: %s", e)
 
     # ----------------------------------------------------------------
     # PERFORMANCE PROFILE

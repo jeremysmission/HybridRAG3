@@ -1,3 +1,10 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the api admin tab part of the application runtime.
+# What to read first: Start at the top-level function/class definitions and follow calls downward.
+# Inputs: Configuration values, command arguments, or data files used by this module.
+# Outputs: Returned values, written files, logs, or UI updates produced by this module.
+# Safety notes: Update small sections at a time and run relevant tests after edits.
+# ============================
 # ============================================================================
 # HybridRAG v3 -- API & Admin Tab (src/gui/panels/api_admin_tab.py)    RevB
 # ============================================================================
@@ -1097,6 +1104,7 @@ def _capture_config_snapshot(config):
         },
         "ollama": {
             "model": getattr(ollama, "model", "") if ollama else "",
+            "context_window": getattr(ollama, "context_window", 4096) if ollama else 4096,
         },
         "mode": getattr(config, "mode", "offline"),
     }
@@ -1149,6 +1157,7 @@ class ApiAdminTab(tk.Frame):
         self._offline_model_panel = OfflineModelSelectionPanel(
             self._inner, config, app_ref)
         self._offline_model_panel.pack(fill=tk.X, padx=16, pady=8)
+        self._build_offline_runtime_section(t)
         self._model_panel = ModelSelectionPanel(
             self._inner, config, self.endpoint_var, self.key_var)
         self._model_panel.pack(fill=tk.X, padx=16, pady=8)
@@ -1914,6 +1923,124 @@ class ApiAdminTab(tk.Frame):
         self._verify_text.config(state=tk.DISABLED)
 
     # ================================================================
+    # SECTION C2: OFFLINE RUNTIME (OLLAMA)
+    # ================================================================
+
+    def _build_offline_runtime_section(self, t):
+        """Build offline runtime controls for Ollama."""
+        frame = tk.LabelFrame(
+            self._inner, text="Offline Runtime (Ollama)", padx=16, pady=8,
+            bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD,
+        )
+        frame.pack(fill=tk.X, padx=16, pady=(4, 8))
+        self._offline_runtime_frame = frame
+
+        tk.Label(
+            frame,
+            text="Default is 4096. Increase only when hardware capacity is validated.",
+            anchor=tk.W, justify=tk.LEFT, wraplength=760,
+            bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+        ).pack(fill=tk.X, pady=(0, 6))
+
+        ollama = getattr(self.config, "ollama", None)
+        self.ollama_context_var = tk.StringVar(
+            value=str(getattr(ollama, "context_window", 4096) if ollama else 4096)
+        )
+        self.persist_ollama_context_var = tk.BooleanVar(value=False)
+
+        row_ctx = tk.Frame(frame, bg=t["panel_bg"])
+        row_ctx.pack(fill=tk.X, pady=3)
+        tk.Label(
+            row_ctx, text="Context window:", width=14, anchor=tk.W,
+            bg=t["panel_bg"], fg=t["fg"], font=FONT,
+        ).pack(side=tk.LEFT)
+        self.ollama_context_entry = tk.Entry(
+            row_ctx, textvariable=self.ollama_context_var, width=12, font=FONT,
+            bg=t["input_bg"], fg=t["input_fg"], relief=tk.FLAT, bd=2,
+        )
+        self.ollama_context_entry.pack(side=tk.LEFT, padx=(4, 8))
+        tk.Label(
+            row_ctx, text="(1024-131072)", anchor=tk.W,
+            bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+        ).pack(side=tk.LEFT)
+
+        self.persist_ollama_context_cb = tk.Checkbutton(
+            frame, text="Set as default",
+            variable=self.persist_ollama_context_var,
+            bg=t["panel_bg"], fg=t["fg"],
+            selectcolor=t["input_bg"], activebackground=t["panel_bg"],
+            activeforeground=t["fg"], font=FONT_SMALL,
+        )
+        self.persist_ollama_context_cb.pack(anchor=tk.W, pady=(2, 2))
+
+        self.save_offline_runtime_btn = tk.Button(
+            frame, text="Save Offline Runtime", command=self._on_save_offline_runtime,
+            bg=t["accent"], fg=t["accent_fg"], font=FONT,
+            relief=tk.FLAT, bd=0, padx=12, pady=6,
+            activebackground=t["accent_hover"], activeforeground=t["accent_fg"],
+        )
+        self.save_offline_runtime_btn.pack(anchor=tk.W, pady=(2, 2))
+        bind_hover(self.save_offline_runtime_btn)
+
+        self.offline_runtime_status_label = tk.Label(
+            frame, text="", anchor=tk.W,
+            bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+        )
+        self.offline_runtime_status_label.pack(fill=tk.X, pady=(2, 0))
+
+    def _on_save_offline_runtime(self):
+        """Apply offline runtime settings with optional persistence."""
+        t = current_theme()
+        try:
+            context_window = int((self.ollama_context_var.get() or "").strip())
+        except Exception:
+            self.offline_runtime_status_label.config(
+                text="[FAIL] Context window must be an integer.",
+                fg=t["red"],
+            )
+            return
+
+        if context_window < 1024 or context_window > 131072:
+            self.offline_runtime_status_label.config(
+                text="[FAIL] context_window must be between 1024 and 131072.",
+                fg=t["red"],
+            )
+            return
+
+        ollama = getattr(self.config, "ollama", None)
+        if not ollama:
+            self.offline_runtime_status_label.config(
+                text="[FAIL] Ollama config section is missing.",
+                fg=t["red"],
+            )
+            return
+
+        ollama.context_window = context_window
+
+        if self.persist_ollama_context_var.get():
+            try:
+                from src.core.config import save_config_field
+                save_config_field("ollama.context_window", context_window)
+                self.offline_runtime_status_label.config(
+                    text="[OK] Context window set to {} and saved as default.".format(
+                        context_window
+                    ),
+                    fg=t["green"],
+                )
+            except Exception as e:
+                self.offline_runtime_status_label.config(
+                    text="[FAIL] {}".format(str(e)[:80]),
+                    fg=t["red"],
+                )
+        else:
+            self.offline_runtime_status_label.config(
+                text="[OK] Context window set to {} (session only).".format(
+                    context_window
+                ),
+                fg=t["green"],
+            )
+
+    # ================================================================
     # MODE-AWARE FIELD STATE
     # ================================================================
 
@@ -1951,6 +2078,16 @@ class ApiAdminTab(tk.Frame):
             if hasattr(self, "_offline_model_panel"):
                 self._offline_model_panel.uc_dropdown.config(state="readonly")
                 self._offline_model_panel._populate()
+            if hasattr(self, "ollama_context_entry"):
+                self.ollama_context_entry.config(
+                    state=tk.NORMAL,
+                    disabledbackground=t["input_bg"],
+                    disabledforeground=t["disabled_fg"],
+                )
+            if hasattr(self, "persist_ollama_context_cb"):
+                self.persist_ollama_context_cb.config(state=tk.NORMAL)
+            if hasattr(self, "save_offline_runtime_btn"):
+                self.save_offline_runtime_btn.config(state=tk.NORMAL)
             self._refresh_network_policy_label()
         else:
             # Enable online API fields
@@ -1964,6 +2101,16 @@ class ApiAdminTab(tk.Frame):
             # Gray out offline model panel in online mode
             if hasattr(self, "_offline_model_panel"):
                 self._offline_model_panel.uc_dropdown.config(state=tk.DISABLED)
+            if hasattr(self, "ollama_context_entry"):
+                self.ollama_context_entry.config(
+                    state=tk.DISABLED,
+                    disabledbackground=t["input_bg"],
+                    disabledforeground=t["disabled_fg"],
+                )
+            if hasattr(self, "persist_ollama_context_cb"):
+                self.persist_ollama_context_cb.config(state=tk.DISABLED)
+            if hasattr(self, "save_offline_runtime_btn"):
+                self.save_offline_runtime_btn.config(state=tk.DISABLED)
             self._refresh_network_policy_label()
 
     # ================================================================
@@ -2196,6 +2343,9 @@ class ApiAdminTab(tk.Frame):
             o_snap = snapshot.get("ollama", {})
             if ollama:
                 ollama.model = o_snap.get("model", ollama.model)
+                ollama.context_window = o_snap.get(
+                    "context_window", getattr(ollama, "context_window", 4096)
+                )
 
             # Sync tuning tab sliders
             sv = self._app._views.get("settings") if hasattr(self._app, "_views") else None
@@ -2215,6 +2365,10 @@ class ApiAdminTab(tk.Frame):
                 if c_snap:
                     self.chunk_size_var.set(str(c_snap.get("chunk_size", "")))
                     self.overlap_var.set(str(c_snap.get("overlap", "")))
+            if hasattr(self, "ollama_context_var"):
+                self.ollama_context_var.set(
+                    str(snapshot.get("ollama", {}).get("context_window", 4096))
+                )
 
             saved_at = snapshot.get("saved_at", "?")
             self.defaults_status_label.config(
@@ -2256,7 +2410,7 @@ class ApiAdminTab(tk.Frame):
         self._model_panel.apply_theme(t)
         for frame_attr in (
             "_cred_frame", "_security_frame", "_chunking_frame",
-            "_defaults_frame",
+            "_offline_runtime_frame", "_defaults_frame",
         ):
             frame = getattr(self, frame_attr, None)
             if frame:

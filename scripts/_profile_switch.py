@@ -67,7 +67,7 @@ profiles = {
         },
         'ollama': {
             'model': 'phi4-mini',
-            'context_window': 8192,
+            'context_window': 4096,
         },
         'chunking': {
             'chunk_size': 1200,
@@ -93,7 +93,7 @@ profiles = {
         },
         'ollama': {
             'model': 'phi4:14b-q4_K_M',
-            'context_window': 16384,
+            'context_window': 4096,
         },
         'chunking': {
             'chunk_size': 1200,
@@ -119,7 +119,7 @@ profiles = {
         },
         'ollama': {
             'model': 'phi4:14b-q4_K_M',
-            'context_window': 16384,
+            'context_window': 4096,
         },
         'chunking': {
             'chunk_size': 1200,

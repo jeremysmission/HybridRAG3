@@ -916,7 +916,14 @@ class QueryPanel(tk.LabelFrame):
                 return
             if hasattr(self.config, "ollama"):
                 if "context" in rec:
-                    self.config.ollama.context_window = rec["context"]
+                    # Never auto-escalate context on use-case changes.
+                    # This avoids surprise jumps (e.g., 4096 -> 16384) that
+                    # can destabilize lower-VRAM workstations.
+                    cur_ctx = int(
+                        getattr(self.config.ollama, "context_window", 4096) or 4096
+                    )
+                    rec_ctx = int(rec.get("context", cur_ctx) or cur_ctx)
+                    self.config.ollama.context_window = min(cur_ctx, rec_ctx)
                 if "temperature" in rec:
                     self.config.ollama.temperature = rec["temperature"]
             if hasattr(self.config, "retrieval"):

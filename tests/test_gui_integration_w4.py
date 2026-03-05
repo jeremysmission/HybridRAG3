@@ -44,6 +44,7 @@ class FakeOllamaConfig:
     base_url: str = "http://localhost:11434"
     model: str = "phi4-mini"
     timeout_seconds: int = 120
+    context_window: int = 4096
 
 
 @dataclass
@@ -300,6 +301,28 @@ def test_05_use_case_dropdown_populates():
 
     for label in expected_labels:
         assert label in dropdown_values, "Missing use case: {}".format(label)
+
+    root.destroy()
+
+
+def test_05b_use_case_change_does_not_increase_context_window():
+    """Use-case switching must not silently raise ollama.context_window."""
+    root = _make_root()
+    config = FakeGUIConfig()
+    config.ollama.context_window = 4096
+
+    from src.gui.panels.query_panel import QueryPanel
+
+    panel = QueryPanel(root, config=config)
+    panel.pack()
+    _pump_events(root, 50)
+
+    # Pick a profile that historically recommended 16K context.
+    panel.uc_var.set("Software Engineering")
+    panel._on_use_case_change()
+    _pump_events(root, 50)
+
+    assert config.ollama.context_window == 4096
 
     root.destroy()
 

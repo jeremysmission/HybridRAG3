@@ -620,9 +620,9 @@ LLM_SETTINGS = [
      "Max wait time for Ollama response.",
      "600s (10min) allows slow hardware to finish long responses. "
      "Reduce to 120s on fast hardware."),
-    ("context_window", "16384", "2048-131072",
+    ("context_window", "4096", "2048-131072",
      "Max tokens the model sees at once.",
-     "16384 is the default for phi4:14b-q4_K_M. Increase with more RAM/GPU."),
+     "4096 is the stability baseline for phi4:14b-q4_K_M on 12GB-class GPUs."),
     ("max_tokens (online)", "2048", "256-8192",
      "Max output tokens for API mode responses.",
      "2048 is generous for most answers. Reduce to save cost on simple queries."),

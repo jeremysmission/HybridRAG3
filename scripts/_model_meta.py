@@ -112,39 +112,39 @@ USE_CASES = {
 RECOMMENDED_OFFLINE = {
     "sw":    {"primary": "phi4:14b-q4_K_M", "alt": "mistral-nemo:12b",
               "fallback": "phi4-mini",  # CPU-only / low-VRAM fallback
-              "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
+              "temperature": 0.1, "context": 4096, "reranker": True, "top_k": 8},
 
     "eng":   {"primary": "phi4:14b-q4_K_M", "alt": "mistral-nemo:12b",
               "fallback": "phi4-mini",
-              "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
+              "temperature": 0.1, "context": 4096, "reranker": True, "top_k": 8},
 
     "sys":   {"primary": "phi4:14b-q4_K_M", "alt": "mistral-nemo:12b",
               "fallback": "phi4-mini",
-              "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
+              "temperature": 0.1, "context": 4096, "reranker": True, "top_k": 8},
 
     "draft": {"primary": "phi4:14b-q4_K_M", "alt": "mistral-nemo:12b",
               "fallback": "phi4-mini",
-              "temperature": 0.05, "context": 16384, "reranker": True, "top_k": 8},
+              "temperature": 0.05, "context": 4096, "reranker": True, "top_k": 8},
 
     "log":   {"primary": "phi4:14b-q4_K_M", "alt": "mistral-nemo:12b",
               "fallback": "phi4-mini",
-              "temperature": 0.0, "context": 8192, "reranker": True, "top_k": 10},
+              "temperature": 0.0, "context": 4096, "reranker": True, "top_k": 10},
 
     "pm":    {"primary": "phi4:14b-q4_K_M", "alt": "mistral-nemo:12b",
               "fallback": "gemma3:4b",
-              "temperature": 0.25, "context": 8192, "reranker": False, "top_k": 5},
+              "temperature": 0.25, "context": 4096, "reranker": False, "top_k": 5},
 
     "fe":    {"primary": "phi4:14b-q4_K_M", "alt": "mistral-nemo:12b",
               "fallback": "phi4-mini",
-              "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
+              "temperature": 0.1, "context": 4096, "reranker": True, "top_k": 8},
 
     "cyber": {"primary": "phi4:14b-q4_K_M", "alt": "mistral-nemo:12b",
               "fallback": "phi4-mini",
-              "temperature": 0.1, "context": 16384, "reranker": True, "top_k": 8},
+              "temperature": 0.1, "context": 4096, "reranker": True, "top_k": 8},
 
     "gen":   {"primary": "mistral-nemo:12b", "alt": "phi4:14b-q4_K_M",
               "fallback": "mistral:7b",  # 128K ctx, broad knowledge
-              "temperature": 0.3, "context": 8192, "reranker": False, "top_k": 5},
+              "temperature": 0.3, "context": 4096, "reranker": False, "top_k": 5},
 }
 
 # ============================================================================
