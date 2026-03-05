@@ -182,6 +182,14 @@ class TuningTab(tk.Frame):
         )
         self._reranker_cb.pack(side=tk.LEFT)
 
+        # Latency warning label (below retrieval controls)
+        self._latency_warn_label = tk.Label(
+            frame, text="", anchor=tk.W, wraplength=600,
+            bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+        )
+        self._latency_warn_label.pack(fill=tk.X, pady=(4, 0))
+        self._update_retrieval_latency_warning()
+
     def _on_retrieval_change(self):
         """Write retrieval settings to config immediately."""
         retrieval = getattr(self.config, "retrieval", None)
@@ -190,6 +198,38 @@ class TuningTab(tk.Frame):
             retrieval.min_score = self.minscore_var.get()
             retrieval.hybrid_search = self.hybrid_var.get()
             retrieval.reranker_enabled = self.reranker_var.get()
+        self._update_retrieval_latency_warning()
+
+    def _update_retrieval_latency_warning(self):
+        """Show warning when retrieval settings will cause high latency."""
+        if not hasattr(self, "_latency_warn_label"):
+            return
+        top_k = self.topk_var.get()
+        reranker_on = self.reranker_var.get()
+        warnings = []
+        if top_k > 10:
+            warnings.append(
+                "top_k={} -- each extra chunk adds ~1-3s LLM inference "
+                "time on 12GB GPUs".format(top_k)
+            )
+        if top_k > 20:
+            warnings.append(
+                "top_k>{} requires 24GB+ VRAM to avoid excessive latency"
+                .format(20)
+            )
+        if reranker_on:
+            warnings.append(
+                "Reranker backend is retired (sentence-transformers removed). "
+                "Enable has no effect."
+            )
+        t = current_theme()
+        if warnings:
+            self._latency_warn_label.config(
+                text="[WARN] " + "; ".join(warnings),
+                fg=t["orange"],
+            )
+        else:
+            self._latency_warn_label.config(text="", fg=t["gray"])
 
     # ----------------------------------------------------------------
     # LLM SETTINGS

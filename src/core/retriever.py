@@ -184,6 +184,14 @@ class Retriever:
         # lex_boost: Maximum score bonus for keyword matches in vector-only mode.
         # Only used when hybrid_search is False. See design decision #4 above.
         self.lex_boost = float(getattr(retrieval, "lex_boost", 0.06)) if retrieval else 0.06
+        self.offline_top_k = None
+        if retrieval is not None:
+            offline_top = getattr(retrieval, "offline_top_k", None)
+            if offline_top is not None:
+                try:
+                    self.offline_top_k = max(1, int(offline_top))
+                except (TypeError, ValueError):
+                    self.offline_top_k = None
 
         # hybrid_search: Whether to combine vector + keyword search.
         # True (default) gives best results for most engineering documents.
@@ -223,6 +231,8 @@ class Retriever:
                 "Running without reranker."
             )
             self.reranker_enabled = False
+
+        _warn_aggressive_settings(self.top_k, self.reranker_top_n)
 
         # Query embedding cache -- repeat queries skip the embedding step
         self._embed_cache = _EmbeddingCache(maxsize=64)
@@ -274,7 +284,11 @@ class Retriever:
             hits = self._augment_with_adjacent_chunks(hits)
 
         # --- Step 4: Trim to final top_k ---
-        hits = hits[:self.top_k]
+        final_k = self.top_k
+        mode = getattr(self.config, "mode", "offline")
+        if mode == "offline" and self.offline_top_k is not None:
+            final_k = min(final_k, self.offline_top_k)
+        hits = hits[:final_k]
 
         return hits
 
@@ -624,6 +638,22 @@ class Retriever:
 # -------------------------------------------------------------------
 # Extracted helpers (keep Retriever class under 500 lines)
 # -------------------------------------------------------------------
+
+def _warn_aggressive_settings(top_k, reranker_top_n):
+    """Log warnings when retrieval settings may cause high latency."""
+    if top_k > 10:
+        logger.warning(
+            "[WARN] top_k=%d exceeds 10. Each extra chunk adds ~1-3s "
+            "of LLM inference on 12GB GPUs. Reduce top_k or upgrade GPU.",
+            top_k,
+        )
+    if reranker_top_n > 30:
+        logger.warning(
+            "[WARN] reranker_top_n=%d exceeds 30. Only server-class "
+            "hardware (24GB+ VRAM, 64GB+ RAM) should use values above 30.",
+            reranker_top_n,
+        )
+
 
 def _query_terms(query):
     """Extract searchable terms from the query.

@@ -76,7 +76,7 @@ desktop_power:
     device: "cuda"               # 12GB VRAM handles nomic easily
   ollama:
     model: "phi4:14b-q4_K_M"    # 14B, 9.1GB, MIT, strongest reasoning
-    context_window: 4096         # Safe default across 12GB-class GPUs
+    context_window: 16384        # More context = better answers
   chunking:
     chunk_size: 1200
     overlap: 200
@@ -107,7 +107,7 @@ server_max:
     device: "cuda"               # 24GB+ VRAM
   ollama:
     model: "phi4:14b-q4_K_M"    # 14B, 9.1GB, MIT, strongest reasoning
-    context_window: 4096
+    context_window: 16384
   chunking:
     chunk_size: 1200
     overlap: 200

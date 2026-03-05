@@ -60,7 +60,7 @@ import yaml
 import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from .model_identity import canonicalize_model_name
 from .ollama_endpoint_resolver import sanitize_ollama_base_url
 
@@ -372,6 +372,7 @@ class RetrievalConfig:
     min_score: float = 0.10        # Minimum similarity score (0-1) to include
     block_rows: int = 25000        # Memmap rows loaded per search block (RAM control)
     lex_boost: float = 0.06        # Legacy lexical boost (used when hybrid_search=False)
+    offline_top_k: Optional[int] = None  # If set, offline mode caps the context length
 
     # --- Hybrid search (BM25 + vector fusion) ---
     hybrid_search: bool = True     # True = use BM25+vector, False = vector only
