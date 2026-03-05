@@ -420,59 +420,8 @@ class QueryEngine:
             yield {"done": True, "result": result}
 
     def _trim_context_to_fit(self, context: str, user_query: str) -> str:
-        """Trim context so the full prompt fits within the context window.
-
-        Estimates tokens at ~4 chars/token. Reserves space for the prompt
-        rules (~800 tokens), the question, and the model's answer
-        (num_predict).
-
-        Instead of hard-truncating mid-sentence, this removes whole chunks
-        from the end (lowest relevance -- the retriever appends in descending
-        relevance order). This preserves the highest-quality context intact.
-        """
-        ctx_window = getattr(
-            getattr(self.config, "ollama", None), "context_window", 4096
-        )
-        num_predict = getattr(
-            getattr(self.config, "ollama", None), "num_predict", 512
-        )
-        # Reserve: prompt rules + question + answer generation budget
-        prompt_overhead_tokens = 800 + (len(user_query) // 4) + num_predict
-        max_context_tokens = max(ctx_window - prompt_overhead_tokens, 512)
-        max_context_chars = max_context_tokens * 4
-
-        if len(context) <= max_context_chars:
-            return context
-
-        # Split on the chunk separator used by Retriever.build_context()
-        separator = "\n\n---\n\n"
-        chunks = context.split(separator)
-
-        # Drop chunks from the end (lowest relevance) until it fits
-        while len(chunks) > 1 and len(separator.join(chunks)) > max_context_chars:
-            chunks.pop()
-
-        trimmed = separator.join(chunks)
-
-        # If even one chunk is too large, truncate that single chunk
-        # at the last sentence boundary that fits.
-        if len(trimmed) > max_context_chars:
-            cut = trimmed[:max_context_chars]
-            last_period = cut.rfind(". ")
-            if last_period > max_context_chars // 2:
-                trimmed = cut[: last_period + 1]
-            else:
-                trimmed = cut
-
-        self.logger.warning(
-            "context_trimmed",
-            original_chars=len(context),
-            trimmed_chars=len(trimmed),
-            chunks_original=len(context.split(separator)),
-            chunks_kept=len(trimmed.split(separator)),
-            ctx_window=ctx_window,
-        )
-        return trimmed
+        """Delegate to module-level helper."""
+        return _qe_trim_context_to_fit(self, context, user_query)
 
     def _build_prompt(self, user_query: str, context: str) -> str:
         """
@@ -596,6 +545,52 @@ class QueryEngine:
     def _calculate_cost(self, llm_response: LLMResponse) -> float:
         """Plain-English: Estimates API cost from token usage and provider pricing settings."""
         return _qe_calculate_cost(self, llm_response)
+
+
+def _qe_trim_context_to_fit(engine: QueryEngine, context: str, user_query: str) -> str:
+    """Trim context so the full prompt fits within the context window.
+
+    Removes whole chunks from the end (lowest relevance) rather than
+    hard-truncating mid-sentence.
+    """
+    ctx_window = getattr(
+        getattr(engine.config, "ollama", None), "context_window", 4096
+    )
+    num_predict = getattr(
+        getattr(engine.config, "ollama", None), "num_predict", 512
+    )
+    prompt_overhead_tokens = 800 + (len(user_query) // 4) + num_predict
+    max_context_tokens = max(ctx_window - prompt_overhead_tokens, 512)
+    max_context_chars = max_context_tokens * 4
+
+    if len(context) <= max_context_chars:
+        return context
+
+    separator = "\n\n---\n\n"
+    chunks = context.split(separator)
+
+    while len(chunks) > 1 and len(separator.join(chunks)) > max_context_chars:
+        chunks.pop()
+
+    trimmed = separator.join(chunks)
+
+    if len(trimmed) > max_context_chars:
+        cut = trimmed[:max_context_chars]
+        last_period = cut.rfind(". ")
+        if last_period > max_context_chars // 2:
+            trimmed = cut[: last_period + 1]
+        else:
+            trimmed = cut
+
+    engine.logger.warning(
+        "context_trimmed",
+        original_chars=len(context),
+        trimmed_chars=len(trimmed),
+        chunks_original=len(context.split(separator)),
+        chunks_kept=len(trimmed.split(separator)),
+        ctx_window=ctx_window,
+    )
+    return trimmed
 
 
 def _qe_build_relaxed_prompt(user_query: str, context: str) -> str:

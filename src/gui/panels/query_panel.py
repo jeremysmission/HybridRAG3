@@ -98,6 +98,7 @@ class QueryPanel(tk.LabelFrame):
         self._query_seq = 0
         self._active_query_id = 0
         self._cancelled_query_ids = set()
+        self._query_cancel_event = threading.Event()
         self._grounding_bias_var = tk.IntVar(value=6)
         self._grounding_bias_hint = tk.StringVar(value=GROUNDING_BIAS_HINTS[6])
         self._reasoning_dial_var = tk.IntVar(value=5)

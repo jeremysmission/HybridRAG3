@@ -379,7 +379,7 @@ class Indexer:
             file_path, stop_flag=stop_flag
         )
         if not text or not text.strip():
-            return (0, self._build_no_text_reason(file_path, parse_details),
+            return (0, _build_no_text_reason(file_path, parse_details),
                     False, parse_details)
 
         text = clean_ocr_text(text)
@@ -422,7 +422,7 @@ class Indexer:
             embeddings = self.embedder.embed_batch(chunks)
             metadata_list = []
             chunk_ids = []
-            chunk_offsets = self._locate_chunk_offsets(block, chunks)
+            chunk_offsets = _locate_chunk_offsets(block, chunks)
             for i, chunk_text in enumerate(chunks):
                 chunk_start = char_offset + chunk_offsets[i]
                 chunk_end = chunk_start + len(chunk_text)
@@ -458,35 +458,6 @@ class Indexer:
         if self.gc_between_files:
             gc.collect()
         return chunks_added, None, was_reindex, parse_details
-
-    def _locate_chunk_offsets(self, block: str, chunks: List[str]) -> List[int]:
-        """
-        Locate chunk start offsets within the block text.
-
-        Smart chunking does not guarantee fixed stride spacing, so we
-        compute offsets from actual text positions to keep chunk IDs
-        deterministic across re-index runs.
-        """
-        offsets: List[int] = []
-        # Move search cursor by one character each iteration so overlapping
-        # repeated chunks still map to distinct, deterministic start offsets.
-        search_from = 0
-        for chunk_text in chunks:
-            idx = block.find(chunk_text, search_from)
-            if idx < 0:
-                # Second pass: allow overlap immediately after prior match.
-                overlap_from = (offsets[-1] + 1) if offsets else 0
-                idx = block.find(chunk_text, overlap_from)
-            if idx < 0:
-                # Fallback: enforce strictly increasing starts.
-                prev = offsets[-1] if offsets else -1
-                idx = prev + 1
-            elif offsets and idx <= offsets[-1]:
-                # Guard against duplicate starts when text repeats heavily.
-                idx = offsets[-1] + 1
-            offsets.append(idx)
-            search_from = min(len(block), idx + 1)
-        return offsets
 
     def _process_file_with_retry(
         self, file_path: Path, max_retries: int = 3,
@@ -582,23 +553,6 @@ class Indexer:
                 details.setdefault("error", "FALLBACK_READ_FAILED")
                 return "", details
 
-    def _build_no_text_reason(self, file_path: Path, details: Dict[str, Any]) -> str:
-        """
-        Build a compact, operator-friendly skip reason for empty extraction.
-        """
-        parser_name = details.get("parser") or "unknown_parser"
-        likely = details.get("likely_reason")
-        error = details.get("error")
-        extension = file_path.suffix.lower() or "<no_ext>"
-
-        if likely:
-            return f"no text extracted ({extension}, {parser_name}, {likely})"
-        if error:
-            # Keep first token to avoid giant log lines.
-            err_token = str(error).split(":")[0][:64]
-            return f"no text extracted ({extension}, {parser_name}, {err_token})"
-        return f"no text extracted ({extension}, {parser_name})"
-
     def _validate_text(self, text: str) -> bool:
         """Delegate to FileValidator. See file_validator.py for details."""
         return self._file_validator.validate_text(text)
@@ -626,3 +580,46 @@ class Indexer:
             self.embedder.close()
         if hasattr(self, 'vector_store') and self.vector_store is not None:
             self.vector_store.close()
+
+
+# -------------------------------------------------------------------
+# Extracted helpers (keep Indexer class under 500 lines)
+# -------------------------------------------------------------------
+
+def _locate_chunk_offsets(block: str, chunks: List[str]) -> List[int]:
+    """Locate chunk start offsets within the block text.
+
+    Smart chunking does not guarantee fixed stride spacing, so we
+    compute offsets from actual text positions to keep chunk IDs
+    deterministic across re-index runs.
+    """
+    offsets: List[int] = []
+    search_from = 0
+    for chunk_text in chunks:
+        idx = block.find(chunk_text, search_from)
+        if idx < 0:
+            overlap_from = (offsets[-1] + 1) if offsets else 0
+            idx = block.find(chunk_text, overlap_from)
+        if idx < 0:
+            prev = offsets[-1] if offsets else -1
+            idx = prev + 1
+        elif offsets and idx <= offsets[-1]:
+            idx = offsets[-1] + 1
+        offsets.append(idx)
+        search_from = min(len(block), idx + 1)
+    return offsets
+
+
+def _build_no_text_reason(file_path: Path, details: Dict[str, Any]) -> str:
+    """Build a compact, operator-friendly skip reason for empty extraction."""
+    parser_name = details.get("parser") or "unknown_parser"
+    likely = details.get("likely_reason")
+    error = details.get("error")
+    extension = file_path.suffix.lower() or "<no_ext>"
+
+    if likely:
+        return f"no text extracted ({extension}, {parser_name}, {likely})"
+    if error:
+        err_token = str(error).split(":")[0][:64]
+        return f"no text extracted ({extension}, {parser_name}, {err_token})"
+    return f"no text extracted ({extension}, {parser_name})"

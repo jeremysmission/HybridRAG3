@@ -2,9 +2,25 @@
 from __future__ import annotations
 
 import logging
+import threading
 
-from src.gui.panels.query_constants import ONLINE_USE_CASE_TUNING, PROFILE_TASK_PLAYBOOK
-
+from scripts._model_meta import (
+    USE_CASES,
+    RECOMMENDED_OFFLINE,
+    WORK_ONLY_MODELS,
+    select_best_model,
+    use_case_score,
+)
+from src.core.llm_router import get_available_deployments
+from src.core.model_identity import canonicalize_model_name
+from src.gui.helpers.safe_after import safe_after
+from src.gui.panels.query_constants import (
+    ONLINE_USE_CASE_TUNING,
+    PROFILE_DIAL_DEFAULTS,
+    GROUNDING_BIAS_HINTS,
+    REASONING_DIAL_HINTS,
+    PROFILE_TASK_PLAYBOOK,
+)
 logger = logging.getLogger(__name__)
 
 def _apply_use_case_tuning(self, uc_key: str, mode: str) -> None:

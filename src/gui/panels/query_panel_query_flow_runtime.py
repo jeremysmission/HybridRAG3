@@ -2,14 +2,25 @@
 from __future__ import annotations
 
 import logging
+import time
 import threading
 import tkinter as tk
-from tkinter import messagebox
 
 from src.gui.helpers.safe_after import safe_after
 from src.gui.theme import current_theme
 
 logger = logging.getLogger(__name__)
+
+
+def _call_engine_with_optional_cancel(method, question, cancel_event):
+    """Call query/query_stream with cancel_event when supported."""
+    try:
+        return method(question, cancel_event=cancel_event)
+    except TypeError as exc:
+        if "cancel_event" not in str(exc):
+            raise
+        return method(question)
+
 
 def _on_ask(self, event=None):
     """Handle Ask button click or Enter key.
@@ -36,6 +47,7 @@ def _on_ask(self, event=None):
     query_id = self._query_seq
     self._active_query_id = query_id
     self._cancelled_query_ids.discard(query_id)
+    self._query_cancel_event = threading.Event()
 
     # Public testing state (main thread, before thread starts)
     self.is_querying = True
@@ -59,18 +71,25 @@ def _on_ask(self, event=None):
     has_stream = hasattr(self.query_engine, "query_stream")
     if has_stream:
         self._query_thread = threading.Thread(
-            target=self._run_query_stream, args=(question, query_id), daemon=True,
+            target=self._run_query_stream,
+            args=(question, query_id, self._query_cancel_event),
+            daemon=True,
         )
     else:
         self._query_thread = threading.Thread(
-            target=self._run_query, args=(question, query_id), daemon=True,
+            target=self._run_query,
+            args=(question, query_id, self._query_cancel_event),
+            daemon=True,
         )
     self._query_thread.start()
 
-def _run_query(self, question, query_id):
+
+def _run_query(self, question, query_id, cancel_event=None):
     """Execute query in background thread (non-streaming fallback)."""
     try:
-        result = self.query_engine.query(question)
+        result = _call_engine_with_optional_cancel(
+            self.query_engine.query, question, cancel_event
+        )
         if self._is_query_aborted(query_id):
             return
         # Thread-safe completion signal + status
@@ -89,7 +108,8 @@ def _run_query(self, question, query_id):
         self.query_done_event.set()
         safe_after(self, 0, self._show_error, error_msg)
 
-def _run_query_stream(self, question, query_id):
+
+def _run_query_stream(self, question, query_id, cancel_event=None):
     """Execute streaming query in background thread.
 
     State transitions driven by the query engine's yield chunks:
@@ -99,24 +119,36 @@ def _run_query_stream(self, question, query_id):
       "done" chunk -> transition to COMPLETE state
     """
     try:
-        for chunk in self.query_engine.query_stream(question):
+        for chunk in _call_engine_with_optional_cancel(
+            self.query_engine.query_stream, question, cancel_event
+        ):
             if self._is_query_aborted(query_id):
                 return
             if "phase" in chunk:
                 if chunk["phase"] == "searching":
                     # Still in SEARCHING -- update status text
-                    safe_after(self, 0, self._set_status_if_active, query_id, "Searching documents...")
+                    safe_after(
+                        self,
+                        0,
+                        self._set_status_if_active,
+                        query_id,
+                        "Searching documents...",
+                    )
                 elif chunk["phase"] == "generating":
                     # --- Transition: SEARCHING -> GENERATING ---
                     n = chunk.get("chunks", 0)
                     ms = chunk.get("retrieval_ms", 0)
-                    msg = "Found {} chunks ({:.0f}ms) -- Generating answer...".format(n, ms)
+                    msg = "Found {} chunks ({:.0f}ms) -- Generating answer...".format(
+                        n, ms
+                    )
                     safe_after(self, 0, self._set_status_if_active, query_id, msg)
                     safe_after(self, 0, self._start_elapsed_timer_if_active, query_id)
                     safe_after(self, 0, self._prepare_streaming_if_active, query_id)
                     safe_after(self, 0, self._stop_overlay_if_active, query_id)
             elif "token" in chunk:
-                safe_after(self, 0, self._append_token_if_active, query_id, chunk["token"])
+                safe_after(
+                    self, 0, self._append_token_if_active, query_id, chunk["token"]
+                )
             elif chunk.get("done"):
                 result = chunk.get("result")
                 if result:
@@ -150,9 +182,11 @@ def _run_query_stream(self, question, query_id):
         safe_after(self, 0, self._overlay.cancel)
         safe_after(self, 0, self._show_error, error_msg)
 
+
 def _is_query_aborted(self, query_id):
     """True when a query is stale/cancelled and its UI updates must be ignored."""
     return (query_id != self._active_query_id) or (query_id in self._cancelled_query_ids)
+
 
 def _set_query_controls(self, running):
     """Toggle Ask/Stop buttons for in-flight query UX."""
@@ -164,12 +198,15 @@ def _set_query_controls(self, running):
         self.ask_btn.config(state=tk.NORMAL, bg=t["accent"], fg=t["accent_fg"])
         self.stop_btn.config(state=tk.DISABLED, bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"])
 
+
 def _on_stop_query(self, event=None):
     """Soft-cancel current query: restore control immediately and ignore late results."""
     if not self.is_querying:
         return
     qid = self._active_query_id
     self._cancelled_query_ids.add(qid)
+    if hasattr(self, "_query_cancel_event") and self._query_cancel_event is not None:
+        self._query_cancel_event.set()
     self.is_querying = False
     self._streaming = False
     self.last_answer_preview = "[STOP] Query cancelled by user."
@@ -181,11 +218,13 @@ def _on_stop_query(self, event=None):
     t = current_theme()
     self.network_label.config(text="Query stopped.", fg=t["orange"])
 
+
 def _set_status_if_active(self, query_id, text):
     """Plain-English: Updates status text only if this panel still owns the active request."""
     if self._is_query_aborted(query_id):
         return
     self._set_status(text)
+
 
 def _start_elapsed_timer_if_active(self, query_id):
     """Plain-English: Starts the elapsed-time indicator only if this panel still owns the active request."""
@@ -193,11 +232,13 @@ def _start_elapsed_timer_if_active(self, query_id):
         return
     self._start_elapsed_timer()
 
+
 def _prepare_streaming_if_active(self, query_id):
     """Plain-English: Prepares streaming output buffers only if this panel still owns the active request."""
     if self._is_query_aborted(query_id):
         return
     self._prepare_streaming()
+
 
 def _append_token_if_active(self, query_id, token):
     """Plain-English: Appends streamed tokens only if this panel still owns the active request."""
@@ -205,17 +246,21 @@ def _append_token_if_active(self, query_id, token):
         return
     self._append_token(token)
 
+
 def _finish_stream_if_active(self, query_id, result):
     """Plain-English: Finalizes stream rendering only if this panel still owns the active request."""
     if self._is_query_aborted(query_id):
         return
     self._finish_stream(result)
 
+
 def _stop_overlay_if_active(self, query_id):
     """Plain-English: Hides the loading overlay only if this panel still owns the active request."""
     if self._is_query_aborted(query_id):
         return
     self._overlay.stop()
+
+
 def bind_query_panel_query_flow_runtime_methods(cls):
     """Bind query-flow runtime methods to QueryPanel."""
     cls._on_ask = _on_ask
