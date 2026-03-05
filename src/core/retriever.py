@@ -247,7 +247,7 @@ class Retriever:
         # If reranker is on, we fetch more candidates so it has a bigger
         # pool to rerank from. Otherwise, just fetch top_k directly.
         candidate_k = self.reranker_top_n if self.reranker_enabled else self.top_k
-        structured_query = self._is_structured_lookup_query(query)
+        structured_query = _is_structured_lookup_query(query)
         fts_query = query
         min_score = self.min_score
         if structured_query:
@@ -418,7 +418,7 @@ class Retriever:
         raw_hits = self.vector_store.search(q_vec, top_k=candidate_k, block_rows=self.block_rows)
 
         # Extract query terms for the optional lexical boost
-        q_terms = self._query_terms(query)
+        q_terms = _query_terms(query)
 
         # Convert raw dict results to SearchHit objects, applying boost
         hits = []
@@ -533,42 +533,13 @@ class Retriever:
     # Helper methods
     # ------------------------------------------------------------------
 
-    def _query_terms(self, query):
-        """
-        Extract searchable terms from the query.
-
-        Splits on non-alphanumeric characters, lowercases everything,
-        and drops very short words (under 3 chars) which are usually
-        stop words like "a", "is", "of", etc.
-        """
-        terms = re.findall(r"[A-Za-z0-9]+", (query or "").lower())
-        return [t for t in terms if len(t) >= 3]
-
-    def _is_structured_lookup_query(self, query):
-        """
-        Detect list/spec queries that are commonly answered from tables.
-
-        These need broader retrieval than simple factoid questions.
-        """
-        q = (query or "").lower()
-        patterns = [
-            r"\bpart(?:s)?\b",
-            r"\bpart\s*(?:#|number|no\.?|numbers)\b",
-            r"\bserial(?:\s*(?:#|number|no\.?))?\b",
-            r"\bbom\b",
-            r"\bbill of materials\b",
-            r"\bbreakdown\b",
-            r"\blist\b.*\bparts?\b",
-        ]
-        return any(re.search(p, q) for p in patterns)
-
     def _expand_structured_fts_query(self, query):
         """
         Expand FTS terms for parts/serial queries.
 
         Keeps behavior deterministic: no model inference, just explicit terms.
         """
-        base_terms = self._query_terms(query)
+        base_terms = _query_terms(query)
         extra_terms = [
             "part", "parts", "number", "numbers", "serial", "list",
             "table", "item", "items", "bom", "materials", "assembly",
@@ -648,3 +619,32 @@ class Retriever:
         if matches == 0:
             return 0.0
         return min(self.lex_boost, 0.02 * matches)
+
+
+# -------------------------------------------------------------------
+# Extracted helpers (keep Retriever class under 500 lines)
+# -------------------------------------------------------------------
+
+def _query_terms(query):
+    """Extract searchable terms from the query.
+
+    Splits on non-alphanumeric characters, lowercases everything,
+    and drops very short words (under 3 chars).
+    """
+    terms = re.findall(r"[A-Za-z0-9]+", (query or "").lower())
+    return [t for t in terms if len(t) >= 3]
+
+
+def _is_structured_lookup_query(query):
+    """Detect list/spec queries that are commonly answered from tables."""
+    q = (query or "").lower()
+    patterns = [
+        r"\bpart(?:s)?\b",
+        r"\bpart\s*(?:#|number|no\.?|numbers)\b",
+        r"\bserial(?:\s*(?:#|number|no\.?))?\b",
+        r"\bbom\b",
+        r"\bbill of materials\b",
+        r"\bbreakdown\b",
+        r"\blist\b.*\bparts?\b",
+    ]
+    return any(re.search(p, q) for p in patterns)

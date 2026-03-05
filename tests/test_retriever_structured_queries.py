@@ -82,9 +82,9 @@ def test_non_structured_query_keeps_default_threshold(monkeypatch):
 
 
 def test_structured_lookup_detection_variants():
-    retriever = Retriever(_DummyStore(), _DummyEmbedder(), _make_config())
+    from src.core.retriever import _is_structured_lookup_query
 
-    assert retriever._is_structured_lookup_query("list all parts for DPS4D")
-    assert retriever._is_structured_lookup_query("show serial number")
-    assert retriever._is_structured_lookup_query("give BOM breakdown")
-    assert not retriever._is_structured_lookup_query("what is boot time")
+    assert _is_structured_lookup_query("list all parts for DPS4D")
+    assert _is_structured_lookup_query("show serial number")
+    assert _is_structured_lookup_query("give BOM breakdown")
+    assert not _is_structured_lookup_query("what is boot time")
