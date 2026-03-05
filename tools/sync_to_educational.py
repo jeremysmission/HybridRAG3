@@ -71,7 +71,8 @@ DST_ROOT = r"D:\HybridRAG3_Educational"
 #   [SELF]     This script (contains banned terms in its config)
 # ---------------------------------------------------------------------------
 SKIP_PATTERNS = [
-    # [BUILD] Build artifacts and caches
+    # [BUILD] Build artifacts, caches, and snapshot directories
+    ".tmp_",                       # snapshot dirs (.tmp_before_parserfix, .tmp_after_parserfix, etc.)
     ".venv",
     "__pycache__",
     ".pytest_cache",
