@@ -142,7 +142,7 @@ def load_config(config_path=None) -> dict:
     try:
         import yaml
     except ImportError:
-        logger.warning("PyYAML not installed -- using empty config")
+        logger.warning("[BOOT:CONFIG] PyYAML not installed -- using empty config")
         return {}
 
     # Determine project root (two levels up from this file)
@@ -165,7 +165,7 @@ def load_config(config_path=None) -> dict:
             break
 
     if not config:
-        logger.warning("No config file found -- using defaults")
+        logger.warning("[BOOT:CONFIG] No config file found -- using defaults")
         return {}
 
     # Merge user_overrides.yaml on top, matching src.core.config.load_config
@@ -178,7 +178,7 @@ def load_config(config_path=None) -> dict:
                 config = _deep_merge_dict(config, overrides)
                 logger.info("Boot config: merged user_overrides.yaml")
         except Exception as exc:
-            logger.warning("Boot config: failed to merge user_overrides.yaml: %s", exc)
+            logger.warning("[BOOT:CONFIG] Failed to merge user_overrides.yaml: %s", exc)
 
     return config
 

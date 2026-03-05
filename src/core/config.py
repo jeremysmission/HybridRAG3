@@ -363,10 +363,10 @@ class RetrievalConfig:
        - Better for exact terms, part numbers, acronyms
        - Recommended default for technical documentation
 
-    3. Hybrid + reranker (hybrid_search=True, reranker_enabled=True)
-       - Adds a cross-encoder model that re-reads each candidate
-       - Most accurate but adds 1-2 seconds per query
-       - Toggle on/off via config or future GUI switch
+    3. Hybrid + reranker (reserved; backend currently retired)
+       - Cross-encoder backend was removed with sentence-transformers
+       - reranker_enabled remains for forward compatibility
+       - Runtime reports backend availability explicitly via API
     """
     top_k: int = 10                # How many chunks to send to the LLM
     min_score: float = 0.10        # Minimum similarity score (0-1) to include

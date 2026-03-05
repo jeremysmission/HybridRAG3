@@ -30,14 +30,7 @@
 # INTERNET ACCESS: NONE. Only reads a local file.
 # ===================================================================
 
-import os
 from _config_io import load_default_config
-
-
-def _config_path():
-    """Compatibility shim for legacy validation tests."""
-    root = os.environ.get('HYBRIDRAG_PROJECT_ROOT', '.')
-    return os.path.join(root, 'config', 'default_config.yaml')
 
 
 # Read the config file using the shared portable resolver

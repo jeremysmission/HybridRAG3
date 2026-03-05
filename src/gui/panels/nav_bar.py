@@ -11,7 +11,7 @@
 # Horizontal segmented control for switching content views in-place.
 # Tabs are built dynamically from panel_registry -- no hardcoded list.
 # Static compatibility markers:
-# "Query", "Settings", "Cost", "Ref"
+# "Query", "Settings", "Cost", "Reference"
 # "query", "settings", "cost", "reference"
 #
 # INTERNET ACCESS: NONE

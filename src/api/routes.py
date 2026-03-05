@@ -213,7 +213,12 @@ async def get_config():
     if not s.config:
         raise HTTPException(status_code=503, detail="Server not initialized")
 
+    from src.core.retriever import RERANKER_AVAILABLE
+
     c = s.config
+    effective_reranker_enabled = bool(
+        getattr(getattr(getattr(s, "query_engine", None), "retriever", None), "reranker_enabled", False)
+    )
     return ConfigResponse(
         mode=c.mode,
         embedding_model=c.embedding.model_name,
@@ -228,7 +233,8 @@ async def get_config():
         top_k=c.retrieval.top_k,
         min_score=c.retrieval.min_score,
         hybrid_search=c.retrieval.hybrid_search,
-        reranker_enabled=c.retrieval.reranker_enabled,
+        reranker_enabled=effective_reranker_enabled,
+        reranker_backend_available=bool(RERANKER_AVAILABLE),
     )
 
 
@@ -436,6 +442,7 @@ async def start_indexing(request: Request, req: IndexRequest = None):
             )
         # Mark active inside the lock so no other request can slip through
         s.indexing_active = True
+        s.indexing_stop_event.clear()
 
     def _run_indexing():
         from src.api.server import APIProgressCallback
@@ -455,7 +462,11 @@ async def start_indexing(request: Request, req: IndexRequest = None):
             chunker = Chunker(s.config.chunking)
             indexer = Indexer(s.config, s.vector_store, s.embedder, chunker)
             callback = APIProgressCallback()
-            indexer.index_folder(source_folder, callback)
+            indexer.index_folder(
+                source_folder,
+                callback,
+                stop_flag=s.indexing_stop_event,
+            )
             # NOTE: Do NOT call indexer.close() here. The indexer holds
             # shared references to s.vector_store and s.embedder. Closing
             # them would destroy the server-wide instances and crash all
@@ -465,7 +476,9 @@ async def start_indexing(request: Request, req: IndexRequest = None):
         finally:
             s.indexing_active = False
 
-    thread = threading.Thread(target=_run_indexing, daemon=False)
+    # Daemonized worker avoids process hang on shutdown if a parser/model call
+    # is blocked despite cooperative stop signaling.
+    thread = threading.Thread(target=_run_indexing, daemon=True)
     s.indexing_thread = thread
     thread.start()
 

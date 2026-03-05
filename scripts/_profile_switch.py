@@ -55,12 +55,6 @@ sys.path.insert(0, os.path.join(
 from _config_io import load_default_config, save_default_config_atomic
 
 
-def _config_path():
-    """Compatibility shim for legacy validation tests."""
-    root = os.environ.get('HYBRIDRAG_PROJECT_ROOT', '.')
-    return os.path.join(root, 'config', 'default_config.yaml')
-
-
 # -- Define the three profiles --
 # Each profile is a dictionary of settings that get deep-merged into
 # default_config.yaml. Keys match the YAML section names.

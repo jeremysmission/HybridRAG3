@@ -428,11 +428,9 @@ class VectorStore:
                 INSERT OR REPLACE INTO chunks_fts(rowid, text)
                 SELECT chunk_pk, text
                 FROM chunks
-                WHERE source_path = ?
-                  AND embedding_row >= ?
+                WHERE embedding_row >= ?
                   AND embedding_row < ?;
             """, (
-                str(metadata_list[0].source_path),
                 int(start_row),
                 int(start_row + n),
             ))

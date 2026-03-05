@@ -40,6 +40,6 @@ def save_default_config_atomic(data: Dict[str, Any]) -> Path:
     path = default_config_path()
     tmp = path.with_suffix(path.suffix + ".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
     os.replace(tmp, path)
     return path

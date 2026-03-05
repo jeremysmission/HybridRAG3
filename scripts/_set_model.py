@@ -61,12 +61,6 @@ from _model_meta import (
 from _config_io import load_default_config, save_default_config_atomic
 
 
-def _config_path():
-    """Compatibility shim for legacy validation tests."""
-    root = os.environ.get('HYBRIDRAG_PROJECT_ROOT', '.')
-    return os.path.join(root, 'config', 'default_config.yaml')
-
-
 TI = 1000   # tokens in per Q&A
 TO = 500    # tokens out per Q&A
 QB = 1      # per-question pricing

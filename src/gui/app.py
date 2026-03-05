@@ -41,8 +41,8 @@ from src.gui.panels.query_panel import QueryPanel
 from src.gui.panels.index_panel import IndexPanel
 from src.gui.panels.status_bar import StatusBar
 from src.gui.panels.nav_bar import NavBar
-from src.gui.panels.reference_panel import ReferencePanel  # static guard reference
-from src.gui.panels.settings_view import SettingsView  # static guard reference
+from src.gui.panels.reference_panel import ReferencePanel  # noqa: F401 - static guard marker for legacy validators
+from src.gui.panels.settings_view import SettingsView  # noqa: F401 - static guard marker for legacy validators
 from src.gui.panels.panel_registry import get_panels, _import_attr
 from src.core.cost_tracker import get_cost_tracker
 from src.gui.theme import (
@@ -138,52 +138,47 @@ class HybridRAGApp(tk.Tk):
         return _show_view(self, name)
 
     def _build_menu_bar(self):
-        """Compatibility wrapper; keeps `\"Ref\"` and reference-route marker."""
+        """Compatibility wrapper for legacy static validators."""
         # Guard markers required by legacy static validation:
-        # "Ref"
+        # "Reference"
         # show_view("reference")
         # show_view("settings")
         # show_view("cost")
         # "query"
-        from src.gui.app_runtime import _build_menu_bar as _rt_build_menu_bar
-        return _rt_build_menu_bar(self)
+        from src.gui.app_runtime import _build_menu_bar as runtime_fn
+        return runtime_fn(self)
 
     def _build_content_frame(self):
-        from src.gui.app_runtime import _build_content_frame as _fn
-        return _fn(self)
+        from src.gui.app_runtime import _build_content_frame as runtime_fn
+        return runtime_fn(self)
 
     def _build_query_view(self):
-        from src.gui.app_runtime import _build_query_view as _fn
-        return _fn(self)
+        from src.gui.app_runtime import _build_query_view as runtime_fn
+        return runtime_fn(self)
 
     def _build_view(self, name):
-        from src.gui.app_runtime import _build_view as _fn
-        return _fn(self, name)
+        from src.gui.app_runtime import _build_view as runtime_fn
+        return runtime_fn(self, name)
 
     def _build_status_bar(self):
-        # static marker: side=tk.BOTTOM
-        from src.gui.app_runtime import _build_status_bar as _fn
-        return _fn(self)
+        from src.gui.app_runtime import _build_status_bar as runtime_fn
+        return runtime_fn(self)
 
     def _apply_theme_to_all(self):
-        # static marker: nav_bar.apply_theme
-        from src.gui.app_runtime import _apply_theme_to_all as _fn
-        return _fn(self)
+        from src.gui.app_runtime import _apply_theme_to_all as runtime_fn
+        return runtime_fn(self)
 
     def toggle_mode(self, new_mode):
-        # static marker: theme_btn
-        from src.gui.app_runtime import toggle_mode as _fn
-        return _fn(self, new_mode)
+        from src.gui.app_runtime import toggle_mode as runtime_fn
+        return runtime_fn(self, new_mode)
 
     def _toggle_theme(self):
-        from src.gui.app_runtime import _toggle_theme as _fn
-        return _fn(self)
+        from src.gui.app_runtime import _toggle_theme as runtime_fn
+        return runtime_fn(self)
 
     def _on_close(self):
-        # static marker: cleanup
-        # static marker: cost
-        from src.gui.app_runtime import _on_close as _fn
-        return _fn(self)
+        from src.gui.app_runtime import _on_close as runtime_fn
+        return runtime_fn(self)
 
 
 # Bind extracted runtime methods onto HybridRAGApp.

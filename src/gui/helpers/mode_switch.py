@@ -66,6 +66,12 @@ def _commit_router_and_mode(app, new_router, new_mode):
     if app.config:
         app.config.mode = new_mode
         persist_mode(app, new_mode)
+    if new_mode == "online":
+        os.environ["HYBRIDRAG_OFFLINE"] = "0"
+        os.environ["HYBRIDRAG_NETWORK_KILL_SWITCH"] = "0"
+    else:
+        os.environ["HYBRIDRAG_OFFLINE"] = "1"
+        os.environ["HYBRIDRAG_NETWORK_KILL_SWITCH"] = "1"
 
 
 def toggle_mode(app, new_mode):
@@ -102,13 +108,13 @@ def _switch_async(app, switch_fn):
     try:
         app.offline_btn.config(state=tk.DISABLED)
         app.online_btn.config(state=tk.DISABLED)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Mode-switch button disable skipped: %s", e)
     if hasattr(app, "status_bar"):
         try:
             app.status_bar.set_loading_stage("Switching mode...")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Mode-switch stage update skipped: %s", e)
 
     def _worker():
         """Plain-English: This function handles worker."""
@@ -133,8 +139,8 @@ def _finish_switch(app):
             txt = str(app.status_bar.loading_label.cget("text"))
             if txt.startswith("Loading:"):
                 app.status_bar.set_ready()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Status bar loading clear skipped: %s", e)
         app.status_bar.force_refresh()
     if hasattr(app, "query_panel"):
         app.query_panel._on_use_case_change()
@@ -146,15 +152,13 @@ def _finish_switch(app):
                 admin._refresh_credential_status()
             if hasattr(admin, "_apply_mode_state"):
                 admin._apply_mode_state()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Admin panel refresh skipped: %s", e)
 
 
 def _do_switch_to_online(app):
     """Switch to online mode (runs in background thread)."""
-    # Clear process-level offline overrides so GUI online mode can take effect.
-    os.environ["HYBRIDRAG_OFFLINE"] = "0"
-    os.environ["HYBRIDRAG_NETWORK_KILL_SWITCH"] = "0"
+    prior_mode = getattr(app.config, "mode", "offline") if app.config else "offline"
 
     # Check credentials using cached resolution
     try:
@@ -206,11 +210,21 @@ def _do_switch_to_online(app):
     # Rebuild router with cached credentials (no keyring re-lookup)
     result = _rebuild_router(app, credentials=creds)
     if isinstance(result, Exception):
-        # Revert gate to offline since router failed
+        # Revert gate to prior mode since router rebuild failed.
         try:
-            configure_gate(mode="offline")
+            if prior_mode == "online":
+                configure_gate(
+                    mode="online",
+                    api_endpoint=creds.endpoint or "",
+                    allowed_prefixes=getattr(
+                        getattr(app.config, "api", None),
+                        "allowed_endpoint_prefixes", [],
+                    ) if app.config else [],
+                )
+            else:
+                configure_gate(mode="offline")
         except Exception:
-            pass
+            logger.debug("Gate rollback to prior mode failed", exc_info=True)
         safe_after(app, 0, messagebox.showwarning,
                    "Router Rebuild Failed",
                    "Could not rebuild LLM router:\n\n{}\n\n"
@@ -239,9 +253,7 @@ def _do_switch_to_offline(app):
     Offline switch is inherently safer (no credentials needed), but we still
     defer the commit for consistency.
     """
-    # Keep explicit offline override in-process while app runs in offline mode.
-    os.environ["HYBRIDRAG_OFFLINE"] = "1"
-    os.environ["HYBRIDRAG_NETWORK_KILL_SWITCH"] = "1"
+    prior_mode = getattr(app.config, "mode", "offline") if app.config else "offline"
 
     try:
         from src.core.network_gate import configure_gate
@@ -252,12 +264,30 @@ def _do_switch_to_offline(app):
                    "Gate Configuration Failed",
                    "Could not configure network gate:\n\n{}\n\n"
                    "Continuing in current mode.".format(e))
+        return
 
     # Rebuild router with cached credentials (avoids 5+ keyring lookups)
     from src.security.credentials import resolve_credentials
     creds = resolve_credentials(use_cache=True)
     result = _rebuild_router(app, credentials=creds)
     if isinstance(result, Exception):
+        # Revert gate back to prior mode if router rebuild failed.
+        try:
+            if prior_mode == "online":
+                from src.core.network_gate import configure_gate
+                configure_gate(
+                    mode="online",
+                    api_endpoint=(getattr(creds, "endpoint", "") or ""),
+                    allowed_prefixes=getattr(
+                        getattr(app.config, "api", None),
+                        "allowed_endpoint_prefixes", [],
+                    ) if app.config else [],
+                )
+            else:
+                from src.core.network_gate import configure_gate
+                configure_gate(mode="offline")
+        except Exception:
+            logger.debug("Gate rollback to prior mode failed", exc_info=True)
         safe_after(app, 0, messagebox.showwarning,
                    "Router Rebuild Failed",
                    "Could not rebuild LLM router:\n\n{}\n\n"
@@ -287,7 +317,7 @@ def update_mode_buttons(app):
         creds = resolve_credentials(use_cache=True)
         has_creds = creds.has_key and creds.has_endpoint
     except Exception:
-        pass
+        logger.debug("Credential probe failed during mode-button refresh", exc_info=True)
 
     if mode == "online":
         app.online_btn.config(bg=t["active_btn_bg"], fg=t["active_btn_fg"],

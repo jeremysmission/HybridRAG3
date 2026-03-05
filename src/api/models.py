@@ -113,6 +113,7 @@ class ConfigResponse(BaseModel):
     min_score: float
     hybrid_search: bool
     reranker_enabled: bool
+    reranker_backend_available: bool = False
 
 
 class ModeRequest(BaseModel):

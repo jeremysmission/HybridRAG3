@@ -59,43 +59,33 @@ from src.core.constants import DEFAULT_EMBED_DIM
 
 _preload_result = {}   # {"embedder": Embedder | None, "error": str | None}
 _preload_done = threading.Event()
-_preloaded_yaml_cfg = None  # raw YAML dict from default_config.yaml, cached for reuse
+_preloaded_cfg = None  # canonical Config object cached for preload reuse
 
 
-def _read_embedding_model_from_config():
-    """Quick YAML read to get embedding.model_name before full boot.
+def _read_embedding_preload_settings():
+    """Read preload embedding settings via canonical config loader.
 
-    Returns the configured model name, or None to let Embedder use its
-    class-level DEFAULT_MODEL.  This is intentionally lightweight --
-    just a YAML parse, no config object construction.
+    Returns (model_name, dimension). Falls back to (None, 0) so Embedder
+    defaults still apply if config load is unavailable during early startup.
     """
-    global _preloaded_yaml_cfg
+    global _preloaded_cfg
     try:
-        import yaml
-        cfg_path = os.path.join(_project_root, "config", "default_config.yaml")
-        with open(cfg_path, "r") as f:
-            cfg = yaml.safe_load(f) or {}
-        # Overlay user_overrides.yaml on top of defaults
-        ovr_path = os.path.join(_project_root, "config", "user_overrides.yaml")
-        if os.path.isfile(ovr_path):
-            with open(ovr_path, "r") as f:
-                ovr = yaml.safe_load(f) or {}
-            from src.core.config import _deep_merge
-            cfg = _deep_merge(cfg, ovr)
-        _preloaded_yaml_cfg = cfg
-        return cfg.get("embedding", {}).get("model_name") or None
+        from src.core.config import load_config
+        cfg = load_config(_project_root)
+        _preloaded_cfg = cfg
+        emb = getattr(cfg, "embedding", None)
+        model_name = getattr(emb, "model_name", None) if emb else None
+        dim = int(getattr(emb, "dimension", 0) or 0) if emb else 0
+        return model_name, dim
     except Exception:
-        return None
+        return None, 0
 
 
 def _preload_embedder():
     """Connect to Ollama embedding API as early as possible."""
     try:
         from src.core.embedder import Embedder
-        model_name = _read_embedding_model_from_config()
-        dim = 0
-        if _preloaded_yaml_cfg:
-            dim = _preloaded_yaml_cfg.get("embedding", {}).get("dimension", 0)
+        model_name, dim = _read_embedding_preload_settings()
         e = Embedder(model_name=model_name, dimension=dim)
         # Warm encode: force any lazy init (tokenizer buffers, etc.)
         e.embed_query("warmup")
@@ -139,7 +129,7 @@ def _get_or_build_embedder(model_name, logger, dimension=0):
     if not _preload_done.is_set():
         logger.info("Waiting for eager preload to finish...")
     if not _preload_done.wait(timeout=5.0):
-        logger.warning("[WARN] Eager preload did not finish within 5s; continuing without it")
+        logger.warning("[LAUNCH:PRELOAD] Eager preload did not finish within 5s; continuing without it")
 
     with _cached_embedder_lock:
         # Use cached if model matches
@@ -376,17 +366,17 @@ def _load_backends(app, logger):
             try:
                 store = fut_store.result(timeout=_INIT_TIMEOUT)
             except Exception as e:
-                logger.warning("[WARN] VectorStore init failed: %s", e)
+                logger.warning("[LAUNCH:INIT] VectorStore init failed: %s", e)
                 init_errors.append("Database: {}".format(e))
             try:
                 embedder = fut_embedder.result(timeout=_INIT_TIMEOUT)
             except Exception as e:
-                logger.warning("[WARN] Embedder init failed: %s", e)
+                logger.warning("[LAUNCH:INIT] Embedder init failed: %s", e)
                 init_errors.append("Embedder: {}".format(e))
             try:
                 router = fut_router.result(timeout=_INIT_TIMEOUT)
             except Exception as e:
-                logger.warning("[WARN] LLMRouter init failed: %s", e)
+                logger.warning("[LAUNCH:INIT] LLMRouter init failed: %s", e)
                 init_errors.append("LLM Router: {}".format(e))
 
         # -- Ollama runtime probes (embed + generate) + overload fallback --
@@ -404,7 +394,7 @@ def _load_backends(app, logger):
             logger.info("[OK] Indexer ready")
 
     except Exception as e:
-        logger.warning("[WARN] Backend loading partial: %s", e)
+        logger.warning("[LAUNCH:INIT] Backend loading partial: %s", e)
 
     # Attach backends to the GUI (schedule on main thread)
     def _attach():

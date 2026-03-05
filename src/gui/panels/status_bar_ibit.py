@@ -34,7 +34,10 @@ def set_ibit_result(self, passed, total, results=None):
 
     self._ibit_results = results
 
-    if passed == total:
+    if total <= 0:
+        text = "IBIT: NOT RUN"
+        fg = t["orange"]
+    elif passed == total:
         text = "IBIT: {}/{} OK".format(passed, total)
         fg = t["green"]
     else:

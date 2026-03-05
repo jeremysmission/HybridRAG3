@@ -15,6 +15,7 @@ from src.gui.theme import (
 from src.gui.helpers import mode_switch
 from src.gui.helpers.safe_after import drain_ui_queue
 from src.gui.panels.panel_registry import get_panels, _import_attr
+from src.gui.panels.panel_keys import VIEW_REFERENCE, normalize_view_key
 from src.gui.panels.query_panel import QueryPanel
 from src.gui.panels.index_panel import IndexPanel
 from src.gui.panels.status_bar import StatusBar
@@ -64,8 +65,8 @@ def _build_menu_bar(self):
         command=lambda: self.show_view("admin"),
     )
     admin_menu.add_command(
-        label="Ref",
-        command=lambda: self.show_view("reference"),
+        label="Reference",
+        command=lambda: self.show_view(VIEW_REFERENCE),
     )
     self._deployment_guard_var.set(self._get_deployment_mode() == "production")
     admin_menu.add_checkbutton(
@@ -242,6 +243,7 @@ def _build_query_view(self):
 
 def show_view(self, name):
     """Switch to the named view. Lazy-builds on first access."""
+    name = normalize_view_key(name)
     # Hide current view
     if self._current_view and self._current_view in self._views:
         self._views[self._current_view].pack_forget()
@@ -327,10 +329,10 @@ def _build_view(self, name):
             self._views["admin"] = wrapper
             return
 
-        if name == "ref":
+        if name == VIEW_REFERENCE:
             from src.gui.panels.reference_panel import ReferencePanel
             view = ReferencePanel(self._content)
-            self._views["ref"] = view
+            self._views[VIEW_REFERENCE] = view
             return
 
         if name == "settings":
@@ -661,29 +663,36 @@ def _on_close(self):
     self.destroy()
 
 def bind_app_runtime_methods(cls):
-    cls._build_menu_bar = _build_menu_bar
-    cls._get_deployment_mode = _get_deployment_mode
-    cls._toggle_deployment_guard = _toggle_deployment_guard
-    cls._build_title_bar = _build_title_bar
-    cls._update_mode_buttons = _update_mode_buttons
-    cls._build_nav_bar = _build_nav_bar
-    cls._build_status_bar = _build_status_bar
-    cls._build_content_frame = _build_content_frame
-    cls._build_query_view = _build_query_view
-    cls.show_view = show_view
-    cls._build_view = _build_view
-    cls._build_error_view = _build_error_view
-    cls._poll_index_ready = _poll_index_ready
-    cls._toggle_theme = _toggle_theme
-    cls._apply_theme_to_all = _apply_theme_to_all
-    cls._apply_zoom = _apply_zoom
-    cls.toggle_mode = toggle_mode
-    cls._switch_to_online = _switch_to_online
-    cls._switch_to_offline = _switch_to_offline
-    cls._persist_mode = _persist_mode
-    cls.reset_backends = reset_backends
-    cls.set_ready = set_ready
-    cls.reload_config = reload_config
-    cls._show_about = _show_about
-    cls._drain_pump = _drain_pump
-    cls._on_close = _on_close
+    bindings = {
+        "_build_menu_bar": _build_menu_bar,
+        "_get_deployment_mode": _get_deployment_mode,
+        "_toggle_deployment_guard": _toggle_deployment_guard,
+        "_build_title_bar": _build_title_bar,
+        "_update_mode_buttons": _update_mode_buttons,
+        "_build_nav_bar": _build_nav_bar,
+        "_build_status_bar": _build_status_bar,
+        "_build_content_frame": _build_content_frame,
+        "_build_query_view": _build_query_view,
+        "show_view": show_view,
+        "_build_view": _build_view,
+        "_build_error_view": _build_error_view,
+        "_poll_index_ready": _poll_index_ready,
+        "_toggle_theme": _toggle_theme,
+        "_apply_theme_to_all": _apply_theme_to_all,
+        "_apply_zoom": _apply_zoom,
+        "toggle_mode": toggle_mode,
+        "_switch_to_online": _switch_to_online,
+        "_switch_to_offline": _switch_to_offline,
+        "_persist_mode": _persist_mode,
+        "reset_backends": reset_backends,
+        "set_ready": set_ready,
+        "reload_config": reload_config,
+        "_show_about": _show_about,
+        "_drain_pump": _drain_pump,
+        "_on_close": _on_close,
+    }
+    for name, fn in bindings.items():
+        # Preserve explicitly-defined wrappers on the class.
+        if name in cls.__dict__:
+            continue
+        setattr(cls, name, fn)

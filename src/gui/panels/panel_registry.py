@@ -11,6 +11,10 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import Callable, Optional, Any, List, Dict
+from src.gui.panels.panel_keys import (
+    VIEW_QUERY, VIEW_DATA, VIEW_INDEX, VIEW_TUNING, VIEW_COST,
+    VIEW_ADMIN, VIEW_REFERENCE, VIEW_SETTINGS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,14 +66,14 @@ def _safe_panel(
 # ---------------------------------------------------------------
 
 _PANEL_DEFS: List[Dict[str, Any]] = [
-    {"key": "query",   "label": "Query",     "module": "src.gui.panels.query_panel",      "cls": "QueryPanel"},
-    {"key": "data",    "label": "Downloader (Data)", "module": "src.gui.panels.data_panel", "cls": "DataPanel", "optional": True},
-    {"key": "index",   "label": "Index",     "module": "src.gui.panels.index_panel",       "cls": "IndexPanel"},
-    {"key": "tuning",  "label": "Tuning",    "module": "src.gui.panels.tuning_tab",        "cls": "TuningTab"},
-    {"key": "cost",    "label": "Cost",      "module": "src.gui.panels.cost_dashboard",    "cls": "CostDashboard"},
-    {"key": "admin",   "label": "Admin",     "module": "src.gui.panels.api_admin_tab",     "cls": "ApiAdminTab"},
-    {"key": "ref",     "label": "Reference", "module": "src.gui.panels.reference_panel",   "cls": "ReferencePanel"},
-    {"key": "settings","label": "Settings",  "module": "src.gui.panels.settings_panel",    "cls": "SettingsPanel"},
+    {"key": VIEW_QUERY,   "label": "Query",     "module": "src.gui.panels.query_panel",      "cls": "QueryPanel"},
+    {"key": VIEW_DATA,    "label": "Downloader (Data)", "module": "src.gui.panels.data_panel", "cls": "DataPanel", "optional": True},
+    {"key": VIEW_INDEX,   "label": "Index",     "module": "src.gui.panels.index_panel",       "cls": "IndexPanel"},
+    {"key": VIEW_TUNING,  "label": "Tuning",    "module": "src.gui.panels.tuning_tab",        "cls": "TuningTab"},
+    {"key": VIEW_COST,    "label": "Cost",      "module": "src.gui.panels.cost_dashboard",    "cls": "CostDashboard"},
+    {"key": VIEW_ADMIN,   "label": "Admin",     "module": "src.gui.panels.api_admin_tab",     "cls": "ApiAdminTab"},
+    {"key": VIEW_REFERENCE, "label": "Reference", "module": "src.gui.panels.reference_panel",   "cls": "ReferencePanel"},
+    {"key": VIEW_SETTINGS,"label": "Settings",  "module": "src.gui.panels.settings_panel",    "cls": "SettingsPanel"},
 ]
 
 

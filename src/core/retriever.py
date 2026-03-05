@@ -79,6 +79,7 @@ from .vector_store import VectorStore
 from .embedder import Embedder
 
 logger = logging.getLogger(__name__)
+RERANKER_AVAILABLE = False
 
 
 class _EmbeddingCache:
@@ -213,6 +214,15 @@ class Retriever:
 
         # Lazy-loaded reranker model (only loaded when first needed)
         self._reranker = None
+
+        # Cross-encoder reranker backend was retired with sentence-transformers.
+        # Keep config compatibility, but disable at runtime unless a backend exists.
+        if self.reranker_enabled and not RERANKER_AVAILABLE:
+            logger.warning(
+                "[WARN] reranker_enabled requested, but reranker backend is retired. "
+                "Running without reranker."
+            )
+            self.reranker_enabled = False
 
         # Query embedding cache -- repeat queries skip the embedding step
         self._embed_cache = _EmbeddingCache(maxsize=64)

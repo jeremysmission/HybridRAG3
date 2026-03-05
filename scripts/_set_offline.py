@@ -10,8 +10,8 @@
 # WHY:  When you want queries answered by a local AI model running on
 #       your own hardware -- no internet, no API costs, full privacy
 # HOW:  Opens config/default_config.yaml, sets mode: offline, saves it
-# USAGE: Called by api_mode_commands.ps1 -> rag-mode-offline.
-#        Not run directly by users.
+# USAGE: Usually called by api_mode_commands.ps1 -> rag-mode-offline.
+#        Also runnable directly: python scripts/_set_offline.py
 # ===================================================================
 #
 # PORTABILITY:
@@ -21,14 +21,7 @@
 # INTERNET ACCESS: NONE. Only modifies a local file.
 # ===================================================================
 
-import os
 from _config_io import load_default_config, save_default_config_atomic
-
-
-def _config_path():
-    """Compatibility shim for legacy validation tests."""
-    root = os.environ.get('HYBRIDRAG_PROJECT_ROOT', '.')
-    return os.path.join(root, 'config', 'default_config.yaml')
 
 
 # Step 1: Read the current config

@@ -11,8 +11,8 @@
 #       for faster, more powerful responses at a per-query cost
 # HOW:  Opens config/default_config.yaml, sets mode: online, saves it.
 #       Security layers (HF lockdown, model caches) remain unchanged.
-# USAGE: Called by api_mode_commands.ps1 -> rag-mode-online.
-#        Not run directly by users.
+# USAGE: Usually called by api_mode_commands.ps1 -> rag-mode-online.
+#        Also runnable directly: python scripts/_set_online.py
 # ===================================================================
 #
 # WHAT IT CHANGES:
@@ -31,14 +31,7 @@
 # ===================================================================
 
 # Shared config I/O helper provides portable path resolution and atomic write.
-import os
 from _config_io import load_default_config, save_default_config_atomic
-
-
-def _config_path():
-    """Compatibility shim for legacy validation tests."""
-    root = os.environ.get('HYBRIDRAG_PROJECT_ROOT', '.')
-    return os.path.join(root, 'config', 'default_config.yaml')
 
 
 # Step 1: Open the config file and read its contents into a Python dictionary.

@@ -468,18 +468,24 @@ class Indexer:
         deterministic across re-index runs.
         """
         offsets: List[int] = []
+        # Move search cursor by one character each iteration so overlapping
+        # repeated chunks still map to distinct, deterministic start offsets.
         search_from = 0
-        for i, chunk_text in enumerate(chunks):
+        for chunk_text in chunks:
             idx = block.find(chunk_text, search_from)
             if idx < 0:
-                idx = block.find(chunk_text)
+                # Second pass: allow overlap immediately after prior match.
+                overlap_from = (offsets[-1] + 1) if offsets else 0
+                idx = block.find(chunk_text, overlap_from)
             if idx < 0:
-                # Fallback keeps deterministic monotonic offsets even if
-                # chunk text was normalized by parser/chunker internals.
-                prev = offsets[-1] if offsets else 0
-                idx = min(len(block), prev + max(1, len(chunk_text) // 2))
+                # Fallback: enforce strictly increasing starts.
+                prev = offsets[-1] if offsets else -1
+                idx = prev + 1
+            elif offsets and idx <= offsets[-1]:
+                # Guard against duplicate starts when text repeats heavily.
+                idx = offsets[-1] + 1
             offsets.append(idx)
-            search_from = min(len(block), idx + max(1, len(chunk_text)))
+            search_from = min(len(block), idx + 1)
         return offsets
 
     def _process_file_with_retry(
