@@ -102,9 +102,13 @@ class Indexer:
         self.chunker = chunker
 
         idx_cfg = config.indexing if config else None
+        perf_cfg = getattr(config, "performance", None) if config else None
 
         self.max_chars_per_file = getattr(idx_cfg, "max_chars_per_file", 2_000_000)
         self.block_chars = getattr(idx_cfg, "block_chars", 200_000)
+        self.max_concurrent_files = int(getattr(perf_cfg, "max_concurrent_files", 1))
+        self.gc_between_files = bool(getattr(perf_cfg, "gc_between_files", True))
+        self.gc_between_blocks = bool(getattr(perf_cfg, "gc_between_blocks", True))
 
         from src.parsers.registry import REGISTRY
         cfg_exts = getattr(idx_cfg, "supported_extensions", None)
@@ -202,6 +206,11 @@ class Indexer:
         # Final discovery callback with exact count
         progress_callback.on_discovery_progress(_discovery_count)
         logger.info("Found %d supported files in %s", len(supported_files), folder)
+        if self.max_concurrent_files > 1:
+            logger.info(
+                "Indexer profile requests max_concurrent_files=%d (single-worker mode active).",
+                self.max_concurrent_files,
+            )
 
         # --- Step 2: Process each file ---
         file_records: List[FileRecord] = []
@@ -269,6 +278,8 @@ class Indexer:
                 progress_callback.on_error(str(file_path), error_msg)
 
             file_records.append(record)
+            if self.gc_between_files:
+                gc.collect()
 
         # --- Done ---
         elapsed = time.time() - start_time
@@ -288,6 +299,9 @@ class Indexer:
                 sorted(skip_extension_counts.items(), key=lambda kv: (-kv[1], kv[0]))
             ),
             "elapsed_seconds": elapsed,
+            "max_concurrent_files": self.max_concurrent_files,
+            "gc_between_files": self.gc_between_files,
+            "gc_between_blocks": self.gc_between_blocks,
         }
 
         logger.info("Indexing complete:")
@@ -438,11 +452,14 @@ class Indexer:
             )
             chunks_added += len(chunks)
             char_offset += len(block)
+            if self.gc_between_blocks:
+                gc.collect()
 
         if chunks_added == 0:
             return 0, "no chunks produced", was_reindex, parse_details
 
-        gc.collect()
+        if self.gc_between_files:
+            gc.collect()
         return chunks_added, None, was_reindex, parse_details
 
     def _process_file_with_retry(

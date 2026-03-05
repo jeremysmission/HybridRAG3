@@ -50,6 +50,14 @@ def _config_path():
     return os.path.join(root, 'config', 'default_config.yaml')
 
 
+def _write_yaml_atomic(path, data):
+    """Write YAML via temp file + replace to avoid partial truncation."""
+    tmp = path + ".tmp"
+    with open(tmp, 'w', encoding='utf-8') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    os.replace(tmp, path)
+
+
 # Step 1: Open the config file and read its contents into a Python dictionary.
 # _config_path() builds the full portable path instead of a bare relative one.
 cfg_file = _config_path()
@@ -66,8 +74,7 @@ cfg['mode'] = 'online'
 # read and write the same file in a single expression.
 # default_flow_style=False keeps the YAML in the readable multi-line format
 # instead of compressing it into one long line.
-with open(cfg_file, 'w') as f:
-    yaml.dump(cfg, f, default_flow_style=False)
+_write_yaml_atomic(cfg_file, cfg)
 
 # Step 4: Confirm the change
 print('Mode set to: online')

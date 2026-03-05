@@ -74,6 +74,14 @@ def _config_path():
     return os.path.join(root, 'config', 'default_config.yaml')
 
 
+def _write_yaml_atomic(path, data):
+    """Write YAML via temp file + replace to avoid partial truncation."""
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    os.replace(tmp, path)
+
+
 TI = 1000   # tokens in per Q&A
 TO = 500    # tokens out per Q&A
 QB = 1      # per-question pricing
@@ -651,8 +659,7 @@ def main():
         if "api" not in cfg: cfg["api"] = {}
         cfg["api"]["model"] = chosen
 
-    with open(_config_path(), "w") as f:
-        yaml.dump(cfg, f, default_flow_style=False)
+    _write_yaml_atomic(_config_path(), cfg)
 
     # Confirmation
     uc = USE_CASES[uc_key]

@@ -468,6 +468,30 @@ class SecurityConfig:
     deployment_mode: str = "development"  # development|production
 
 
+@dataclass
+class PerformanceConfig:
+    """
+    Runtime performance controls used by indexing.
+
+    max_concurrent_files:
+      Planned ceiling for concurrent file workers (indexer currently
+      executes single-worker for stability; value is still surfaced and
+      logged for profile consistency).
+
+    gc_between_files / gc_between_blocks:
+      Toggle explicit gc.collect() calls to trade peak-memory stability
+      against throughput.
+    """
+    max_concurrent_files: int = 1
+    gc_between_files: bool = True
+    gc_between_blocks: bool = True
+
+    def __post_init__(self) -> None:
+        self.max_concurrent_files = max(1, int(self.max_concurrent_files))
+        self.gc_between_files = bool(self.gc_between_files)
+        self.gc_between_blocks = bool(self.gc_between_blocks)
+
+
 # -------------------------------------------------------------------
 # Freeze helper: makes a dataclass instance and its children immutable
 # -------------------------------------------------------------------
@@ -555,6 +579,7 @@ class Config:
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
     indexing: IndexingConfig = field(default_factory=IndexingConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
+    performance: PerformanceConfig = field(default_factory=PerformanceConfig)
     hallucination_guard: HallucinationGuardConfig = field(
         default_factory=HallucinationGuardConfig,
     )
@@ -778,6 +803,9 @@ def load_config(
         retrieval=_dict_to_dataclass(RetrievalConfig, yaml_data.get("retrieval", {})),
         indexing=_dict_to_dataclass(IndexingConfig, yaml_data.get("indexing", {})),
         security=_dict_to_dataclass(SecurityConfig, yaml_data.get("security", {})),
+        performance=_dict_to_dataclass(
+            PerformanceConfig, yaml_data.get("performance", {})
+        ),
         hallucination_guard=_dict_to_dataclass(
             HallucinationGuardConfig,
             yaml_data.get("hallucination_guard", {}),

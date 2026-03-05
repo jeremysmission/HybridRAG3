@@ -38,6 +38,14 @@ def _config_path():
     return os.path.join(root, 'config', 'default_config.yaml')
 
 
+def _write_yaml_atomic(path, data):
+    """Write YAML via temp file + replace to avoid partial truncation."""
+    tmp = path + ".tmp"
+    with open(tmp, 'w', encoding='utf-8') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    os.replace(tmp, path)
+
+
 # Step 1: Read the current config
 cfg_file = _config_path()
 with open(cfg_file, 'r') as f:
@@ -48,8 +56,7 @@ cfg['mode'] = 'offline'
 
 # Step 3: Write back (separate from read -- never read+write same file
 # in one expression)
-with open(cfg_file, 'w') as f:
-    yaml.dump(cfg, f, default_flow_style=False)
+_write_yaml_atomic(cfg_file, cfg)
 
 # Step 4: Confirm
 print('Mode set to: offline')

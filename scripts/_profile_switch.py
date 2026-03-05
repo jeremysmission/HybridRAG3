@@ -61,6 +61,14 @@ def _config_path():
     return os.path.join(root, 'config', 'default_config.yaml')
 
 
+def _write_yaml_atomic(path, data):
+    """Write YAML via temp file + replace to avoid partial truncation."""
+    tmp = path + ".tmp"
+    with open(tmp, 'w', encoding='utf-8') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    os.replace(tmp, path)
+
+
 # -- Define the three profiles --
 # Each profile is a dictionary of settings that get deep-merged into
 # default_config.yaml. Keys match the YAML section names.
@@ -174,8 +182,7 @@ for section_name, values in settings.items():
         cfg[section_name][key] = val
 
 # -- Save the updated config --
-with open(cfg_file, 'w') as f:
-    yaml.dump(cfg, f, default_flow_style=False)
+_write_yaml_atomic(cfg_file, cfg)
 
 # -- Print confirmation --
 desc = {
