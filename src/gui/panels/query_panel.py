@@ -46,6 +46,7 @@ from src.core.model_identity import canonicalize_model_name
 from src.core.cost_tracker import get_cost_tracker
 from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_SMALL, FONT_MONO, bind_hover
 from src.gui.helpers.safe_after import safe_after
+from src.gui.helpers.mode_tuning import ModeTuningStore
 from src.gui.panels.loading_overlay import VectorFieldOverlay
 from src.gui.panels.query_constants import (
     ONLINE_USE_CASE_TUNING,
@@ -99,6 +100,7 @@ class QueryPanel(tk.LabelFrame):
         self._active_query_id = 0
         self._cancelled_query_ids = set()
         self._query_cancel_event = threading.Event()
+        self._mode_tuning_store = ModeTuningStore()
         self._grounding_bias_var = tk.IntVar(value=6)
         self._grounding_bias_hint = tk.StringVar(value=GROUNDING_BIAS_HINTS[6])
         self._reasoning_dial_var = tk.IntVar(value=5)

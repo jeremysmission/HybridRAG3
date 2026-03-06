@@ -13,6 +13,7 @@ from scripts._model_meta import (
 )
 from src.core.llm_router import get_available_deployments
 from src.core.model_identity import canonicalize_model_name
+from src.gui.helpers.mode_tuning import mode_setting_locked, update_mode_setting
 from src.gui.helpers.safe_after import safe_after
 from src.gui.panels.query_constants import (
     ONLINE_USE_CASE_TUNING,
@@ -52,10 +53,14 @@ def _apply_use_case_tuning(self, uc_key: str, mode: str) -> None:
                         rec.get("context", 4096) or 4096
                     )
             if "temperature" in rec:
-                self.config.ollama.temperature = rec["temperature"]
+                if not mode_setting_locked(self.config, "offline", "temperature"):
+                    self.config.ollama.temperature = rec["temperature"]
+                    update_mode_setting(self.config, "offline", "temperature", rec["temperature"])
         if hasattr(self.config, "retrieval"):
             if "top_k" in rec:
-                self.config.retrieval.top_k = rec["top_k"]
+                if not mode_setting_locked(self.config, "offline", "top_k"):
+                    self.config.retrieval.top_k = rec["top_k"]
+                    update_mode_setting(self.config, "offline", "top_k", rec["top_k"])
         return
 
     # Online tuning bundle
@@ -64,16 +69,26 @@ def _apply_use_case_tuning(self, uc_key: str, mode: str) -> None:
         return
     if hasattr(self.config, "api"):
         if "temperature" in rec:
-            self.config.api.temperature = rec["temperature"]
+            if not mode_setting_locked(self.config, "online", "temperature"):
+                self.config.api.temperature = rec["temperature"]
+                update_mode_setting(self.config, "online", "temperature", rec["temperature"])
         if "max_tokens" in rec:
-            self.config.api.max_tokens = rec["max_tokens"]
+            if not mode_setting_locked(self.config, "online", "max_tokens"):
+                self.config.api.max_tokens = rec["max_tokens"]
+                update_mode_setting(self.config, "online", "max_tokens", rec["max_tokens"])
         if "timeout_seconds" in rec:
-            self.config.api.timeout_seconds = rec["timeout_seconds"]
+            if not mode_setting_locked(self.config, "online", "timeout_seconds"):
+                self.config.api.timeout_seconds = rec["timeout_seconds"]
+                update_mode_setting(self.config, "online", "timeout_seconds", rec["timeout_seconds"])
     if hasattr(self.config, "retrieval"):
         if "top_k" in rec:
-            self.config.retrieval.top_k = rec["top_k"]
+            if not mode_setting_locked(self.config, "online", "top_k"):
+                self.config.retrieval.top_k = rec["top_k"]
+                update_mode_setting(self.config, "online", "top_k", rec["top_k"])
         if "min_score" in rec:
-            self.config.retrieval.min_score = rec["min_score"]
+            if not mode_setting_locked(self.config, "online", "min_score"):
+                self.config.retrieval.min_score = rec["min_score"]
+                update_mode_setting(self.config, "online", "min_score", rec["min_score"])
 
 def _apply_profile_dial_defaults(self, uc_key: str, mode: str) -> None:
     """Apply safe per-profile defaults for grounding/reasoning dials."""
@@ -82,8 +97,18 @@ def _apply_profile_dial_defaults(self, uc_key: str, mode: str) -> None:
         uc_key, {"grounding": 7, "reasoning": 4}
     )
     try:
-        self._grounding_bias_var.set(int(rec.get("grounding", 7)))
-        self._reasoning_dial_var.set(int(rec.get("reasoning", 4)))
+        store = getattr(self, "_mode_tuning_store", None)
+        grounding = int(rec.get("grounding", 7))
+        reasoning = int(rec.get("reasoning", 4))
+        if store is not None:
+            grounding = int(
+                store.get_active_value(self.config, mode_key, "grounding_bias", grounding)
+            )
+            reasoning = int(
+                store.get_active_value(self.config, mode_key, "reasoning_dial", reasoning)
+            )
+        self._grounding_bias_var.set(grounding)
+        self._reasoning_dial_var.set(reasoning)
         self._grounding_bias_hint.set(
             GROUNDING_BIAS_HINTS.get(
                 int(self._grounding_bias_var.get()), "Grounding updated"
@@ -270,11 +295,14 @@ def _apply_online_selection(self, deployment, is_fallback=False, note=""):
         return
     if hasattr(self.config, "api"):
         self.config.api.deployment = dep
+        self.config.api.model = dep
     try:
         if self.query_engine and hasattr(self.query_engine, "llm_router"):
             api_router = getattr(self.query_engine.llm_router, "api", None)
             if api_router is not None:
                 api_router.deployment = dep
+                if hasattr(api_router.config, "api"):
+                    api_router.config.api.model = dep
     except Exception:
         logger.debug("Online deployment push to live router failed", exc_info=True)
 def bind_query_panel_use_case_runtime_methods(cls):

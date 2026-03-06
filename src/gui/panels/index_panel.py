@@ -152,13 +152,28 @@ class IndexPanel(tk.LabelFrame):
         self.stop_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         if self._dev_ui_enabled:
+            self._clear_armed_var = tk.BooleanVar(value=False)
             self.clear_btn = tk.Button(
                 row1, text="Clear Index (Dev)", command=self._on_clear_index,
                 width=14,
                 bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"],
                 font=FONT, relief=tk.FLAT, bd=0, padx=12, pady=8,
+                state=tk.DISABLED,
             )
             self.clear_btn.pack(side=tk.LEFT, padx=(8, 0))
+            self.clear_guard_cb = tk.Checkbutton(
+                row1,
+                text="Unlock Clear",
+                variable=self._clear_armed_var,
+                command=self._on_toggle_clear_guard,
+                bg=t["panel_bg"],
+                fg=t["fg"],
+                selectcolor=t["input_bg"],
+                activebackground=t["panel_bg"],
+                activeforeground=t["fg"],
+                font=FONT_SMALL,
+            )
+            self.clear_guard_cb.pack(side=tk.LEFT, padx=(8, 0))
 
         self.progress_file_label = tk.Label(
             row1, text="", anchor=tk.W, fg=t["gray"],
@@ -236,6 +251,16 @@ class IndexPanel(tk.LabelFrame):
         if hasattr(self, "index_stats_label"):
             self.index_stats_label.configure(bg=t["panel_bg"], fg=t["gray"])
         self.progress_count_label.configure(bg=t["panel_bg"], fg=t["fg"])
+        if hasattr(self, "clear_guard_cb"):
+            self.clear_guard_cb.configure(
+                bg=t["panel_bg"],
+                fg=t["fg"],
+                selectcolor=t["input_bg"],
+                activebackground=t["panel_bg"],
+                activeforeground=t["fg"],
+            )
+        if hasattr(self, "_clear_armed_var"):
+            self._on_toggle_clear_guard()
 
     def set_ready(self, enabled, reason=""):
         """Enable or disable the Start Indexing button based on backend readiness."""
@@ -364,6 +389,12 @@ class IndexPanel(tk.LabelFrame):
     def _on_clear_index(self):
         """Development-only helper: wipe DB + embeddings cache quickly."""
         t = current_theme()
+        if not getattr(self, "_clear_armed_var", tk.BooleanVar(value=False)).get():
+            self.progress_file_label.config(
+                text="[WARN] Unlock Clear first.",
+                fg=t["orange"],
+            )
+            return
         if self.is_indexing:
             self.progress_file_label.config(
                 text="[FAIL] Stop indexing before clearing index.",
@@ -391,6 +422,7 @@ class IndexPanel(tk.LabelFrame):
             "This cannot be undone. You must re-index afterward.",
         )
         if not ok:
+            self._reset_clear_guard()
             return
 
         # Try to release local file handles first.
@@ -418,6 +450,7 @@ class IndexPanel(tk.LabelFrame):
                 errors.append("Embeddings: {}".format(str(e)[:120]))
 
         if errors:
+            self._reset_clear_guard()
             self.progress_file_label.config(
                 text="[FAIL] Clear index partial. {}. If locked, restart app and retry.".format(
                     " | ".join(errors)
@@ -434,6 +467,34 @@ class IndexPanel(tk.LabelFrame):
             text="[OK] Cleared: {}. Re-index required.".format(", ".join(removed) or "nothing"),
             fg=t["green"],
         )
+        self._reset_clear_guard()
+
+    def _on_toggle_clear_guard(self):
+        """Require an explicit arm step before destructive index clearing."""
+        t = current_theme()
+        if not hasattr(self, "clear_btn"):
+            return
+        armed = bool(self._clear_armed_var.get())
+        if armed:
+            self.clear_btn.config(
+                state=tk.NORMAL,
+                bg=t.get("red", "#e05555"),
+                fg="#ffffff",
+                activebackground=t.get("red_hover", "#c04040"),
+                activeforeground="#ffffff",
+            )
+        else:
+            self.clear_btn.config(
+                state=tk.DISABLED,
+                bg=t["inactive_btn_bg"],
+                fg=t["inactive_btn_fg"],
+            )
+
+    def _reset_clear_guard(self):
+        """Return destructive clear controls to the safe locked state."""
+        if hasattr(self, "_clear_armed_var"):
+            self._clear_armed_var.set(False)
+        self._on_toggle_clear_guard()
 
     def _run_indexing(self, folder):
         """Execute indexing in background thread with progress callback."""

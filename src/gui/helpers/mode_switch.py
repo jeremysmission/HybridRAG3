@@ -57,6 +57,8 @@ def _rebuild_router(app, credentials=None):
 
 def _commit_router_and_mode(app, new_router, new_mode):
     """Apply router/mode mutation on GUI thread to avoid cross-thread writes."""
+    from src.gui.helpers.mode_tuning import apply_mode_settings_to_config
+
     if new_router is not None:
         app.router = new_router
         if hasattr(app, "query_engine") and app.query_engine:
@@ -65,6 +67,7 @@ def _commit_router_and_mode(app, new_router, new_mode):
             app.status_bar.router = new_router
     if app.config:
         app.config.mode = new_mode
+        apply_mode_settings_to_config(app.config, new_mode)
         persist_mode(app, new_mode)
     if new_mode == "online":
         os.environ["HYBRIDRAG_OFFLINE"] = "0"
@@ -144,6 +147,12 @@ def _finish_switch(app):
         app.status_bar.force_refresh()
     if hasattr(app, "query_panel"):
         app.query_panel._on_use_case_change()
+    settings = getattr(app, "_views", {}).get("settings") if hasattr(app, "_views") else None
+    if settings is not None and hasattr(settings, "_sync_sliders_to_config"):
+        try:
+            settings._sync_sliders_to_config()
+        except Exception as e:
+            logger.debug("Settings tuning refresh skipped: %s", e)
     # Refresh credential display and mode state in admin panel
     admin = getattr(app, "_admin_panel", None)
     if admin is not None:

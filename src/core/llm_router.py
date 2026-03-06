@@ -964,6 +964,48 @@ def _resolve_api_version(config, endpoint_url):
     return _DEFAULT_API_VERSION
 
 
+# ============================================================================
+# Prompt splitting for chat-based API models
+# ============================================================================
+# Chat models (GPT-4o, GPT-4-turbo, etc.) treat system-role messages as
+# authoritative instructions and user-role messages as the user's input.
+# When the entire RAG prompt (grounding rules + context + question) is sent
+# as a single user message, the model treats the grounding rules as casual
+# suggestions rather than strict directives.  Splitting the prompt into
+# system (rules) + user (context + question) dramatically improves grounding.
+#
+# The prompt from QueryEngine._build_prompt() has a clear structure:
+#   "You are a precise technical assistant. ..."  (system rules)
+#   "\nContext:\n{chunks}\n\nQuestion: {query}\n\nAnswer:"  (user content)
+# ============================================================================
+
+_CONTEXT_MARKERS = ("\nContext:\n", "\nContext (may be empty/partial):\n")
+
+
+def _extract_system_user(prompt: str) -> tuple:
+    """Split a combined prompt into (system_text, user_text).
+
+    Returns (system, user) if a Context boundary is found,
+    or ("", prompt) if the prompt has no recognizable structure.
+    """
+    for marker in _CONTEXT_MARKERS:
+        idx = prompt.find(marker)
+        if idx >= 0:
+            return prompt[:idx].strip(), prompt[idx + 1:].strip()
+    return "", prompt
+
+
+def _split_prompt_to_messages(prompt: str) -> list:
+    """Split a combined prompt into system + user messages for chat API."""
+    system_text, user_text = _extract_system_user(prompt)
+    if system_text:
+        return [
+            {"role": "system", "content": system_text},
+            {"role": "user", "content": user_text},
+        ]
+    return [{"role": "user", "content": prompt}]
+
+
 class APIRouter:
     """Route queries to Azure OpenAI or standard OpenAI API (online mode)."""
 
@@ -1229,8 +1271,31 @@ class APIRouter:
         start_time = time.time()
 
         # -- Pick the model name --
-        # Azure uses "deployment" names (company-chosen); OpenAI uses fixed model names.
-        model_name = self.deployment if self.is_azure else self.config.api.model
+        # Azure uses deployment names in the URL. OpenAI-compatible providers
+        # expect a model ID in the request body. The GUI historically wrote the
+        # online selection to api.deployment, so we fall back to that when
+        # api.model is blank to keep OpenRouter/OpenAI routing aligned.
+        if self.is_azure:
+            model_name = (self.deployment or "").strip()
+        else:
+            configured_model = (
+                getattr(getattr(self.config, "api", None), "model", "") or ""
+            ).strip()
+            selected_model = (self.deployment or "").strip()
+            model_name = configured_model or selected_model
+            if model_name and not configured_model:
+                try:
+                    self.config.api.model = model_name
+                except Exception:
+                    pass
+
+        if not model_name:
+            self.last_error = (
+                "No online model selected. Verify Admin > Online Model Selection "
+                "or configure api.model/api.deployment."
+            )
+            self.logger.error("api_model_not_configured", is_azure=self.is_azure)
+            return None
 
         try:
             # -- THE API CALL --
@@ -1254,12 +1319,17 @@ class APIRouter:
                 model=model_name,
             )
 
+            # Split the combined prompt into system + user messages.
+            # Chat models (GPT-4o etc.) follow system-role instructions
+            # with much higher fidelity than user-role text. Without
+            # this split, the 9-rule grounding prompt is treated as a
+            # suggestion rather than a directive.
+            messages = _split_prompt_to_messages(prompt)
+
             if self.client is not None:
                 response = self.client.chat.completions.create(
                     model=model_name,
-                    messages=[
-                        {"role": "user", "content": prompt}
-                    ],
+                    messages=messages,
                     max_tokens=self.config.api.max_tokens,
                     temperature=self.config.api.temperature,
                 )
@@ -1268,8 +1338,10 @@ class APIRouter:
                 tokens_out = response.usage.completion_tokens if response.usage else 0
                 actual_model = response.model or model_name
             else:
+                sys_msg, usr_msg = _extract_system_user(prompt)
                 fallback = self.http_api_client.chat(
-                    user_message=prompt,
+                    user_message=usr_msg,
+                    system_prompt=sys_msg or None,
                     max_tokens=self.config.api.max_tokens,
                     temperature=self.config.api.temperature,
                 )
@@ -1389,7 +1461,10 @@ def _api_init_http_fallback_client(router: "APIRouter") -> None:
                     "endpoint": router.base_endpoint,
                     "deployment": router.deployment,
                     "api_version": router.api_version,
-                    "model": getattr(router.config.api, "model", ""),
+                    "model": (
+                        getattr(router.config.api, "model", "")
+                        or (router.deployment if not router.is_azure else "")
+                    ),
                 }
             }
         )

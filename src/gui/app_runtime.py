@@ -576,7 +576,10 @@ def set_ready(self, enabled):
 
 def reload_config(self, new_config):
     """Replace the running config and propagate to all panels."""
+    from src.gui.helpers.mode_tuning import apply_mode_settings_to_config
+
     self.config = new_config
+    apply_mode_settings_to_config(new_config, getattr(new_config, "mode", "offline"))
 
     # Propagate to query engine so it uses the new settings
     if hasattr(self, "query_engine") and self.query_engine:

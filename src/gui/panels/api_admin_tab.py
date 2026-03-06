@@ -562,6 +562,7 @@ class ModelSelectionPanel(tk.LabelFrame):
         api = getattr(self.config, "api", None)
         if api:
             api.model = model_id
+            api.deployment = model_id
         t = current_theme()
         self.status_label.config(text="Selected: {}".format(model_id), fg=t["fg"])
 
@@ -1109,6 +1110,8 @@ def _capture_config_snapshot(config):
         },
         "api": {
             "model": getattr(api, "model", "") if api else "",
+            "deployment": getattr(api, "deployment", "") if api else "",
+            "context_window": getattr(api, "context_window", 128000) if api else 128000,
             "max_tokens": getattr(api, "max_tokens", 2048) if api else 2048,
             "temperature": getattr(api, "temperature", 0.1) if api else 0.1,
             "timeout_seconds": getattr(api, "timeout_seconds", 30) if api else 30,
@@ -1116,6 +1119,8 @@ def _capture_config_snapshot(config):
         "ollama": {
             "model": getattr(ollama, "model", "") if ollama else "",
             "context_window": getattr(ollama, "context_window", 4096) if ollama else 4096,
+            "num_predict": getattr(ollama, "num_predict", 512) if ollama else 512,
+            "timeout_seconds": getattr(ollama, "timeout_seconds", 180) if ollama else 180,
         },
         "mode": getattr(config, "mode", "offline"),
     }
@@ -2462,6 +2467,8 @@ def _api_admintab__on_restore_defaults(self):
         a_snap = snapshot.get("api", {})
         if api:
             api.model = a_snap.get("model", api.model)
+            api.deployment = a_snap.get("deployment", getattr(api, "deployment", ""))
+            api.context_window = a_snap.get("context_window", getattr(api, "context_window", 128000))
             api.max_tokens = a_snap.get("max_tokens", api.max_tokens)
             api.temperature = a_snap.get("temperature", api.temperature)
             api.timeout_seconds = a_snap.get("timeout_seconds", api.timeout_seconds)
@@ -2471,6 +2478,11 @@ def _api_admintab__on_restore_defaults(self):
             ollama.model = o_snap.get("model", ollama.model)
             ollama.context_window = o_snap.get(
                 "context_window", getattr(ollama, "context_window", 4096)
+            )
+            if hasattr(ollama, "num_predict"):
+                ollama.num_predict = o_snap.get("num_predict", getattr(ollama, "num_predict", 512))
+            ollama.timeout_seconds = o_snap.get(
+                "timeout_seconds", getattr(ollama, "timeout_seconds", 180)
             )
 
         # Sync tuning tab sliders

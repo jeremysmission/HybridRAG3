@@ -289,6 +289,7 @@ class APIConfig:
     """
     endpoint: str = ""             # EMPTY BY DEFAULT -- must be explicitly configured
     model: str = "gpt-3.5-turbo"
+    context_window: int = 128000   # GPT-4o-class default; refined by model metadata at runtime
     max_tokens: int = 2048
     temperature: float = 0.1       # Low = more focused/deterministic answers
     timeout_seconds: int = 30

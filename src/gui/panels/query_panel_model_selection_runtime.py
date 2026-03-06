@@ -11,6 +11,7 @@ from scripts._model_meta import (
 )
 from src.core.llm_router import get_available_deployments
 from src.core.model_identity import canonicalize_model_name
+from src.gui.helpers.mode_tuning import update_mode_setting
 from src.gui.helpers.safe_after import safe_after
 from src.gui.panels.query_constants import (
     PROFILE_DIAL_DEFAULTS,
@@ -126,12 +127,15 @@ def _on_model_select(self, event=None):
             return
         if hasattr(self.config, "api"):
             self.config.api.deployment = chosen
+            self.config.api.model = chosen
         # Apply to live router if already initialized
         try:
             if self.query_engine and hasattr(self.query_engine, "llm_router"):
                 api_router = getattr(self.query_engine.llm_router, "api", None)
                 if api_router is not None:
                     api_router.deployment = chosen
+                    if hasattr(api_router.config, "api"):
+                        api_router.config.api.model = chosen
         except Exception as e:
             logger.debug("Online deployment apply failed: %s", e)
         self.model_info_var.set("{} (manual)".format(chosen))
@@ -242,6 +246,7 @@ def _on_check_primary(self):
 def _on_grounding_bias_change(self, _value=None):
     """Update hint + live guard tuning when operator adjusts bias."""
     bias = int(self._grounding_bias_var.get())
+    update_mode_setting(self.config, getattr(self.config, "mode", "offline"), "grounding_bias", bias)
     self._grounding_bias_hint.set(
         GROUNDING_BIAS_HINTS.get(bias, "Grounding bias updated")
     )
@@ -250,6 +255,7 @@ def _on_grounding_bias_change(self, _value=None):
 def _on_reasoning_dial_change(self, _value=None):
     """Plain-English: Applies user reasoning-level changes to prompt behavior and UI indicators."""
     lvl = int(self._reasoning_dial_var.get())
+    update_mode_setting(self.config, getattr(self.config, "mode", "offline"), "reasoning_dial", lvl)
     self._reasoning_dial_hint.set(
         REASONING_DIAL_HINTS.get(lvl, "Reasoning dial updated")
     )

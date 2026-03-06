@@ -552,13 +552,13 @@ def _qe_trim_context_to_fit(engine: QueryEngine, context: str, user_query: str) 
 
     Removes whole chunks from the end (lowest relevance) rather than
     hard-truncating mid-sentence.
+
+    Mode-aware: online API models (GPT-4o etc.) have much larger context
+    windows than local Ollama models.  Using the Ollama limit for online
+    queries silently discards most retrieved evidence, making the API
+    model appear ungrounded.
     """
-    ctx_window = getattr(
-        getattr(engine.config, "ollama", None), "context_window", 4096
-    )
-    num_predict = getattr(
-        getattr(engine.config, "ollama", None), "num_predict", 512
-    )
+    ctx_window, num_predict = _qe_resolve_prompt_budget(engine)
     prompt_overhead_tokens = 800 + (len(user_query) // 4) + num_predict
     max_context_tokens = max(ctx_window - prompt_overhead_tokens, 512)
     max_context_chars = max_context_tokens * 4
@@ -591,6 +591,41 @@ def _qe_trim_context_to_fit(engine: QueryEngine, context: str, user_query: str) 
         ctx_window=ctx_window,
     )
     return trimmed
+
+
+def _qe_resolve_prompt_budget(engine: QueryEngine) -> tuple[int, int]:
+    """Resolve context and output budgets for the active backend."""
+    if engine.config.mode == "online":
+        api_cfg = getattr(engine.config, "api", None)
+        num_predict = int(getattr(api_cfg, "max_tokens", 2048) or 2048)
+        return _qe_resolve_online_context_window(engine), num_predict
+
+    ollama_cfg = getattr(engine.config, "ollama", None)
+    ctx_window = int(getattr(ollama_cfg, "context_window", 4096) or 4096)
+    num_predict = int(getattr(ollama_cfg, "num_predict", 512) or 512)
+    return ctx_window, num_predict
+
+
+def _qe_resolve_online_context_window(engine: QueryEngine) -> int:
+    """Resolve the effective online context budget from config and model metadata."""
+    api_cfg = getattr(engine.config, "api", None)
+    configured = int(getattr(api_cfg, "context_window", 128000) or 128000)
+    model_name = (
+        getattr(api_cfg, "model", "")
+        or getattr(api_cfg, "deployment", "")
+        or ""
+    ).strip()
+    known_ctx = 0
+
+    if model_name:
+        try:
+            from scripts._model_meta import lookup_known_model
+            model_meta = lookup_known_model(model_name) or {}
+            known_ctx = int(model_meta.get("ctx", 0) or 0)
+        except Exception:
+            known_ctx = 0
+
+    return max(configured, known_ctx, 4096)
 
 
 def _qe_build_relaxed_prompt(user_query: str, context: str) -> str:

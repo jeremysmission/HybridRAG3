@@ -26,6 +26,7 @@ import logging
 
 from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_SMALL, FONT_MONO, bind_hover
 from src.gui.helpers.safe_after import safe_after
+from src.gui.helpers.mode_tuning import ModeTuningStore
 from src.gui.panels.settings_view import (
     _load_profile_names, _detect_profile_name, _build_ranking_text, _theme_widget,
 )
@@ -201,6 +202,8 @@ class TuningTab(tk.Frame):
 
         self._hw_class, self._vram_gb, self._ram_gb = _detect_hardware_class()
         self._safe = SAFE_DEFAULTS.get(self._hw_class, SAFE_DEFAULTS['desktop_power'])
+        self._mode_store = ModeTuningStore()
+        self._syncing = False
 
         # Track default checkbox vars and lockable widgets for all settings
         self._default_vars = {}
@@ -208,32 +211,150 @@ class TuningTab(tk.Frame):
         self._check_widgets = {}
 
         self._last_popup_key = None
-        self._original_values = self._capture_values()
+        self._mode_banner_var = tk.StringVar(value="")
+        self._mode_status_var = tk.StringVar(value="")
 
+        self._build_mode_banner(t)
         self._build_retrieval_section(t)
         self._build_llm_section(t)
         self._build_profile_section(t)
         self._build_reset_button(t)
+        self._sync_sliders_to_config()
 
     def _capture_values(self):
-        retrieval = getattr(self.config, "retrieval", None)
-        api = getattr(self.config, "api", None)
-        ollama = getattr(self.config, "ollama", None)
-        return {
-            "top_k": getattr(retrieval, "top_k", 5) if retrieval else 5,
-            "min_score": getattr(retrieval, "min_score", 0.10) if retrieval else 0.10,
-            "hybrid_search": getattr(retrieval, "hybrid_search", True) if retrieval else True,
-            "reranker_enabled": getattr(retrieval, "reranker_enabled", False) if retrieval else False,
-            "reranker_top_n": getattr(retrieval, "reranker_top_n", 20) if retrieval else 20,
-            "context_window": getattr(ollama, "context_window", 4096) if ollama else 4096,
-            "num_predict": getattr(ollama, "num_predict", 512) if ollama else 512,
-            "max_tokens": getattr(api, "max_tokens", 2048) if api else 2048,
-            "temperature": getattr(api, "temperature", 0.1) if api else 0.1,
-            "timeout_seconds": getattr(api, "timeout_seconds", 30) if api else 30,
-        }
+        return self._mode_store.get_active_values(self.config, self._current_mode())
 
     def get_profile_options(self):
         return list(self.profile_dropdown["values"])
+
+    def _current_mode(self):
+        return "online" if str(getattr(self.config, "mode", "offline")).lower() == "online" else "offline"
+
+    def _build_mode_banner(self, t):
+        row = tk.Frame(self, bg=t["panel_bg"])
+        row.pack(fill=tk.X, padx=16, pady=(10, 2))
+        self._mode_row = row
+        self._mode_banner = tk.Label(
+            row,
+            textvariable=self._mode_banner_var,
+            anchor=tk.W,
+            bg=t["panel_bg"],
+            fg=t["accent"],
+            font=FONT_BOLD,
+        )
+        self._mode_banner.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._mode_status = tk.Label(
+            row,
+            textvariable=self._mode_status_var,
+            anchor=tk.E,
+            bg=t["panel_bg"],
+            fg=t["gray"],
+            font=FONT_SMALL,
+        )
+        self._mode_status.pack(side=tk.RIGHT)
+
+    def _refresh_mode_banner(self):
+        mode = self._current_mode()
+        self._mode_banner_var.set(
+            "Editing active mode defaults: {}  |  Offline and online keep separate values and locks.".format(
+                mode.upper()
+            )
+        )
+        if hasattr(self, "_llm_frame"):
+            self._llm_frame.config(text="LLM Settings ({})".format(mode.capitalize()))
+        if hasattr(self, "_llm_mode_note"):
+            if mode == "online":
+                self._llm_mode_note.config(
+                    text=(
+                        "Online mode uses api.context_window + max_tokens. "
+                        "Offline-only controls are disabled."
+                    )
+                )
+            else:
+                self._llm_mode_note.config(
+                    text=(
+                        "Offline mode uses ollama.context_window + num_predict. "
+                        "Online-only controls are disabled."
+                    )
+                )
+
+    def _set_mode_status(self, text):
+        self._mode_status_var.set(text)
+        if text:
+            self.after(2500, lambda: self._mode_status_var.set(""))
+
+    def _active_locks(self):
+        state = self._mode_store.get_mode_state(self.config, self._current_mode())
+        return state.get("locks", {})
+
+    def _default_value(self, key):
+        state = self._mode_store.get_mode_state(self.config, self._current_mode())
+        return state.get("defaults", {}).get(key)
+
+    def _mode_key_enabled(self, key):
+        mode = self._current_mode()
+        if key == "num_predict":
+            return mode == "offline"
+        if key == "max_tokens":
+            return mode == "online"
+        return True
+
+    def _apply_mode_widget_states(self):
+        locks = self._active_locks()
+        for key, scale in self._scales.items():
+            enabled = self._mode_key_enabled(key)
+            locked = bool(locks.get(key, False))
+            scale.config(state=(tk.NORMAL if enabled and not locked else tk.DISABLED))
+        for key, widget in self._check_widgets.items():
+            enabled = self._mode_key_enabled(key)
+            locked = bool(locks.get(key, False))
+            widget.config(state=(tk.NORMAL if enabled and not locked else tk.DISABLED))
+
+    def _write_active_vars_to_config(self):
+        retrieval = getattr(self.config, "retrieval", None)
+        api = getattr(self.config, "api", None)
+        ollama = getattr(self.config, "ollama", None)
+        mode = self._current_mode()
+        if retrieval:
+            retrieval.top_k = self.topk_var.get()
+            retrieval.min_score = self.minscore_var.get()
+            retrieval.hybrid_search = self.hybrid_var.get()
+            retrieval.reranker_enabled = self.reranker_var.get()
+            retrieval.reranker_top_n = self.reranker_topn_var.get()
+        if mode == "online":
+            if api:
+                api.context_window = self.ctx_window_var.get()
+                api.max_tokens = self.maxtokens_var.get()
+                api.temperature = self.temp_var.get()
+                api.timeout_seconds = self.timeout_var.get()
+        else:
+            if ollama:
+                ollama.context_window = self.ctx_window_var.get()
+                ollama.num_predict = self.num_predict_var.get()
+                if hasattr(ollama, "temperature"):
+                    ollama.temperature = self.temp_var.get()
+                ollama.timeout_seconds = self.timeout_var.get()
+            elif api:
+                api.temperature = self.temp_var.get()
+
+    def _persist_active_mode_values(self):
+        mode = self._current_mode()
+        values = {
+            "top_k": self.topk_var.get(),
+            "min_score": self.minscore_var.get(),
+            "hybrid_search": self.hybrid_var.get(),
+            "reranker_enabled": self.reranker_var.get(),
+            "reranker_top_n": self.reranker_topn_var.get(),
+            "context_window": self.ctx_window_var.get(),
+            "temperature": self.temp_var.get(),
+            "timeout_seconds": self.timeout_var.get(),
+        }
+        if mode == "online":
+            values["max_tokens"] = self.maxtokens_var.get()
+        else:
+            values["num_predict"] = self.num_predict_var.get()
+        for key, value in values.items():
+            self._mode_store.update_value(self.config, mode, key, value)
 
     # ----------------------------------------------------------------
     # HELPER: slider row with Default checkbox
@@ -257,8 +378,7 @@ class TuningTab(tk.Frame):
         )
         scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        safe_val = self._safe.get(key)
-        def_var = tk.BooleanVar(value=(var.get() == safe_val))
+        def_var = tk.BooleanVar(value=False)
         cb = tk.Checkbutton(
             row, text="Default", variable=def_var,
             command=lambda: self._on_default_toggle(key, var, scale, def_var, on_change),
@@ -267,9 +387,6 @@ class TuningTab(tk.Frame):
             activeforeground=t["fg"], font=FONT_SMALL,
         )
         cb.pack(side=tk.RIGHT, padx=(4, 0))
-
-        if def_var.get():
-            scale.config(state=tk.DISABLED)
 
         self._default_vars[key] = def_var
         self._scales[key] = scale
@@ -291,8 +408,7 @@ class TuningTab(tk.Frame):
         )
         cb.pack(side=tk.LEFT)
 
-        safe_val = self._safe.get(key)
-        def_var = tk.BooleanVar(value=(var.get() == safe_val))
+        def_var = tk.BooleanVar(value=False)
         def_cb = tk.Checkbutton(
             row, text="Default", variable=def_var,
             command=lambda: self._on_default_check_toggle(key, var, cb, def_var, on_change),
@@ -302,9 +418,6 @@ class TuningTab(tk.Frame):
         )
         def_cb.pack(side=tk.RIGHT, padx=(4, 0))
 
-        if def_var.get():
-            cb.config(state=tk.DISABLED)
-
         self._default_vars[key] = def_var
         self._check_widgets[key] = cb
         return cb
@@ -312,20 +425,28 @@ class TuningTab(tk.Frame):
     def _on_default_toggle(self, key, var, scale, def_var, on_change):
         """Handle Default checkbox toggle for a slider."""
         if def_var.get():
-            var.set(self._safe[key])
-            scale.config(state=tk.DISABLED)
+            default_value = self._default_value(key)
+            if default_value is not None:
+                var.set(default_value)
+                self._mode_store.update_value(self.config, self._current_mode(), key, default_value)
+            self._mode_store.set_lock(self.config, self._current_mode(), key, True)
         else:
-            scale.config(state=tk.NORMAL)
+            self._mode_store.set_lock(self.config, self._current_mode(), key, False)
+        self._apply_mode_widget_states()
         if on_change:
             on_change()
 
     def _on_default_check_toggle(self, key, var, cb, def_var, on_change):
         """Handle Default checkbox toggle for a checkbutton."""
         if def_var.get():
-            var.set(self._safe[key])
-            cb.config(state=tk.DISABLED)
+            default_value = self._default_value(key)
+            if default_value is not None:
+                var.set(default_value)
+                self._mode_store.update_value(self.config, self._current_mode(), key, default_value)
+            self._mode_store.set_lock(self.config, self._current_mode(), key, True)
         else:
-            cb.config(state=tk.NORMAL)
+            self._mode_store.set_lock(self.config, self._current_mode(), key, False)
+        self._apply_mode_widget_states()
         if on_change:
             on_change()
 
@@ -377,13 +498,9 @@ class TuningTab(tk.Frame):
         self._update_latency_warning()
 
     def _on_retrieval_change(self):
-        retrieval = getattr(self.config, "retrieval", None)
-        if retrieval:
-            retrieval.top_k = self.topk_var.get()
-            retrieval.min_score = self.minscore_var.get()
-            retrieval.hybrid_search = self.hybrid_var.get()
-            retrieval.reranker_enabled = self.reranker_var.get()
-            retrieval.reranker_top_n = self.reranker_topn_var.get()
+        self._write_active_vars_to_config()
+        if not self._syncing:
+            self._persist_active_mode_values()
         self._update_latency_warning()
         self._check_dangerous_change()
 
@@ -392,7 +509,7 @@ class TuningTab(tk.Frame):
     # ----------------------------------------------------------------
 
     def _build_llm_section(self, t):
-        frame = tk.LabelFrame(self, text="LLM Settings (Offline)", padx=16, pady=8,
+        frame = tk.LabelFrame(self, text="LLM Settings", padx=16, pady=8,
                                bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
         frame.pack(fill=tk.X, padx=16, pady=8)
         self._llm_frame = frame
@@ -403,7 +520,7 @@ class TuningTab(tk.Frame):
         self.ctx_window_var = tk.IntVar(
             value=getattr(ollama, "context_window", 4096) if ollama else 4096)
         self._build_slider_row(frame, t, 'context_window', "Context window:",
-                               self.ctx_window_var, 1024, 32768,
+                               self.ctx_window_var, 1024, 131072,
                                on_change=self._on_llm_change)
 
         self.num_predict_var = tk.IntVar(
@@ -415,7 +532,7 @@ class TuningTab(tk.Frame):
         self.maxtokens_var = tk.IntVar(
             value=getattr(api, "max_tokens", 2048) if api else 2048)
         self._build_slider_row(frame, t, 'max_tokens', "Max tokens (API):",
-                               self.maxtokens_var, 256, 4096,
+                               self.maxtokens_var, 256, 16384,
                                on_change=self._on_llm_change)
 
         self.temp_var = tk.DoubleVar(
@@ -430,16 +547,16 @@ class TuningTab(tk.Frame):
                                self.timeout_var, 10, 300,
                                on_change=self._on_llm_change)
 
+        self._llm_mode_note = tk.Label(
+            frame, text="", anchor=tk.W, wraplength=600,
+            bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+        )
+        self._llm_mode_note.pack(fill=tk.X, pady=(4, 0))
+
     def _on_llm_change(self):
-        ollama = getattr(self.config, "ollama", None)
-        api = getattr(self.config, "api", None)
-        if ollama:
-            ollama.context_window = self.ctx_window_var.get()
-            ollama.num_predict = self.num_predict_var.get()
-        if api:
-            api.max_tokens = self.maxtokens_var.get()
-            api.temperature = self.temp_var.get()
-            api.timeout_seconds = self.timeout_var.get()
+        self._write_active_vars_to_config()
+        if not self._syncing:
+            self._persist_active_mode_values()
         self._update_latency_warning()
         self._check_dangerous_change()
 
@@ -449,16 +566,39 @@ class TuningTab(tk.Frame):
 
     def _get_current_model(self):
         """Return the active Ollama model name."""
+        if self._current_mode() == "online":
+            api = getattr(self.config, "api", None)
+            return (
+                getattr(api, "model", "")
+                or getattr(api, "deployment", "")
+                or "gpt-4o"
+            )
         ollama = getattr(self.config, "ollama", None)
         return getattr(ollama, "model", "phi4:14b-q4_K_M") if ollama else "phi4:14b-q4_K_M"
 
     def _update_latency_warning(self):
         if not hasattr(self, "_latency_warn_label"):
             return
+        mode = self._current_mode()
         top_k = self.topk_var.get()
         ctx = self.ctx_window_var.get() if hasattr(self, "ctx_window_var") else 4096
         num_pred = self.num_predict_var.get() if hasattr(self, "num_predict_var") else 512
         model = self._get_current_model()
+        if mode == "online":
+            max_tokens = self.maxtokens_var.get() if hasattr(self, "maxtokens_var") else 2048
+            note = "Online mode: ctx={} | max_tokens={} | model={}".format(
+                ctx, max_tokens, model
+            )
+            if top_k > 15:
+                self._latency_warn_label.config(
+                    text="[WARN] {} | top_k={} may dilute grounding.".format(note, top_k),
+                    fg=current_theme()["orange"],
+                )
+            else:
+                self._latency_warn_label.config(
+                    text=note, fg=current_theme()["green"]
+                )
+            return
         est = _estimate_query_seconds(top_k, ctx, num_pred, self._vram_gb, model)
         overflow = _vram_overflows(model, ctx, self._vram_gb)
 
@@ -491,6 +631,23 @@ class TuningTab(tk.Frame):
 
     def _check_dangerous_change(self):
         """Show a one-time popup when settings cross dangerous thresholds."""
+        if self._current_mode() == "online":
+            top_k = self.topk_var.get()
+            popup_key = None
+            title = ""
+            msg = ""
+            if top_k > 15:
+                popup_key = "topk_high_online"
+                title = "High top_k -- Retrieval Dilution Risk"
+                msg = (
+                    "top_k={} can flood the prompt with marginal chunks.\n\n"
+                    "For grounded GPT-4o responses, start around 6-10 and tune upward only "
+                    "when retrieval quality supports it."
+                ).format(top_k)
+            if popup_key and popup_key != self._last_popup_key:
+                self._last_popup_key = popup_key
+                messagebox.showwarning(title, msg)
+            return
         ctx = self.ctx_window_var.get() if hasattr(self, "ctx_window_var") else 4096
         top_k = self.topk_var.get()
         num_pred = self.num_predict_var.get() if hasattr(self, "num_predict_var") else 512
@@ -693,7 +850,9 @@ class TuningTab(tk.Frame):
         self.profile_apply_btn.config(state=tk.NORMAL)
 
     def _sync_sliders_to_config(self):
-        self._apply_values(self._capture_values())
+        values = self._mode_store.apply_to_config(self.config, self._current_mode())
+        self._apply_values(values)
+        self._refresh_mode_banner()
         self._update_latency_warning()
 
     def _all_vars(self):
@@ -712,7 +871,8 @@ class TuningTab(tk.Frame):
 
     def _var_matches_safe(self, key):
         var = self._all_vars().get(key)
-        return var is None or var.get() == self._safe.get(key)
+        default_value = self._default_value(key)
+        return var is None or default_value is None or var.get() == default_value
 
     # ----------------------------------------------------------------
     # RESET TO DEFAULTS
@@ -723,6 +883,15 @@ class TuningTab(tk.Frame):
         btn_frame.pack(fill=tk.X, padx=16, pady=16)
         self._reset_frame = btn_frame
 
+        self._save_mode_defaults_btn = tk.Button(
+            btn_frame, text="Save Active Mode Defaults",
+            command=self._on_save_mode_defaults,
+            width=24, bg=t["accent"], fg=t["accent_fg"],
+            font=FONT, relief=tk.FLAT, bd=0, padx=12, pady=8,
+        )
+        self._save_mode_defaults_btn.pack(side=tk.LEFT, padx=(0, 8))
+        bind_hover(self._save_mode_defaults_btn)
+
         self._reset_btn = tk.Button(
             btn_frame, text="Reset to Defaults", command=self._on_reset,
             width=16, bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"],
@@ -732,7 +901,7 @@ class TuningTab(tk.Frame):
         bind_hover(self._reset_btn)
 
         self._lock_all_btn = tk.Button(
-            btn_frame, text="Lock All to Safe", command=self._lock_all_defaults,
+            btn_frame, text="Lock All to Defaults", command=self._lock_all_defaults,
             width=16, bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"],
             font=FONT, relief=tk.FLAT, bd=0, padx=12, pady=8,
         )
@@ -741,29 +910,39 @@ class TuningTab(tk.Frame):
 
     def _apply_values(self, vals):
         """Set all slider/check vars from a dict and refresh default checkboxes."""
+        self._syncing = True
         for key, var in self._all_vars().items():
             if key in vals:
                 var.set(vals[key])
+        locks = self._active_locks()
         for key, def_var in self._default_vars.items():
-            matches = self._var_matches_safe(key)
-            def_var.set(matches)
-            w = self._scales.get(key) or self._check_widgets.get(key)
-            if w:
-                w.config(state=tk.DISABLED if matches else tk.NORMAL)
-        self._on_retrieval_change()
-        self._on_llm_change()
+            def_var.set(bool(locks.get(key, False)))
+        self._apply_mode_widget_states()
+        self._syncing = False
+        self._write_active_vars_to_config()
+        self._update_latency_warning()
 
     def _on_reset(self):
-        self._apply_values(self._original_values)
+        self._mode_store.reset_mode_to_defaults(self.config, self._current_mode())
+        self._sync_sliders_to_config()
+        self._set_mode_status("[OK] Reset active mode to defaults")
+
+    def _on_save_mode_defaults(self):
+        self._persist_active_mode_values()
+        self._mode_store.save_mode_defaults_from_values(self.config, self._current_mode())
+        self._sync_sliders_to_config()
+        self._set_mode_status("[OK] Saved {} defaults".format(self._current_mode()))
 
     def _lock_all_defaults(self):
-        """Lock every setting to its hardware-safe default (demo-day mode)."""
+        """Lock every setting to the active mode's saved defaults."""
+        mode = self._current_mode()
         for key, def_var in self._default_vars.items():
-            def_var.set(True)
-            w = self._scales.get(key) or self._check_widgets.get(key)
-            if w:
-                w.config(state=tk.DISABLED)
-        self._apply_values(self._safe)
+            if self._mode_key_enabled(key):
+                def_var.set(True)
+                self._mode_store.set_lock(self.config, mode, key, True)
+        self._mode_store.reset_mode_to_defaults(self.config, mode)
+        self._sync_sliders_to_config()
+        self._set_mode_status("[OK] Locked active mode to defaults")
 
     # ----------------------------------------------------------------
     # THEME
@@ -779,7 +958,13 @@ class TuningTab(tk.Frame):
                     _theme_widget(child, t)
         if hasattr(self, "_reset_frame"):
             self._reset_frame.configure(bg=t["panel_bg"])
+            self._save_mode_defaults_btn.configure(
+                bg=t["accent"], fg=t["accent_fg"])
             self._reset_btn.configure(
                 bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"])
             self._lock_all_btn.configure(
                 bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"])
+        if hasattr(self, "_mode_row"):
+            self._mode_row.configure(bg=t["panel_bg"])
+            self._mode_banner.configure(bg=t["panel_bg"], fg=t["accent"])
+            self._mode_status.configure(bg=t["panel_bg"], fg=t["gray"])

@@ -2,6 +2,7 @@
 api:
   api_version: ''
   auth_scheme: ''
+  context_window: 128000
   deployment: ''
   endpoint: ''
   max_tokens: 2048
