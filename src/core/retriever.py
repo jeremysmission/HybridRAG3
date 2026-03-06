@@ -82,6 +82,47 @@ logger = logging.getLogger(__name__)
 RERANKER_AVAILABLE = False
 
 
+def _retriever_resolve_settings(config) -> dict:
+    """Read the active retrieval settings from the current config object."""
+    retrieval = getattr(config, "retrieval", None)
+
+    settings = {
+        "top_k": int(getattr(retrieval, "top_k", 8) or 8) if retrieval else 8,
+        "block_rows": int(getattr(retrieval, "block_rows", 25000) or 25000) if retrieval else 25000,
+        "min_score": float(getattr(retrieval, "min_score", 0.20) or 0.20) if retrieval else 0.20,
+        "lex_boost": float(getattr(retrieval, "lex_boost", 0.06) or 0.06) if retrieval else 0.06,
+        "offline_top_k": None,
+        "hybrid_search": bool(
+            getattr(retrieval, "hybrid_search", getattr(retrieval, "hybrid", True))
+        ) if retrieval else True,
+        "rrf_k": int(getattr(retrieval, "rrf_k", 60) or 60) if retrieval else 60,
+        "reranker_enabled": bool(
+            getattr(retrieval, "reranker_enabled", getattr(retrieval, "reranker", False))
+        ) if retrieval else False,
+        "reranker_model_name": str(
+            getattr(retrieval, "reranker_model", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+        ) if retrieval else "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        "reranker_top_n": int(getattr(retrieval, "reranker_top_n", 20) or 20) if retrieval else 20,
+    }
+
+    if retrieval is not None:
+        offline_top = getattr(retrieval, "offline_top_k", None)
+        if offline_top is not None:
+            try:
+                settings["offline_top_k"] = max(1, int(offline_top))
+            except (TypeError, ValueError):
+                settings["offline_top_k"] = None
+
+    env_block = os.getenv("HYBRIDRAG_RETRIEVAL_BLOCK_ROWS")
+    if env_block:
+        settings["block_rows"] = int(env_block)
+    env_min = os.getenv("HYBRIDRAG_MIN_SCORE")
+    if env_min:
+        settings["min_score"] = float(env_min)
+
+    return settings
+
+
 class _EmbeddingCache:
     """Thread-safe LRU cache for query embeddings (maxsize entries)."""
 
@@ -164,67 +205,32 @@ class Retriever:
         self.embedder = embedder
         self.config = config
 
-        # --- Pull retrieval settings from config (with safe defaults) ---
-        # getattr chains handle the case where config.retrieval doesn't exist
-        retrieval = getattr(config, "retrieval", None)
-
-        # top_k: How many final results to return to the LLM.
-        # More results = more context but slower LLM response and higher cost.
-        self.top_k = int(getattr(retrieval, "top_k", 8)) if retrieval else 8
-
-        # block_rows: How many embedding rows to scan per vector search.
-        # Higher = more thorough but slower. 25,000 covers most indexes.
-        self.block_rows = int(getattr(retrieval, "block_rows", 25000)) if retrieval else 25000
-
-        # min_score: Minimum relevance score to include a result.
-        # Chunks scoring below this are filtered out. Prevents low-quality
-        # results from polluting the LLM's context window.
-        self.min_score = float(getattr(retrieval, "min_score", 0.20)) if retrieval else 0.20
-
-        # lex_boost: Maximum score bonus for keyword matches in vector-only mode.
-        # Only used when hybrid_search is False. See design decision #4 above.
-        self.lex_boost = float(getattr(retrieval, "lex_boost", 0.06)) if retrieval else 0.06
-        self.offline_top_k = None
-        if retrieval is not None:
-            offline_top = getattr(retrieval, "offline_top_k", None)
-            if offline_top is not None:
-                try:
-                    self.offline_top_k = max(1, int(offline_top))
-                except (TypeError, ValueError):
-                    self.offline_top_k = None
-
-        # hybrid_search: Whether to combine vector + keyword search.
-        # True (default) gives best results for most engineering documents.
-        self.hybrid_search = bool(getattr(retrieval, "hybrid_search", True)) if retrieval else True
-
-        # rrf_k: Smoothing constant for Reciprocal Rank Fusion.
-        # Standard value is 60 (from the original RRF paper). Higher values
-        # reduce the advantage of being ranked #1 vs #2. Don't change unless
-        # you have a specific reason.
-        self.rrf_k = int(getattr(retrieval, "rrf_k", 60)) if retrieval else 60
-
-        # --- Reranker settings (optional, disabled by default) ---
-        self.reranker_enabled = bool(getattr(retrieval, "reranker_enabled", False)) if retrieval else False
-        self.reranker_model_name = str(getattr(retrieval, "reranker_model", "cross-encoder/ms-marco-MiniLM-L-6-v2")) if retrieval else "cross-encoder/ms-marco-MiniLM-L-6-v2"
-
-        # reranker_top_n: How many candidates to retrieve before reranking.
-        # Must be >= top_k. We fetch more candidates so the reranker has
-        # a larger pool to pick the best results from.
-        self.reranker_top_n = int(getattr(retrieval, "reranker_top_n", 20)) if retrieval else 20
-
-        # --- Environment variable overrides (machine-specific tuning) ---
-        env_block = os.getenv("HYBRIDRAG_RETRIEVAL_BLOCK_ROWS")
-        if env_block:
-            self.block_rows = int(env_block)
-        env_min = os.getenv("HYBRIDRAG_MIN_SCORE")
-        if env_min:
-            self.min_score = float(env_min)
-
         # Lazy-loaded reranker model (only loaded when first needed)
         self._reranker = None
 
-        # Cross-encoder reranker backend was retired with sentence-transformers.
-        # Keep config compatibility, but disable at runtime unless a backend exists.
+        # Query embedding cache -- repeat queries skip the embedding step
+        self._embed_cache = _EmbeddingCache(maxsize=64)
+        self.refresh_settings(warn=True)
+
+    def refresh_settings(self, warn: bool = False):
+        """Refresh live retrieval settings from the current config object.
+
+        QueryPanel, mode switching, and profile changes all mutate config at
+        runtime. Without this refresh, Retriever keeps stale offline values
+        and online mode can continue searching with the weaker old budget.
+        """
+        settings = _retriever_resolve_settings(self.config)
+        self.top_k = settings["top_k"]
+        self.block_rows = settings["block_rows"]
+        self.min_score = settings["min_score"]
+        self.lex_boost = settings["lex_boost"]
+        self.offline_top_k = settings["offline_top_k"]
+        self.hybrid_search = settings["hybrid_search"]
+        self.rrf_k = settings["rrf_k"]
+        self.reranker_enabled = settings["reranker_enabled"]
+        self.reranker_model_name = settings["reranker_model_name"]
+        self.reranker_top_n = settings["reranker_top_n"]
+
         if self.reranker_enabled and not RERANKER_AVAILABLE:
             logger.warning(
                 "[WARN] reranker_enabled requested, but reranker backend is retired. "
@@ -232,10 +238,8 @@ class Retriever:
             )
             self.reranker_enabled = False
 
-        _warn_aggressive_settings(self.top_k, self.reranker_top_n)
-
-        # Query embedding cache -- repeat queries skip the embedding step
-        self._embed_cache = _EmbeddingCache(maxsize=64)
+        if warn:
+            _warn_aggressive_settings(self.top_k, self.reranker_top_n)
 
     # ------------------------------------------------------------------
     # Public API -- this is what query_engine.py calls
@@ -254,6 +258,8 @@ class Retriever:
 
         Returns a list of SearchHit objects, sorted by score descending.
         """
+        self.refresh_settings()
+
         # If reranker is on, we fetch more candidates so it has a bigger
         # pool to rerank from. Otherwise, just fetch top_k directly.
         candidate_k = self.reranker_top_n if self.reranker_enabled else self.top_k

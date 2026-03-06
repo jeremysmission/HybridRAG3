@@ -584,6 +584,10 @@ def reload_config(self, new_config):
     # Propagate to query engine so it uses the new settings
     if hasattr(self, "query_engine") and self.query_engine:
         self.query_engine.config = new_config
+        if hasattr(self.query_engine, "retriever") and self.query_engine.retriever:
+            self.query_engine.retriever.config = new_config
+        if hasattr(self.query_engine, "llm_router") and self.query_engine.llm_router:
+            self.query_engine.llm_router.config = new_config
 
     if hasattr(self, "query_panel"):
         self.query_panel.config = new_config
@@ -604,6 +608,8 @@ def reload_config(self, new_config):
     tuning = getattr(self, "_tuning_panel", None)
     if tuning is not None:
         tuning.config = new_config
+        if hasattr(tuning, "_sync_sliders_to_config"):
+            tuning._sync_sliders_to_config()
 
     self._update_mode_buttons()
     logger.info("Config reloaded and propagated to all panels")

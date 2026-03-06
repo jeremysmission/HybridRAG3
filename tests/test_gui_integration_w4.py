@@ -52,12 +52,15 @@ class FakeOllamaConfig:
     model: str = "phi4-mini"
     timeout_seconds: int = 120
     context_window: int = 4096
+    num_predict: int = 512
+    temperature: float = 0.1
 
 
 @dataclass
 class FakeAPIConfig:
     endpoint: str = ""
-    model: str = "gpt-3.5-turbo"
+    model: str = "gpt-4o"
+    context_window: int = 128000
     max_tokens: int = 2048
     temperature: float = 0.1
     timeout_seconds: int = 30

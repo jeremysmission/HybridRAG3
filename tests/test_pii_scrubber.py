@@ -82,6 +82,13 @@ def test_credit_card_dashes():
     assert count >= 1
 
 
+def test_long_part_number_not_scrubbed_as_card():
+    text = "Part number 1234-5678-9012-3456 is required for the assembly."
+    result, count = scrub_pii(text)
+    assert result == text
+    assert count == 0
+
+
 # -- IPv4 --
 
 def test_ipv4_replaced():

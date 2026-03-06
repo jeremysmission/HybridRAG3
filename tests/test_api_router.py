@@ -236,6 +236,51 @@ class TestAPIRouter:
         assert result.model == "gpt-3.5-turbo"
         assert result.latency_ms > 0
 
+    def test_query_uses_deployment_fallback_for_non_azure_model(self):
+        """Non-Azure mode should fall back from api.model to api.deployment."""
+        config = FakeConfig(mode="online")
+        config.api.model = ""
+        config.api.deployment = "gpt-4o"
+
+        mock_gate = MagicMock()
+        mock_gate.check_allowed.return_value = None
+
+        with patch("src.core.llm_router.get_gate", return_value=mock_gate):
+            with patch("src.core.llm_router.get_app_logger") as mock_logger:
+                mock_logger.return_value = MagicMock()
+
+                with patch("openai.OpenAI") as MockOpenAI:
+                    mock_choice = MagicMock()
+                    mock_choice.message.content = "grounded"
+
+                    mock_usage = MagicMock()
+                    mock_usage.prompt_tokens = 10
+                    mock_usage.completion_tokens = 5
+
+                    mock_completion = MagicMock()
+                    mock_completion.choices = [mock_choice]
+                    mock_completion.usage = mock_usage
+                    mock_completion.model = "gpt-4o"
+
+                    mock_client = MagicMock()
+                    mock_client.chat.completions.create.return_value = (
+                        mock_completion
+                    )
+                    MockOpenAI.return_value = mock_client
+
+                    from src.core.llm_router import APIRouter
+                    router = APIRouter(
+                        config, "test-key", "https://openrouter.ai/api/v1"
+                    )
+
+                    result = router.query("Use the deployment fallback")
+
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert call_kwargs["model"] == "gpt-4o"
+        assert config.api.model == "gpt-4o"
+        assert result is not None
+        assert result.model == "gpt-4o"
+
     # ------------------------------------------------------------------
     # Test 2.7: API query with no client (SDK not installed)
     # ------------------------------------------------------------------

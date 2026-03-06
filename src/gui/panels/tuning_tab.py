@@ -40,19 +40,19 @@ SAFE_DEFAULTS = {
         'top_k': 5, 'min_score': 0.10, 'hybrid_search': True,
         'reranker_enabled': False, 'reranker_top_n': 20,
         'context_window': 4096, 'num_predict': 512,
-        'max_tokens': 2048, 'temperature': 0.05, 'timeout_seconds': 180,
+        'max_tokens': 16384, 'temperature': 0.05, 'timeout_seconds': 180,
     },
     'desktop_power': {
         'top_k': 5, 'min_score': 0.10, 'hybrid_search': True,
         'reranker_enabled': False, 'reranker_top_n': 20,
         'context_window': 4096, 'num_predict': 512,
-        'max_tokens': 2048, 'temperature': 0.05, 'timeout_seconds': 180,
+        'max_tokens': 16384, 'temperature': 0.05, 'timeout_seconds': 180,
     },
     'server_max': {
         'top_k': 10, 'min_score': 0.10, 'hybrid_search': True,
         'reranker_enabled': False, 'reranker_top_n': 30,
         'context_window': 4096, 'num_predict': 512,
-        'max_tokens': 2048, 'temperature': 0.05, 'timeout_seconds': 180,
+        'max_tokens': 16384, 'temperature': 0.05, 'timeout_seconds': 180,
     },
 }
 
@@ -194,11 +194,12 @@ def _run_profile_switch(tab, profile):
 class TuningTab(tk.Frame):
     """Retrieval/LLM tuning with per-setting Default checkboxes and latency warnings."""
 
-    def __init__(self, parent, config, app_ref):
+    def __init__(self, parent, config, app_ref, enable_mode_store=True):
         t = current_theme()
         super().__init__(parent, bg=t["panel_bg"])
         self.config = config
         self._app = app_ref
+        self._mode_store_enabled = bool(enable_mode_store)
 
         self._hw_class, self._vram_gb, self._ram_gb = _detect_hardware_class()
         self._safe = SAFE_DEFAULTS.get(self._hw_class, SAFE_DEFAULTS['desktop_power'])
@@ -219,10 +220,13 @@ class TuningTab(tk.Frame):
         self._build_llm_section(t)
         self._build_profile_section(t)
         self._build_reset_button(t)
+        self._legacy_defaults = self._display_values_from_config()
         self._sync_sliders_to_config()
 
     def _capture_values(self):
-        return self._mode_store.get_active_values(self.config, self._current_mode())
+        if self._mode_store_enabled:
+            return self._mode_store.get_active_values(self.config, self._current_mode())
+        return self._display_values_from_config()
 
     def get_profile_options(self):
         return list(self.profile_dropdown["values"])
@@ -284,12 +288,33 @@ class TuningTab(tk.Frame):
             self.after(2500, lambda: self._mode_status_var.set(""))
 
     def _active_locks(self):
+        if not self._mode_store_enabled:
+            return {}
         state = self._mode_store.get_mode_state(self.config, self._current_mode())
         return state.get("locks", {})
 
     def _default_value(self, key):
+        if not self._mode_store_enabled:
+            return self._display_values_from_config().get(key)
         state = self._mode_store.get_mode_state(self.config, self._current_mode())
         return state.get("defaults", {}).get(key)
+
+    def _display_values_from_config(self):
+        retrieval = getattr(self.config, "retrieval", None)
+        api = getattr(self.config, "api", None)
+        ollama = getattr(self.config, "ollama", None)
+        return {
+            "top_k": getattr(retrieval, "top_k", 5) if retrieval else 5,
+            "min_score": getattr(retrieval, "min_score", 0.10) if retrieval else 0.10,
+            "hybrid_search": getattr(retrieval, "hybrid_search", True) if retrieval else True,
+            "reranker_enabled": getattr(retrieval, "reranker_enabled", False) if retrieval else False,
+            "reranker_top_n": getattr(retrieval, "reranker_top_n", 20) if retrieval else 20,
+            "context_window": getattr(ollama, "context_window", 4096) if ollama else 4096,
+            "num_predict": getattr(ollama, "num_predict", 512) if ollama else 512,
+            "max_tokens": getattr(api, "max_tokens", 16384) if api else 16384,
+            "temperature": getattr(api, "temperature", 0.1) if api else 0.1,
+            "timeout_seconds": getattr(api, "timeout_seconds", 180) if api else 180,
+        }
 
     def _mode_key_enabled(self, key):
         mode = self._current_mode()
@@ -321,6 +346,15 @@ class TuningTab(tk.Frame):
             retrieval.hybrid_search = self.hybrid_var.get()
             retrieval.reranker_enabled = self.reranker_var.get()
             retrieval.reranker_top_n = self.reranker_topn_var.get()
+        if not self._mode_store_enabled:
+            if ollama:
+                ollama.context_window = self.ctx_window_var.get()
+                ollama.num_predict = self.num_predict_var.get()
+            if api:
+                api.max_tokens = self.maxtokens_var.get()
+                api.temperature = self.temp_var.get()
+                api.timeout_seconds = self.timeout_var.get()
+            return
         if mode == "online":
             if api:
                 api.context_window = self.ctx_window_var.get()
@@ -338,6 +372,8 @@ class TuningTab(tk.Frame):
                 api.temperature = self.temp_var.get()
 
     def _persist_active_mode_values(self):
+        if not self._mode_store_enabled:
+            return
         mode = self._current_mode()
         values = {
             "top_k": self.topk_var.get(),
@@ -428,10 +464,15 @@ class TuningTab(tk.Frame):
             default_value = self._default_value(key)
             if default_value is not None:
                 var.set(default_value)
-                self._mode_store.update_value(self.config, self._current_mode(), key, default_value)
-            self._mode_store.set_lock(self.config, self._current_mode(), key, True)
+                if self._mode_store_enabled:
+                    self._mode_store.update_value(
+                        self.config, self._current_mode(), key, default_value
+                    )
+            if self._mode_store_enabled:
+                self._mode_store.set_lock(self.config, self._current_mode(), key, True)
         else:
-            self._mode_store.set_lock(self.config, self._current_mode(), key, False)
+            if self._mode_store_enabled:
+                self._mode_store.set_lock(self.config, self._current_mode(), key, False)
         self._apply_mode_widget_states()
         if on_change:
             on_change()
@@ -442,10 +483,15 @@ class TuningTab(tk.Frame):
             default_value = self._default_value(key)
             if default_value is not None:
                 var.set(default_value)
-                self._mode_store.update_value(self.config, self._current_mode(), key, default_value)
-            self._mode_store.set_lock(self.config, self._current_mode(), key, True)
+                if self._mode_store_enabled:
+                    self._mode_store.update_value(
+                        self.config, self._current_mode(), key, default_value
+                    )
+            if self._mode_store_enabled:
+                self._mode_store.set_lock(self.config, self._current_mode(), key, True)
         else:
-            self._mode_store.set_lock(self.config, self._current_mode(), key, False)
+            if self._mode_store_enabled:
+                self._mode_store.set_lock(self.config, self._current_mode(), key, False)
         self._apply_mode_widget_states()
         if on_change:
             on_change()
@@ -530,7 +576,7 @@ class TuningTab(tk.Frame):
                                on_change=self._on_llm_change)
 
         self.maxtokens_var = tk.IntVar(
-            value=getattr(api, "max_tokens", 2048) if api else 2048)
+            value=getattr(api, "max_tokens", 16384) if api else 16384)
         self._build_slider_row(frame, t, 'max_tokens', "Max tokens (API):",
                                self.maxtokens_var, 256, 16384,
                                on_change=self._on_llm_change)
@@ -542,7 +588,7 @@ class TuningTab(tk.Frame):
                                on_change=self._on_llm_change)
 
         self.timeout_var = tk.IntVar(
-            value=getattr(api, "timeout_seconds", 30) if api else 30)
+            value=getattr(api, "timeout_seconds", 180) if api else 180)
         self._build_slider_row(frame, t, 'timeout_seconds', "Timeout (s):",
                                self.timeout_var, 10, 300,
                                on_change=self._on_llm_change)
@@ -585,7 +631,7 @@ class TuningTab(tk.Frame):
         num_pred = self.num_predict_var.get() if hasattr(self, "num_predict_var") else 512
         model = self._get_current_model()
         if mode == "online":
-            max_tokens = self.maxtokens_var.get() if hasattr(self, "maxtokens_var") else 2048
+            max_tokens = self.maxtokens_var.get() if hasattr(self, "maxtokens_var") else 16384
             note = "Online mode: ctx={} | max_tokens={} | model={}".format(
                 ctx, max_tokens, model
             )
@@ -631,6 +677,8 @@ class TuningTab(tk.Frame):
 
     def _check_dangerous_change(self):
         """Show a one-time popup when settings cross dangerous thresholds."""
+        if not self._mode_store_enabled:
+            return
         if self._current_mode() == "online":
             top_k = self.topk_var.get()
             popup_key = None
@@ -850,7 +898,10 @@ class TuningTab(tk.Frame):
         self.profile_apply_btn.config(state=tk.NORMAL)
 
     def _sync_sliders_to_config(self):
-        values = self._mode_store.apply_to_config(self.config, self._current_mode())
+        if self._mode_store_enabled:
+            values = self._mode_store.apply_to_config(self.config, self._current_mode())
+        else:
+            values = self._display_values_from_config()
         self._apply_values(values)
         self._refresh_mode_banner()
         self._update_latency_warning()
@@ -923,11 +974,17 @@ class TuningTab(tk.Frame):
         self._update_latency_warning()
 
     def _on_reset(self):
+        if not self._mode_store_enabled:
+            self._apply_values(self._legacy_defaults)
+            self._set_mode_status("[OK] Reset settings")
+            return
         self._mode_store.reset_mode_to_defaults(self.config, self._current_mode())
         self._sync_sliders_to_config()
         self._set_mode_status("[OK] Reset active mode to defaults")
 
     def _on_save_mode_defaults(self):
+        if not self._mode_store_enabled:
+            return
         self._persist_active_mode_values()
         self._mode_store.save_mode_defaults_from_values(self.config, self._current_mode())
         self._sync_sliders_to_config()
@@ -935,6 +992,8 @@ class TuningTab(tk.Frame):
 
     def _lock_all_defaults(self):
         """Lock every setting to the active mode's saved defaults."""
+        if not self._mode_store_enabled:
+            return
         mode = self._current_mode()
         for key, def_var in self._default_vars.items():
             if self._mode_key_enabled(key):

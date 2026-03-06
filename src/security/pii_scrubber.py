@@ -22,13 +22,11 @@ import re
 
 # -- Compiled patterns (loaded once at import time) --
 # Order matters: more specific patterns first to avoid partial matches.
+_CARD_PATTERN = re.compile(r"\b(?:\d[ -]?){13,19}\b")
 
 _PATTERNS = [
     # SSN: xxx-xx-xxxx (must come before phone to avoid overlap)
     (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[SSN]"),
-
-    # Credit card: 13-19 digits with optional separators (space or dash)
-    (re.compile(r"\b(?:\d[ -]?){13,19}\b"), "[CARD]"),
 
     # Email addresses
     (re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"), "[EMAIL]"),
@@ -52,6 +50,38 @@ _PATTERNS = [
 ]
 
 
+def _luhn_valid(digits: str) -> bool:
+    """Return True only for real card-like numbers, not arbitrary long IDs."""
+    if not digits or not digits.isdigit():
+        return False
+    checksum = 0
+    parity = len(digits) % 2
+    for idx, char in enumerate(digits):
+        digit = int(char)
+        if idx % 2 == parity:
+            digit *= 2
+            if digit > 9:
+                digit -= 9
+        checksum += digit
+    return checksum % 10 == 0
+
+
+def _scrub_cards(text: str) -> tuple[str, int]:
+    """Scrub only card-like numbers that pass Luhn validation."""
+    count = 0
+
+    def _replace(match):
+        nonlocal count
+        raw = match.group(0)
+        digits = re.sub(r"\D", "", raw)
+        if 13 <= len(digits) <= 19 and _luhn_valid(digits):
+            count += 1
+            return "[CARD]"
+        return raw
+
+    return _CARD_PATTERN.sub(_replace, text), count
+
+
 def scrub_pii(text: str) -> tuple:
     """Replace PII patterns in text with bracketed placeholders.
 
@@ -65,7 +95,7 @@ def scrub_pii(text: str) -> tuple:
     if not text:
         return text, 0
 
-    total = 0
+    text, total = _scrub_cards(text)
     for pattern, replacement in _PATTERNS:
         text, count = pattern.subn(replacement, text)
         total += count

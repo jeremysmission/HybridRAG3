@@ -68,6 +68,7 @@ class FakeOllamaConfig:
     timeout_seconds: int = 120
     context_window: int = 4096
     num_predict: int = 512
+    temperature: float = 0.1
     keep_alive: int = -1
     num_thread: int = 0
 
@@ -76,12 +77,13 @@ class FakeOllamaConfig:
 class FakeAPIConfig:
     """Fake config section for API settings."""
     endpoint: str = "https://openrouter.ai/api/v1"
-    model: str = "gpt-3.5-turbo"
+    model: str = "gpt-4o"
     key: str = ""
     provider: str = "openai"
     api_version: str = "2024-02-01"
     deployment: str = ""
     auth_scheme: str = "api_key"
+    context_window: int = 128000
     max_tokens: int = 1024
     temperature: float = 0.7
     timeout_seconds: int = 30
@@ -107,8 +109,16 @@ class FakeRetrievalConfig:
     """Fake config section for retrieval settings."""
     top_k: int = 5
     min_score: float = 0.3
+    hybrid_search: bool = True
     hybrid: bool = True
+    reranker_enabled: bool = False
     reranker: bool = False
+    reranker_model: str = ""
+    reranker_top_n: int = 20
+    rrf_k: int = 60
+    block_rows: int = 25000
+    lex_boost: float = 0.06
+    offline_top_k: Optional[int] = None
 
 
 @dataclass

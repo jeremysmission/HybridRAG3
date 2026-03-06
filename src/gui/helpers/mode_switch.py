@@ -147,10 +147,10 @@ def _finish_switch(app):
         app.status_bar.force_refresh()
     if hasattr(app, "query_panel"):
         app.query_panel._on_use_case_change()
-    settings = getattr(app, "_views", {}).get("settings") if hasattr(app, "_views") else None
-    if settings is not None and hasattr(settings, "_sync_sliders_to_config"):
+    tuning = getattr(app, "_tuning_panel", None)
+    if tuning is not None and hasattr(tuning, "_sync_sliders_to_config"):
         try:
-            settings._sync_sliders_to_config()
+            tuning._sync_sliders_to_config()
         except Exception as e:
             logger.debug("Settings tuning refresh skipped: %s", e)
     # Refresh credential display and mode state in admin panel

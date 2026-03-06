@@ -197,7 +197,12 @@ class SettingsView(tk.Frame):
 
         # Dev-only tuning tab (hidden by default in production-style runs).
         from src.gui.panels.tuning_tab import TuningTab
-        self._tuning_tab = TuningTab(self._notebook, config=config, app_ref=app_ref)
+        self._tuning_tab = TuningTab(
+            self._notebook,
+            config=config,
+            app_ref=app_ref,
+            enable_mode_store=self._dev_ui_enabled,
+        )
         if self._dev_ui_enabled:
             self._notebook.add(self._tuning_tab, text="  Development Tuning  ")
 

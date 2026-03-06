@@ -19,15 +19,15 @@ from scripts._model_meta import USE_CASES
 # changes profession/use-case in online mode so model + retrieval settings
 # move together as a bundle.
 ONLINE_USE_CASE_TUNING = {
-    "sw":    {"temperature": 0.10, "max_tokens": 2048, "timeout_seconds": 90,  "top_k": 8,  "min_score": 0.08},
-    "eng":   {"temperature": 0.08, "max_tokens": 2048, "timeout_seconds": 90,  "top_k": 10, "min_score": 0.08},
-    "sys":   {"temperature": 0.08, "max_tokens": 1792, "timeout_seconds": 90,  "top_k": 9,  "min_score": 0.08},
-    "draft": {"temperature": 0.05, "max_tokens": 1792, "timeout_seconds": 90,  "top_k": 10, "min_score": 0.08},
-    "log":   {"temperature": 0.05, "max_tokens": 1536, "timeout_seconds": 90,  "top_k": 12, "min_score": 0.06},
-    "pm":    {"temperature": 0.20, "max_tokens": 2048, "timeout_seconds": 120, "top_k": 8,  "min_score": 0.06},
-    "fe":    {"temperature": 0.10, "max_tokens": 1792, "timeout_seconds": 90,  "top_k": 10, "min_score": 0.08},
-    "cyber": {"temperature": 0.08, "max_tokens": 1792, "timeout_seconds": 90,  "top_k": 9,  "min_score": 0.08},
-    "gen":   {"temperature": 0.30, "max_tokens": 2048, "timeout_seconds": 120, "top_k": 6,  "min_score": 0.05},
+    "sw":    {"temperature": 0.10, "max_tokens": 16384, "timeout_seconds": 180, "top_k": 8,  "min_score": 0.10},
+    "eng":   {"temperature": 0.08, "max_tokens": 16384, "timeout_seconds": 180, "top_k": 10, "min_score": 0.10},
+    "sys":   {"temperature": 0.08, "max_tokens": 16384, "timeout_seconds": 180, "top_k": 9,  "min_score": 0.10},
+    "draft": {"temperature": 0.05, "max_tokens": 16384, "timeout_seconds": 180, "top_k": 10, "min_score": 0.10},
+    "log":   {"temperature": 0.05, "max_tokens": 16384, "timeout_seconds": 180, "top_k": 12, "min_score": 0.10},
+    "pm":    {"temperature": 0.20, "max_tokens": 16384, "timeout_seconds": 180, "top_k": 8,  "min_score": 0.10},
+    "fe":    {"temperature": 0.10, "max_tokens": 16384, "timeout_seconds": 180, "top_k": 10, "min_score": 0.10},
+    "cyber": {"temperature": 0.08, "max_tokens": 16384, "timeout_seconds": 180, "top_k": 9,  "min_score": 0.10},
+    "gen":   {"temperature": 0.30, "max_tokens": 16384, "timeout_seconds": 180, "top_k": 6,  "min_score": 0.10},
 }
 
 # Safe development defaults for independent dial controls.

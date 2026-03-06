@@ -5,11 +5,11 @@ api:
   context_window: 128000
   deployment: ''
   endpoint: ''
-  max_tokens: 2048
+  max_tokens: 16384
   model: ''
   provider: ''
   temperature: 0.05
-  timeout_seconds: 60
+  timeout_seconds: 180
 chunking:
   chunk_size: 1200
   max_heading_len: 160

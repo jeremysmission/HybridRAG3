@@ -126,6 +126,7 @@ class QueryEngine:
         and gives you a summarized answer. Every failure path returns a
         safe result (never raises to the caller).
         """
+        self._sync_runtime_components()
         start_time = time.time()
 
         try:
@@ -286,6 +287,7 @@ class QueryEngine:
 
         Falls back to non-streaming query() if anything goes wrong.
         """
+        self._sync_runtime_components()
         start_time = time.time()
         sources = []
         chunk_count = 0
@@ -422,6 +424,10 @@ class QueryEngine:
     def _trim_context_to_fit(self, context: str, user_query: str) -> str:
         """Delegate to module-level helper."""
         return _qe_trim_context_to_fit(self, context, user_query)
+
+    def _sync_runtime_components(self) -> None:
+        """Keep stateful helpers aligned with the live config object."""
+        _qe_sync_runtime_components(self)
 
     def _build_prompt(self, user_query: str, context: str) -> str:
         """
@@ -593,11 +599,28 @@ def _qe_trim_context_to_fit(engine: QueryEngine, context: str, user_query: str) 
     return trimmed
 
 
+def _qe_sync_runtime_components(engine: QueryEngine) -> None:
+    """Propagate the live config object into persistent runtime helpers."""
+    retriever = getattr(engine, "retriever", None)
+    if retriever is not None:
+        retriever.config = engine.config
+
+    router = getattr(engine, "llm_router", None)
+    if router is None:
+        return
+
+    router.config = engine.config
+    for attr in ("ollama", "api", "vllm"):
+        child = getattr(router, attr, None)
+        if child is not None and hasattr(child, "config"):
+            child.config = engine.config
+
+
 def _qe_resolve_prompt_budget(engine: QueryEngine) -> tuple[int, int]:
     """Resolve context and output budgets for the active backend."""
     if engine.config.mode == "online":
         api_cfg = getattr(engine.config, "api", None)
-        num_predict = int(getattr(api_cfg, "max_tokens", 2048) or 2048)
+        num_predict = int(getattr(api_cfg, "max_tokens", 16384) or 16384)
         return _qe_resolve_online_context_window(engine), num_predict
 
     ollama_cfg = getattr(engine.config, "ollama", None)

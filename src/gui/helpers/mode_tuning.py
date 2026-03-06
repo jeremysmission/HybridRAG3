@@ -55,14 +55,14 @@ _MODE_DEFAULTS = {
     },
     "online": {
         "top_k": 8,
-        "min_score": 0.08,
+        "min_score": 0.10,
         "hybrid_search": True,
         "reranker_enabled": False,
         "reranker_top_n": 20,
         "context_window": 128000,
-        "max_tokens": 2048,
+        "max_tokens": 16384,
         "temperature": 0.05,
-        "timeout_seconds": 60,
+        "timeout_seconds": 180,
         "grounding_bias": 7,
         "reasoning_dial": 5,
     },
@@ -112,7 +112,99 @@ def _coerce_value(key: str, value: Any) -> Any:
 
 
 def _new_store() -> dict[str, Any]:
-    return {"version": _STORE_VERSION, "modes": {}}
+    return {
+        "version": _STORE_VERSION,
+        "modes": {},
+    }
+
+
+def _new_mode_state(mode: str) -> dict[str, Any]:
+    mode = _normalize_mode(mode)
+    defaults = {
+        key: copy.deepcopy(_MODE_DEFAULTS[mode][key])
+        for key in _MODE_KEYS[mode]
+    }
+    return {
+        "values": copy.deepcopy(defaults),
+        "defaults": defaults,
+        "locks": {key: False for key in _MODE_KEYS[mode]},
+    }
+
+
+def _snapshot_mode_values(config, mode: str) -> dict[str, Any]:
+    mode = _normalize_mode(mode)
+    retrieval = getattr(config, "retrieval", None)
+    api = getattr(config, "api", None)
+    ollama = getattr(config, "ollama", None)
+    values = {
+        "top_k": getattr(retrieval, "top_k", _MODE_DEFAULTS[mode]["top_k"]),
+        "min_score": getattr(retrieval, "min_score", _MODE_DEFAULTS[mode]["min_score"]),
+        "hybrid_search": getattr(
+            retrieval, "hybrid_search", _MODE_DEFAULTS[mode]["hybrid_search"]
+        ),
+        "reranker_enabled": getattr(
+            retrieval, "reranker_enabled", _MODE_DEFAULTS[mode]["reranker_enabled"]
+        ),
+        "reranker_top_n": getattr(
+            retrieval, "reranker_top_n", _MODE_DEFAULTS[mode]["reranker_top_n"]
+        ),
+        "grounding_bias": _MODE_DEFAULTS[mode]["grounding_bias"],
+        "reasoning_dial": _MODE_DEFAULTS[mode]["reasoning_dial"],
+    }
+    if mode == "online":
+        values.update(
+            {
+                "context_window": getattr(
+                    api, "context_window", _MODE_DEFAULTS[mode]["context_window"]
+                ),
+                "max_tokens": getattr(api, "max_tokens", _MODE_DEFAULTS[mode]["max_tokens"]),
+                "temperature": getattr(
+                    api, "temperature", _MODE_DEFAULTS[mode]["temperature"]
+                ),
+                "timeout_seconds": getattr(
+                    api, "timeout_seconds", _MODE_DEFAULTS[mode]["timeout_seconds"]
+                ),
+            }
+        )
+    else:
+        values.update(
+            {
+                "context_window": getattr(
+                    ollama, "context_window", _MODE_DEFAULTS[mode]["context_window"]
+                ),
+                "num_predict": getattr(
+                    ollama, "num_predict", _MODE_DEFAULTS[mode]["num_predict"]
+                ),
+                "temperature": getattr(
+                    ollama,
+                    "temperature",
+                    getattr(api, "temperature", _MODE_DEFAULTS[mode]["temperature"]),
+                ),
+                "timeout_seconds": getattr(
+                    ollama,
+                    "timeout_seconds",
+                    _MODE_DEFAULTS[mode]["timeout_seconds"],
+                ),
+            }
+        )
+    return values
+
+
+def _bootstrap_mode_state(
+    config,
+    mode: str,
+    *,
+    use_config_values: bool,
+) -> dict[str, Any]:
+    state = _new_mode_state(mode)
+    if not use_config_values:
+        return state
+    snapshot = _snapshot_mode_values(config, mode)
+    state["values"] = {
+        key: copy.deepcopy(snapshot.get(key, state["defaults"][key]))
+        for key in _MODE_KEYS[_normalize_mode(mode)]
+    }
+    return state
 
 
 class ModeTuningStore:
@@ -149,76 +241,28 @@ class ModeTuningStore:
             os.replace(tmp_path, self.path)
 
     def snapshot_config(self, config, mode: str) -> dict[str, Any]:
-        mode = _normalize_mode(mode)
-        retrieval = getattr(config, "retrieval", None)
-        api = getattr(config, "api", None)
-        ollama = getattr(config, "ollama", None)
-        values = {
-            "top_k": getattr(retrieval, "top_k", _MODE_DEFAULTS[mode]["top_k"]),
-            "min_score": getattr(retrieval, "min_score", _MODE_DEFAULTS[mode]["min_score"]),
-            "hybrid_search": getattr(
-                retrieval, "hybrid_search", _MODE_DEFAULTS[mode]["hybrid_search"]
-            ),
-            "reranker_enabled": getattr(
-                retrieval, "reranker_enabled", _MODE_DEFAULTS[mode]["reranker_enabled"]
-            ),
-            "reranker_top_n": getattr(
-                retrieval, "reranker_top_n", _MODE_DEFAULTS[mode]["reranker_top_n"]
-            ),
-            "grounding_bias": _MODE_DEFAULTS[mode]["grounding_bias"],
-            "reasoning_dial": _MODE_DEFAULTS[mode]["reasoning_dial"],
-        }
-        if mode == "online":
-            values.update(
-                {
-                    "context_window": getattr(
-                        api, "context_window", _MODE_DEFAULTS[mode]["context_window"]
-                    ),
-                    "max_tokens": getattr(api, "max_tokens", _MODE_DEFAULTS[mode]["max_tokens"]),
-                    "temperature": getattr(
-                        api, "temperature", _MODE_DEFAULTS[mode]["temperature"]
-                    ),
-                    "timeout_seconds": getattr(
-                        api, "timeout_seconds", _MODE_DEFAULTS[mode]["timeout_seconds"]
-                    ),
-                }
-            )
-        else:
-            values.update(
-                {
-                    "context_window": getattr(
-                        ollama, "context_window", _MODE_DEFAULTS[mode]["context_window"]
-                    ),
-                    "num_predict": getattr(
-                        ollama, "num_predict", _MODE_DEFAULTS[mode]["num_predict"]
-                    ),
-                    "temperature": getattr(
-                        ollama,
-                        "temperature",
-                        getattr(api, "temperature", _MODE_DEFAULTS[mode]["temperature"]),
-                    ),
-                    "timeout_seconds": getattr(
-                        ollama,
-                        "timeout_seconds",
-                        _MODE_DEFAULTS[mode]["timeout_seconds"],
-                    ),
-                }
-            )
-        return values
+        return _snapshot_mode_values(config, mode)
 
     def ensure_mode(self, data: dict[str, Any], config, mode: str) -> dict[str, Any]:
         mode = _normalize_mode(mode)
         modes = data.setdefault("modes", {})
-        entry = modes.setdefault(mode, {})
+        current_mode = _normalize_mode(getattr(config, "mode", mode))
+        entry = modes.get(mode)
+        if not isinstance(entry, dict):
+            entry = _bootstrap_mode_state(
+                config,
+                mode,
+                use_config_values=(not modes and mode == current_mode),
+            )
+            modes[mode] = entry
         values = entry.setdefault("values", {})
         defaults = entry.setdefault("defaults", {})
         locks = entry.setdefault("locks", {})
-        seed = self.snapshot_config(config, mode)
         for key in _MODE_KEYS[mode]:
             if key not in defaults:
-                defaults[key] = copy.deepcopy(seed.get(key, _MODE_DEFAULTS[mode][key]))
+                defaults[key] = copy.deepcopy(_MODE_DEFAULTS[mode][key])
             if key not in values:
-                values[key] = copy.deepcopy(seed.get(key, defaults[key]))
+                values[key] = copy.deepcopy(defaults[key])
             if key not in locks:
                 locks[key] = False
             defaults[key] = _coerce_value(key, defaults[key])

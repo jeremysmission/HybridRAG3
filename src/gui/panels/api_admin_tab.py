@@ -1112,9 +1112,9 @@ def _capture_config_snapshot(config):
             "model": getattr(api, "model", "") if api else "",
             "deployment": getattr(api, "deployment", "") if api else "",
             "context_window": getattr(api, "context_window", 128000) if api else 128000,
-            "max_tokens": getattr(api, "max_tokens", 2048) if api else 2048,
+            "max_tokens": getattr(api, "max_tokens", 16384) if api else 16384,
             "temperature": getattr(api, "temperature", 0.1) if api else 0.1,
-            "timeout_seconds": getattr(api, "timeout_seconds", 30) if api else 30,
+            "timeout_seconds": getattr(api, "timeout_seconds", 180) if api else 180,
         },
         "ollama": {
             "model": getattr(ollama, "model", "") if ollama else "",
