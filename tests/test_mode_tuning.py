@@ -129,3 +129,44 @@ def test_mode_values_and_locks_stay_independent_between_online_and_offline():
     assert online_state["values"]["top_k"] == 12
     assert online_state["defaults"]["top_k"] == 11
     assert online_state["locks"]["top_k"] is True
+
+
+def test_legacy_reasoning_dial_migrates_to_open_knowledge_flag():
+    cfg = _make_config()
+
+    temp_root = _make_local_temp_root()
+    try:
+        with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": temp_root}):
+            cfg_dir = Path(temp_root) / "config"
+            cfg_dir.mkdir(parents=True, exist_ok=True)
+            (cfg_dir / "mode_tuning.yaml").write_text(
+                "\n".join(
+                    [
+                        "version: 1",
+                        "modes:",
+                        "  offline:",
+                        "    values:",
+                        "      grounding_bias: 8",
+                        "      reasoning_dial: 0",
+                        "    defaults:",
+                        "      grounding_bias: 7",
+                        "      reasoning_dial: 3",
+                        "    locks:",
+                        "      grounding_bias: false",
+                        "      reasoning_dial: true",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            store = ModeTuningStore()
+            state = store.get_mode_state(cfg, "offline")
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+    assert state["values"]["allow_open_knowledge"] is False
+    assert state["defaults"]["allow_open_knowledge"] is True
+    assert state["locks"]["allow_open_knowledge"] is True
+    assert "reasoning_dial" not in state["values"]
+    assert "reasoning_dial" not in state["defaults"]
+    assert "reasoning_dial" not in state["locks"]

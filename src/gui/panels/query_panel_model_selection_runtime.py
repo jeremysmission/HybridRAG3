@@ -16,7 +16,7 @@ from src.gui.helpers.safe_after import safe_after
 from src.gui.panels.query_constants import (
     PROFILE_DIAL_DEFAULTS,
     GROUNDING_BIAS_HINTS,
-    REASONING_DIAL_HINTS,
+    OPEN_KNOWLEDGE_HINTS,
 )
 
 logger = logging.getLogger(__name__)
@@ -252,12 +252,17 @@ def _on_grounding_bias_change(self, _value=None):
     )
     self._apply_grounding_bias_live(bias)
 
-def _on_reasoning_dial_change(self, _value=None):
-    """Plain-English: Applies user reasoning-level changes to prompt behavior and UI indicators."""
-    lvl = int(self._reasoning_dial_var.get())
-    update_mode_setting(self.config, getattr(self.config, "mode", "offline"), "reasoning_dial", lvl)
-    self._reasoning_dial_hint.set(
-        REASONING_DIAL_HINTS.get(lvl, "Reasoning dial updated")
+def _on_open_knowledge_toggle(self):
+    """Update hint + live fallback mode when operator toggles open knowledge."""
+    enabled = bool(self._open_knowledge_var.get())
+    update_mode_setting(
+        self.config,
+        getattr(self.config, "mode", "offline"),
+        "allow_open_knowledge",
+        enabled,
+    )
+    self._open_knowledge_hint.set(
+        OPEN_KNOWLEDGE_HINTS.get(enabled, "Open knowledge updated")
     )
     self._apply_grounding_bias_live(int(self._grounding_bias_var.get()))
 
@@ -268,11 +273,11 @@ def _apply_grounding_bias_live(self, bias: int):
     Higher bias => stricter evidence requirements.
     """
     b = max(0, min(10, int(bias)))
-    r = max(0, min(10, int(self._reasoning_dial_var.get())))
+    allow_open_knowledge = bool(self._open_knowledge_var.get())
     guard_on = b > 0
     threshold = 0.35 + (max(1, b) / 10.0) * 0.55
     min_chunks = 1 if b <= 4 else 2 if b <= 7 else 3
-    min_score = 0.00 if b <= 2 else 0.03 if b <= 4 else 0.06 if b <= 7 else 0.10
+    guard_min_score = 0.00 if b <= 2 else 0.03 if b <= 4 else 0.06 if b <= 7 else 0.10
     action = "flag" if b <= 5 else "block"
 
     # Config object update (if fields exist)
@@ -282,11 +287,6 @@ def _apply_grounding_bias_live(self, bias: int):
             hg.enabled = bool(guard_on)
             hg.threshold = float(round(threshold, 2))
             hg.failure_action = action
-        if hasattr(self.config, "retrieval"):
-            self.config.retrieval.min_score = max(
-                float(getattr(self.config.retrieval, "min_score", 0.0)),
-                float(min_score),
-            )
     except Exception:
         logger.debug("Grounding bias config update failed", exc_info=True)
 
@@ -294,9 +294,7 @@ def _apply_grounding_bias_live(self, bias: int):
     qe = self.query_engine
     if qe is not None:
         try:
-            # Independent reasoning dial: 0 disables, >0 enables.
-            setattr(qe, "allow_open_knowledge", bool(r > 0))
-            setattr(qe, "reasoning_level", int(r))
+            setattr(qe, "allow_open_knowledge", allow_open_knowledge)
             if hasattr(qe, "guard_enabled"):
                 qe.guard_enabled = bool(guard_on)
             if hasattr(qe, "guard_threshold"):
@@ -304,7 +302,7 @@ def _apply_grounding_bias_live(self, bias: int):
             if hasattr(qe, "guard_min_chunks"):
                 qe.guard_min_chunks = int(min_chunks)
             if hasattr(qe, "guard_min_score"):
-                qe.guard_min_score = float(min_score)
+                qe.guard_min_score = float(guard_min_score)
             if hasattr(qe, "guard_action"):
                 qe.guard_action = action
         except Exception:
@@ -384,7 +382,7 @@ def bind_query_panel_model_selection_runtime_methods(cls):
     cls._current_use_case_key = _current_use_case_key
     cls._on_check_primary = _on_check_primary
     cls._on_grounding_bias_change = _on_grounding_bias_change
-    cls._on_reasoning_dial_change = _on_reasoning_dial_change
+    cls._on_open_knowledge_toggle = _on_open_knowledge_toggle
     cls._apply_grounding_bias_live = _apply_grounding_bias_live
     cls._check_primary_worker = _check_primary_worker
     cls._switch_to_primary_offline = _switch_to_primary_offline

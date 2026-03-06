@@ -307,8 +307,6 @@ class TuningTab(tk.Frame):
             "top_k": getattr(retrieval, "top_k", 5) if retrieval else 5,
             "min_score": getattr(retrieval, "min_score", 0.10) if retrieval else 0.10,
             "hybrid_search": getattr(retrieval, "hybrid_search", True) if retrieval else True,
-            "reranker_enabled": getattr(retrieval, "reranker_enabled", False) if retrieval else False,
-            "reranker_top_n": getattr(retrieval, "reranker_top_n", 20) if retrieval else 20,
             "context_window": getattr(ollama, "context_window", 4096) if ollama else 4096,
             "num_predict": getattr(ollama, "num_predict", 512) if ollama else 512,
             "max_tokens": getattr(api, "max_tokens", 16384) if api else 16384,
@@ -344,8 +342,6 @@ class TuningTab(tk.Frame):
             retrieval.top_k = self.topk_var.get()
             retrieval.min_score = self.minscore_var.get()
             retrieval.hybrid_search = self.hybrid_var.get()
-            retrieval.reranker_enabled = self.reranker_var.get()
-            retrieval.reranker_top_n = self.reranker_topn_var.get()
         if not self._mode_store_enabled:
             if ollama:
                 ollama.context_window = self.ctx_window_var.get()
@@ -379,8 +375,6 @@ class TuningTab(tk.Frame):
             "top_k": self.topk_var.get(),
             "min_score": self.minscore_var.get(),
             "hybrid_search": self.hybrid_var.get(),
-            "reranker_enabled": self.reranker_var.get(),
-            "reranker_top_n": self.reranker_topn_var.get(),
             "context_window": self.ctx_window_var.get(),
             "temperature": self.temp_var.get(),
             "timeout_seconds": self.timeout_var.get(),
@@ -417,7 +411,7 @@ class TuningTab(tk.Frame):
         def_var = tk.BooleanVar(value=False)
         cb = tk.Checkbutton(
             row, text="Default", variable=def_var,
-            command=lambda: self._on_default_toggle(key, var, scale, def_var, on_change),
+            command=lambda: self._on_default_toggle(key, var, def_var, on_change),
             bg=t["panel_bg"], fg=t["fg"],
             selectcolor=t["input_bg"], activebackground=t["panel_bg"],
             activeforeground=t["fg"], font=FONT_SMALL,
@@ -447,7 +441,7 @@ class TuningTab(tk.Frame):
         def_var = tk.BooleanVar(value=False)
         def_cb = tk.Checkbutton(
             row, text="Default", variable=def_var,
-            command=lambda: self._on_default_check_toggle(key, var, cb, def_var, on_change),
+            command=lambda: self._on_default_toggle(key, var, def_var, on_change),
             bg=t["panel_bg"], fg=t["fg"],
             selectcolor=t["input_bg"], activebackground=t["panel_bg"],
             activeforeground=t["fg"], font=FONT_SMALL,
@@ -458,27 +452,8 @@ class TuningTab(tk.Frame):
         self._check_widgets[key] = cb
         return cb
 
-    def _on_default_toggle(self, key, var, scale, def_var, on_change):
-        """Handle Default checkbox toggle for a slider."""
-        if def_var.get():
-            default_value = self._default_value(key)
-            if default_value is not None:
-                var.set(default_value)
-                if self._mode_store_enabled:
-                    self._mode_store.update_value(
-                        self.config, self._current_mode(), key, default_value
-                    )
-            if self._mode_store_enabled:
-                self._mode_store.set_lock(self.config, self._current_mode(), key, True)
-        else:
-            if self._mode_store_enabled:
-                self._mode_store.set_lock(self.config, self._current_mode(), key, False)
-        self._apply_mode_widget_states()
-        if on_change:
-            on_change()
-
-    def _on_default_check_toggle(self, key, var, cb, def_var, on_change):
-        """Handle Default checkbox toggle for a checkbutton."""
+    def _on_default_toggle(self, key, var, def_var, on_change):
+        """Handle Default checkbox toggle for any lockable control."""
         if def_var.get():
             default_value = self._default_value(key)
             if default_value is not None:
@@ -523,17 +498,6 @@ class TuningTab(tk.Frame):
             value=getattr(retrieval, "hybrid_search", True) if retrieval else True)
         self._build_check_row(frame, t, 'hybrid_search', "Hybrid search:",
                               self.hybrid_var, on_change=self._on_retrieval_change)
-
-        self.reranker_var = tk.BooleanVar(
-            value=getattr(retrieval, "reranker_enabled", False) if retrieval else False)
-        self._build_check_row(frame, t, 'reranker_enabled', "Reranker:",
-                              self.reranker_var, on_change=self._on_retrieval_change)
-
-        self.reranker_topn_var = tk.IntVar(
-            value=getattr(retrieval, "reranker_top_n", 20) if retrieval else 20)
-        self._build_slider_row(frame, t, 'reranker_top_n', "Reranker top_n:",
-                               self.reranker_topn_var, 10, 100,
-                               on_change=self._on_retrieval_change)
 
         # Latency warning label
         self._latency_warn_label = tk.Label(
@@ -655,8 +619,6 @@ class TuningTab(tk.Frame):
         if top_k > 10:
             warnings.append("top_k={} adds ~{:.0f}s extra".format(
                 top_k, (top_k - 5) * 300 / 60))
-        if self.reranker_var.get():
-            warnings.append("Reranker backend retired (no effect)")
 
         t = current_theme()
         if est > 120:
@@ -699,7 +661,6 @@ class TuningTab(tk.Frame):
         ctx = self.ctx_window_var.get() if hasattr(self, "ctx_window_var") else 4096
         top_k = self.topk_var.get()
         num_pred = self.num_predict_var.get() if hasattr(self, "num_predict_var") else 512
-        reranker = self.reranker_var.get()
         model = self._get_current_model()
 
         popup_key = None
@@ -737,15 +698,6 @@ class TuningTab(tk.Frame):
                 "Estimated query time: {:.0f}s on {:.0f}GB VRAM.\n\n"
                 "Recommended: top_k <= 8 for 12GB GPU."
             ).format(top_k, top_k * 300, est, self._vram_gb)
-        elif reranker:
-            popup_key = "reranker_on"
-            title = "Reranker Backend Retired"
-            msg = (
-                "The cross-encoder reranker was removed with "
-                "sentence-transformers.\n\n"
-                "Enabling this has no effect. Setting preserved "
-                "for forward compatibility."
-            )
 
         if popup_key and popup_key != self._last_popup_key:
             self._last_popup_key = popup_key
@@ -911,8 +863,6 @@ class TuningTab(tk.Frame):
         return {
             'top_k': self.topk_var, 'min_score': self.minscore_var,
             'hybrid_search': self.hybrid_var,
-            'reranker_enabled': self.reranker_var,
-            'reranker_top_n': self.reranker_topn_var,
             'context_window': self.ctx_window_var,
             'num_predict': self.num_predict_var,
             'max_tokens': self.maxtokens_var,

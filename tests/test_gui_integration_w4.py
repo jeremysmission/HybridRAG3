@@ -24,6 +24,7 @@ import time
 import tkinter as tk
 from pathlib import Path
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Optional, List
 from unittest.mock import MagicMock, patch, PropertyMock
 
@@ -374,6 +375,64 @@ def test_05c_use_case_change_preserves_higher_context_window():
     _pump_events(root, 50)
 
     assert config.ollama.context_window == 16384
+
+    root.destroy()
+
+
+def test_05d_grounding_control_no_longer_overrides_retrieval_min_score():
+    """Grounding strictness must tune the guard without rewriting min_score."""
+    root = _make_root()
+    config = FakeGUIConfig()
+    config.retrieval.min_score = 0.02
+    engine = SimpleNamespace(
+        allow_open_knowledge=False,
+        guard_enabled=False,
+        guard_threshold=0.0,
+        guard_min_chunks=0,
+        guard_min_score=0.0,
+        guard_action="",
+    )
+
+    from src.gui.panels.query_panel import QueryPanel
+
+    panel = QueryPanel(root, config=config, query_engine=engine)
+    panel.pack()
+    panel._grounding_bias_var.set(8)
+    panel._apply_grounding_bias_live(8)
+
+    assert abs(config.retrieval.min_score - 0.02) < 1e-9
+    assert abs(engine.guard_min_score - 0.10) < 1e-9
+
+    root.destroy()
+
+
+def test_05e_open_knowledge_toggle_updates_engine_boolean():
+    """Open-knowledge fallback is exposed as a boolean control."""
+    root = _make_root()
+    config = FakeGUIConfig()
+    engine = SimpleNamespace(
+        allow_open_knowledge=False,
+        guard_enabled=False,
+        guard_threshold=0.0,
+        guard_min_chunks=0,
+        guard_min_score=0.0,
+        guard_action="",
+    )
+
+    from src.gui.panels.query_panel import QueryPanel
+
+    panel = QueryPanel(root, config=config, query_engine=engine)
+    panel.pack()
+
+    panel._open_knowledge_var.set(False)
+    panel._on_open_knowledge_toggle()
+    assert engine.allow_open_knowledge is False
+    assert "OFF" in panel._open_knowledge_hint.get()
+
+    panel._open_knowledge_var.set(True)
+    panel._on_open_knowledge_toggle()
+    assert engine.allow_open_knowledge is True
+    assert "ON" in panel._open_knowledge_hint.get()
 
     root.destroy()
 

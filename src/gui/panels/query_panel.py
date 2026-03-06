@@ -52,7 +52,7 @@ from src.gui.panels.query_constants import (
     ONLINE_USE_CASE_TUNING,
     PROFILE_DIAL_DEFAULTS,
     GROUNDING_BIAS_HINTS,
-    REASONING_DIAL_HINTS,
+    OPEN_KNOWLEDGE_HINTS,
     PROFILE_TASK_PLAYBOOK,
 )
 from src.gui.panels.query_panel_runtime import bind_query_panel_runtime_methods
@@ -103,8 +103,8 @@ class QueryPanel(tk.LabelFrame):
         self._mode_tuning_store = ModeTuningStore()
         self._grounding_bias_var = tk.IntVar(value=6)
         self._grounding_bias_hint = tk.StringVar(value=GROUNDING_BIAS_HINTS[6])
-        self._reasoning_dial_var = tk.IntVar(value=5)
-        self._reasoning_dial_hint = tk.StringVar(value=REASONING_DIAL_HINTS[5])
+        self._open_knowledge_var = tk.BooleanVar(value=True)
+        self._open_knowledge_hint = tk.StringVar(value=OPEN_KNOWLEDGE_HINTS[True])
 
         # Public testing state -- poll these from harness/tools.
         # Event is the thread-safe completion signal; plain attrs are
@@ -217,12 +217,12 @@ class QueryPanel(tk.LabelFrame):
         )
         self.model_info_label.pack(side=tk.LEFT, fill=tk.X)
 
-        # -- Row 1b: Grounding bias (development control) --
+        # -- Row 1b: Grounding strictness control --
         row1b = tk.Frame(self, bg=t["panel_bg"])
         row1b.pack(fill=tk.X, pady=(0, 8))
 
         self.grounding_label = tk.Label(
-            row1b, text="Grounding Dial (0-10):", bg=t["panel_bg"],
+            row1b, text="Grounding Strictness (0-10):", bg=t["panel_bg"],
             fg=t["fg"], font=FONT,
         )
         self.grounding_label.pack(side=tk.LEFT)
@@ -246,29 +246,29 @@ class QueryPanel(tk.LabelFrame):
         row1c = tk.Frame(self, bg=t["panel_bg"])
         row1c.pack(fill=tk.X, pady=(0, 8))
 
-        self.reasoning_label = tk.Label(
-            row1c, text="Reasoning Dial (0-10):", bg=t["panel_bg"],
+        self.open_knowledge_label = tk.Label(
+            row1c, text="Open-Knowledge Fallback:", bg=t["panel_bg"],
             fg=t["fg"], font=FONT,
         )
-        self.reasoning_label.pack(side=tk.LEFT)
+        self.open_knowledge_label.pack(side=tk.LEFT)
 
-        self.reasoning_scale = tk.Scale(
-            row1c, from_=0, to=10, orient=tk.HORIZONTAL,
-            variable=self._reasoning_dial_var, showvalue=True,
-            resolution=1, length=220, bg=t["panel_bg"], fg=t["fg"],
-            highlightthickness=0, troughcolor=t["input_bg"],
-            activebackground=t["accent"], command=self._on_reasoning_dial_change,
+        self.open_knowledge_check = tk.Checkbutton(
+            row1c, text="Enabled", variable=self._open_knowledge_var,
+            command=self._on_open_knowledge_toggle,
+            bg=t["panel_bg"], fg=t["fg"], font=FONT,
+            selectcolor=t["input_bg"], activebackground=t["panel_bg"],
+            activeforeground=t["fg"],
         )
-        self.reasoning_scale.pack(side=tk.LEFT, padx=(8, 8))
+        self.open_knowledge_check.pack(side=tk.LEFT, padx=(8, 8))
 
-        self.reasoning_hint_label = tk.Label(
-            row1c, textvariable=self._reasoning_dial_hint,
+        self.open_knowledge_hint_label = tk.Label(
+            row1c, textvariable=self._open_knowledge_hint,
             bg=t["panel_bg"], fg=t["gray"], font=FONT,
             anchor=tk.W,
         )
-        self.reasoning_hint_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.open_knowledge_hint_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        # -- Row 1d: Profile playbook (top tasks + dial suggestions) --
+        # -- Row 1d: Profile playbook (top tasks + grounding suggestions) --
         self.playbook_label = tk.Label(
             self,
             text="",
@@ -400,6 +400,19 @@ class QueryPanel(tk.LabelFrame):
                     continue
                 if isinstance(child, tk.Label):
                     child.configure(bg=t["panel_bg"], fg=t["fg"])
+                elif isinstance(child, tk.Checkbutton):
+                    child.configure(
+                        bg=t["panel_bg"], fg=t["fg"],
+                        selectcolor=t["input_bg"],
+                        activebackground=t["panel_bg"],
+                        activeforeground=t["fg"],
+                    )
+                elif isinstance(child, tk.Scale):
+                    child.configure(
+                        bg=t["panel_bg"], fg=t["fg"],
+                        troughcolor=t["input_bg"],
+                        activebackground=t["accent"],
+                    )
                 elif isinstance(child, tk.Entry):
                     child.configure(bg=t["input_bg"], fg=t["input_fg"],
                                     insertbackground=t["fg"])

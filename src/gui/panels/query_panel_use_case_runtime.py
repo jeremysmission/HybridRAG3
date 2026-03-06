@@ -19,7 +19,7 @@ from src.gui.panels.query_constants import (
     ONLINE_USE_CASE_TUNING,
     PROFILE_DIAL_DEFAULTS,
     GROUNDING_BIAS_HINTS,
-    REASONING_DIAL_HINTS,
+    OPEN_KNOWLEDGE_HINTS,
     PROFILE_TASK_PLAYBOOK,
 )
 logger = logging.getLogger(__name__)
@@ -91,32 +91,34 @@ def _apply_use_case_tuning(self, uc_key: str, mode: str) -> None:
                 update_mode_setting(self.config, "online", "min_score", rec["min_score"])
 
 def _apply_profile_dial_defaults(self, uc_key: str, mode: str) -> None:
-    """Apply safe per-profile defaults for grounding/reasoning dials."""
+    """Apply safe per-profile defaults for grounding and fallback controls."""
     mode_key = "online" if str(mode).lower() == "online" else "offline"
     rec = PROFILE_DIAL_DEFAULTS.get(mode_key, {}).get(
-        uc_key, {"grounding": 7, "reasoning": 4}
+        uc_key, {"grounding": 7, "open_knowledge": True}
     )
     try:
         store = getattr(self, "_mode_tuning_store", None)
         grounding = int(rec.get("grounding", 7))
-        reasoning = int(rec.get("reasoning", 4))
+        open_knowledge = bool(rec.get("open_knowledge", True))
         if store is not None:
             grounding = int(
                 store.get_active_value(self.config, mode_key, "grounding_bias", grounding)
             )
-            reasoning = int(
-                store.get_active_value(self.config, mode_key, "reasoning_dial", reasoning)
+            open_knowledge = bool(
+                store.get_active_value(
+                    self.config, mode_key, "allow_open_knowledge", open_knowledge
+                )
             )
         self._grounding_bias_var.set(grounding)
-        self._reasoning_dial_var.set(reasoning)
+        self._open_knowledge_var.set(open_knowledge)
         self._grounding_bias_hint.set(
             GROUNDING_BIAS_HINTS.get(
                 int(self._grounding_bias_var.get()), "Grounding updated"
             )
         )
-        self._reasoning_dial_hint.set(
-            REASONING_DIAL_HINTS.get(
-                int(self._reasoning_dial_var.get()), "Reasoning updated"
+        self._open_knowledge_hint.set(
+            OPEN_KNOWLEDGE_HINTS.get(
+                bool(self._open_knowledge_var.get()), "Open knowledge updated"
             )
         )
         self._apply_grounding_bias_live(int(self._grounding_bias_var.get()))

@@ -22,7 +22,7 @@ _MODE_KEYS = {
         "temperature",
         "timeout_seconds",
         "grounding_bias",
-        "reasoning_dial",
+        "allow_open_knowledge",
     ),
     "online": (
         "top_k",
@@ -35,7 +35,7 @@ _MODE_KEYS = {
         "temperature",
         "timeout_seconds",
         "grounding_bias",
-        "reasoning_dial",
+        "allow_open_knowledge",
     ),
 }
 
@@ -51,7 +51,7 @@ _MODE_DEFAULTS = {
         "temperature": 0.05,
         "timeout_seconds": 180,
         "grounding_bias": 8,
-        "reasoning_dial": 2,
+        "allow_open_knowledge": True,
     },
     "online": {
         "top_k": 8,
@@ -64,7 +64,7 @@ _MODE_DEFAULTS = {
         "temperature": 0.05,
         "timeout_seconds": 180,
         "grounding_bias": 7,
-        "reasoning_dial": 5,
+        "allow_open_knowledge": True,
     },
 }
 
@@ -80,7 +80,7 @@ _KEY_TYPES = {
     "temperature": float,
     "timeout_seconds": int,
     "grounding_bias": int,
-    "reasoning_dial": int,
+    "allow_open_knowledge": bool,
 }
 
 
@@ -109,6 +109,13 @@ def _coerce_value(key: str, value: Any) -> Any:
             if key in defaults:
                 return copy.deepcopy(defaults[key])
         return value
+
+
+def _legacy_reasoning_to_open_knowledge(value: Any) -> bool:
+    try:
+        return int(value) > 0
+    except Exception:
+        return bool(value)
 
 
 def _new_store() -> dict[str, Any]:
@@ -149,7 +156,7 @@ def _snapshot_mode_values(config, mode: str) -> dict[str, Any]:
             retrieval, "reranker_top_n", _MODE_DEFAULTS[mode]["reranker_top_n"]
         ),
         "grounding_bias": _MODE_DEFAULTS[mode]["grounding_bias"],
-        "reasoning_dial": _MODE_DEFAULTS[mode]["reasoning_dial"],
+        "allow_open_knowledge": _MODE_DEFAULTS[mode]["allow_open_knowledge"],
     }
     if mode == "online":
         values.update(
@@ -258,6 +265,7 @@ class ModeTuningStore:
         values = entry.setdefault("values", {})
         defaults = entry.setdefault("defaults", {})
         locks = entry.setdefault("locks", {})
+        self._migrate_legacy_reasoning_key(values, defaults, locks)
         for key in _MODE_KEYS[mode]:
             if key not in defaults:
                 defaults[key] = copy.deepcopy(_MODE_DEFAULTS[mode][key])
@@ -269,6 +277,24 @@ class ModeTuningStore:
             values[key] = _coerce_value(key, values[key])
             locks[key] = bool(locks[key])
         return entry
+
+    @staticmethod
+    def _migrate_legacy_reasoning_key(
+        values: dict[str, Any],
+        defaults: dict[str, Any],
+        locks: dict[str, Any],
+    ) -> None:
+        legacy_key = "reasoning_dial"
+        new_key = "allow_open_knowledge"
+        if new_key not in values and legacy_key in values:
+            values[new_key] = _legacy_reasoning_to_open_knowledge(values[legacy_key])
+        if new_key not in defaults and legacy_key in defaults:
+            defaults[new_key] = _legacy_reasoning_to_open_knowledge(defaults[legacy_key])
+        if new_key not in locks and legacy_key in locks:
+            locks[new_key] = bool(locks[legacy_key])
+        values.pop(legacy_key, None)
+        defaults.pop(legacy_key, None)
+        locks.pop(legacy_key, None)
 
     def get_mode_state(self, config, mode: str) -> dict[str, Any]:
         data = self.load()
