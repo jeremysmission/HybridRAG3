@@ -2,7 +2,7 @@ version: 1
 modes:
   offline:
     values:
-      top_k: 8
+      top_k: 5
       min_score: 0.2
       hybrid_search: true
       reranker_enabled: false

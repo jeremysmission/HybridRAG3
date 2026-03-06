@@ -1,6 +1,6 @@
 # Codex Handoff
 
-- Timestamp: 2026-03-06 10:29:04 -07:00
+- Timestamp: 2026-03-06 12:14:57 -07:00
 - Session ID: codex-hybridrag3-online-rag-fix-round2
 - Repo: `D:\HybridRAG3`
 
@@ -80,12 +80,50 @@
 
 ## Remaining items
 
-- `tests/test_gui_integration_w4.py` is now covered by passing sub-runs, but I did not get one clean single-command full-file pass before the timeout budget.
+- Current local-only change left intentionally in the private repo:
+  - `docs/WORKSTATION_STRESS_TEST.md`
+- `tests/test_gui_integration_w4.py` is covered by passing sub-runs, but I still do not have one clean single-command whole-file pass under the current timeout budget.
 - I did not change the prompt split to put retrieved context into the `system` role.
   - Current state remains: `system = rules`, `user = context + question`.
   - Reason for not changing it blindly: retrieved documents in `system` can amplify prompt-injection risk.
   - If revisited, do it as an explicit design choice with tests.
 - There are still test-only references to `gpt-3.5-turbo` in simulation and routing fixtures; they are not runtime defaults now.
+
+## Suggestions
+
+- Add query-debug telemetry for both modes:
+  - active mode
+  - effective `top_k`
+  - effective `min_score`
+  - retrieved chunk count before and after pruning
+  - final prompt/context chars or token estimate
+  - selected online `model` and `deployment`
+- Add a one-click GUI "compare modes" debug action that runs the same query through offline and online and saves:
+  - retrieval scores
+  - chunk IDs
+  - context size
+  - final answer
+  This will make future grounding investigations much faster.
+- If online still feels weaker after tuning, test prompt packaging variants explicitly:
+  - current split: `system = rules`, `user = context + question`
+  - safer two-user-message variant: `system = rules`, `user1 = context`, `user2 = question`
+  Avoid moving raw retrieved context into `system` unless you accept the prompt-injection tradeoff.
+- Run a manual A/B test with the same production-like question set in both modes after setting intentionally different knobs for each mode. The main thing to verify is that the GUI values now really stick per mode across:
+  - app restart
+  - mode switch
+  - config reload
+  - profile change
+- If you want even stronger online answers later, the next highest-yield work is probably not more token budget. It is:
+  - better retrieval telemetry
+  - stricter eval-driven `top_k` / `min_score` tuning per use case
+  - optional chunk-quality pruning before prompt assembly
+
+## Repo state
+
+- Private repo pushed: `059596a` on `main`
+- Educational repo pushed: `fd2a0e2` on `main`
+- Unrelated stray local files were removed from both repos.
+- Educational repo is clean.
 
 ## Expected impact
 
