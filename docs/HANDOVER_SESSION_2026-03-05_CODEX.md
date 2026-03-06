@@ -31,6 +31,8 @@
 
 - `py_compile` passed for all edited Python files.
 - Targeted `pytest` was started for API/query-engine coverage but timed out before a conclusive result.
+- Private repo pushed: `264984a` on `main`
+- Educational repo synced and pushed: `556155d` on `main`
 
 ## Remaining work
 
@@ -44,6 +46,14 @@
   - clear-index button locked by default
 - Re-check `src/gui/panels/tuning_tab.py` in a live GUI pass; it compiles cleanly but changed materially.
 - If tests use fake config objects, they may need `api.context_window` and related fields added.
+- Private repo intentionally still has local-only dirt after restore:
+  - `config/mode_tuning.yaml`
+  - `docs/WORKSTATION_STRESS_TEST.md`
+  - `bruce_lee.html`
+  - `pacman.py`
+  - `tools/query_latency_sim.py`
+  - `void_hunter.html`
+- Two temporary stashes remain in the private repo (`temp before educational sync*`) because they were not dropped after restore.
 
 ## Expected impact
 
