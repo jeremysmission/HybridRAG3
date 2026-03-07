@@ -19,18 +19,52 @@ IMPORTANT
 - This runner does NOT open raw source documents. It only calls your RAG pipeline.
 
 Usage (from repo root)
-  python tools/eval_runner.py --dataset datasets/golden_tuning_400.json --outdir eval_out/tuning --config config/default_config.yaml
-  python tools/eval_runner.py --dataset datasets/golden_hidden_validation_100.json --outdir eval_out/hidden --config config/default_config.yaml
+  python tools/eval_runner.py --dataset Eval/golden_tuning_400.json --outdir eval_out/tuning --config config/default_config.yaml
+  python tools/eval_runner.py --dataset Eval/golden_hidden_validation_100.json --outdir eval_out/hidden --config config/default_config.yaml
 
 If your imports differ:
 - Adjust the imports in the "BOOT + CONSTRUCT" section only.
 """
 
 import argparse, json, os, time
+from pathlib import Path
 from typing import Any, Dict, List
 
 def safe_getattr(obj: Any, name: str, default=None):
     return getattr(obj, name, default)
+
+
+def _runtime_config_filename(config_arg: str | None) -> str:
+    """
+    Normalize CLI --config input for src.core.config.load_config().
+
+    eval_runner historically accepted values like "config/default_config.yaml"
+    even though load_config() expects a filename relative to the repo's
+    config/ directory.  The autotune workflow also generates candidate YAMLs
+    under config/.tmp_autotune/... and passes that path through here.
+    """
+    if not config_arg:
+        return "default_config.yaml"
+
+    raw = str(config_arg).replace("\\", "/").strip()
+    if not raw:
+        return "default_config.yaml"
+
+    if os.path.isabs(raw):
+        config_dir = (Path.cwd() / "config").resolve()
+        try:
+            rel = Path(raw).resolve().relative_to(config_dir)
+            return str(rel).replace("\\", "/")
+        except ValueError as exc:
+            raise SystemExit(
+                "--config must point to a file inside this repo's config/ directory"
+            ) from exc
+
+    if raw.startswith("./"):
+        raw = raw[2:]
+    if raw.startswith("config/"):
+        raw = raw[len("config/") :]
+    return raw or "default_config.yaml"
 
 def main():
     ap = argparse.ArgumentParser()
@@ -59,7 +93,10 @@ def main():
     from src.core.llm_router import LLMRouter
     from src.core.query_engine import QueryEngine
 
-    cfg = load_config(project_dir=".", config_filename=(args.config or "default_config.yaml"))
+    cfg = load_config(
+        project_dir=".",
+        config_filename=_runtime_config_filename(args.config),
+    )
 
     if args.mode:
         mode = str(args.mode).strip().lower()
