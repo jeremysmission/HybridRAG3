@@ -1,0 +1,20 @@
+Role Corpus Pack
+
+Artifact: releases\Role_Corpus_Pack.zip
+SHA256: 6757AC75A5E8137C2008CCB4AAD9B37E1C8633788D03D3A6D664846EC946DAF5
+
+Contents:
+Role_Corpus_Pack/CAD_Revision_History.pptx
+Role_Corpus_Pack/CAD_Tolerance_Spec.docx
+Role_Corpus_Pack/Cyber_Incident_Response.pdf
+Role_Corpus_Pack/Cyber_Vulnerability_Report.docx
+Role_Corpus_Pack/Engineer_Calibration_Guide.pdf
+Role_Corpus_Pack/Engineer_System_Spec.docx
+Role_Corpus_Pack/Field_Deployment_Guide.docx
+Role_Corpus_Pack/Field_Troubleshooting.pdf
+Role_Corpus_Pack/Logistics_Shipping_Constraints.txt
+Role_Corpus_Pack/Logistics_Spare_Parts.xlsx
+Role_Corpus_Pack/PM_Milestone_Plan.docx
+Role_Corpus_Pack/PM_Risk_Register.pdf
+Role_Corpus_Pack/SysAdmin_Access_Matrix.json
+Role_Corpus_Pack/SysAdmin_Network_Config.docx

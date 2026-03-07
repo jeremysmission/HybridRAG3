@@ -95,6 +95,24 @@ After that:
 3. Point HybridRAG `source_folder` at that `verified\` folder or copy those files into `D:\RAG Source Data`.
 4. Run `rag-index`.
 
+If you are using the packaged educational tuning corpus from this repo, unpack:
+
+```text
+releases\Role_Corpus_Pack.zip
+```
+
+into:
+
+```text
+D:\RAG Source Data\
+```
+
+That should produce:
+
+```text
+D:\RAG Source Data\Role_Corpus_Pack
+```
+
 ## Quick preflight before autotune
 
 1. Check whether the built index already exists:
