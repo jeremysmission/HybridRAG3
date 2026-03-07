@@ -1,0 +1,11 @@
+{
+  "Admin": [
+    "Full access"
+  ],
+  "Engineer": [
+    "Read/Write configs"
+  ],
+  "FieldTech": [
+    "Read-only access"
+  ]
+}

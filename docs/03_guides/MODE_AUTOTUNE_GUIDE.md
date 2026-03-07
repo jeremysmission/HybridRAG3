@@ -95,10 +95,10 @@ After that:
 3. Point HybridRAG `source_folder` at that `verified\` folder or copy those files into `D:\RAG Source Data`.
 4. Run `rag-index`.
 
-If you are using the packaged educational tuning corpus from this repo, unpack:
+If you are using the packaged educational tuning corpus from this repo, copy:
 
 ```text
-releases\Role_Corpus_Pack.zip
+docs\03_guides\Role_Corpus_Pack
 ```
 
 into:
@@ -107,7 +107,7 @@ into:
 D:\RAG Source Data\
 ```
 
-That should produce:
+That should leave you with:
 
 ```text
 D:\RAG Source Data\Role_Corpus_Pack

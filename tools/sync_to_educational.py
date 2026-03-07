@@ -88,7 +88,6 @@ SKIP_PATTERNS = [
     "output/",                     # troubleshooter, diagnostics, downloads (dir only)
     "claude_diag",                 # claude_diag, claude_diag_gui, claude_diag_run (substring)
     "temp_diag",                   # temp diagnostic output
-    "releases",                    # zip transfers
     "demo_transcript.json",        # diagnostic artifact
     "gui_e2e_report_mock.json",    # diagnostic artifact
     "runtime_traces_after.json",   # diagnostic artifact
