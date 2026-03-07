@@ -50,6 +50,9 @@ config/user_overrides.yaml
 *.docx
 *.xlsx
 !docs/05_security/waiver_cheat_sheet_v5.xlsx
+!docs/03_guides/Role_Corpus_Pack/*.docx
+!docs/03_guides/Role_Corpus_Pack/*.xlsx
+!docs/03_guides/Role_Corpus_Pack/*.pptx
 
 # Evaluation guides (local reference only)
 Eval Guides*
@@ -72,6 +75,7 @@ api_diag_results.json
 _test*.yaml
 *Copy*
 !releases/*.zip
+!docs/03_guides/Role_Corpus_Pack/*.pdf
 
 master_resource_guide.md
 
