@@ -26,9 +26,13 @@ If your imports differ:
 - Adjust the imports in the "BOOT + CONSTRUCT" section only.
 """
 
-import argparse, json, os, time
+import argparse, json, os, sys, time
 from pathlib import Path
 from typing import Any, Dict, List
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 def safe_getattr(obj: Any, name: str, default=None):
     return getattr(obj, name, default)
