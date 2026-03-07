@@ -74,6 +74,8 @@ class BootResult:
         success: True if at least offline mode is available.
         online_available: True if API client was created successfully.
         offline_available: True if Ollama is configured.
+        offline_probe_pending: True if the Ollama availability check has
+            not finished yet within the fast boot window.
         api_client: The ApiClient instance, or None if not available.
         config: The loaded configuration dictionary.
         credentials: Resolved credentials (with masked key).
@@ -84,6 +86,7 @@ class BootResult:
     success: bool = False
     online_available: bool = False
     offline_available: bool = False
+    offline_probe_pending: bool = False
     api_client: Optional[Any] = None  # ApiClient instance
     config: Dict[str, Any] = field(default_factory=dict)
     credentials: Optional[Any] = None  # ApiCredentials instance
@@ -93,12 +96,18 @@ class BootResult:
     def summary(self) -> str:
         """Human-readable boot summary for console/GUI display."""
         lines = []
+        overall_state = "READY" if (
+            self.online_available or self.offline_available
+        ) else ("PENDING" if self.offline_probe_pending else "FAILED")
         lines.append("=" * 50)
         lines.append("  HYBRIDRAG BOOT STATUS")
         lines.append("=" * 50)
-        lines.append(f"  Overall:  {'READY' if self.success else 'FAILED'}")
+        lines.append(f"  Overall:  {overall_state}")
         lines.append(f"  Online:   {'AVAILABLE' if self.online_available else 'NOT AVAILABLE'}")
-        lines.append(f"  Offline:  {'AVAILABLE' if self.offline_available else 'NOT AVAILABLE'}")
+        offline_state = "AVAILABLE" if self.offline_available else (
+            "PENDING" if self.offline_probe_pending else "NOT AVAILABLE"
+        )
+        lines.append(f"  Offline:  {offline_state}")
 
         if self.warnings:
             lines.append("")
@@ -347,15 +356,18 @@ def boot_hybridrag(config_path=None) -> BootResult:
                 "base_url", "http://127.0.0.1:11434",
             )
             get_gate().check_allowed(
-                f"{ollama_host}/api/tags", "ollama_boot_check", "boot",
+                ollama_host, "ollama_boot_check", "boot",
             )
+            # Use the lightweight root health endpoint here instead of
+            # /api/tags. The tags route can exceed the 2s boot join window
+            # on cold local workstations even when Ollama is healthy.
             # ProxyHandler({}) bypasses corporate proxy for loopback.
             # Without this, transparent proxy intercepts 127.0.0.1.
             opener = urllib.request.build_opener(
                 urllib.request.ProxyHandler({})
             )
             req = urllib.request.Request(
-                f"{ollama_host}/api/tags", method="GET",
+                ollama_host, method="GET",
             )
             with opener.open(req, timeout=3) as response:
                 if response.status == 200:
@@ -380,6 +392,7 @@ def boot_hybridrag(config_path=None) -> BootResult:
         # -- an optimistic True here masks real failures and causes the
         # first offline query to crash instead of showing a clear message.
         # Status bar CBIT will detect Ollama within 30s and update.
+        result.offline_probe_pending = True
         result.warnings.append(
             "Ollama health check timed out (2s). "
             "Offline mode will activate when Ollama responds."
@@ -425,7 +438,11 @@ def boot_hybridrag(config_path=None) -> BootResult:
     _boot_step("Step 4 done (offline={})".format(result.offline_available))
 
     # === FINAL: Determine overall success ===
-    result.success = result.online_available or result.offline_available
+    result.success = (
+        result.online_available
+        or result.offline_available
+        or result.offline_probe_pending
+    )
 
     if not result.success:
         result.errors.append(

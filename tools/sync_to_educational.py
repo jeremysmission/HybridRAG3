@@ -315,6 +315,21 @@ Educational and research use.
 FORCE_INCLUDE = [
     "waiver_reference_sheet.md",       # software approval justifications (needed for waiver email)
     "CORPORATE_PROXY_NOTES.md",        # proxy research notes (useful for work laptop debugging)
+    "CAD_Revision_History.pptx",
+    "CAD_Tolerance_Spec.docx",
+    "Cyber_Incident_Response.pdf",
+    "Cyber_Vulnerability_Report.docx",
+    "Engineer_Calibration_Guide.pdf",
+    "Engineer_System_Spec.docx",
+    "Field_Deployment_Guide.docx",
+    "Field_Troubleshooting.pdf",
+    "Logistics_Shipping_Constraints.txt",
+    "Logistics_Spare_Parts.xlsx",
+    "PM_Milestone_Plan.docx",
+    "PM_Risk_Register.pdf",
+    "README_ROLE_CORPUS_PACK.txt",
+    "SysAdmin_Access_Matrix.json",
+    "SysAdmin_Network_Config.docx",
 ]
 # Parent directory basenames that contain FORCE_INCLUDE files.
 # Used to short-circuit expensive os.walk on large skipped dirs (.venv, etc.)

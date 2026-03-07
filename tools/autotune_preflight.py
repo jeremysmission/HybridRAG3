@@ -28,6 +28,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.core.index_qc import detect_index_contamination
 from src.security.credentials import resolve_credentials
 from tools.run_mode_autotune import (
     _load_runtime_config,
@@ -238,6 +239,20 @@ def _run_preflight(*, dataset_path: Path, config_path: Path, mode: str) -> int:
     if alignment["missing"]:
         _print_status("INFO", "missing sources: " + _preview_names(alignment["missing"]))
     if alignment["level"] == "FAIL":
+        failures += 1
+
+    contamination = detect_index_contamination(
+        db_path,
+        source_root=str(source_folder) if source_folder else "",
+    )
+    _print_status(contamination["level"], contamination["summary"])
+    if contamination["suspicious_count"]:
+        preview = ", ".join(
+            f"{Path(item['source_path']).name} [{'|'.join(item['flags'])}]"
+            for item in contamination["suspicious_sources"][:5]
+        )
+        _print_status("INFO", "suspicious source examples: " + preview)
+    if contamination["level"] == "FAIL":
         failures += 1
 
     for selected_mode in _selected_modes(mode):

@@ -774,7 +774,7 @@ def test_15_api_admin_tab_credential_fields():
 def test_16_save_credentials_calls_store():
     """Save Credentials button calls store_api_key and store_endpoint."""
     root = _make_root()
-    config = FakeGUIConfig()
+    config = FakeGUIConfig(mode="online")
 
     mock_creds = MagicMock()
     mock_creds.endpoint = None
@@ -790,6 +790,11 @@ def test_16_save_credentials_calls_store():
         from src.gui.panels.settings_view import SettingsView
         app_ref = MagicMock()
         app_ref._views = {}
+        app_ref.query_engine = MagicMock()
+        app_ref.query_engine.llm_router = MagicMock()
+        app_ref.query_engine.llm_router.api = MagicMock()
+        app_ref.query_engine.llm_router.last_error = "stale"
+        app_ref.status_bar = MagicMock()
         view = SettingsView(root, config=config, app_ref=app_ref)
 
     tab = view._api_admin_tab
@@ -802,12 +807,18 @@ def test_16_save_credentials_calls_store():
          patch("src.gui.panels.api_admin_tab.store_api_key") as mock_key, \
          patch("src.gui.panels.api_admin_tab.validate_endpoint",
                return_value="https://api.example.com"), \
+         patch("src.gui.panels.api_admin_tab.invalidate_credential_cache") as mock_invalidate_cache, \
+         patch("src.core.llm_router.invalidate_deployment_cache") as mock_invalidate_deployments, \
          patch("src.gui.panels.api_admin_tab.resolve_credentials",
                return_value=mock_creds):
         tab._on_save_credentials()
 
     mock_ep.assert_called_once_with("https://api.example.com")
     mock_key.assert_called_once_with("sk-testkey123")
+    mock_invalidate_cache.assert_called_once()
+    mock_invalidate_deployments.assert_called_once()
+    assert app_ref.query_engine.llm_router.api is None
+    assert app_ref.query_engine.llm_router.last_error == ""
 
     view.destroy()
     root.destroy()

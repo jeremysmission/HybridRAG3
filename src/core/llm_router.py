@@ -278,10 +278,24 @@ class OllamaRouter:
         except Exception:
             return []
 
-    def _resolve_model_name(self, requested: str) -> str:
-        """Resolve requested model to an installed Ollama tag when possible."""
+    def _cached_available_models(self) -> list[str]:
+        """Return cached Ollama tags without forcing a new network roundtrip."""
+        now = time.time()
+        if self._tags_cache and (now - self._tags_cache[1]) < self._tags_ttl:
+            return list(self._tags_cache[0])
+        return []
+
+    def _resolve_model_name(self, requested: str, allow_network: bool = False) -> str:
+        """Resolve a model name with a cache-first fast path for query-time use."""
         req = canonicalize_model_name(requested)
-        return resolve_ollama_model_name(req, self._available_models())
+        available = (
+            self._available_models()
+            if allow_network
+            else self._cached_available_models()
+        )
+        if available:
+            return resolve_ollama_model_name(req, available)
+        return req
 
     def is_available(self) -> bool:
         """
@@ -1949,8 +1963,8 @@ class LLMRouter:
         # gate configuration creates invisible failures where the gate
         # blocks requests to the new endpoint.
 
-        # -- Create the API router (only if we have a key) --
-        if resolved_key:
+        # -- Create the API router only when credentials are complete --
+        if resolved_key and resolved_endpoint:
             self.api = APIRouter(
                 config, resolved_key, resolved_endpoint,
                 deployment_override=resolved_deployment,
@@ -1958,6 +1972,9 @@ class LLMRouter:
                 provider_override=resolved_provider,
             )
             self.logger.info("llm_router_init", api_mode="enabled")
+        elif resolved_key:
+            self.api = None
+            self.logger.info("llm_router_init", api_mode="disabled_no_endpoint")
         else:
             self.api = None
             self.logger.info("llm_router_init", api_mode="disabled_no_key")
@@ -1984,7 +2001,10 @@ class LLMRouter:
                 try:
                     from ..security.credentials import resolve_credentials
                     creds = resolve_credentials(use_cache=False)
-                    if getattr(creds, "api_key", ""):
+                    if (
+                        getattr(creds, "api_key", "")
+                        and getattr(creds, "endpoint", "")
+                    ):
                         self.api = APIRouter(
                             self.config,
                             creds.api_key,
@@ -1992,6 +2012,11 @@ class LLMRouter:
                             deployment_override=getattr(creds, "deployment", "") or "",
                             api_version_override=getattr(creds, "api_version", "") or "",
                             provider_override=getattr(creds, "provider", "") or "",
+                        )
+                    elif getattr(creds, "api_key", ""):
+                        self.logger.warning(
+                            "online_late_router_attach_skipped",
+                            reason="missing_endpoint",
                         )
                 except Exception as e:
                     self.logger.warning("online_late_router_attach_failed", error=str(e))

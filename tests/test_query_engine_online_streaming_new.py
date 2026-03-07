@@ -152,6 +152,36 @@ def test_stream_timeout_returns_done_with_timeout_error():
     assert "timed out" in done[0]["result"].answer.lower()
 
 
+def test_stream_empty_context_uses_open_knowledge_fallback_when_enabled():
+    config = FakeConfig(mode="online")
+    engine, router = _make_engine(config=config)
+    from src.core.query_engine import QueryResult
+
+    engine.allow_open_knowledge = True
+    engine._query_open_knowledge = MagicMock(
+        return_value=QueryResult(
+            answer="Open-knowledge fallback answer.",
+            sources=[{"path": "/docs/spec.md", "chunks": 1, "avg_relevance": 0.92}],
+            chunks_used=1,
+            tokens_in=0,
+            tokens_out=0,
+            cost_usd=0.0,
+            latency_ms=12.0,
+            mode="online",
+        )
+    )
+    engine.retriever.build_context.return_value = "   "
+
+    events = list(engine.query_stream("open knowledge please"))
+    tokens = [e["token"] for e in events if "token" in e]
+    done = [e for e in events if e.get("done")]
+
+    assert len(done) == 1
+    assert done[0]["result"].error is None
+    assert engine._query_open_knowledge.call_count == 1
+    assert tokens == ["Open-knowledge fallback answer."]
+
+
 def test_api_router_init_failure_sets_client_none_and_query_returns_none():
     config = FakeConfig(mode="online")
     config.api.endpoint = "https://openrouter.ai/api/v1"

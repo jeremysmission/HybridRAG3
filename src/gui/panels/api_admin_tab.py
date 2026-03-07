@@ -1493,6 +1493,41 @@ def _api_admintab__on_save_credentials(self):
         self.cred_status_label.config(
             text="[OK] Credentials saved to Credential Manager.",
             fg=t["green"])
+        invalidate_credential_cache()
+        try:
+            from src.core.llm_router import invalidate_deployment_cache
+            invalidate_deployment_cache()
+        except Exception:
+            logger.debug("Deployment cache invalidation skipped", exc_info=True)
+        try:
+            app = getattr(self, "_app", None)
+            live_router = None
+            if app is not None:
+                live_router = getattr(getattr(app, "query_engine", None), "llm_router", None)
+                if live_router is None:
+                    live_router = getattr(app, "router", None)
+            if (
+                live_router is not None
+                and getattr(self.config, "mode", "offline") == "online"
+            ):
+                api_router = getattr(live_router, "api", None)
+                if api_router is not None:
+                    try:
+                        client = getattr(api_router, "client", None)
+                        if client is not None and hasattr(client, "close"):
+                            client.close()
+                    except Exception:
+                        logger.debug("Live API SDK client close skipped", exc_info=True)
+                    try:
+                        http_client = getattr(api_router, "http_api_client", None)
+                        if http_client is not None and hasattr(http_client, "close"):
+                            http_client.close()
+                    except Exception:
+                        logger.debug("Live API HTTP fallback close skipped", exc_info=True)
+                live_router.api = None
+                live_router.last_error = ""
+        except Exception:
+            logger.debug("Live API router invalidation skipped", exc_info=True)
         self._refresh_credential_status()
 
 def _api_admintab__on_test_connection(self):

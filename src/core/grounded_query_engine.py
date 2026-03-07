@@ -138,37 +138,44 @@ class GroundedQueryEngine(QueryEngine):
             config.retrieval.min_score,
         )
 
-        # Try to load the guard modules (graceful degradation if the
-        # hallucination_guard package is not installed -- the system
-        # still works, just without verification).
         self._guard_available = False
+        self._nli_verifier = None
         if self.guard_enabled:
-            try:
-                from .hallucination_guard.hallucination_guard import harden_prompt
-                from .hallucination_guard.claim_extractor import ClaimExtractor
-                from .hallucination_guard.nli_verifier import NLIVerifier
-                self._harden_prompt = harden_prompt
-                self._extract_claims = ClaimExtractor.extract_claims
-                self._score_response = self._fallback_score
-                # NLI verifier is lazy-loaded (model is ~440MB)
-                self._nli_verifier = None
-                self._guard_available = True
-                self.guard_logger.info(
-                    "guard_init",
-                    status="enabled",
-                    threshold=self.guard_threshold,
-                    action=self.guard_action,
-                )
-            except ImportError as e:
-                self.guard_logger.warning(
-                    "guard_init_failed",
-                    error=str(e),
-                    fallback="prompt_hardening_only",
-                )
+            self._ensure_guard_backend_loaded()
 
     # ------------------------------------------------------------------
     # Shared guard helpers (used by both query and query_stream)
     # ------------------------------------------------------------------
+
+    def _ensure_guard_backend_loaded(self) -> bool:
+        """Load the verification stack on demand when the live UI enables it."""
+        if self._guard_available:
+            return True
+        try:
+            from .hallucination_guard.hallucination_guard import harden_prompt
+            from .hallucination_guard.claim_extractor import ClaimExtractor
+            from .hallucination_guard.nli_verifier import NLIVerifier
+
+            self._harden_prompt = harden_prompt
+            self._extract_claims = ClaimExtractor.extract_claims
+            self._score_response = self._fallback_score
+            if not isinstance(getattr(self, "_nli_verifier", None), NLIVerifier):
+                self._nli_verifier = None
+            self._guard_available = True
+            self.guard_logger.info(
+                "guard_init",
+                status="enabled",
+                threshold=self.guard_threshold,
+                action=self.guard_action,
+            )
+            return True
+        except ImportError as e:
+            self.guard_logger.warning(
+                "guard_init_failed",
+                error=str(e),
+                fallback="prompt_hardening_only",
+            )
+            return False
 
     def _apply_guard_action(self, raw_answer, score, details):
         """Apply block/strip/flag action based on grounding score.
@@ -254,6 +261,9 @@ class GroundedQueryEngine(QueryEngine):
     def query(self, user_query: str) -> GroundedQueryResult:
         """Execute a guarded query. Falls through to base QueryEngine
         when guard is disabled."""
+        self._sync_runtime_components()
+        if self.guard_enabled and not self._guard_available:
+            self._ensure_guard_backend_loaded()
         if not self.guard_enabled or not self._guard_available:
             base_result = super().query(user_query)
             return GroundedQueryResult(
@@ -280,6 +290,26 @@ class GroundedQueryEngine(QueryEngine):
 
             context = self.retriever.build_context(search_results)
             sources = self.retriever.get_sources(search_results)
+            if not context.strip():
+                if bool(getattr(self, "allow_open_knowledge", False)):
+                    return super().query(user_query)
+                return GroundedQueryResult(
+                    answer=(
+                        "Relevant documents were found, but no usable context "
+                        "text was available."
+                    ),
+                    sources=sources,
+                    chunks_used=len(search_results),
+                    tokens_in=0,
+                    tokens_out=0,
+                    cost_usd=0.0,
+                    latency_ms=(time.time() - start_time) * 1000,
+                    mode=self.config.mode,
+                    error="empty_context",
+                    grounding_blocked=True,
+                    grounding_details={"reason": "empty_context"},
+                )
+            context = self._trim_context_to_fit(context, user_query)
             prompt = self._build_grounded_prompt(
                 user_query, context, search_results)
 
@@ -329,6 +359,9 @@ class GroundedQueryEngine(QueryEngine):
             verifies grounding, then emits only the post-guard answer.
             This prevents unverified tokens from being shown in real time.
         """
+        self._sync_runtime_components()
+        if self.guard_enabled and not self._guard_available:
+            self._ensure_guard_backend_loaded()
         if not self.guard_enabled or not self._guard_available:
             yield from super().query_stream(user_query)
             return
@@ -353,6 +386,10 @@ class GroundedQueryEngine(QueryEngine):
             context = self.retriever.build_context(search_results)
             sources = self.retriever.get_sources(search_results)
             if not context.strip():
+                if bool(getattr(self, "allow_open_knowledge", False)):
+                    fallback = super().query(user_query)
+                    yield {"done": True, "result": fallback}
+                    return
                 yield {"done": True, "result": self._make_error_result(
                     start_time, "empty_context", sources,
                     len(search_results))}

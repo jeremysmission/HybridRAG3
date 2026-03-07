@@ -318,6 +318,14 @@ class QueryEngine:
             chunk_count = len(search_results)
 
             if not context.strip():
+                if self._allow_open_knowledge():
+                    result = self._query_open_knowledge(
+                        user_query, start_time, sources=sources
+                    )
+                    if result.answer:
+                        yield {"token": result.answer}
+                    yield {"done": True, "result": result}
+                    return
                 result = QueryResult(
                     answer="Relevant documents were found, but no usable context text was available.",
                     sources=sources, chunks_used=len(search_results),
@@ -610,7 +618,7 @@ def _qe_sync_runtime_components(engine: QueryEngine) -> None:
         return
 
     router.config = engine.config
-    for attr in ("ollama", "api", "vllm"):
+    for attr in ("ollama", "api", "vllm", "transformers_rt"):
         child = getattr(router, attr, None)
         if child is not None and hasattr(child, "config"):
             child.config = engine.config

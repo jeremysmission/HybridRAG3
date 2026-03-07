@@ -22,6 +22,7 @@
 import os
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch, PropertyMock
 import pytest
 # Import shared fixtures from conftest.py in the same directory.
@@ -264,6 +265,37 @@ class TestOllamaRouter:
             "stream should be False -- we want the full response at once"
         )
 
+    def test_query_fast_path_skips_model_tag_lookup_when_cache_empty(self):
+        """
+        WHAT: Normal offline queries should not block on /api/tags.
+        WHY:  Tag discovery is useful for diagnostics, but forcing it on
+              the first query adds artificial latency before generation.
+        """
+        router = self._make_router()
+
+        fake_response = {
+            "response": "Fast path answer",
+            "prompt_eval_count": 12,
+            "eval_count": 4,
+            "done": True,
+        }
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = fake_response
+        mock_response.raise_for_status = MagicMock()
+
+        router._tags_cache = None
+        router._client = MagicMock()
+        router._client.post.return_value = mock_response
+
+        result = router.query("Skip tags")
+
+        assert result is not None
+        router._client.get.assert_not_called()
+        sent_payload = router._client.post.call_args.kwargs["json"]
+        assert sent_payload["model"] == "phi4-mini"
+
 
 class TestLLMRouter:
     """
@@ -372,6 +404,82 @@ class TestLLMRouter:
         assert result is None, (
             "Should return None when API key is not configured"
         )
+
+    def test_online_mode_key_without_endpoint_does_not_create_api_router(self):
+        """
+        WHAT: A key alone must not bootstrap APIRouter.
+        WHY:  The canonical credentials contract requires both key and
+              endpoint. Building a half-ready API router muddies status
+              and delays a clear configuration error until query time.
+        """
+        config = FakeConfig(mode="online")
+        config.api.endpoint = ""
+        incomplete = SimpleNamespace(
+            api_key=None,
+            endpoint="",
+            deployment="",
+            api_version="",
+            provider="",
+            source_key="config",
+            source_endpoint="config",
+        )
+
+        with patch("src.core.llm_router.get_app_logger") as mock_logger:
+            mock_logger.return_value = MagicMock()
+            with patch(
+                "src.security.credentials.resolve_credentials",
+                return_value=incomplete,
+            ):
+                with patch("src.core.llm_router.APIRouter") as mock_api_router:
+                    from src.core.llm_router import LLMRouter
+                    router = LLMRouter(config, api_key="test-key-123")
+
+        assert router.api is None
+        mock_api_router.assert_not_called()
+
+    def test_online_mode_late_attach_requires_endpoint(self):
+        """
+        WHAT: The first online query should not late-attach APIRouter
+              when credentials still lack an endpoint.
+        WHY:  This keeps online readiness aligned with boot diagnostics
+              and preserves the explicit "missing key/endpoint" failure.
+        """
+        config = FakeConfig(mode="online")
+        config.api.endpoint = ""
+        init_creds = SimpleNamespace(
+            api_key=None,
+            endpoint="",
+            deployment="",
+            api_version="",
+            provider="",
+            source_key="config",
+            source_endpoint="config",
+        )
+        late_creds = SimpleNamespace(
+            api_key="late-key-123",
+            endpoint="",
+            deployment="",
+            api_version="",
+            provider="",
+            source_key="env:HYBRIDRAG_API_KEY",
+            source_endpoint="config",
+        )
+
+        with patch("src.core.llm_router.get_app_logger") as mock_logger:
+            mock_logger.return_value = MagicMock()
+            with patch(
+                "src.security.credentials.resolve_credentials",
+                side_effect=[init_creds, late_creds],
+            ):
+                with patch("src.core.llm_router.APIRouter") as mock_api_router:
+                    from src.core.llm_router import LLMRouter
+                    router = LLMRouter(config, api_key=None)
+                    result = router.query("Test question")
+
+        assert result is None
+        assert router.api is None
+        assert router.last_error == "API is not configured (missing key/endpoint)"
+        mock_api_router.assert_not_called()
 
     # ------------------------------------------------------------------
     # Test 3.4: Status report shows both backends
