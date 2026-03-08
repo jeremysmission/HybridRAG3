@@ -113,3 +113,10 @@ It does not write into `D:\JCoder`, and it should stay that way while another ag
 
 - `docs/03_guides/AUTOTUNE_CHEAT_SHEET.md` — definitive cheat sheet for the March 6–7 autotune winners (offline/online configs, pass rates, latencies, and log references). Include this in any GUI “refs” section so operators can hard-code the tuned metrics.
 - `logs/tunelogs/autotune_runs.zip` — raw leaderboard/candidate artifacts for both modes; expand and inspect `*/scored/summary.json` or `*/candidate_config.json` if you need to troubleshoot a tune run.
+- `tools/sync_mode_overrides.py` — keep the Admin “mode config” panel in sync by writing both mirrored offline/online sections into `config/user_overrides.yaml`. Run this after you change knobs; it also stamps a `tuned_baseline` note (3/7/2026) next to the saved values so you always know the baseline you’re starting from.
+
+## Admin panel reminder
+
+Add a short reminder text to the Admin GUI near the defaults checkbox:
+
+> **Tuned baseline (updated 2026-03-07):** Offline uses `tk4_ms10_np384`, Online uses `tk6_ms08_mt1024`. Run `tools/sync_mode_overrides.py` after editing knobs to keep defaults in sync.

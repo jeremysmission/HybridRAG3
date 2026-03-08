@@ -38,6 +38,11 @@ This reference captures the final tuning results for March 6–7, 2026. Use it t
 - `logs/tunelogs/autotune_runs.zip` → `online/full/.../candidate_config.json` holds the source config used for each run.  
 - Store this cheat sheet in any GUI `refs`/“hardcode” section so the interface can point operators back to these values when tuning or troubleshooting.
 
+## Keeping the override clean
+
+- Run `python tools/sync_mode_overrides.py --api-endpoint <your endpoint> --api-model <model>` after you change the Admin panel knobs. It writes both offline and online sections into `config/user_overrides.yaml`, mirroring the same controls so the “Default” checkbox just reloads the values you previously saved (and includes the tune date 2026-03-07 for reference).
+- The file now records the tuned winners (offline `tk4_ms10_np384`, online `tk6_ms08_mt1024`) under `tuned_baseline` so future developers know how recent the defaults are without having to hunt the logs.
+
 ## Next steps
 
 1. Apply these winners with `python tools/run_mode_autotune.py --workflow full --mode offline --apply-winner` and the matching `--mode online` so the repo defaults match the cheat sheet.  
