@@ -128,6 +128,7 @@ class FakeQueryResult:
     latency_ms: float = 1234.0
     mode: str = "offline"
     error: str = ""
+    debug_trace: Optional[dict] = None
 
 
 @dataclass
@@ -304,6 +305,72 @@ def test_04_ask_button_disable_reenable():
     panel._display_result(FakeQueryResult())
     _pump_events(root, 20)
     assert str(panel.ask_btn["state"]) == "normal"
+
+    root.destroy()
+
+
+def test_03b_query_panel_publishes_debug_trace_to_admin():
+    """Completed queries should push their debug trace into the Admin shell."""
+    root = _make_root()
+    config = FakeGUIConfig()
+
+    from src.gui.panels.query_panel import QueryPanel
+
+    panel = QueryPanel(root, config=config)
+    panel.pack()
+
+    fake_admin = MagicMock()
+    fake_app = SimpleNamespace(_admin_panel=fake_admin, _last_query_trace=None)
+    panel.winfo_toplevel = lambda: fake_app
+
+    trace = {
+        "mode": "offline",
+        "active_profile": "",
+        "engine_kind": "base",
+        "stream": False,
+        "query": "What is the frequency?",
+        "retrieval": {
+            "counts": {
+                "raw_hits": 1,
+                "post_rerank_hits": 1,
+                "post_filter_hits": 1,
+                "post_augment_hits": 1,
+                "final_hits": 1,
+                "dropped_hits": 0,
+            },
+            "hits": {
+                "final": [
+                    {
+                        "rank": 1,
+                        "score": 0.95,
+                        "source_file": "spec.pdf",
+                        "source_path": "spec.pdf",
+                        "chunk_index": 0,
+                        "text": "Frequency is 2.4 GHz.",
+                    }
+                ],
+                "dropped": [],
+            },
+        },
+        "decision": {"path": "answer"},
+        "result": {"latency_ms": 1500.0},
+        "settings": {"query": {}, "backend": {}},
+        "paths": {},
+        "context": {},
+        "llm": {},
+        "grounding": {},
+    }
+    result = FakeQueryResult(
+        answer="The frequency is 2.4 GHz.",
+        sources=[{"path": "spec.pdf", "chunks": 1}],
+        debug_trace=trace,
+    )
+
+    panel._display_result(result)
+    _pump_events(root, 50)
+
+    assert fake_app._last_query_trace == trace
+    fake_admin._update_query_debug_trace.assert_called_once_with(trace)
 
     root.destroy()
 
@@ -673,7 +740,7 @@ def test_10_online_button_cred_error():
 # TEST 11: Settings view sliders read current config values
 # ============================================================================
 
-def test_11_settings_view_reads_config():
+def test_11_settings_view_reads_config(tmp_path):
     """Settings view sliders are initialized from the active mode values."""
     root = _make_root()
     config = FakeGUIConfig()
@@ -686,15 +753,16 @@ def test_11_settings_view_reads_config():
 
     from src.gui.panels.settings_view import SettingsView
 
-    app_ref = MagicMock()
-    view = SettingsView(root, config=config, app_ref=app_ref)
+    with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": str(tmp_path)}):
+        app_ref = MagicMock()
+        view = SettingsView(root, config=config, app_ref=app_ref)
 
-    assert view.topk_var.get() == 12
-    assert abs(view.minscore_var.get() - 0.15) < 0.01
-    assert view.ctx_window_var.get() == 8192
-    assert view.num_predict_var.get() == 768
-    assert abs(view.temp_var.get() - 0.3) < 0.01
-    assert view.timeout_var.get() == 240
+        assert view.topk_var.get() == 12
+        assert abs(view.minscore_var.get() - 0.15) < 0.01
+        assert view.ctx_window_var.get() == 8192
+        assert view.num_predict_var.get() == 768
+        assert abs(view.temp_var.get() - 0.3) < 0.01
+        assert view.timeout_var.get() == 240
 
     view.destroy()
     root.destroy()
@@ -732,7 +800,7 @@ def test_12_settings_view_writes_config():
     root.destroy()
 
 
-def test_12b_settings_view_online_mode_reads_and_writes_api_values():
+def test_12b_settings_view_online_mode_reads_and_writes_api_values(tmp_path):
     """Hidden tuning view must stay mode-aware in online mode."""
     root = _make_root()
     config = FakeGUIConfig(mode="online")
@@ -746,26 +814,27 @@ def test_12b_settings_view_online_mode_reads_and_writes_api_values():
 
     from src.gui.panels.settings_view import SettingsView
 
-    app_ref = MagicMock()
-    view = SettingsView(root, config=config, app_ref=app_ref)
+    with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": str(tmp_path)}):
+        app_ref = MagicMock()
+        view = SettingsView(root, config=config, app_ref=app_ref)
 
-    assert view.ctx_window_var.get() == 64000
-    assert view.maxtokens_var.get() == 4096
-    assert abs(view.temp_var.get() - 1.25) < 0.01
-    assert view.timeout_var.get() == 900
+        assert view.ctx_window_var.get() == 64000
+        assert view.maxtokens_var.get() == 4096
+        assert abs(view.temp_var.get() - 1.25) < 0.01
+        assert view.timeout_var.get() == 900
 
-    view.ctx_window_var.set(128000)
-    view.maxtokens_var.set(16384)
-    view.temp_var.set(2.0)
-    view.timeout_var.set(1200)
-    view._on_llm_change()
+        view.ctx_window_var.set(128000)
+        view.maxtokens_var.set(16384)
+        view.temp_var.set(2.0)
+        view.timeout_var.set(1200)
+        view._on_llm_change()
 
-    assert config.api.context_window == 128000
-    assert config.api.max_tokens == 16384
-    assert abs(config.api.temperature - 2.0) < 0.01
-    assert config.api.timeout_seconds == 1200
-    assert config.ollama.context_window == 4096
-    assert abs(config.ollama.temperature - 0.05) < 0.01
+        assert config.api.context_window == 128000
+        assert config.api.max_tokens == 16384
+        assert abs(config.api.temperature - 2.0) < 0.01
+        assert config.api.timeout_seconds == 1200
+        assert config.ollama.context_window == 4096
+        assert abs(config.ollama.temperature - 0.05) < 0.01
 
     view.destroy()
     root.destroy()
@@ -822,7 +891,7 @@ def test_12c_settings_view_mode_store_persists_min_max_without_snapback(tmp_path
         assert tab.maxtokens_var.get() == 16384
 
         import yaml
-        with open(cfg_dir / "user_overrides.yaml", "r", encoding="utf-8") as f:
+        with open(cfg_dir / "config.yaml", "r", encoding="utf-8") as f:
             saved = yaml.safe_load(f)
         assert saved["modes"]["online"]["retrieval"]["top_k"] == 1
         assert saved["modes"]["online"]["api"]["context_window"] == 128000
@@ -871,8 +940,8 @@ def test_13_profile_dropdown_calls_switch():
 # TEST 14: Settings view reset restores original values
 # ============================================================================
 
-def test_14_settings_view_reset_defaults():
-    """Reset button restores sliders to values at construction time."""
+def test_14_settings_view_reset_defaults(tmp_path):
+    """Reset button restores the saved mode defaults for the active mode."""
     root = _make_root()
     config = FakeGUIConfig()
     config.retrieval.top_k = 8
@@ -880,22 +949,25 @@ def test_14_settings_view_reset_defaults():
 
     from src.gui.panels.settings_view import SettingsView
 
-    app_ref = MagicMock()
-    view = SettingsView(root, config=config, app_ref=app_ref)
+    with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": str(tmp_path)}):
+        app_ref = MagicMock()
+        view = SettingsView(root, config=config, app_ref=app_ref)
 
-    # Change values away from defaults
-    view.topk_var.set(40)
-    view.temp_var.set(0.9)
-    view._on_retrieval_change()
-    view._on_llm_change()
-    assert config.retrieval.top_k == 40
+        view._tuning_tab._on_save_mode_defaults()
 
-    # Reset
-    view._on_reset()
-    assert view.topk_var.get() == 8
-    assert abs(view.temp_var.get() - 0.1) < 0.01
-    assert config.retrieval.top_k == 8
-    assert abs(config.ollama.temperature - 0.1) < 0.01
+        # Change values away from defaults
+        view.topk_var.set(40)
+        view.temp_var.set(0.9)
+        view._on_retrieval_change()
+        view._on_llm_change()
+        assert config.retrieval.top_k == 40
+
+        # Reset
+        view._on_reset()
+        assert view.topk_var.get() == 8
+        assert abs(view.temp_var.get() - 0.1) < 0.01
+        assert config.retrieval.top_k == 8
+        assert abs(config.ollama.temperature - 0.1) < 0.01
 
     view.destroy()
     root.destroy()
@@ -1022,7 +1094,7 @@ def test_17_admin_defaults_round_trip(tmp_path):
 
     cfg_dir = tmp_path / "config"
     cfg_dir.mkdir(parents=True, exist_ok=True)
-    (cfg_dir / "default_config.yaml").write_text("mode: offline\n", encoding="utf-8")
+    (cfg_dir / "config.yaml").write_text("mode: offline\n", encoding="utf-8")
 
     with patch("src.gui.panels.api_admin_tab.resolve_credentials", return_value=mock_creds), \
          patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": str(tmp_path)}):
@@ -1036,7 +1108,7 @@ def test_17_admin_defaults_round_trip(tmp_path):
         # Save defaults
         tab._on_save_defaults()
         import yaml
-        with open(cfg_dir / "user_overrides.yaml", "r", encoding="utf-8") as f:
+        with open(cfg_dir / "config.yaml", "r", encoding="utf-8") as f:
             saved = yaml.safe_load(f)
         assert saved["admin_defaults"]["mode"] == "offline"
         assert saved["admin_defaults"]["paths"]["source_folder"] == config.paths.source_folder
@@ -1055,12 +1127,109 @@ def test_17_admin_defaults_round_trip(tmp_path):
         assert abs(config.api.temperature - 0.3) < 0.01
         assert config.api.model == "gpt-4o"
 
-        with open(cfg_dir / "user_overrides.yaml", "r", encoding="utf-8") as f:
+        with open(cfg_dir / "config.yaml", "r", encoding="utf-8") as f:
             restored = yaml.safe_load(f)
         assert restored["mode"] == "offline"
         assert restored["modes"]["offline"]["retrieval"]["top_k"] == 15
         assert restored["modes"]["offline"]["defaults"]["top_k"] == 15
         assert restored["modes"]["online"]["api"]["model"] == "gpt-4o"
+
+    view.destroy()
+    root.destroy()
+
+
+def test_17b_admin_debug_panel_renders_trace_text():
+    """Admin tab should render the latest retrieval trace for development review."""
+    root = _make_root()
+    config = FakeGUIConfig()
+
+    mock_creds = MagicMock()
+    mock_creds.endpoint = None
+    mock_creds.api_key = None
+    mock_creds.has_key = False
+    mock_creds.has_endpoint = False
+    mock_creds.is_online_ready = False
+    mock_creds.key_preview = "(not set)"
+    mock_creds.source_key = None
+    mock_creds.source_endpoint = None
+
+    with patch("src.gui.panels.api_admin_tab.resolve_credentials", return_value=mock_creds):
+        from src.gui.panels.settings_view import SettingsView
+
+        app_ref = MagicMock()
+        app_ref._views = {}
+        view = SettingsView(root, config=config, app_ref=app_ref)
+        _pump_events(root, 50)
+
+        tab = view._api_admin_tab
+        trace = {
+            "mode": "offline",
+            "active_profile": "",
+            "engine_kind": "base",
+            "stream": False,
+            "query": "What is the frequency?",
+            "paths": {
+                "source_folder": "D:/HybridRAG3/data/source",
+                "database": "D:/HybridRAG3/data/index/hybridrag.sqlite3",
+            },
+            "settings": {
+                "query": {
+                    "grounding_bias": 6,
+                    "allow_open_knowledge": True,
+                    "guard_enabled": True,
+                    "guard_threshold": 0.68,
+                    "guard_min_chunks": 2,
+                    "guard_min_score": 0.06,
+                    "guard_action": "block",
+                },
+                "backend": {
+                    "name": "ollama",
+                    "model": "phi4-mini",
+                    "deployment": "",
+                    "context_window": 4096,
+                    "max_tokens": 0,
+                    "num_predict": 384,
+                    "temperature": 0.05,
+                },
+            },
+            "retrieval": {
+                "counts": {
+                    "raw_hits": 2,
+                    "post_rerank_hits": 2,
+                    "post_filter_hits": 2,
+                    "post_augment_hits": 2,
+                    "final_hits": 2,
+                    "dropped_hits": 0,
+                },
+                "hits": {
+                    "final": [
+                        {
+                            "rank": 1,
+                            "score": 0.95,
+                            "source_file": "spec.pdf",
+                            "source_path": "D:/HybridRAG3/data/source/spec.pdf",
+                            "chunk_index": 0,
+                            "text": "Frequency is 2.4 GHz.",
+                        }
+                    ],
+                    "dropped": [],
+                },
+            },
+            "decision": {"path": "answer"},
+            "result": {"latency_ms": 1500.0, "cost_usd": 0.0, "error": ""},
+            "context": {"chars_before_trim": 100, "chars_after_trim": 100, "trimmed": False},
+            "llm": {"model": "phi4-mini", "tokens_in": 100, "tokens_out": 25, "latency_ms": 200.0},
+            "grounding": {},
+        }
+
+        tab._update_query_debug_trace(trace)
+        _pump_events(root, 50)
+
+        assert "OFFLINE" in tab._query_debug_status.cget("text")
+        text = tab._query_debug_text.get("1.0", tk.END)
+        assert "Latest Query Trace" in text
+        assert "Frequency is 2.4 GHz." in text
+        assert "spec.pdf" in text
 
     view.destroy()
     root.destroy()
@@ -1094,11 +1263,11 @@ def test_18_data_paths_panel_reads_and_saves(tmp_path):
     # Write a temp config YAML for the save to target
     cfg_dir = str(tmp_path / "config")
     os.makedirs(cfg_dir, exist_ok=True)
-    cfg_file = os.path.join(cfg_dir, "default_config.yaml")
+    cfg_file = os.path.join(cfg_dir, "config.yaml")
     with open(cfg_file, "w") as f:
         f.write("paths: {}\n")
-    # save_config_field now writes to user_overrides.yaml
-    overrides_file = os.path.join(cfg_dir, "user_overrides.yaml")
+    # save_config_field now writes to config/config.yaml
+    overrides_file = os.path.join(cfg_dir, "config.yaml")
 
     with patch("src.gui.panels.api_admin_tab.resolve_credentials", return_value=mock_creds), \
          patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": str(tmp_path)}):
@@ -1124,7 +1293,7 @@ def test_18_data_paths_panel_reads_and_saves(tmp_path):
         expected_db = os.path.join(idx_dir, "hybridrag.sqlite3")
         assert config.paths.database == expected_db
 
-        # Verify user_overrides.yaml was written (not default_config)
+        # Verify config.yaml was written
         import yaml
         with open(overrides_file, "r") as f:
             saved = yaml.safe_load(f)

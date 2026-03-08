@@ -56,6 +56,7 @@
 # LINE BUDGET: Target <300 lines (well under 500 limit)
 # ============================================================================
 
+import copy
 import time
 from typing import Optional, Dict, Any, Generator
 from dataclasses import dataclass
@@ -65,6 +66,11 @@ from .config import Config
 from .vector_store import VectorStore
 from .embedder import Embedder
 from .llm_router import LLMRouter
+from .query_trace import (
+    attach_result_trace,
+    minimal_retrieval_trace,
+    new_query_trace,
+)
 from ..monitoring.logger import get_app_logger
 
 
@@ -234,24 +240,69 @@ class GroundedQueryEngine(QueryEngine):
                 latency_ms=base_result.latency_ms,
                 mode=base_result.mode,
                 error=base_result.error,
+                debug_trace=base_result.debug_trace,
             )
 
         start_time = time.time()
+        trace = new_query_trace(self, user_query, stream=False, engine_kind="grounded")
+        retrieval_trace = minimal_retrieval_trace([])
+        context_before_trim = ""
+        context_after_trim = ""
+        prompt_preview = ""
         try:
             search_results = self.retriever.search(user_query)
+            retrieval_trace = getattr(self.retriever, "last_search_trace", None) or minimal_retrieval_trace(search_results)
             gate_result = self._retrieval_gate(
                 user_query, search_results, start_time)
             if gate_result is not None:
                 if bool(getattr(self, "allow_open_knowledge", False)):
-                    return super().query(user_query)
+                    base_result = super().query(user_query)
+                    return GroundedQueryResult(
+                        answer=base_result.answer,
+                        sources=base_result.sources,
+                        chunks_used=base_result.chunks_used,
+                        tokens_in=base_result.tokens_in,
+                        tokens_out=base_result.tokens_out,
+                        cost_usd=base_result.cost_usd,
+                        latency_ms=base_result.latency_ms,
+                        mode=base_result.mode,
+                        error=base_result.error,
+                        debug_trace=base_result.debug_trace,
+                    )
+                attach_result_trace(
+                    self,
+                    gate_result,
+                    trace,
+                    decision_path="retrieval_gate_blocked",
+                    retrieval_trace=retrieval_trace,
+                    grounding={
+                        "score": getattr(gate_result, "grounding_score", -1.0),
+                        "safe": getattr(gate_result, "grounding_safe", False),
+                        "blocked": getattr(gate_result, "grounding_blocked", True),
+                        "details": copy.deepcopy(getattr(gate_result, "grounding_details", None)),
+                    },
+                )
                 return gate_result
 
             context = self.retriever.build_context(search_results)
             sources = self.retriever.get_sources(search_results)
+            context_before_trim = context
             if not context.strip():
                 if bool(getattr(self, "allow_open_knowledge", False)):
-                    return super().query(user_query)
-                return GroundedQueryResult(
+                    base_result = super().query(user_query)
+                    return GroundedQueryResult(
+                        answer=base_result.answer,
+                        sources=base_result.sources,
+                        chunks_used=base_result.chunks_used,
+                        tokens_in=base_result.tokens_in,
+                        tokens_out=base_result.tokens_out,
+                        cost_usd=base_result.cost_usd,
+                        latency_ms=base_result.latency_ms,
+                        mode=base_result.mode,
+                        error=base_result.error,
+                        debug_trace=base_result.debug_trace,
+                    )
+                result = GroundedQueryResult(
                     answer=(
                         "Relevant documents were found, but no usable context "
                         "text was available."
@@ -267,15 +318,51 @@ class GroundedQueryEngine(QueryEngine):
                     grounding_blocked=True,
                     grounding_details={"reason": "empty_context"},
                 )
-            context = self._trim_context_to_fit(context, user_query)
+                attach_result_trace(
+                    self,
+                    result,
+                    trace,
+                    decision_path="empty_context",
+                    retrieval_trace=retrieval_trace,
+                    context_before_trim=context_before_trim,
+                    sources=sources,
+                    grounding={
+                        "score": result.grounding_score,
+                        "safe": result.grounding_safe,
+                        "blocked": result.grounding_blocked,
+                        "details": copy.deepcopy(result.grounding_details),
+                    },
+                )
+                return result
+            context_after_trim = self._trim_context_to_fit(context, user_query)
             prompt = self._build_grounded_prompt(
-                user_query, context, search_results)
+                user_query, context_after_trim, search_results)
+            prompt_preview = prompt
 
             llm_response = self.llm_router.query(prompt)
             if not llm_response:
-                return self._make_error_result(
+                result = self._make_error_result(
                     start_time, "LLM call failed", sources,
                     len(search_results))
+                attach_result_trace(
+                    self,
+                    result,
+                    trace,
+                    decision_path="llm_error",
+                    retrieval_trace=retrieval_trace,
+                    context_before_trim=context_before_trim,
+                    context_after_trim=context_after_trim,
+                    prompt_builder="grounded",
+                    prompt_preview=prompt_preview,
+                    sources=sources,
+                    grounding={
+                        "score": result.grounding_score,
+                        "safe": result.grounding_safe,
+                        "blocked": result.grounding_blocked,
+                        "details": copy.deepcopy(result.grounding_details),
+                    },
+                )
+                return result
 
             score, details = self._verify_response(
                 llm_response.text, search_results)
@@ -297,6 +384,25 @@ class GroundedQueryEngine(QueryEngine):
                 grounding_blocked=blocked,
                 grounding_details=details,
             )
+            attach_result_trace(
+                self,
+                result,
+                trace,
+                decision_path="guarded_answer_blocked" if blocked else "guarded_answer",
+                retrieval_trace=retrieval_trace,
+                context_before_trim=context_before_trim,
+                context_after_trim=context_after_trim,
+                prompt_builder="grounded",
+                prompt_preview=prompt_preview,
+                llm_response=llm_response,
+                sources=sources,
+                grounding={
+                    "score": score,
+                    "safe": score >= self.guard_threshold,
+                    "blocked": blocked,
+                    "details": copy.deepcopy(details),
+                },
+            )
             self._log_grounded_result(
                 "query_grounded", result, blocked, elapsed_ms)
             return result
@@ -304,7 +410,25 @@ class GroundedQueryEngine(QueryEngine):
         except Exception as e:
             error_msg = "{}: {}".format(type(e).__name__, e)
             self.guard_logger.error("guard_query_error", error=error_msg)
-            return self._make_error_result(start_time, error_msg)
+            result = self._make_error_result(start_time, error_msg)
+            attach_result_trace(
+                self,
+                result,
+                trace,
+                decision_path="guarded_engine_error",
+                retrieval_trace=retrieval_trace,
+                context_before_trim=context_before_trim,
+                context_after_trim=context_after_trim,
+                prompt_builder="grounded",
+                prompt_preview=prompt_preview,
+                grounding={
+                    "score": result.grounding_score,
+                    "safe": result.grounding_safe,
+                    "blocked": result.grounding_blocked,
+                    "details": copy.deepcopy(result.grounding_details),
+                },
+            )
+            return result
 
     def query_stream(
         self, user_query: str
@@ -325,10 +449,16 @@ class GroundedQueryEngine(QueryEngine):
             return
 
         start_time = time.time()
+        trace = new_query_trace(self, user_query, stream=True, engine_kind="grounded")
+        retrieval_trace = minimal_retrieval_trace([])
+        context_before_trim = ""
+        context_after_trim = ""
+        prompt_preview = ""
         try:
             yield {"phase": "searching"}
             search_results = self.retriever.search(user_query)
             retrieval_ms = (time.time() - start_time) * 1000
+            retrieval_trace = getattr(self.retriever, "last_search_trace", None) or minimal_retrieval_trace(search_results)
 
             # Retrieval gate
             gate_result = self._retrieval_gate(
@@ -343,19 +473,37 @@ class GroundedQueryEngine(QueryEngine):
 
             context = self.retriever.build_context(search_results)
             sources = self.retriever.get_sources(search_results)
+            context_before_trim = context
             if not context.strip():
                 if bool(getattr(self, "allow_open_knowledge", False)):
                     fallback = super().query(user_query)
                     yield {"done": True, "result": fallback}
                     return
-                yield {"done": True, "result": self._make_error_result(
+                result = self._make_error_result(
                     start_time, "empty_context", sources,
-                    len(search_results))}
+                    len(search_results))
+                attach_result_trace(
+                    self,
+                    result,
+                    trace,
+                    decision_path="empty_context",
+                    retrieval_trace=retrieval_trace,
+                    context_before_trim=context_before_trim,
+                    sources=sources,
+                    grounding={
+                        "score": result.grounding_score,
+                        "safe": result.grounding_safe,
+                        "blocked": result.grounding_blocked,
+                        "details": copy.deepcopy(result.grounding_details),
+                    },
+                )
+                yield {"done": True, "result": result}
                 return
 
-            context = self._trim_context_to_fit(context, user_query)
+            context_after_trim = self._trim_context_to_fit(context, user_query)
             prompt = self._build_grounded_prompt(
-                user_query, context, search_results)
+                user_query, context_after_trim, search_results)
+            prompt_preview = prompt
 
             yield {"phase": "generating", "chunks": len(search_results),
                    "retrieval_ms": retrieval_ms}
@@ -397,9 +545,29 @@ class GroundedQueryEngine(QueryEngine):
                     f"LLM stream failed: {reason}" if reason
                     else "LLM stream empty"
                 )
-                yield {"done": True, "result": self._make_error_result(
+                result = self._make_error_result(
                     start_time, msg, sources,
-                    len(search_results))}
+                    len(search_results))
+                attach_result_trace(
+                    self,
+                    result,
+                    trace,
+                    decision_path="stream_llm_error",
+                    retrieval_trace=retrieval_trace,
+                    context_before_trim=context_before_trim,
+                    context_after_trim=context_after_trim,
+                    prompt_builder="grounded",
+                    prompt_preview=prompt_preview,
+                    llm_stream_error=reason,
+                    sources=sources,
+                    grounding={
+                        "score": result.grounding_score,
+                        "safe": result.grounding_safe,
+                        "blocked": result.grounding_blocked,
+                        "details": copy.deepcopy(result.grounding_details),
+                    },
+                )
+                yield {"done": True, "result": result}
                 return
 
             # Verify and apply guard action
@@ -432,6 +600,26 @@ class GroundedQueryEngine(QueryEngine):
                 grounding_blocked=blocked,
                 grounding_details=details,
             )
+            attach_result_trace(
+                self,
+                result,
+                trace,
+                decision_path="guarded_stream_answer_blocked" if blocked else "guarded_stream_answer",
+                retrieval_trace=retrieval_trace,
+                context_before_trim=context_before_trim,
+                context_after_trim=context_after_trim,
+                prompt_builder="grounded",
+                prompt_preview=prompt_preview,
+                llm_response=llm_resp,
+                llm_stream_error=stream_error,
+                sources=sources,
+                grounding={
+                    "score": score,
+                    "safe": score >= self.guard_threshold,
+                    "blocked": blocked,
+                    "details": copy.deepcopy(details),
+                },
+            )
             self._log_grounded_result(
                 "query_stream_grounded", result, blocked, elapsed_ms)
             yield {"done": True, "result": result}
@@ -440,8 +628,25 @@ class GroundedQueryEngine(QueryEngine):
             error_msg = "{}: {}".format(type(e).__name__, e)
             self.guard_logger.error(
                 "guard_query_stream_error", error=error_msg)
-            yield {"done": True, "result": self._make_error_result(
-                start_time, error_msg)}
+            result = self._make_error_result(start_time, error_msg)
+            attach_result_trace(
+                self,
+                result,
+                trace,
+                decision_path="guarded_stream_engine_error",
+                retrieval_trace=retrieval_trace,
+                context_before_trim=context_before_trim,
+                context_after_trim=context_after_trim,
+                prompt_builder="grounded",
+                prompt_preview=prompt_preview,
+                grounding={
+                    "score": result.grounding_score,
+                    "safe": result.grounding_safe,
+                    "blocked": result.grounding_blocked,
+                    "details": copy.deepcopy(result.grounding_details),
+                },
+            )
+            yield {"done": True, "result": result}
 
     def _build_grounded_prompt(
         self, user_query: str, context: str, hits: list

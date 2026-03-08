@@ -52,6 +52,7 @@ from src.gui.scrollable import ScrollableFrame
 from src.core.model_identity import canonicalize_model_name, resolve_ollama_model_name
 from src.core.mode_config import MODE_TUNED_DEFAULTS
 from src.core.ollama_endpoint_resolver import sanitize_ollama_base_url
+from src.core.query_trace import format_query_trace_text
 from src.security.credentials import (
     resolve_credentials, validate_endpoint,
     store_api_key, store_endpoint, clear_credentials,
@@ -594,6 +595,7 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
                          bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
         self.config = config
         self._app = app_ref
+        self._suppress_select_event = False
         self._build(t)
         self._populate()
 
@@ -744,8 +746,12 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
 
         # Select current model in tree
         if current_model and current_model in [c["name"] for c in scored]:
-            self.tree.selection_set(current_model)
-            self.tree.see(current_model)
+            self._suppress_select_event = True
+            try:
+                self.tree.selection_set(current_model)
+                self.tree.see(current_model)
+            finally:
+                self._suppress_select_event = False
 
         t = current_theme()
         mode = getattr(self.config, "mode", "offline")
@@ -761,6 +767,8 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
 
     def _on_select(self, event=None):
         """Write selected model to config.ollama.model with Ollama health check."""
+        if getattr(self, "_suppress_select_event", False):
+            return
         sel = self.tree.selection()
         if not sel:
             return
@@ -1060,7 +1068,7 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
 
 class ApiAdminTab(tk.Frame):
     """
-    API credentials, data paths, online model selection, admin defaults.
+    Admin controller for mode defaults, profiles, credentials, paths, and models.
 
     Embeddable Frame -- placed inside the Settings notebook API & Admin tab.
     """
@@ -1089,9 +1097,19 @@ class ApiAdminTab(tk.Frame):
         self._inner = self._scroll.inner
 
         # Build sections
+        from src.gui.panels.tuning_tab import TuningTab
+
+        self._mode_panel = TuningTab(
+            self._inner,
+            config=config,
+            app_ref=app_ref,
+            enable_mode_store=True,
+        )
+        self._mode_panel.pack(fill=tk.X, padx=16, pady=8)
         self._build_credentials_section(t)
         self._build_security_section(t)
         self._build_troubleshoot_section(t)
+        self._build_query_debug_section(t)
         self._paths_panel = DataPathsPanel(self._inner, config, app_ref)
         self._paths_panel.pack(fill=tk.X, padx=16, pady=8)
         if self._dev_tuning_enabled:
@@ -1101,16 +1119,14 @@ class ApiAdminTab(tk.Frame):
         self._offline_model_panel = OfflineModelSelectionPanel(
             self._inner, config, app_ref)
         self._offline_model_panel.pack(fill=tk.X, padx=16, pady=8)
-        self._build_offline_runtime_section(t)
         self._model_panel = ModelSelectionPanel(
             self._inner, config, self.endpoint_var, self.key_var)
         self._model_panel.pack(fill=tk.X, padx=16, pady=8)
-        self._build_defaults_section(t)
 
         # Load initial credential status
         self._refresh_credential_status()
 
-        # Gray out API fields if starting in offline mode
+        # Refresh mode-aware labels without disabling cross-mode editing.
         self._apply_mode_state()
 
 
@@ -1772,7 +1788,7 @@ def _api_admintab__on_pii_toggle(self):
     if security:
         security.pii_sanitization = value
 
-    # Persist to user_overrides.yaml (not default_config)
+    # Persist to config/config.yaml (single config authority)
     try:
         from src.core.config import save_config_field
         save_config_field("security.pii_sanitization", value)
@@ -1830,6 +1846,102 @@ def _api_admintab__build_resource_monitor_section(self, t):
 
     self._resource_monitor_after_id = None
     self._refresh_resource_section()
+
+
+def _api_admintab__build_query_debug_section(self, t):
+    """Build an Admin-only retrieval/query trace viewer for development."""
+    frame = tk.LabelFrame(
+        self._inner, text="Retrieval Debug", padx=16, pady=8,
+        bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD,
+    )
+    frame.pack(fill=tk.X, padx=16, pady=8)
+    self._query_debug_frame = frame
+
+    row = tk.Frame(frame, bg=t["panel_bg"])
+    row.pack(fill=tk.X, pady=(0, 4))
+
+    self._query_debug_refresh_btn = tk.Button(
+        row, text="Refresh Latest",
+        command=self._refresh_query_debug_from_app,
+        bg=t["accent"], fg=t["accent_fg"], font=FONT,
+        relief=tk.FLAT, bd=0, padx=12, pady=6,
+        activebackground=t["accent_hover"], activeforeground=t["accent_fg"],
+    )
+    self._query_debug_refresh_btn.pack(side=tk.LEFT)
+    bind_hover(self._query_debug_refresh_btn)
+
+    self._query_debug_clear_btn = tk.Button(
+        row, text="Clear",
+        command=self._clear_query_debug_trace,
+        bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"], font=FONT,
+        relief=tk.FLAT, bd=0, padx=12, pady=6,
+    )
+    self._query_debug_clear_btn.pack(side=tk.LEFT, padx=(8, 0))
+    bind_hover(self._query_debug_clear_btn)
+
+    self._query_debug_status = tk.Label(
+        row, text="No query trace captured yet.", anchor=tk.W,
+        bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
+    )
+    self._query_debug_status.pack(side=tk.LEFT, padx=(8, 0), fill=tk.X, expand=True)
+
+    self._query_debug_text = tk.Text(
+        frame, height=20, wrap=tk.WORD, font=FONT_MONO,
+        bg=t["input_bg"], fg=t["input_fg"], relief=tk.FLAT, bd=1,
+        state=tk.DISABLED,
+    )
+    self._query_debug_text.pack(fill=tk.X)
+    self._set_query_debug_text("No query trace captured yet.\n")
+    self._refresh_query_debug_from_app()
+
+
+def _api_admintab__refresh_query_debug_from_app(self):
+    """Reload the latest query trace from the live app shell."""
+    trace = getattr(self._app, "_last_query_trace", None)
+    if not trace:
+        self._query_debug_status.config(
+            text="No query trace captured yet.",
+            fg=current_theme()["gray"],
+        )
+        self._set_query_debug_text("No query trace captured yet.\n")
+        return
+    self._update_query_debug_trace(trace)
+
+
+def _api_admintab__update_query_debug_trace(self, trace):
+    """Render a new query trace into the debug text panel."""
+    t = current_theme()
+    text = format_query_trace_text(trace)
+    retrieval = trace.get("retrieval", {})
+    counts = retrieval.get("counts", {})
+    decision = trace.get("decision", {}).get("path", "")
+    status = "{} | {} | final hits={} | latency={} ms".format(
+        str(trace.get("mode", "") or "").upper(),
+        decision or "unknown",
+        counts.get("final_hits", 0),
+        trace.get("result", {}).get("latency_ms", 0.0),
+    )
+    self._query_debug_status.config(text=status, fg=t["gray"])
+    self._set_query_debug_text(text)
+
+
+def _api_admintab__clear_query_debug_trace(self):
+    """Forget the cached latest query trace from the app shell."""
+    if hasattr(self._app, "_last_query_trace"):
+        self._app._last_query_trace = None
+    self._query_debug_status.config(
+        text="No query trace captured yet.",
+        fg=current_theme()["gray"],
+    )
+    self._set_query_debug_text("No query trace captured yet.\n")
+
+
+def _api_admintab__set_query_debug_text(self, text):
+    """Set retrieval debug text box content safely."""
+    self._query_debug_text.config(state=tk.NORMAL)
+    self._query_debug_text.delete("1.0", tk.END)
+    self._query_debug_text.insert("1.0", text)
+    self._query_debug_text.config(state=tk.DISABLED)
 
 
 def _api_admintab__refresh_resource_section(self):
@@ -2148,73 +2260,33 @@ def _api_admintab__on_save_offline_runtime(self):
         )
 
 def _api_admintab__apply_mode_state(self):
-    """Gray out API fields in offline mode, offline panel in online mode.
-
-    Called at init and after every mode toggle so that non-technical
-    users are not confused by editable but irrelevant fields.
-    Preserves the credential status text (Key:/Endpoint:) populated
-    by _refresh_credential_status() and appends an offline note.
-    """
+    """Refresh labels while keeping Admin controls editable in both modes."""
     t = current_theme()
     mode = getattr(self.config, "mode", "offline") if self.config else "offline"
-    if mode == "offline":
-        # Gray out online API fields
-        for widget in (self.endpoint_entry, self.key_entry):
-            widget.config(state=tk.DISABLED, disabledbackground=t["input_bg"],
-                          disabledforeground=t["disabled_fg"])
-        for btn in (self.save_cred_btn, self.test_btn, self.clear_cred_btn):
-            btn.config(state=tk.DISABLED)
-        if hasattr(self, "_pii_cb"):
-            self._pii_cb.config(state=tk.DISABLED)
-        # Append offline note without clobbering credential info
-        current_text = self.cred_status_label.cget("text")
-        if "(offline)" not in current_text:
-            suffix = "  (offline -- not needed)"
-            if current_text:
-                self.cred_status_label.config(
-                    text=current_text + suffix, fg=t["disabled_fg"])
-            else:
-                self.cred_status_label.config(
-                    text="(offline mode -- API credentials not needed)",
-                    fg=t["disabled_fg"])
-        # Enable offline model panel, refresh its data
-        if hasattr(self, "_offline_model_panel"):
-            self._offline_model_panel.uc_dropdown.config(state="readonly")
-            self._offline_model_panel._populate()
-        if hasattr(self, "ollama_context_entry"):
-            self.ollama_context_entry.config(
-                state=tk.NORMAL,
-                disabledbackground=t["input_bg"],
-                disabledforeground=t["disabled_fg"],
-            )
-        if hasattr(self, "persist_ollama_context_cb"):
-            self.persist_ollama_context_cb.config(state=tk.NORMAL)
-        if hasattr(self, "save_offline_runtime_btn"):
-            self.save_offline_runtime_btn.config(state=tk.NORMAL)
-        self._refresh_network_policy_label()
-    else:
-        # Enable online API fields
-        for widget in (self.endpoint_entry, self.key_entry):
+
+    for widget in (getattr(self, "endpoint_entry", None), getattr(self, "key_entry", None)):
+        if widget is not None:
             widget.config(state=tk.NORMAL, fg=t["input_fg"])
-        for btn in (self.save_cred_btn, self.test_btn, self.clear_cred_btn):
+    for btn in (
+        getattr(self, "save_cred_btn", None),
+        getattr(self, "test_btn", None),
+        getattr(self, "clear_cred_btn", None),
+    ):
+        if btn is not None:
             btn.config(state=tk.NORMAL)
-        if hasattr(self, "_pii_cb"):
-            self._pii_cb.config(state=tk.NORMAL)
-        self._refresh_credential_status()
-        # Gray out offline model panel in online mode
-        if hasattr(self, "_offline_model_panel"):
-            self._offline_model_panel.uc_dropdown.config(state=tk.DISABLED)
-        if hasattr(self, "ollama_context_entry"):
-            self.ollama_context_entry.config(
-                state=tk.DISABLED,
-                disabledbackground=t["input_bg"],
-                disabledforeground=t["disabled_fg"],
-            )
-        if hasattr(self, "persist_ollama_context_cb"):
-            self.persist_ollama_context_cb.config(state=tk.DISABLED)
-        if hasattr(self, "save_offline_runtime_btn"):
-            self.save_offline_runtime_btn.config(state=tk.DISABLED)
-        self._refresh_network_policy_label()
+    if hasattr(self, "_pii_cb"):
+        self._pii_cb.config(state=tk.NORMAL)
+    if hasattr(self, "_offline_model_panel"):
+        self._offline_model_panel.uc_dropdown.config(state="readonly")
+        self._offline_model_panel._populate()
+    self._refresh_credential_status()
+    current_text = self.cred_status_label.cget("text")
+    if current_text:
+        self.cred_status_label.config(
+            text=current_text + "  |  Runtime mode: {}".format(str(mode).upper()),
+            fg=t["gray"],
+        )
+    self._refresh_network_policy_label()
 
 def _api_admintab__build_chunking_section(self, t):
     """Build chunking controls kept separate from query-time tuning.
@@ -2371,20 +2443,27 @@ def _api_admintab__on_save_defaults(self):
 
     This lets admins set up the system once and restore it after
     experiments or accidental changes. The baseline now lives in
-    config/user_overrides.yaml so the admin GUI and YAML share one path.
+    config/config.yaml so the admin GUI and YAML share one path.
     """
     t = current_theme()
+    status_label = getattr(self, "defaults_status_label", None)
     try:
         from src.gui.helpers.mode_tuning import ModeTuningStore
 
         snapshot = ModeTuningStore().save_admin_defaults(self.config)
-        self.defaults_status_label.config(
-            text="[OK] Defaults saved at {}".format(snapshot["saved_at"]),
-            fg=t["green"])
-        logger.info("Admin defaults saved to config/user_overrides.yaml")
+        if status_label is not None:
+            status_label.config(
+                text="[OK] Defaults saved at {}".format(snapshot["saved_at"]),
+                fg=t["green"],
+            )
+        logger.info("Admin defaults saved to config/config.yaml")
     except Exception as e:
-        self.defaults_status_label.config(
-            text="[FAIL] {}".format(str(e)[:60]), fg=t["red"])
+        if status_label is not None:
+            status_label.config(
+                text="[FAIL] {}".format(str(e)[:60]), fg=t["red"],
+            )
+        else:
+            raise
 
 def _api_admintab__on_restore_defaults(self):
     """Restore all settings from the previously saved admin defaults.
@@ -2394,15 +2473,18 @@ def _api_admintab__on_restore_defaults(self):
     so the entire UI reflects the restored state immediately.
     """
     t = current_theme()
+    status_label = getattr(self, "defaults_status_label", None)
     try:
         from src.gui.helpers.mode_tuning import ModeTuningStore
 
         store = ModeTuningStore()
         snapshot = store.restore_admin_defaults(self.config)
         if snapshot is None:
-            self.defaults_status_label.config(
-                text="[WARN] No defaults saved yet. Save defaults first.",
-                fg=t["orange"])
+            if status_label is not None:
+                status_label.config(
+                    text="[WARN] No defaults saved yet. Save defaults first.",
+                    fg=t["orange"],
+                )
             return
         p_snap = snapshot.get("paths", {})
         c_snap = snapshot.get("chunking", {})
@@ -2433,17 +2515,26 @@ def _api_admintab__on_restore_defaults(self):
         self._apply_mode_state()
 
         saved_at = snapshot.get("saved_at", "?")
-        self.defaults_status_label.config(
-            text="[OK] Defaults restored (saved {})".format(saved_at),
-            fg=t["green"])
-        logger.info("Admin defaults restored from config/user_overrides.yaml")
+        if status_label is not None:
+            status_label.config(
+                text="[OK] Defaults restored (saved {})".format(saved_at),
+                fg=t["green"],
+            )
+        logger.info("Admin defaults restored from config/config.yaml")
     except Exception as e:
-        self.defaults_status_label.config(
-            text="[FAIL] {}".format(str(e)[:60]), fg=t["red"])
+        if status_label is not None:
+            status_label.config(
+                text="[FAIL] {}".format(str(e)[:60]), fg=t["red"],
+            )
+        else:
+            raise
 
 def _api_admintab__refresh_defaults_status(self):
     """Show when defaults were last saved (or 'not saved yet')."""
     t = current_theme()
+    status_label = getattr(self, "defaults_status_label", None)
+    if status_label is None:
+        return
     try:
         from src.gui.helpers.mode_tuning import ModeTuningStore
 
@@ -2452,11 +2543,11 @@ def _api_admintab__refresh_defaults_status(self):
         snapshot = None
 
     if not snapshot:
-        self.defaults_status_label.config(
+        status_label.config(
             text="No defaults saved yet.", fg=t["gray"])
         return
 
-    self.defaults_status_label.config(
+    status_label.config(
         text="Last saved: {}".format(snapshot.get("saved_at", "unknown")),
         fg=t["gray"])
 
@@ -2470,7 +2561,7 @@ def _api_admintab_apply_theme(self, t):
     self._model_panel.apply_theme(t)
     for frame_attr in (
         "_cred_frame", "_security_frame", "_chunking_frame",
-        "_offline_runtime_frame", "_defaults_frame",
+        "_offline_runtime_frame", "_defaults_frame", "_query_debug_frame",
     ):
         frame = getattr(self, frame_attr, None)
         if frame:
@@ -2497,6 +2588,11 @@ def _bind_api_admin_tab_runtime_methods() -> None:
     ApiAdminTab._build_security_section = _api_admintab__build_security_section
     ApiAdminTab._on_pii_toggle = _api_admintab__on_pii_toggle
     ApiAdminTab._build_troubleshoot_section = _api_admintab__build_troubleshoot_section
+    ApiAdminTab._build_query_debug_section = _api_admintab__build_query_debug_section
+    ApiAdminTab._refresh_query_debug_from_app = _api_admintab__refresh_query_debug_from_app
+    ApiAdminTab._update_query_debug_trace = _api_admintab__update_query_debug_trace
+    ApiAdminTab._clear_query_debug_trace = _api_admintab__clear_query_debug_trace
+    ApiAdminTab._set_query_debug_text = _api_admintab__set_query_debug_text
     ApiAdminTab._on_run_quick_verify = _api_admintab__on_run_quick_verify
     ApiAdminTab._do_quick_verify = _api_admintab__do_quick_verify
     ApiAdminTab._on_quick_verify_done = _api_admintab__on_quick_verify_done

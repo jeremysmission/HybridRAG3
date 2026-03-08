@@ -11,6 +11,29 @@ from src.gui.theme import current_theme
 
 logger = logging.getLogger(__name__)
 
+
+def _publish_debug_trace(self, result):
+    """Push the latest query trace to the app/admin shell when available."""
+    trace = getattr(result, "debug_trace", None)
+    if not trace:
+        return
+    try:
+        app = self.winfo_toplevel()
+    except Exception:
+        app = None
+    if app is None:
+        return
+    try:
+        app._last_query_trace = trace
+    except Exception:
+        pass
+    admin = getattr(app, "_admin_panel", None)
+    if admin is not None and hasattr(admin, "_update_query_debug_trace"):
+        try:
+            admin._update_query_debug_trace(trace)
+        except Exception as e:
+            logger.debug("Admin trace publish failed: %s", e)
+
 def _set_status(self, text):
     """Update the network/status label."""
     t = current_theme()
@@ -73,6 +96,7 @@ def _finish_stream(self, result):
     self.answer_text.config(state=tk.DISABLED)
     self._set_query_controls(running=False)
     self.network_label.config(text="")
+    self._publish_debug_trace(result)
 
     # Display sources and metrics from the final result
     t = current_theme()
@@ -134,6 +158,7 @@ def _display_result_inner(self, result):
     self._set_query_controls(running=False)
     self.network_label.config(text="")
     self._overlay.stop()
+    self._publish_debug_trace(result)
 
     # Check for error
     if result.error:
@@ -222,6 +247,34 @@ def _show_error(self, error_msg):
     self.metrics_label.config(text="")
     self._maybe_show_memory_tuning_popup(error_msg)
 
+
+def _purge_mode_state(self, reason: str = ""):
+    """Clear stale query artifacts after a mode-bound runtime change."""
+    if self.is_querying:
+        self._cancelled_query_ids.add(self._active_query_id)
+        if hasattr(self, "_query_cancel_event") and self._query_cancel_event is not None:
+            self._query_cancel_event.set()
+        self.query_done_event.set()
+        self.last_query_status = "cancelled"
+    else:
+        self.last_query_status = ""
+
+    self.is_querying = False
+    self._streaming = False
+    self.last_answer_preview = ""
+    self._stop_elapsed_timer()
+    self._overlay.cancel()
+
+    self.answer_text.config(state=tk.NORMAL)
+    self.answer_text.delete("1.0", tk.END)
+    self.answer_text.config(state=tk.DISABLED)
+
+    t = current_theme()
+    self.sources_label.config(text="Sources: (none)", fg=t["gray"])
+    self.metrics_label.config(text="")
+    self.network_label.config(text=reason, fg=t["gray"])
+    self.set_ready(self.query_engine is not None)
+
 def _maybe_show_memory_tuning_popup(self, error_msg):
     """Show targeted guidance for common offline 500/timeout memory failures."""
     try:
@@ -264,7 +317,7 @@ def _maybe_show_memory_tuning_popup(self, error_msg):
             "3) Set timeout_seconds to 180\n\n"
             "Where to change:\n"
             "- GUI: Engineering > Admin Settings (Offline/Ollama tuning)\n"
-            "- File: config/user_overrides.yaml (takes precedence over defaults)\n\n"
+            "- File: config/config.yaml\n\n"
             "Quick validation:\n"
             "- ollama run phi4-mini \"OK\"\n"
             "- ollama ps\n\n"
@@ -329,10 +382,12 @@ def bind_query_panel_query_render_runtime_methods(cls):
     cls._start_elapsed_timer = _start_elapsed_timer
     cls._update_elapsed = _update_elapsed
     cls._stop_elapsed_timer = _stop_elapsed_timer
+    cls._publish_debug_trace = _publish_debug_trace
     cls._finish_stream = _finish_stream
     cls._display_result = _display_result
     cls._display_result_inner = _display_result_inner
     cls._show_error = _show_error
+    cls._purge_mode_state = _purge_mode_state
     cls._maybe_show_memory_tuning_popup = _maybe_show_memory_tuning_popup
     cls.set_ready = set_ready
     cls._emit_cost_event = _emit_cost_event

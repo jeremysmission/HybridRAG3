@@ -48,6 +48,11 @@ from .retriever import Retriever
 from .embedder import Embedder
 from .llm_router import LLMRouter, LLMResponse
 from .query_mode import apply_query_mode_to_engine
+from .query_trace import (
+    attach_result_trace,
+    minimal_retrieval_trace,
+    new_query_trace,
+)
 from ..monitoring.logger import get_app_logger, QueryLogEntry
 
 
@@ -85,6 +90,7 @@ class QueryResult:
     latency_ms: float
     mode: str
     error: Optional[str] = None
+    debug_trace: Optional[dict] = None
 
 
 class QueryEngine:
@@ -116,6 +122,7 @@ class QueryEngine:
         self.retriever = Retriever(vector_store, embedder, config)
 
         self.logger = get_app_logger("query_engine")
+        self.last_query_trace = None
         apply_query_mode_to_engine(self)
 
     def query(self, user_query: str) -> QueryResult:
@@ -130,6 +137,12 @@ class QueryEngine:
         """
         self._sync_runtime_components()
         start_time = time.time()
+        trace = new_query_trace(self, user_query, stream=False, engine_kind="base")
+        retrieval_trace = minimal_retrieval_trace([])
+        context_before_trim = ""
+        context_after_trim = ""
+        prompt_preview = ""
+        prompt_builder = ""
 
         try:
             # ------------------------------------------------------------
@@ -139,11 +152,22 @@ class QueryEngine:
             # then finds the closest matching document chunks by cosine
             # similarity. Returns a ranked list of "hits" (chunks + scores).
             search_results = self.retriever.search(user_query)
+            retrieval_trace = getattr(self.retriever, "last_search_trace", None) or minimal_retrieval_trace(search_results)
 
             if not search_results:
                 if self._allow_open_knowledge():
-                    return self._query_open_knowledge(user_query, start_time)
-                return QueryResult(
+                    result = self._query_open_knowledge(user_query, start_time)
+                    attach_result_trace(
+                        self,
+                        result,
+                        trace,
+                        decision_path="open_knowledge_no_results",
+                        retrieval_trace=retrieval_trace,
+                        prompt_builder="open_knowledge",
+                        prompt_preview=self._build_relaxed_prompt(user_query, ""),
+                    )
+                    return result
+                result = QueryResult(
                     answer="No relevant information found in knowledge base.",
                     sources=[],
                     chunks_used=0,
@@ -153,6 +177,14 @@ class QueryEngine:
                     latency_ms=(time.time() - start_time) * 1000,
                     mode=self.config.mode,
                 )
+                attach_result_trace(
+                    self,
+                    result,
+                    trace,
+                    decision_path="no_results",
+                    retrieval_trace=retrieval_trace,
+                )
+                return result
 
             # ------------------------------------------------------------
             # Step 2: Build context text
@@ -162,15 +194,28 @@ class QueryEngine:
             # Also extract source file info for citation in the UI.
             context = self.retriever.build_context(search_results)
             sources = self.retriever.get_sources(search_results)
+            context_before_trim = context
 
             if not context.strip():
                 if self._allow_open_knowledge():
-                    return self._query_open_knowledge(
+                    result = self._query_open_knowledge(
                         user_query, start_time, sources=sources
                     )
+                    attach_result_trace(
+                        self,
+                        result,
+                        trace,
+                        decision_path="open_knowledge_empty_context",
+                        retrieval_trace=retrieval_trace,
+                        context_before_trim=context_before_trim,
+                        prompt_builder="open_knowledge",
+                        prompt_preview=self._build_relaxed_prompt(user_query, ""),
+                        sources=sources,
+                    )
+                    return result
                 # Extremely rare edge case (should not happen if chunks have text),
                 # but we handle it gracefully.
-                return QueryResult(
+                result = QueryResult(
                     answer="Relevant documents were found, but no usable context text was available.",
                     sources=sources,
                     chunks_used=len(search_results),
@@ -181,6 +226,16 @@ class QueryEngine:
                     mode=self.config.mode,
                     error="empty_context",
                 )
+                attach_result_trace(
+                    self,
+                    result,
+                    trace,
+                    decision_path="empty_context",
+                    retrieval_trace=retrieval_trace,
+                    context_before_trim=context_before_trim,
+                    sources=sources,
+                )
+                return result
 
             # ------------------------------------------------------------
             # Step 3: Build LLM prompt (with overflow protection)
@@ -192,8 +247,9 @@ class QueryEngine:
             # Context window protection: estimate token count and trim
             # context if it would overflow. The 9-rule prompt + question
             # is ~800 tokens; we reserve that plus a margin for the answer.
-            context = self._trim_context_to_fit(context, user_query)
-            prompt = self._build_prompt(user_query, context)
+            context_after_trim = self._trim_context_to_fit(context, user_query)
+            prompt_builder = "open_knowledge" if self._allow_open_knowledge() else "base"
+            prompt_preview = self._build_prompt(user_query, context_after_trim)
 
             # ------------------------------------------------------------
             # Step 4: Call the LLM
@@ -202,7 +258,7 @@ class QueryEngine:
             #   Offline mode -> Ollama on localhost (free, no internet)
             #   Online mode  -> Azure/OpenAI API (cloud, costs money)
             # The caller never knows which backend answered.
-            llm_response = self.llm_router.query(prompt)
+            llm_response = self.llm_router.query(prompt_preview)
 
             if not llm_response:
                 reason = (getattr(self.llm_router, "last_error", "") or "").strip()
@@ -210,7 +266,7 @@ class QueryEngine:
                     f"Error calling LLM: {reason}" if reason
                     else "Error calling LLM. Please try again."
                 )
-                return QueryResult(
+                result = QueryResult(
                     answer=answer_text,
                     sources=sources,
                     chunks_used=len(search_results),
@@ -221,6 +277,19 @@ class QueryEngine:
                     mode=self.config.mode,
                     error="LLM call failed",
                 )
+                attach_result_trace(
+                    self,
+                    result,
+                    trace,
+                    decision_path="llm_error",
+                    retrieval_trace=retrieval_trace,
+                    context_before_trim=context_before_trim,
+                    context_after_trim=context_after_trim,
+                    prompt_builder=prompt_builder,
+                    prompt_preview=prompt_preview,
+                    sources=sources,
+                )
+                return result
 
             # ------------------------------------------------------------
             # Step 5: Calculate cost (online only)
@@ -242,6 +311,19 @@ class QueryEngine:
                 latency_ms=elapsed_ms,
                 mode=self.config.mode,
             )
+            attach_result_trace(
+                self,
+                result,
+                trace,
+                decision_path="answer",
+                retrieval_trace=retrieval_trace,
+                context_before_trim=context_before_trim,
+                context_after_trim=context_after_trim,
+                prompt_builder=prompt_builder,
+                prompt_preview=prompt_preview,
+                llm_response=llm_response,
+                sources=sources,
+            )
 
             # Log query summary (structured logging)
             log_entry = QueryLogEntry.build(
@@ -259,7 +341,7 @@ class QueryEngine:
             error_msg = f"{type(e).__name__}: {str(e)}"
             self.logger.error("query_error", error=error_msg, query=user_query)
 
-            return QueryResult(
+            result = QueryResult(
                 answer=f"Error processing query: {error_msg}",
                 sources=[],
                 chunks_used=0,
@@ -270,6 +352,18 @@ class QueryEngine:
                 mode=self.config.mode,
                 error=error_msg,
             )
+            attach_result_trace(
+                self,
+                result,
+                trace,
+                decision_path="engine_error",
+                retrieval_trace=retrieval_trace,
+                context_before_trim=context_before_trim,
+                context_after_trim=context_after_trim,
+                prompt_builder=prompt_builder,
+                prompt_preview=prompt_preview,
+            )
+            return result
 
     def query_stream(self, user_query: str) -> Generator[Dict[str, Any], None, None]:
         """
@@ -293,16 +387,32 @@ class QueryEngine:
         start_time = time.time()
         sources = []
         chunk_count = 0
+        trace = new_query_trace(self, user_query, stream=True, engine_kind="base")
+        retrieval_trace = minimal_retrieval_trace([])
+        context_before_trim = ""
+        context_after_trim = ""
+        prompt_preview = ""
+        prompt_builder = ""
 
         try:
             # Phase 1: Retrieval (eager)
             yield {"phase": "searching"}
             search_results = self.retriever.search(user_query)
             retrieval_ms = (time.time() - start_time) * 1000
+            retrieval_trace = getattr(self.retriever, "last_search_trace", None) or minimal_retrieval_trace(search_results)
 
             if not search_results:
                 if self._allow_open_knowledge():
-                    result = self.query(user_query)
+                    result = self._query_open_knowledge(user_query, start_time)
+                    attach_result_trace(
+                        self,
+                        result,
+                        trace,
+                        decision_path="open_knowledge_no_results",
+                        retrieval_trace=retrieval_trace,
+                        prompt_builder="open_knowledge",
+                        prompt_preview=self._build_relaxed_prompt(user_query, ""),
+                    )
                     if result.answer:
                         yield {"token": result.answer}
                     yield {"done": True, "result": result}
@@ -312,17 +422,36 @@ class QueryEngine:
                     sources=[], chunks_used=0, tokens_in=0, tokens_out=0,
                     cost_usd=0.0, latency_ms=retrieval_ms, mode=self.config.mode,
                 )
+                attach_result_trace(
+                    self,
+                    result,
+                    trace,
+                    decision_path="no_results",
+                    retrieval_trace=retrieval_trace,
+                )
                 yield {"done": True, "result": result}
                 return
 
             context = self.retriever.build_context(search_results)
             sources = self.retriever.get_sources(search_results)
             chunk_count = len(search_results)
+            context_before_trim = context
 
             if not context.strip():
                 if self._allow_open_knowledge():
                     result = self._query_open_knowledge(
                         user_query, start_time, sources=sources
+                    )
+                    attach_result_trace(
+                        self,
+                        result,
+                        trace,
+                        decision_path="open_knowledge_empty_context",
+                        retrieval_trace=retrieval_trace,
+                        context_before_trim=context_before_trim,
+                        prompt_builder="open_knowledge",
+                        prompt_preview=self._build_relaxed_prompt(user_query, ""),
+                        sources=sources,
                     )
                     if result.answer:
                         yield {"token": result.answer}
@@ -335,11 +464,21 @@ class QueryEngine:
                     latency_ms=retrieval_ms, mode=self.config.mode,
                     error="empty_context",
                 )
+                attach_result_trace(
+                    self,
+                    result,
+                    trace,
+                    decision_path="empty_context",
+                    retrieval_trace=retrieval_trace,
+                    context_before_trim=context_before_trim,
+                    sources=sources,
+                )
                 yield {"done": True, "result": result}
                 return
 
-            context = self._trim_context_to_fit(context, user_query)
-            prompt = self._build_prompt(user_query, context)
+            context_after_trim = self._trim_context_to_fit(context, user_query)
+            prompt_builder = "open_knowledge" if self._allow_open_knowledge() else "base"
+            prompt_preview = self._build_prompt(user_query, context_after_trim)
 
             # Phase 2: LLM streaming
             yield {
@@ -356,7 +495,7 @@ class QueryEngine:
             saw_done = False
             stream_error = ""
 
-            for chunk in self.llm_router.query_stream(prompt):
+            for chunk in self.llm_router.query_stream(prompt_preview):
                 if "token" in chunk:
                     full_text.append(chunk["token"])
                     yield {"token": chunk["token"]}
@@ -375,7 +514,7 @@ class QueryEngine:
             # Some backends log stream errors and terminate the generator
             # without yielding "done". Recover via a one-shot non-stream call.
             if not saw_done and not answer.strip() and not stream_error:
-                fallback = self.llm_router.query(prompt)
+                fallback = self.llm_router.query(prompt_preview)
                 if fallback and (fallback.text or "").strip():
                     answer = fallback.text
                     tokens_in = fallback.tokens_in
@@ -410,6 +549,20 @@ class QueryEngine:
                 cost_usd=cost_usd, latency_ms=elapsed_ms,
                 mode=self.config.mode,
             )
+            attach_result_trace(
+                self,
+                result,
+                trace,
+                decision_path="stream_answer" if not stream_error else "stream_llm_error",
+                retrieval_trace=retrieval_trace,
+                context_before_trim=context_before_trim,
+                context_after_trim=context_after_trim,
+                prompt_builder=prompt_builder,
+                prompt_preview=prompt_preview,
+                llm_response=llm_response,
+                llm_stream_error=stream_error,
+                sources=sources,
+            )
 
             log_entry = QueryLogEntry.build(
                 query=user_query, mode=self.config.mode,
@@ -428,6 +581,18 @@ class QueryEngine:
                 sources=sources, chunks_used=chunk_count, tokens_in=0, tokens_out=0,
                 cost_usd=0.0, latency_ms=(time.time() - start_time) * 1000,
                 mode=self.config.mode, error=error_msg,
+            )
+            attach_result_trace(
+                self,
+                result,
+                trace,
+                decision_path="stream_engine_error",
+                retrieval_trace=retrieval_trace,
+                context_before_trim=context_before_trim,
+                context_after_trim=context_after_trim,
+                prompt_builder=prompt_builder,
+                prompt_preview=prompt_preview,
+                sources=sources,
             )
             yield {"done": True, "result": result}
 
@@ -620,12 +785,37 @@ def _qe_sync_runtime_components(engine: QueryEngine) -> None:
         return
 
     router.config = engine.config
-    for attr in ("ollama", "api", "vllm", "transformers_rt"):
+    for attr in ("ollama", "api", "vllm"):
         child = getattr(router, attr, None)
         if child is not None and hasattr(child, "config"):
             child.config = engine.config
 
     apply_query_mode_to_engine(engine)
+
+
+def refresh_query_engine_runtime(
+    engine: QueryEngine,
+    *,
+    clear_caches: bool = False,
+) -> None:
+    """Refresh runtime helpers after config or mode changes."""
+    retriever = getattr(engine, "retriever", None)
+    if retriever is not None:
+        retriever.config = engine.config
+        if clear_caches and hasattr(retriever, "clear_runtime_state"):
+            retriever.clear_runtime_state(warn=True)
+        elif hasattr(retriever, "refresh_settings"):
+            retriever.refresh_settings(warn=True)
+
+    router = getattr(engine, "llm_router", None)
+    if router is not None and hasattr(router, "last_error"):
+        router.last_error = ""
+        for attr in ("ollama", "api", "vllm"):
+            child = getattr(router, attr, None)
+            if child is not None and hasattr(child, "last_error"):
+                child.last_error = ""
+
+    _qe_sync_runtime_components(engine)
 
 
 def _qe_resolve_prompt_budget(engine: QueryEngine) -> tuple[int, int]:

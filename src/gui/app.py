@@ -98,6 +98,7 @@ class HybridRAGApp(tk.Tk):
         self.shutdown = AppShutdownCoordinator()
         self._poll_timer_id = None
         self._backend_reload_thread = None
+        self._last_query_trace = None
         self._maximized = False
         self._deployment_guard_var = tk.BooleanVar(
             value=self._get_deployment_mode() == "production"

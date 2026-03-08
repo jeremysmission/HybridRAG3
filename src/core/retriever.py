@@ -71,12 +71,14 @@ import logging
 import os
 import re
 import threading
+import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 
 from .vector_store import VectorStore
 from .embedder import Embedder
+from .query_trace import build_retrieval_trace, hit_to_debug_dict
 
 logger = logging.getLogger(__name__)
 RERANKER_AVAILABLE = False
@@ -151,6 +153,11 @@ class _EmbeddingCache:
                     self._cache.popitem(last=False)
                 self._cache[key] = value
 
+    def clear(self) -> None:
+        """Drop all cached query embeddings."""
+        with self._lock:
+            self._cache.clear()
+
 
 # ---------------------------------------------------------------------------
 # Data class: one search result
@@ -210,6 +217,7 @@ class Retriever:
 
         # Query embedding cache -- repeat queries skip the embedding step
         self._embed_cache = _EmbeddingCache(maxsize=64)
+        self.last_search_trace = None
         self.refresh_settings(warn=True)
 
     def refresh_settings(self, warn: bool = False):
@@ -238,6 +246,12 @@ class Retriever:
             )
             self.reranker_enabled = False
 
+    def clear_runtime_state(self, warn: bool = False):
+        """Purge query-time caches so a mode/profile switch starts clean."""
+        self._embed_cache.clear()
+        self.last_search_trace = None
+        self.refresh_settings(warn=warn)
+
         if warn:
             _warn_aggressive_settings(self.top_k, self.reranker_top_n)
 
@@ -259,6 +273,7 @@ class Retriever:
         Returns a list of SearchHit objects, sorted by score descending.
         """
         self.refresh_settings()
+        self.last_search_trace = None
 
         # If reranker is on, we fetch more candidates so it has a bigger
         # pool to rerank from. Otherwise, just fetch top_k directly.
@@ -274,20 +289,35 @@ class Retriever:
             min_score = max(0.05, self.min_score * 0.5)
 
         # --- Step 1: Retrieve candidates ---
+        search_started = time.perf_counter()
         if self.hybrid_search:
             hits = self._hybrid_search(query, candidate_k, fts_query=fts_query)
         else:
             hits = self._vector_search(query, candidate_k)
+        search_ms = (time.perf_counter() - search_started) * 1000
+        raw_hits = list(hits)
 
         # --- Step 2: Optional reranking ---
+        rerank_ms = 0.0
         if self.reranker_enabled and len(hits) > 0:
+            rerank_started = time.perf_counter()
             hits = self._rerank(query, hits)
+            rerank_ms = (time.perf_counter() - rerank_started) * 1000
+        post_rerank_hits = list(hits)
 
         # --- Step 3: Filter by minimum score ---
-        hits = [h for h in hits if h.score >= min_score]
+        filtered_hits = [h for h in hits if h.score >= min_score]
+        dropped_hits = [
+            hit_to_debug_dict(hit, idx + 1, stage="post_filter", reason="below_min_score")
+            for idx, hit in enumerate(hits)
+            if hit.score < min_score
+        ]
 
         if structured_query:
-            hits = self._augment_with_adjacent_chunks(hits)
+            hits = self._augment_with_adjacent_chunks(filtered_hits)
+        else:
+            hits = list(filtered_hits)
+        post_augment_hits = list(hits)
 
         # --- Step 4: Trim to final top_k ---
         final_k = self.top_k
@@ -295,6 +325,41 @@ class Retriever:
         if mode == "offline" and self.offline_top_k is not None:
             final_k = min(final_k, self.offline_top_k)
         hits = hits[:final_k]
+        final_hits = list(hits)
+
+        if len(post_augment_hits) > final_k:
+            for idx, hit in enumerate(post_augment_hits[final_k:], start=final_k + 1):
+                dropped_hits.append(
+                    hit_to_debug_dict(
+                        hit,
+                        idx,
+                        stage="final",
+                        reason="final_top_k_trim",
+                    )
+                )
+
+        expected_source_root = str(
+            getattr(getattr(self.config, "paths", None), "source_folder", "") or ""
+        )
+        self.last_search_trace = build_retrieval_trace(
+            self,
+            query=query,
+            raw_hits=raw_hits,
+            post_rerank_hits=post_rerank_hits,
+            post_filter_hits=filtered_hits,
+            post_augment_hits=post_augment_hits,
+            final_hits=final_hits,
+            dropped_hits=dropped_hits,
+            structured_query=structured_query,
+            fts_query=fts_query,
+            candidate_k=candidate_k,
+            min_score_applied=min_score,
+            timings_ms={
+                "search": search_ms,
+                "rerank": rerank_ms,
+            },
+            expected_source_root=expected_source_root,
+        )
 
         return hits
 
