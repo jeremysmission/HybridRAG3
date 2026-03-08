@@ -265,10 +265,12 @@ class TuningTab(tk.Frame):
         self._last_popup_key = None
         self._mode_banner_var = tk.StringVar(value="")
         self._mode_status_var = tk.StringVar(value="")
+        self._editor_mode_var = tk.StringVar(
+            value="online" if str(getattr(config, "mode", "offline")).lower() == "online" else "offline"
+        )
 
         self._build_mode_banner(t)
-        self._build_retrieval_section(t)
-        self._build_llm_section(t)
+        self._build_editor_columns(t)
         self._build_profile_section(t)
         self._build_reset_button(t)
         self._legacy_defaults = self._display_values_from_config()
@@ -283,12 +285,33 @@ class TuningTab(tk.Frame):
         return list(self.profile_dropdown["values"])
 
     def _current_mode(self):
+        return normalize_mode(self._editor_mode_var.get())
+
+    def _runtime_mode(self):
         return "online" if str(getattr(self.config, "mode", "offline")).lower() == "online" else "offline"
 
     def _build_mode_banner(self, t):
         row = tk.Frame(self, bg=t["panel_bg"])
         row.pack(fill=tk.X, padx=16, pady=(10, 2))
         self._mode_row = row
+        tk.Label(
+            row,
+            text="Admin target:",
+            anchor=tk.W,
+            bg=t["panel_bg"],
+            fg=t["fg"],
+            font=FONT,
+        ).pack(side=tk.LEFT)
+        self._mode_selector = ttk.Combobox(
+            row,
+            textvariable=self._editor_mode_var,
+            values=["offline", "online"],
+            state="readonly",
+            width=10,
+            font=FONT,
+        )
+        self._mode_selector.pack(side=tk.LEFT, padx=(8, 12))
+        self._mode_selector.bind("<<ComboboxSelected>>", self._on_editor_mode_change)
         self._mode_banner = tk.Label(
             row,
             textvariable=self._mode_banner_var,
@@ -308,28 +331,47 @@ class TuningTab(tk.Frame):
         )
         self._mode_status.pack(side=tk.RIGHT)
 
+    def _build_editor_columns(self, t):
+        """Build side-by-side retrieval and query/generation editors."""
+        split = tk.Frame(self, bg=t["panel_bg"])
+        split.pack(fill=tk.BOTH, expand=True, padx=8, pady=(4, 0))
+        self._editor_split = split
+
+        left = tk.Frame(split, bg=t["panel_bg"])
+        left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(8, 6))
+        self._retrieval_column = left
+
+        right = tk.Frame(split, bg=t["panel_bg"])
+        right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(6, 8))
+        self._query_column = right
+
+        self._build_retrieval_section(t, parent=left)
+        self._build_llm_section(t, parent=right)
+
     def _refresh_mode_banner(self):
         mode = self._current_mode()
+        runtime_mode = self._runtime_mode()
         self._mode_banner_var.set(
-            "Editing active mode defaults: {}  |  Offline and online keep separate values and locks.".format(
-                mode.upper()
+            "Editing {} defaults in Admin  |  Runtime mode: {}.".format(
+                mode.upper(),
+                runtime_mode.upper(),
             )
         )
         if hasattr(self, "_llm_frame"):
-            self._llm_frame.config(text="LLM Settings ({})".format(mode.capitalize()))
+            self._llm_frame.config(text="Query & Generation ({})".format(mode.capitalize()))
         if hasattr(self, "_llm_mode_note"):
             if mode == "online":
                 self._llm_mode_note.config(
                     text=(
                         "Online mode uses api.context_window + max_tokens. "
-                        "Offline-only controls are disabled."
+                        "Changes save to config.yaml and apply live when runtime is online."
                     )
                 )
             else:
                 self._llm_mode_note.config(
                     text=(
                         "Offline mode uses ollama.context_window + num_predict. "
-                        "Online-only controls are disabled."
+                        "Changes save to config.yaml and apply live when runtime is offline."
                     )
                 )
 
@@ -337,6 +379,9 @@ class TuningTab(tk.Frame):
         self._mode_status_var.set(text)
         if text:
             self.after(2500, lambda: self._mode_status_var.set(""))
+
+    def _on_editor_mode_change(self, event=None):
+        self._sync_sliders_to_config()
 
     def _active_locks(self):
         if not self._mode_store_enabled:
@@ -373,6 +418,8 @@ class TuningTab(tk.Frame):
             widget.config(state=(tk.NORMAL if enabled and not locked else tk.DISABLED))
 
     def _write_active_vars_to_config(self):
+        if self._current_mode() != self._runtime_mode():
+            return
         retrieval = getattr(self.config, "retrieval", None)
         api = getattr(self.config, "api", None)
         ollama = getattr(self.config, "ollama", None)
@@ -520,10 +567,14 @@ class TuningTab(tk.Frame):
     # RETRIEVAL SETTINGS
     # ----------------------------------------------------------------
 
-    def _build_retrieval_section(self, t):
-        frame = tk.LabelFrame(self, text="Retrieval Settings", padx=16, pady=8,
+    def _build_retrieval_section(self, t, parent=None):
+        host = parent or self
+        frame = tk.LabelFrame(host, text="Retrieval Settings", padx=16, pady=8,
                                bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
-        frame.pack(fill=tk.X, padx=16, pady=(8, 4))
+        frame.pack(fill=tk.BOTH if parent is not None else tk.X,
+                   expand=bool(parent is not None),
+                   padx=8 if parent is not None else 16,
+                   pady=(8, 4) if parent is None else (4, 4))
         self._retrieval_frame = frame
 
         values = self._display_values_from_config()
@@ -546,7 +597,7 @@ class TuningTab(tk.Frame):
 
         # Latency warning label
         self._latency_warn_label = tk.Label(
-            frame, text="", anchor=tk.W, wraplength=600,
+            frame, text="", anchor=tk.W, wraplength=360,
             bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
         )
         self._latency_warn_label.pack(fill=tk.X, pady=(4, 0))
@@ -563,10 +614,14 @@ class TuningTab(tk.Frame):
     # LLM SETTINGS
     # ----------------------------------------------------------------
 
-    def _build_llm_section(self, t):
-        frame = tk.LabelFrame(self, text="LLM Settings", padx=16, pady=8,
+    def _build_llm_section(self, t, parent=None):
+        host = parent or self
+        frame = tk.LabelFrame(host, text="Query & Generation", padx=16, pady=8,
                                bg=t["panel_bg"], fg=t["accent"], font=FONT_BOLD)
-        frame.pack(fill=tk.X, padx=16, pady=8)
+        frame.pack(fill=tk.BOTH if parent is not None else tk.X,
+                   expand=bool(parent is not None),
+                   padx=8 if parent is not None else 16,
+                   pady=8 if parent is None else (4, 4))
         self._llm_frame = frame
 
         values = self._display_values_from_config()
@@ -602,7 +657,7 @@ class TuningTab(tk.Frame):
                                on_change=self._on_llm_change)
 
         self._llm_mode_note = tk.Label(
-            frame, text="", anchor=tk.W, wraplength=600,
+            frame, text="", anchor=tk.W, wraplength=360,
             bg=t["panel_bg"], fg=t["gray"], font=FONT_SMALL,
         )
         self._llm_mode_note.pack(fill=tk.X, pady=(4, 0))
@@ -682,7 +737,7 @@ class TuningTab(tk.Frame):
                 fg=t["green"])
 
     def _check_dangerous_change(self):
-        """Show a one-time popup when settings cross dangerous thresholds."""
+        """Emit a one-time inline warning when settings cross dangerous thresholds."""
         if not self._mode_store_enabled:
             return
         if self._current_mode() == "online":
@@ -698,9 +753,13 @@ class TuningTab(tk.Frame):
                     "For grounded GPT-4o responses, start around 6-10 and tune upward only "
                     "when retrieval quality supports it."
                 ).format(top_k)
-            if popup_key and popup_key != self._last_popup_key:
-                self._last_popup_key = popup_key
-                messagebox.showwarning(title, msg)
+            if popup_key:
+                if popup_key != self._last_popup_key:
+                    self._last_popup_key = popup_key
+                    self._set_mode_status("[WARN] {}".format(title))
+                    logger.warning("tuning_warning_online: %s | %s", title, msg)
+            else:
+                self._last_popup_key = None
             return
         ctx = self.ctx_window_var.get() if hasattr(self, "ctx_window_var") else 4096
         top_k = self.topk_var.get()
@@ -743,9 +802,13 @@ class TuningTab(tk.Frame):
                 "Recommended: top_k <= 8 for 12GB GPU."
             ).format(top_k, top_k * 300, est, self._vram_gb)
 
-        if popup_key and popup_key != self._last_popup_key:
-            self._last_popup_key = popup_key
-            messagebox.showwarning(title, msg)
+        if popup_key:
+            if popup_key != self._last_popup_key:
+                self._last_popup_key = popup_key
+                self._set_mode_status("[WARN] {}".format(title))
+                logger.warning("tuning_warning_offline: %s | %s", title, msg)
+        else:
+            self._last_popup_key = None
 
     # ----------------------------------------------------------------
     # PERFORMANCE PROFILE
@@ -895,7 +958,11 @@ class TuningTab(tk.Frame):
 
     def _sync_sliders_to_config(self):
         if self._mode_store_enabled:
-            values = self._mode_store.apply_to_config(self.config, self._current_mode())
+            mode = self._current_mode()
+            if mode == self._runtime_mode():
+                values = self._mode_store.apply_to_config(self.config, mode)
+            else:
+                values = self._mode_store.get_active_values(self.config, mode)
         else:
             values = self._display_values_from_config()
         self._apply_values(values)
@@ -1003,6 +1070,12 @@ class TuningTab(tk.Frame):
 
     def apply_theme(self, t):
         self.configure(bg=t["panel_bg"])
+        if hasattr(self, "_editor_split"):
+            self._editor_split.configure(bg=t["panel_bg"])
+        if hasattr(self, "_retrieval_column"):
+            self._retrieval_column.configure(bg=t["panel_bg"])
+        if hasattr(self, "_query_column"):
+            self._query_column.configure(bg=t["panel_bg"])
         for frame_attr in ("_retrieval_frame", "_llm_frame", "_profile_frame"):
             frame = getattr(self, frame_attr, None)
             if frame:
