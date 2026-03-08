@@ -7,7 +7,7 @@ Outputs: Console messages, changed files, or system configuration updates.
 Safety notes: Run in a test environment before using on production systems.
 =============================
 #>
-﻿# ============================================================================
+# ============================================================================
 # HybridRAG v3 -- Work Laptop Model Setup (setup_work_models.ps1)
 # ============================================================================
 # PURPOSE:

@@ -277,7 +277,7 @@ class TestAPIRouter:
 
         call_kwargs = mock_client.chat.completions.create.call_args.kwargs
         assert call_kwargs["model"] == "gpt-4o"
-        assert config.api.model == "gpt-4o"
+        assert config.api.model == ""
         assert result is not None
         assert result.model == "gpt-4o"
 

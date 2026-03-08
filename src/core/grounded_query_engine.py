@@ -133,10 +133,7 @@ class GroundedQueryEngine(QueryEngine):
         self.guard_min_chunks = getattr(
             config.retrieval, "min_chunks", 1
         )
-        self.guard_min_score = getattr(
-            config.retrieval, "min_retrieval_score",
-            config.retrieval.min_score,
-        )
+        self.guard_min_score = config.retrieval.min_score
 
         self._guard_available = False
         self._nli_verifier = None
@@ -182,76 +179,37 @@ class GroundedQueryEngine(QueryEngine):
 
         Returns (answer, blocked) tuple.
         """
-        if score >= self.guard_threshold:
-            return raw_answer, False
-
-        if self.guard_action == "block":
-            return (
-                "I found relevant documents but cannot provide "
-                "a fully verified answer. The available evidence "
-                "does not sufficiently support a complete response. "
-                "Please refine your question or check the source "
-                "documents directly."
-            ), True
-
-        if self.guard_action == "strip":
-            verified = [
-                d["claim"] for d in details.get("claims", [])
-                if d.get("verdict") == "SUPPORTED"
-            ]
-            if verified:
-                return " ".join(verified), False
-            return (
-                "No fully verified claims could be extracted. "
-                "Please check source documents directly."
-            ), True
-
-        # "flag" action: pass through with metadata only
-        return raw_answer, False
+        return _gqe_apply_guard_action(self, raw_answer, score, details)
 
     def _make_error_result(self, start_time, error_msg, sources=None,
                            chunks=0):
         """Build a GroundedQueryResult for error/empty-LLM cases."""
-        return GroundedQueryResult(
-            answer="Error processing query: {}".format(error_msg),
-            sources=sources or [], chunks_used=chunks,
-            tokens_in=0, tokens_out=0, cost_usd=0.0,
-            latency_ms=(time.time() - start_time) * 1000,
-            mode=self.config.mode, error=error_msg,
-            grounding_blocked=True,
-            grounding_details={"reason": "error"},
+        return _gqe_make_error_result(
+            self,
+            start_time,
+            error_msg,
+            sources=sources,
+            chunks=chunks,
         )
 
     def _retrieval_gate(self, user_query, search_results, start_time):
         """Check retrieval quality. Returns GroundedQueryResult if blocked,
         None if evidence is sufficient to proceed."""
-        if bool(getattr(self, "allow_open_knowledge", False)):
-            return None
-        if not search_results:
-            return self._no_evidence_result(start_time)
-        passing = [
-            h for h in search_results if h.score >= self.guard_min_score
-        ]
-        if len(passing) < self.guard_min_chunks:
-            self.guard_logger.info(
-                "retrieval_gate_blocked", query=user_query[:80],
-                chunks_found=len(search_results),
-                chunks_passing=len(passing),
-                min_required=self.guard_min_chunks,
-            )
-            return self._insufficient_evidence_result(
-                start_time, search_results
-            )
-        return None  # gate passed
+        return _gqe_retrieval_gate(
+            self,
+            user_query,
+            search_results,
+            start_time,
+        )
 
     def _log_grounded_result(self, event_name, result, blocked, elapsed_ms):
         """Log a grounded query result."""
-        self.guard_logger.info(
+        _gqe_log_grounded_result(
+            self,
             event_name,
-            score="{:.2f}".format(result.grounding_score),
-            safe=result.grounding_safe, blocked=blocked,
-            action=self.guard_action,
-            latency_ms="{:.0f}".format(elapsed_ms),
+            result,
+            blocked,
+            elapsed_ms,
         )
 
     # ------------------------------------------------------------------
@@ -492,93 +450,13 @@ class GroundedQueryEngine(QueryEngine):
         Build a prompt with grounding rules that instruct the LLM
         to stick to source material and cite chunks.
         """
-        if self._guard_available:
-            source_texts = [h.text for h in hits]
-            hardened = self._harden_prompt(context, user_query, source_texts)
-            # harden_prompt returns {"system": ..., "user": ...} dict.
-            # Flatten to a single prompt string for the LLM router.
-            if isinstance(hardened, dict):
-                return hardened.get("system", "") + "\n\n" + hardened.get("user", "")
-            return hardened
-        else:
-            # Fallback: basic grounding rules without full hardener
-            return (
-                "GROUNDING RULES:\n"
-                "- Answer ONLY using the provided context\n"
-                "- If the context does not contain the answer, say so\n"
-                "- Cite [Source N] for each claim\n"
-                "- Do NOT add information beyond what the sources state\n"
-                "- Format the answer in short readable paragraphs; use bullets for lists\n"
-                "\n"
-                f"{context}\n\n"
-                f"User Question:\n{user_query}\n\n"
-                "Answer:"
-            )
+        return _gqe_build_grounded_prompt(self, user_query, context, hits)
 
     def _verify_response(
         self, response_text: str, hits: list
     ) -> tuple:
         """NLI verification with batch early-exit. Returns (score, details)."""
-        if not self._guard_available:
-            return 1.0, {"method": "bypass", "reason": "guard_not_loaded"}
-
-        try:
-            # Extract claims from response
-            claims = self._extract_claims(response_text)
-
-            if not claims:
-                return 1.0, {
-                    "method": "no_claims",
-                    "reason": "response_has_no_verifiable_claims",
-                }
-
-            # Build source text from chunks
-            source_texts = [h.text for h in hits]
-
-            # Use batch verification with early-exit if NLI loaded
-            if self._nli_verifier is not None:
-                from .hallucination_guard.nli_verifier import NLIVerifier
-                if not isinstance(self._nli_verifier, NLIVerifier):
-                    self._nli_verifier = NLIVerifier()
-                results = self._nli_verifier.verify_batch_with_earlyexit(
-                    claims, source_texts, self.guard_threshold,
-                )
-                # Convert results to score
-                supported = sum(
-                    1 for r in results
-                    if r.verdict.value == "SUPPORTED"
-                )
-                total = len(results)
-                score = supported / total if total > 0 else 0.0
-                details = {
-                    "method": "nli_batch_earlyexit",
-                    "total_claims": total,
-                    "supported": supported,
-                    "claims": [
-                        {
-                            "claim": r.claim_text[:100],
-                            "verdict": r.verdict.value,
-                            "confidence": r.confidence,
-                        }
-                        for r in results
-                    ],
-                }
-                return score, details
-
-            # Fallback: use scoring module (no NLI model loaded)
-            score, details = self._score_response(
-                claims, source_texts, self.guard_threshold
-            )
-            return score, details
-
-        except Exception as e:
-            self.guard_logger.warning(
-                "verify_error", error=str(e)
-            )
-            return 0.5, {
-                "method": "error",
-                "reason": str(e),
-            }
+        return _gqe_verify_response(self, response_text, hits)
 
     @staticmethod
     def _fallback_score(claims, source_texts, threshold):
@@ -587,39 +465,13 @@ class GroundedQueryEngine(QueryEngine):
 
     def _no_evidence_result(self, start_time: float) -> GroundedQueryResult:
         """Return result when no search results found."""
-        return GroundedQueryResult(
-            answer="No relevant information found in knowledge base.",
-            sources=[], chunks_used=0,
-            tokens_in=0, tokens_out=0, cost_usd=0.0,
-            latency_ms=(time.time() - start_time) * 1000,
-            mode=self.config.mode,
-            grounding_blocked=True,
-            grounding_details={"reason": "no_search_results"},
-        )
+        return _gqe_no_evidence_result(self, start_time)
 
     def _insufficient_evidence_result(
         self, start_time: float, hits: list
     ) -> GroundedQueryResult:
         """Return result when evidence is too weak to proceed."""
-        sources = self.retriever.get_sources(hits)
-        return GroundedQueryResult(
-            answer=(
-                "Some documents were found but the evidence quality "
-                "is insufficient for a reliable answer. Please try "
-                "a more specific question or check source documents."
-            ),
-            sources=sources,
-            chunks_used=len(hits),
-            tokens_in=0, tokens_out=0, cost_usd=0.0,
-            latency_ms=(time.time() - start_time) * 1000,
-            mode=self.config.mode,
-            grounding_blocked=True,
-            grounding_details={
-                "reason": "insufficient_evidence",
-                "chunks_found": len(hits),
-                "min_required": self.guard_min_chunks,
-            },
-        )
+        return _gqe_insufficient_evidence_result(self, start_time, hits)
 
 
 def _gqe_fallback_score(claims, source_texts, threshold):
@@ -640,3 +492,225 @@ def _gqe_fallback_score(claims, source_texts, threshold):
         "total_claims": total,
         "supported": supported,
     }
+
+
+def _gqe_apply_guard_action(engine, raw_answer, score, details):
+    if score >= engine.guard_threshold:
+        return raw_answer, False
+
+    if engine.guard_action == "block":
+        return (
+            "I found relevant documents but cannot provide "
+            "a fully verified answer. The available evidence "
+            "does not sufficiently support a complete response. "
+            "Please refine your question or check the source "
+            "documents directly."
+        ), True
+
+    if engine.guard_action == "strip":
+        verified = [
+            d["claim"] for d in details.get("claims", [])
+            if d.get("verdict") == "SUPPORTED"
+        ]
+        if verified:
+            return " ".join(verified), False
+        return (
+            "No fully verified claims could be extracted. "
+            "Please check source documents directly."
+        ), True
+
+    return raw_answer, False
+
+
+def _gqe_make_error_result(
+    engine,
+    start_time,
+    error_msg,
+    *,
+    sources=None,
+    chunks=0,
+):
+    return GroundedQueryResult(
+        answer="Error processing query: {}".format(error_msg),
+        sources=sources or [],
+        chunks_used=chunks,
+        tokens_in=0,
+        tokens_out=0,
+        cost_usd=0.0,
+        latency_ms=(time.time() - start_time) * 1000,
+        mode=engine.config.mode,
+        error=error_msg,
+        grounding_blocked=True,
+        grounding_details={"reason": "error"},
+    )
+
+
+def _gqe_retrieval_gate(engine, user_query, search_results, start_time):
+    if bool(getattr(engine, "allow_open_knowledge", False)):
+        return None
+    if not search_results:
+        return engine._no_evidence_result(start_time)
+    passing = [
+        hit for hit in search_results
+        if hit.score >= engine.guard_min_score
+    ]
+    if len(passing) < engine.guard_min_chunks:
+        engine.guard_logger.info(
+            "retrieval_gate_blocked",
+            query=user_query[:80],
+            chunks_found=len(search_results),
+            chunks_passing=len(passing),
+            min_required=engine.guard_min_chunks,
+        )
+        return engine._insufficient_evidence_result(
+            start_time,
+            search_results,
+        )
+    return None
+
+
+def _gqe_log_grounded_result(engine, event_name, result, blocked, elapsed_ms):
+    engine.guard_logger.info(
+        event_name,
+        score="{:.2f}".format(result.grounding_score),
+        safe=result.grounding_safe,
+        blocked=blocked,
+        action=engine.guard_action,
+        latency_ms="{:.0f}".format(elapsed_ms),
+    )
+
+
+def _gqe_build_grounded_prompt(engine, user_query: str, context: str, hits: list) -> str:
+    if engine._guard_available:
+        from .llm_router import _extract_system_user
+
+        base_prompt = engine._build_prompt(user_query, context)
+        system_prompt, _ = _extract_system_user(base_prompt)
+        if not system_prompt:
+            system_prompt = "You are a precise technical assistant."
+
+        trimmed_chunks = [
+            block.strip()
+            for block in context.split("\n\n---\n\n")
+            if block.strip()
+        ]
+        hardened = engine._harden_prompt(
+            system_prompt,
+            user_query,
+            trimmed_chunks,
+        )
+        if isinstance(hardened, dict):
+            system_text = (hardened.get("system", "") or system_prompt).strip()
+            user_text = (hardened.get("user", "") or "").strip()
+            return system_text + "\n\nContext:\n" + user_text + "\n\nAnswer:"
+        return hardened
+
+    return (
+        "GROUNDING RULES:\n"
+        "- Answer ONLY using the provided context\n"
+        "- If the context does not contain the answer, say so\n"
+        "- Cite [Source N] for each claim\n"
+        "- Do NOT add information beyond what the sources state\n"
+        "- Format the answer in short readable paragraphs; use bullets for lists\n"
+        "\n"
+        f"{context}\n\n"
+        f"User Question:\n{user_query}\n\n"
+        "Answer:"
+    )
+
+
+def _gqe_verify_response(engine, response_text: str, hits: list) -> tuple:
+    if not engine._guard_available:
+        return 1.0, {"method": "bypass", "reason": "guard_not_loaded"}
+
+    try:
+        claims = engine._extract_claims(response_text)
+        if not claims:
+            return 1.0, {
+                "method": "no_claims",
+                "reason": "response_has_no_verifiable_claims",
+            }
+
+        source_texts = [hit.text for hit in hits]
+        if engine._nli_verifier is not None:
+            from .hallucination_guard.nli_verifier import NLIVerifier
+
+            if not isinstance(engine._nli_verifier, NLIVerifier):
+                engine._nli_verifier = NLIVerifier()
+            results = engine._nli_verifier.verify_batch_with_earlyexit(
+                claims,
+                source_texts,
+                engine.guard_threshold,
+            )
+            supported = sum(
+                1 for result in results
+                if result.verdict.value == "SUPPORTED"
+            )
+            total = len(results)
+            score = supported / total if total > 0 else 0.0
+            details = {
+                "method": "nli_batch_earlyexit",
+                "total_claims": total,
+                "supported": supported,
+                "claims": [
+                    {
+                        "claim": result.claim_text[:100],
+                        "verdict": result.verdict.value,
+                        "confidence": result.confidence,
+                    }
+                    for result in results
+                ],
+            }
+            return score, details
+
+        return engine._score_response(
+            claims,
+            source_texts,
+            engine.guard_threshold,
+        )
+    except Exception as exc:
+        engine.guard_logger.warning("verify_error", error=str(exc))
+        return 0.5, {"method": "error", "reason": str(exc)}
+
+
+def _gqe_no_evidence_result(engine, start_time: float) -> GroundedQueryResult:
+    return GroundedQueryResult(
+        answer="No relevant information found in knowledge base.",
+        sources=[],
+        chunks_used=0,
+        tokens_in=0,
+        tokens_out=0,
+        cost_usd=0.0,
+        latency_ms=(time.time() - start_time) * 1000,
+        mode=engine.config.mode,
+        grounding_blocked=True,
+        grounding_details={"reason": "no_search_results"},
+    )
+
+
+def _gqe_insufficient_evidence_result(
+    engine,
+    start_time: float,
+    hits: list,
+) -> GroundedQueryResult:
+    sources = engine.retriever.get_sources(hits)
+    return GroundedQueryResult(
+        answer=(
+            "Some documents were found but the evidence quality "
+            "is insufficient for a reliable answer. Please try "
+            "a more specific question or check source documents."
+        ),
+        sources=sources,
+        chunks_used=len(hits),
+        tokens_in=0,
+        tokens_out=0,
+        cost_usd=0.0,
+        latency_ms=(time.time() - start_time) * 1000,
+        mode=engine.config.mode,
+        grounding_blocked=True,
+        grounding_details={
+            "reason": "insufficient_evidence",
+            "chunks_found": len(hits),
+            "min_required": engine.guard_min_chunks,
+        },
+    )

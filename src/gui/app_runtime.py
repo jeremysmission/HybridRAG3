@@ -1,3 +1,13 @@
+# === NON-PROGRAMMER GUIDE ===
+# Purpose: Implements the extracted GUI runtime methods used by the main app shell.
+# What to read first: Start at the top-level function definitions and follow calls downward.
+# Inputs: Configuration values, widget state, and backend references from HybridRAGApp.
+# Outputs: Built widgets, view switches, theme updates, and shutdown behavior.
+# Safety notes: Keep app.py wrappers and these runtime functions aligned.
+# ============================
+# ============================================================================
+# HybridRAG v3 -- App Runtime Methods (src/gui/app_runtime.py)      RevA/RevB
+# ============================================================================
 # Extracted runtime methods from HybridRAGApp to keep class compact.
 from __future__ import annotations
 

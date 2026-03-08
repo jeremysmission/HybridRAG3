@@ -24,6 +24,7 @@ import os
 import threading
 import logging
 
+from src.core.mode_config import MODE_TUNED_DEFAULTS, normalize_mode
 from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_SMALL, FONT_MONO, bind_hover
 from src.gui.helpers.safe_after import safe_after
 from src.gui.helpers.mode_tuning import ModeTuningStore
@@ -37,24 +38,74 @@ logger = logging.getLogger(__name__)
 # These are the "demo-day safe" values that avoid latency surprises.
 SAFE_DEFAULTS = {
     'laptop_safe': {
-        'top_k': 5, 'min_score': 0.10, 'hybrid_search': True,
+        'top_k': 4, 'min_score': 0.10, 'hybrid_search': True,
         'reranker_enabled': False, 'reranker_top_n': 20,
-        'context_window': 4096, 'num_predict': 512,
-        'max_tokens': 16384, 'temperature': 0.05, 'timeout_seconds': 180,
+        'context_window': 4096, 'num_predict': 384,
+        'max_tokens': 1024, 'temperature': 0.05, 'timeout_seconds': 180,
     },
     'desktop_power': {
-        'top_k': 5, 'min_score': 0.10, 'hybrid_search': True,
+        'top_k': 4, 'min_score': 0.10, 'hybrid_search': True,
         'reranker_enabled': False, 'reranker_top_n': 20,
-        'context_window': 4096, 'num_predict': 512,
-        'max_tokens': 16384, 'temperature': 0.05, 'timeout_seconds': 180,
+        'context_window': 4096, 'num_predict': 384,
+        'max_tokens': 1024, 'temperature': 0.05, 'timeout_seconds': 180,
     },
     'server_max': {
         'top_k': 10, 'min_score': 0.10, 'hybrid_search': True,
         'reranker_enabled': False, 'reranker_top_n': 30,
-        'context_window': 4096, 'num_predict': 512,
-        'max_tokens': 16384, 'temperature': 0.05, 'timeout_seconds': 180,
+        'context_window': 4096, 'num_predict': 384,
+        'max_tokens': 1024, 'temperature': 0.05, 'timeout_seconds': 180,
     },
 }
+
+
+def _mode_llm_values_from_config(config, mode: str) -> dict:
+    """Return visible tuning values for the active mode without mixing paths."""
+    mode = normalize_mode(mode)
+    retrieval = getattr(config, "retrieval", None)
+    api = getattr(config, "api", None)
+    ollama = getattr(config, "ollama", None)
+    offline_defaults = MODE_TUNED_DEFAULTS["offline"]
+    online_defaults = MODE_TUNED_DEFAULTS["online"]
+    active_defaults = MODE_TUNED_DEFAULTS[mode]
+
+    values = {
+        "top_k": getattr(retrieval, "top_k", active_defaults["top_k"]) if retrieval else active_defaults["top_k"],
+        "min_score": getattr(retrieval, "min_score", active_defaults["min_score"]) if retrieval else active_defaults["min_score"],
+        "hybrid_search": getattr(retrieval, "hybrid_search", True) if retrieval else True,
+        "context_window": offline_defaults["context_window"],
+        "num_predict": getattr(ollama, "num_predict", offline_defaults["num_predict"]) if ollama else offline_defaults["num_predict"],
+        "max_tokens": getattr(api, "max_tokens", online_defaults["max_tokens"]) if api else online_defaults["max_tokens"],
+        "temperature": offline_defaults["temperature"] if mode == "offline" else online_defaults["temperature"],
+        "timeout_seconds": offline_defaults["timeout_seconds"] if mode == "offline" else online_defaults["timeout_seconds"],
+    }
+
+    if mode == "online":
+        values["context_window"] = (
+            getattr(api, "context_window", online_defaults["context_window"])
+            if api else online_defaults["context_window"]
+        )
+        values["temperature"] = (
+            getattr(api, "temperature", online_defaults["temperature"])
+            if api else online_defaults["temperature"]
+        )
+        values["timeout_seconds"] = (
+            getattr(api, "timeout_seconds", online_defaults["timeout_seconds"])
+            if api else online_defaults["timeout_seconds"]
+        )
+    else:
+        values["context_window"] = (
+            getattr(ollama, "context_window", offline_defaults["context_window"])
+            if ollama else offline_defaults["context_window"]
+        )
+        values["temperature"] = (
+            getattr(ollama, "temperature", offline_defaults["temperature"])
+            if ollama and hasattr(ollama, "temperature") else offline_defaults["temperature"]
+        )
+        values["timeout_seconds"] = (
+            getattr(ollama, "timeout_seconds", offline_defaults["timeout_seconds"])
+            if ollama else offline_defaults["timeout_seconds"]
+        )
+    return values
 
 
 def _detect_hardware_class():
@@ -300,19 +351,7 @@ class TuningTab(tk.Frame):
         return state.get("defaults", {}).get(key)
 
     def _display_values_from_config(self):
-        retrieval = getattr(self.config, "retrieval", None)
-        api = getattr(self.config, "api", None)
-        ollama = getattr(self.config, "ollama", None)
-        return {
-            "top_k": getattr(retrieval, "top_k", 5) if retrieval else 5,
-            "min_score": getattr(retrieval, "min_score", 0.10) if retrieval else 0.10,
-            "hybrid_search": getattr(retrieval, "hybrid_search", True) if retrieval else True,
-            "context_window": getattr(ollama, "context_window", 4096) if ollama else 4096,
-            "num_predict": getattr(ollama, "num_predict", 512) if ollama else 512,
-            "max_tokens": getattr(api, "max_tokens", 16384) if api else 16384,
-            "temperature": getattr(api, "temperature", 0.1) if api else 0.1,
-            "timeout_seconds": getattr(api, "timeout_seconds", 180) if api else 180,
-        }
+        return _mode_llm_values_from_config(self.config, self._current_mode())
 
     def _mode_key_enabled(self, key):
         mode = self._current_mode()
@@ -343,13 +382,19 @@ class TuningTab(tk.Frame):
             retrieval.min_score = self.minscore_var.get()
             retrieval.hybrid_search = self.hybrid_var.get()
         if not self._mode_store_enabled:
-            if ollama:
-                ollama.context_window = self.ctx_window_var.get()
-                ollama.num_predict = self.num_predict_var.get()
-            if api:
-                api.max_tokens = self.maxtokens_var.get()
-                api.temperature = self.temp_var.get()
-                api.timeout_seconds = self.timeout_var.get()
+            if mode == "online":
+                if api:
+                    api.context_window = self.ctx_window_var.get()
+                    api.max_tokens = self.maxtokens_var.get()
+                    api.temperature = self.temp_var.get()
+                    api.timeout_seconds = self.timeout_var.get()
+            else:
+                if ollama:
+                    ollama.context_window = self.ctx_window_var.get()
+                    ollama.num_predict = self.num_predict_var.get()
+                    if hasattr(ollama, "temperature"):
+                        ollama.temperature = self.temp_var.get()
+                    ollama.timeout_seconds = self.timeout_var.get()
             return
         if mode == "online":
             if api:
@@ -481,21 +526,21 @@ class TuningTab(tk.Frame):
         frame.pack(fill=tk.X, padx=16, pady=(8, 4))
         self._retrieval_frame = frame
 
-        retrieval = getattr(self.config, "retrieval", None)
+        values = self._display_values_from_config()
 
         self.topk_var = tk.IntVar(
-            value=getattr(retrieval, "top_k", 5) if retrieval else 5)
+            value=values["top_k"])
         self._build_slider_row(frame, t, 'top_k', "top_k:", self.topk_var,
                                1, 50, on_change=self._on_retrieval_change)
 
         self.minscore_var = tk.DoubleVar(
-            value=getattr(retrieval, "min_score", 0.10) if retrieval else 0.10)
+            value=values["min_score"])
         self._build_slider_row(frame, t, 'min_score', "min_score:", self.minscore_var,
                                0.0, 1.0, resolution=0.01,
                                on_change=self._on_retrieval_change)
 
         self.hybrid_var = tk.BooleanVar(
-            value=getattr(retrieval, "hybrid_search", True) if retrieval else True)
+            value=values["hybrid_search"])
         self._build_check_row(frame, t, 'hybrid_search', "Hybrid search:",
                               self.hybrid_var, on_change=self._on_retrieval_change)
 
@@ -524,37 +569,36 @@ class TuningTab(tk.Frame):
         frame.pack(fill=tk.X, padx=16, pady=8)
         self._llm_frame = frame
 
-        ollama = getattr(self.config, "ollama", None)
-        api = getattr(self.config, "api", None)
+        values = self._display_values_from_config()
 
         self.ctx_window_var = tk.IntVar(
-            value=getattr(ollama, "context_window", 4096) if ollama else 4096)
+            value=values["context_window"])
         self._build_slider_row(frame, t, 'context_window', "Context window:",
                                self.ctx_window_var, 1024, 131072,
                                on_change=self._on_llm_change)
 
         self.num_predict_var = tk.IntVar(
-            value=getattr(ollama, "num_predict", 512) if ollama else 512)
+            value=values["num_predict"])
         self._build_slider_row(frame, t, 'num_predict', "Num predict:",
                                self.num_predict_var, 64, 4096,
                                on_change=self._on_llm_change)
 
         self.maxtokens_var = tk.IntVar(
-            value=getattr(api, "max_tokens", 16384) if api else 16384)
+            value=values["max_tokens"])
         self._build_slider_row(frame, t, 'max_tokens', "Max tokens (API):",
                                self.maxtokens_var, 256, 16384,
                                on_change=self._on_llm_change)
 
         self.temp_var = tk.DoubleVar(
-            value=getattr(api, "temperature", 0.1) if api else 0.1)
+            value=values["temperature"])
         self._build_slider_row(frame, t, 'temperature', "Temperature:",
-                               self.temp_var, 0.0, 1.0, resolution=0.01,
+                               self.temp_var, 0.0, 2.0, resolution=0.01,
                                on_change=self._on_llm_change)
 
         self.timeout_var = tk.IntVar(
-            value=getattr(api, "timeout_seconds", 180) if api else 180)
+            value=values["timeout_seconds"])
         self._build_slider_row(frame, t, 'timeout_seconds', "Timeout (s):",
-                               self.timeout_var, 10, 300,
+                               self.timeout_var, 30, 1200,
                                on_change=self._on_llm_change)
 
         self._llm_mode_note = tk.Label(
@@ -584,7 +628,7 @@ class TuningTab(tk.Frame):
                 or "gpt-4o"
             )
         ollama = getattr(self.config, "ollama", None)
-        return getattr(ollama, "model", "phi4:14b-q4_K_M") if ollama else "phi4:14b-q4_K_M"
+        return getattr(ollama, "model", "phi4-mini") if ollama else "phi4-mini"
 
     def _update_latency_warning(self):
         if not hasattr(self, "_latency_warn_label"):
@@ -592,10 +636,10 @@ class TuningTab(tk.Frame):
         mode = self._current_mode()
         top_k = self.topk_var.get()
         ctx = self.ctx_window_var.get() if hasattr(self, "ctx_window_var") else 4096
-        num_pred = self.num_predict_var.get() if hasattr(self, "num_predict_var") else 512
+        num_pred = self.num_predict_var.get() if hasattr(self, "num_predict_var") else 384
         model = self._get_current_model()
         if mode == "online":
-            max_tokens = self.maxtokens_var.get() if hasattr(self, "maxtokens_var") else 16384
+            max_tokens = self.maxtokens_var.get() if hasattr(self, "maxtokens_var") else 1024
             note = "Online mode: ctx={} | max_tokens={} | model={}".format(
                 ctx, max_tokens, model
             )
@@ -660,7 +704,7 @@ class TuningTab(tk.Frame):
             return
         ctx = self.ctx_window_var.get() if hasattr(self, "ctx_window_var") else 4096
         top_k = self.topk_var.get()
-        num_pred = self.num_predict_var.get() if hasattr(self, "num_predict_var") else 512
+        num_pred = self.num_predict_var.get() if hasattr(self, "num_predict_var") else 384
         model = self._get_current_model()
 
         popup_key = None

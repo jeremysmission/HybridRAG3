@@ -15,6 +15,7 @@ from conftest import FakeConfig
 
 def _make_engine():
     config = FakeConfig(mode="offline")
+    config.query.allow_open_knowledge = False
     config.hallucination_guard_enabled = False
     config.hallucination_guard_threshold = 0.80
     config.hallucination_guard_action = "block"

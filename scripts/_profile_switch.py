@@ -13,7 +13,7 @@
 #       16GB laptop. Profiles bundle all hardware-sensitive settings
 #       so one command adapts the entire system to the machine.
 # HOW:  Deep-merges profile-specific settings (embedding model, batch
-#       size, LLM model, context window, top_k) into the existing
+#       size, LLM model, context window) into the existing
 #       config YAML, detects embedding model changes and warns about
 #       required re-indexing
 # USAGE: rag-profile laptop_safe|desktop_power|server_max
@@ -25,17 +25,17 @@
 #   laptop_safe (8-16GB RAM, no GPU):
 #     - Embedder: nomic-embed-text (768d, Ollama)
 #     - LLM: phi4-mini (3.8B, 8K context)
-#     - batch_size=16, top_k=5, block=200K
+#     - batch_size=16, block=200K
 #
 #   desktop_power (64GB RAM, 12GB VRAM):
 #     - Embedder: nomic-embed-text (768d, CUDA)
 #     - LLM: phi4:14b-q4_K_M (14B, 4K context)
-#     - batch_size=64, top_k=5, block=500K
+#     - batch_size=64, block=500K
 #
 #   server_max (64GB+ RAM, 24GB+ VRAM):
 #     - Embedder: nomic-embed-text (768d, Ollama)
 #     - LLM: phi4:14b-q4_K_M (14B, 4K context)
-#     - batch_size=128, top_k=10, block=1M
+#     - batch_size=128, block=1M
 #
 # IMPORTANT:
 #   If the embedding model changes, ALL documents must be RE-INDEXED.
@@ -74,7 +74,7 @@ profiles = {
             'chunk_size': 1200,
             'overlap': 200,
         },
-        'retrieval': {'top_k': 5, 'reranker_top_n': 20},
+        'retrieval': {'reranker_top_n': 20},
         'indexing': {
             'block_chars': 200000,
             'max_chars_per_file': 2000000,
@@ -100,7 +100,7 @@ profiles = {
             'chunk_size': 1200,
             'overlap': 200,
         },
-        'retrieval': {'top_k': 5, 'reranker_top_n': 20},
+        'retrieval': {'reranker_top_n': 20},
         'indexing': {
             'block_chars': 500000,
             'max_chars_per_file': 5000000,
@@ -126,7 +126,7 @@ profiles = {
             'chunk_size': 1200,
             'overlap': 200,
         },
-        'retrieval': {'top_k': 10, 'reranker_top_n': 30},
+        'retrieval': {'reranker_top_n': 30},
         'indexing': {
             'block_chars': 1000000,
             'max_chars_per_file': 10000000,
@@ -214,8 +214,13 @@ except Exception:
 
 # -- Warn about re-index if embedding model changed --
 if model_changed:
+    source_folder_hint = (
+        os.environ.get("HYBRIDRAG_INDEX_FOLDER")
+        or cfg.get("paths", {}).get("source_folder")
+        or "D:\\RAG Source Data"
+    )
     print('')
     print('[WARN] Embedding model changed: %s -> %s' % (old_model, new_model))
     print('       Existing vectors are INCOMPATIBLE with the new model.')
     print('       You MUST re-index all documents before querying.')
-    print('       Run: rag-index "D:\\RAG Source Data"')
+    print('       Run: rag-index "%s"' % source_folder_hint)

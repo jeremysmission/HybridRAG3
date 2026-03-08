@@ -47,6 +47,7 @@ from .vector_store import VectorStore
 from .retriever import Retriever
 from .embedder import Embedder
 from .llm_router import LLMRouter, LLMResponse
+from .query_mode import apply_query_mode_to_engine
 from ..monitoring.logger import get_app_logger, QueryLogEntry
 
 
@@ -115,6 +116,7 @@ class QueryEngine:
         self.retriever = Retriever(vector_store, embedder, config)
 
         self.logger = get_app_logger("query_engine")
+        apply_query_mode_to_engine(self)
 
     def query(self, user_query: str) -> QueryResult:
         """
@@ -623,17 +625,19 @@ def _qe_sync_runtime_components(engine: QueryEngine) -> None:
         if child is not None and hasattr(child, "config"):
             child.config = engine.config
 
+    apply_query_mode_to_engine(engine)
+
 
 def _qe_resolve_prompt_budget(engine: QueryEngine) -> tuple[int, int]:
     """Resolve context and output budgets for the active backend."""
     if engine.config.mode == "online":
         api_cfg = getattr(engine.config, "api", None)
-        num_predict = int(getattr(api_cfg, "max_tokens", 16384) or 16384)
+        num_predict = int(getattr(api_cfg, "max_tokens", 1024) or 1024)
         return _qe_resolve_online_context_window(engine), num_predict
 
     ollama_cfg = getattr(engine.config, "ollama", None)
     ctx_window = int(getattr(ollama_cfg, "context_window", 4096) or 4096)
-    num_predict = int(getattr(ollama_cfg, "num_predict", 512) or 512)
+    num_predict = int(getattr(ollama_cfg, "num_predict", 384) or 384)
     return ctx_window, num_predict
 
 

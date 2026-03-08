@@ -1297,11 +1297,9 @@ class APIRouter:
             ).strip()
             selected_model = (self.deployment or "").strip()
             model_name = configured_model or selected_model
-            if model_name and not configured_model:
-                try:
-                    self.config.api.model = model_name
-                except Exception:
-                    pass
+            # Keep deployment fallback local to this request path.
+            # Mutating shared config here can leak transient online state
+            # back into GUI/YAML flows and cause mode snapback confusion.
 
         if not model_name:
             self.last_error = (

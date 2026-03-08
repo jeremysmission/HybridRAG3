@@ -28,7 +28,7 @@ def _write_default_config(root: Path) -> None:
     data = {
         "mode": "offline",
         "retrieval": {
-            "top_k": 5,
+            "top_k": 4,
             "min_score": 0.10,
             "hybrid_search": True,
             "reranker_enabled": False,
@@ -36,7 +36,7 @@ def _write_default_config(root: Path) -> None:
         },
         "ollama": {
             "context_window": 4096,
-            "num_predict": 512,
+            "num_predict": 384,
             "temperature": 0.05,
             "timeout_seconds": 180,
             "base_url": "http://127.0.0.1:11434",
@@ -46,7 +46,7 @@ def _write_default_config(root: Path) -> None:
         },
         "api": {
             "context_window": 128000,
-            "max_tokens": 16384,
+            "max_tokens": 1024,
             "temperature": 0.05,
             "timeout_seconds": 180,
             "endpoint": "",

@@ -117,7 +117,7 @@ def sim_10_11():
     # were split into focused modules in session 9:
     #   test_api_router.py, test_indexer.py, test_ollama_router.py,
     #   test_query_engine.py, test_all.py
-    # Baseline: 45 passed, 0 failed across the split suite.
+    # Current baseline: 53 passed, 0 failed across the split suite.
     test_files = [
         "tests/test_api_router.py",
         "tests/test_indexer.py",
@@ -132,7 +132,13 @@ def sim_10_11():
 
     # Run the full split suite via pytest
     r1 = subprocess.run(
-        [sys.executable, "-m", "pytest"] + test_files + ["-q"],
+        [
+            sys.executable, "-m", "pytest",
+            *test_files,
+            "-q",
+            "--basetemp",
+            "output/pytest_tmp_virtual_guard_part2",
+        ],
         capture_output=True, text=True, cwd=str(ROOT), timeout=120)
 
     # Parse results: expect "N passed" with 0 failures
@@ -142,8 +148,8 @@ def sim_10_11():
     failed = int(m_fail.group(1)) if m_fail else 0
 
     test(f"Split test suite: {passed}P/{failed}F",
-         passed >= 45 and failed == 0,
-         f"Expected >=45P/0F, got {passed}P/{failed}F")
+         passed >= 53 and failed == 0,
+         f"Expected >=53P/0F, got {passed}P/{failed}F")
 
     phase_times["SIM-10/11"] = (time.time() - t0) * 1000
 
@@ -161,7 +167,7 @@ def sim_12():
     cfg = Config()
     test("Config() no args works", True)
     test("mode='offline'", cfg.mode == "offline")
-    test("retrieval.top_k=8", cfg.retrieval.top_k == 8)
+    test("retrieval.top_k=4", cfg.retrieval.top_k == 4)
     test("Guard disabled by default", cfg.hallucination_guard.enabled is False)
     test("QueryEngine importable", True)
 
@@ -278,11 +284,8 @@ def sim_17():
     if sync_path.exists():
         sc = sync_path.read_text()
 
-        # hallucination_guard/ is currently SKIPPED in sync_to_educational.py
-        # (marked "skip until verified and installed properly").
-        # This test verifies the skip is intentional and documented.
-        test("Guard package in skip list (intentional, pending verification)",
-             "hallucination_guard" in sc)
+        test("Guard package not explicitly excluded from sync",
+             "hallucination_guard" not in sc)
 
         # Check for banned words in our new files
         banned = ["NGC", "Northrop", "Grumman", "classified",
@@ -363,9 +366,12 @@ def custom_guard_tests():
              field in content)
 
     # Check guard actions handled
-    for action in ["block", "flag", "strip"]:
-        test(f"Guard handles action='{action}'",
-             f'"{action}"' in content or f"'{action}'" in content)
+    test("Guard handles action='block'",
+         '"block"' in content or "'block'" in content)
+    test("Guard handles action='flag'",
+         "return raw_answer, False" in content)
+    test("Guard handles action='strip'",
+         '"strip"' in content or "'strip'" in content)
 
     # Retrieval gate uses min_chunks
     test("Retrieval gate uses min_chunks",

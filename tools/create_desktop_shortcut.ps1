@@ -7,7 +7,7 @@ Outputs: Console messages, changed files, or system configuration updates.
 Safety notes: Run in a test environment before using on production systems.
 =============================
 #>
-﻿# ============================================================================
+# ============================================================================
 # create_desktop_shortcut.ps1 -- Create Desktop shortcuts for HybridRAG v3
 # ============================================================================
 # Creates two .lnk shortcuts on the current user's Desktop:

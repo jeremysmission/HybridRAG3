@@ -20,8 +20,8 @@
 #   4. CONFIG MUTATION PROTECTION: LLMRouter does NOT overwrite
 #      config.api.endpoint after gate configuration
 #   5. OFFLINE ROUTING: OllamaRouter has ZERO dependency on credentials
-#   6. BEHAVIORAL: resolve_credentials actually resolves from keyring,
-#      env vars, and config dict in correct priority order
+#   6. BEHAVIORAL: resolve_credentials actually resolves from env vars,
+#      keyring, and config dict in correct priority order
 #   7. BEHAVIORAL: LLMRouter.__init__ with/without credentials
 #   8. BEHAVIORAL: Config is unchanged after LLMRouter init
 #   9. REGRESSION: All Phase 1 modules still import
@@ -596,32 +596,38 @@ def _():
 section("SIM-07: BEHAVIORAL (resolve_credentials priority order)")
 
 
-@test("resolve_credentials: keyring takes priority over env vars")
+@test("resolve_credentials: env vars take priority over keyring")
 def _():
-    from src.security.credentials import resolve_credentials, ApiCredentials
+    from src.security.credentials import resolve_credentials
 
-    # Mock keyring to return a key
     with patch("src.security.credentials._read_keyring") as mock_kr:
         mock_kr.side_effect = lambda key: {
             "azure_api_key": "keyring-key-123",
             "azure_endpoint": "https://keyring-endpoint.com/",
         }.get(key)
 
-        # Also set env vars (should be ignored since keyring wins)
-        with patch.dict(os.environ, {
+        env_overrides = {
+            "HYBRIDRAG_API_KEY": "",
             "AZURE_OPENAI_API_KEY": "env-key-456",
+            "AZURE_OPEN_AI_KEY": "",
+            "OPENAI_API_KEY": "",
+            "HYBRIDRAG_API_ENDPOINT": "",
             "AZURE_OPENAI_ENDPOINT": "https://env-endpoint.com/",
-        }):
-            creds = resolve_credentials()
+            "OPENAI_API_ENDPOINT": "",
+            "AZURE_OPENAI_BASE_URL": "",
+            "OPENAI_BASE_URL": "",
+        }
+        with patch.dict(os.environ, env_overrides, clear=False):
+            creds = resolve_credentials(use_cache=False)
 
-    assert creds.api_key == "keyring-key-123", (
-        f"Expected keyring key, got: {creds.api_key}"
+    assert creds.api_key == "env-key-456", (
+        f"Expected env key, got: {creds.api_key}"
     )
-    assert creds.source_key == "keyring", (
-        f"Expected source 'keyring', got: {creds.source_key}"
+    assert creds.source_key == "env:AZURE_OPENAI_API_KEY", (
+        f"Expected env source, got: {creds.source_key}"
     )
-    assert "keyring-endpoint" in creds.endpoint, (
-        f"Expected keyring endpoint, got: {creds.endpoint}"
+    assert "env-endpoint" in creds.endpoint, (
+        f"Expected env endpoint, got: {creds.endpoint}"
     )
 
 
@@ -630,11 +636,19 @@ def _():
     from src.security.credentials import resolve_credentials
 
     with patch("src.security.credentials._read_keyring", return_value=None):
-        with patch.dict(os.environ, {
+        env_overrides = {
+            "HYBRIDRAG_API_KEY": "",
             "AZURE_OPENAI_API_KEY": "env-key-789",
+            "AZURE_OPEN_AI_KEY": "",
+            "OPENAI_API_KEY": "",
+            "HYBRIDRAG_API_ENDPOINT": "",
             "AZURE_OPENAI_ENDPOINT": "https://env-endpoint.com/",
-        }, clear=False):
-            creds = resolve_credentials()
+            "OPENAI_API_ENDPOINT": "",
+            "AZURE_OPENAI_BASE_URL": "",
+            "OPENAI_BASE_URL": "",
+        }
+        with patch.dict(os.environ, env_overrides, clear=False):
+            creds = resolve_credentials(use_cache=False)
 
     assert creds.api_key == "env-key-789", (
         f"Expected env key, got: {creds.api_key}"
@@ -657,7 +671,7 @@ def _():
             "OPENAI_API_KEY": "",
         }
         with patch.dict(os.environ, env_overrides, clear=False):
-            creds = resolve_credentials()
+            creds = resolve_credentials(use_cache=False)
 
     assert creds.api_key == "company-variant-key", (
         f"Expected company variant key, got: {creds.api_key}"
@@ -691,7 +705,7 @@ def _():
                     "endpoint": "https://config-endpoint.com/",
                 }
             }
-            creds = resolve_credentials(config_dict)
+            creds = resolve_credentials(config_dict, use_cache=False)
 
     assert creds.api_key == "config-key-abc", (
         f"Expected config key, got: {creds.api_key}"
@@ -718,7 +732,7 @@ def _():
             "OPENAI_BASE_URL": "",
         }
         with patch.dict(os.environ, env_overrides, clear=False):
-            creds = resolve_credentials(None)
+            creds = resolve_credentials(None, use_cache=False)
 
     assert creds.api_key is None, f"Expected None, got: {creds.api_key}"
     assert creds.endpoint is None, f"Expected None, got: {creds.endpoint}"
@@ -734,10 +748,21 @@ def _():
             "azure_endpoint": "https://myorg.openai.azure.com/openai/deployments/gpt4-turbo/chat/completions?api-version=2024-02-15",
         }.get(key)
 
-        with patch.dict(os.environ, {
+        env_overrides = {
+            "HYBRIDRAG_API_ENDPOINT": "",
+            "AZURE_OPENAI_ENDPOINT": "",
+            "OPENAI_API_ENDPOINT": "",
+            "AZURE_OPENAI_BASE_URL": "",
+            "OPENAI_BASE_URL": "",
             "AZURE_OPENAI_DEPLOYMENT": "",
-        }, clear=False):
-            creds = resolve_credentials()
+            "AZURE_DEPLOYMENT": "",
+            "OPENAI_DEPLOYMENT": "",
+            "AZURE_OPENAI_DEPLOYMENT_NAME": "",
+            "DEPLOYMENT_NAME": "",
+            "AZURE_CHAT_DEPLOYMENT": "",
+        }
+        with patch.dict(os.environ, env_overrides, clear=False):
+            creds = resolve_credentials(use_cache=False)
 
     assert creds.deployment == "gpt4-turbo", (
         f"Expected 'gpt4-turbo' extracted from URL, got: {creds.deployment}"
@@ -875,25 +900,30 @@ def _():
 section("SIM-10: PHASE 1 REGRESSION (portable config paths still work)")
 
 
-@test("_set_online.py still has _config_path()")
+@test("_set_online.py uses shared _config_io helper")
 def _():
     content = (PROJECT_ROOT / "scripts" / "_set_online.py").read_text(encoding="utf-8")
-    assert "def _config_path()" in content
-    assert "HYBRIDRAG_PROJECT_ROOT" in content
+    assert "from _config_io import" in content
+    assert "load_default_config" in content
+    assert "save_default_config_atomic" in content
+    assert "_config_path" not in content
 
 
-@test("_set_offline.py still has _config_path()")
+@test("_set_offline.py uses shared _config_io helper")
 def _():
     content = (PROJECT_ROOT / "scripts" / "_set_offline.py").read_text(encoding="utf-8")
-    assert "def _config_path()" in content
-    assert "HYBRIDRAG_PROJECT_ROOT" in content
+    assert "from _config_io import" in content
+    assert "load_default_config" in content
+    assert "save_default_config_atomic" in content
+    assert "_config_path" not in content
 
 
-@test("_profile_status.py still has _config_path()")
+@test("_profile_status.py uses shared _config_io helper")
 def _():
     content = (PROJECT_ROOT / "scripts" / "_profile_status.py").read_text(encoding="utf-8")
-    assert "def _config_path()" in content
-    assert "HYBRIDRAG_PROJECT_ROOT" in content
+    assert "from _config_io import" in content
+    assert "load_default_config" in content
+    assert "_config_path" not in content
 
 
 @test("requirements.txt is UTF-8 (not UTF-16)")

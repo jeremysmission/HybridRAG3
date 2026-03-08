@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from src.core.grounded_query_engine import GroundedQueryEngine
 from src.core.query_engine import QueryEngine
+from src.core.query_mode import apply_query_mode_to_engine
 from src.core.retriever import Retriever
 
 
@@ -61,6 +62,15 @@ def _make_config(mode: str = "offline"):
             input_cost_per_1k=0.0015,
             output_cost_per_1k=0.002,
         ),
+        query=SimpleNamespace(
+            grounding_bias=8 if mode == "offline" else 4,
+            allow_open_knowledge=(mode != "offline"),
+        ),
+        hallucination_guard=SimpleNamespace(
+            enabled=False,
+            threshold=0.8,
+            failure_action="block",
+        ),
     )
 
 
@@ -105,6 +115,7 @@ def test_query_engine_rebinds_retriever_and_router_to_latest_config():
 
     cfg_new = _make_config(mode="online")
     cfg_new.retrieval.top_k = 12
+    cfg_new.query.allow_open_knowledge = False
     engine.config = cfg_new
 
     def _assert_rebound(_query):
@@ -119,6 +130,28 @@ def test_query_engine_rebinds_retriever_and_router_to_latest_config():
 
     assert result.mode == "online"
     assert result.answer == "No relevant information found in knowledge base."
+
+
+def test_query_engine_applies_query_mode_on_init():
+    cfg = _make_config(mode="online")
+    cfg.query.allow_open_knowledge = True
+
+    router = SimpleNamespace(
+        config=cfg,
+        ollama=SimpleNamespace(config=cfg),
+        api=SimpleNamespace(config=cfg),
+        vllm=None,
+        transformers_rt=SimpleNamespace(config=cfg),
+    )
+
+    with patch("src.core.query_engine.get_app_logger", return_value=MagicMock()), \
+            patch("src.core.query_engine.Retriever") as mock_retriever_cls:
+        retriever = MagicMock()
+        retriever.config = cfg
+        mock_retriever_cls.return_value = retriever
+        engine = QueryEngine(cfg, MagicMock(), MagicMock(), router)
+
+    assert engine.allow_open_knowledge is True
 
 
 def test_grounded_query_engine_rebinds_retriever_and_router_to_latest_config():
@@ -172,6 +205,7 @@ def test_grounded_query_engine_rebinds_retriever_and_router_to_latest_config():
 
 def test_grounded_query_uses_trimmed_context_before_prompt():
     cfg = _make_config(mode="offline")
+    cfg.query.grounding_bias = 4
     router = SimpleNamespace(
         config=cfg,
         ollama=SimpleNamespace(config=cfg),
@@ -266,3 +300,58 @@ def test_grounded_query_stream_attempts_lazy_guard_load_when_enabled_late():
 
     assert engine._ensure_guard_backend_loaded.call_count == 1
     assert any(event.get("done") for event in events)
+
+
+def test_sync_runtime_components_reapplies_active_query_mode_settings():
+    cfg_offline = _make_config(mode="offline")
+    router = SimpleNamespace(
+        config=cfg_offline,
+        ollama=SimpleNamespace(config=cfg_offline),
+        api=SimpleNamespace(config=cfg_offline),
+        vllm=None,
+        transformers_rt=None,
+    )
+
+    with patch("src.core.query_engine.get_app_logger", return_value=MagicMock()), \
+            patch("src.core.query_engine.Retriever") as mock_retriever_cls:
+        retriever = MagicMock()
+        retriever.config = cfg_offline
+        mock_retriever_cls.return_value = retriever
+        engine = QueryEngine(cfg_offline, MagicMock(), MagicMock(), router)
+
+    engine.allow_open_knowledge = True
+    cfg_offline.query.allow_open_knowledge = False
+    engine._sync_runtime_components()
+    assert engine.allow_open_knowledge is False
+
+    cfg_online = _make_config(mode="online")
+    cfg_online.query.grounding_bias = 4
+    cfg_online.query.allow_open_knowledge = True
+    engine.config = cfg_online
+    engine._sync_runtime_components()
+
+    assert engine.allow_open_knowledge is True
+
+
+def test_explicit_query_mode_sync_updates_guard_policy():
+    cfg = _make_config(mode="online")
+    cfg.query.grounding_bias = 4
+    cfg.query.allow_open_knowledge = True
+    engine = SimpleNamespace(
+        config=cfg,
+        allow_open_knowledge=False,
+        guard_enabled=False,
+        guard_threshold=0.90,
+        guard_min_chunks=3,
+        guard_min_score=0.10,
+        guard_action="block",
+    )
+
+    settings = apply_query_mode_to_engine(engine, sync_guard_policy=True)
+
+    assert engine.allow_open_knowledge is True
+    assert engine.guard_enabled is True
+    assert abs(engine.guard_threshold - settings["guard_threshold"]) < 1e-9
+    assert engine.guard_min_chunks == settings["guard_min_chunks"]
+    assert abs(engine.guard_min_score - settings["guard_min_score"]) < 1e-9
+    assert engine.guard_action == "flag"

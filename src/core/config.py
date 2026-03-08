@@ -62,6 +62,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 from .model_identity import canonicalize_model_name
+from .mode_config import (
+    MODE_RUNTIME_DEFAULTS,
+    legacy_mode_store_to_runtime,
+    mode_runtime_overlay,
+    normalize_mode,
+)
 from .ollama_endpoint_resolver import sanitize_ollama_base_url
 
 # Guard config lives in its own file to keep config.py under 500 lines.
@@ -203,7 +209,7 @@ class OllamaConfig:
     timeout_seconds: int = 180     # How long to wait for a response
     context_window: int = 4096     # Max tokens the model can see at once
     keep_alive: int = -1           # Seconds to keep model loaded (-1 = forever)
-    num_predict: int = 512         # Max output tokens per generation
+    num_predict: int = 384         # Max output tokens per generation
     num_thread: int = 0            # CPU threads (0 = auto-detect)
     temperature: float = 0.05      # Generation temperature (0=deterministic)
 
@@ -290,8 +296,8 @@ class APIConfig:
     endpoint: str = ""             # EMPTY BY DEFAULT -- must be explicitly configured
     model: str = ""
     context_window: int = 128000   # GPT-4o-class default; refined by model metadata at runtime
-    max_tokens: int = 16384
-    temperature: float = 0.1       # Low = more focused/deterministic answers
+    max_tokens: int = 1024
+    temperature: float = 0.05      # Low = more focused/deterministic answers
     timeout_seconds: int = 180
 
     # Azure-specific settings (ignored for non-Azure providers)
@@ -369,7 +375,7 @@ class RetrievalConfig:
        - reranker_enabled remains for forward compatibility
        - Runtime reports backend availability explicitly via API
     """
-    top_k: int = 10                # How many chunks to send to the LLM
+    top_k: int = 4                 # How many chunks to send to the LLM
     min_score: float = 0.10        # Minimum similarity score (0-1) to include
     block_rows: int = 25000        # Memmap rows loaded per search block (RAM control)
     lex_boost: float = 0.06        # Legacy lexical boost (used when hybrid_search=False)
@@ -396,6 +402,19 @@ class RetrievalConfig:
         env_block = os.getenv("HYBRIDRAG_RETRIEVAL_BLOCK_ROWS")
         if env_block:
             self.block_rows = int(env_block)
+
+
+@dataclass
+class QueryConfig:
+    """
+    Query-time grounding and fallback controls.
+
+    These are the live runtime toggles that govern how strictly answers
+    stay bound to retrieved context and whether the engine may fall back
+    to open knowledge when retrieval is weak.
+    """
+    grounding_bias: int = 7
+    allow_open_knowledge: bool = True
 
 
 @dataclass
@@ -579,6 +598,7 @@ class Config:
     api: APIConfig = field(default_factory=APIConfig)
     cost: CostConfig = field(default_factory=CostConfig)
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
+    query: QueryConfig = field(default_factory=QueryConfig)
     indexing: IndexingConfig = field(default_factory=IndexingConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
@@ -736,6 +756,101 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
     return merged
 
 
+def _read_yaml_dict(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        raw = yaml.safe_load(f)
+    return raw if isinstance(raw, dict) else {}
+
+
+def _legacy_mode_tuning_overrides(project_dir: str) -> dict:
+    legacy_path = Path(project_dir) / "config" / "mode_tuning.yaml"
+    legacy = _read_yaml_dict(legacy_path)
+    modes = legacy.get("modes", {}) if isinstance(legacy, dict) else {}
+    if not isinstance(modes, dict) or not modes:
+        return {}
+
+    overlay = {"modes": {}}
+    for mode_name, legacy_entry in modes.items():
+        mode_key = normalize_mode(mode_name)
+        overlay["modes"][mode_key] = legacy_mode_store_to_runtime(
+            mode_key,
+            legacy_entry if isinstance(legacy_entry, dict) else {},
+        )
+    return overlay
+
+
+def _seed_modes_from_flat_sections(data: dict) -> dict:
+    if not isinstance(data, dict):
+        return {}
+    modes = data.setdefault("modes", {})
+    if not isinstance(modes, dict):
+        modes = {}
+        data["modes"] = modes
+
+    offline = modes.setdefault("offline", {})
+    if not isinstance(offline, dict):
+        offline = {}
+        modes["offline"] = offline
+    if "retrieval" not in offline and isinstance(data.get("retrieval"), dict):
+        offline["retrieval"] = copy.deepcopy(data.get("retrieval", {}))
+    if "ollama" not in offline and isinstance(data.get("ollama"), dict):
+        offline["ollama"] = copy.deepcopy(data.get("ollama", {}))
+    if "query" not in offline:
+        offline["query"] = copy.deepcopy(MODE_RUNTIME_DEFAULTS["offline"]["query"])
+
+    online = modes.setdefault("online", {})
+    if not isinstance(online, dict):
+        online = {}
+        modes["online"] = online
+    if "retrieval" not in online and isinstance(data.get("retrieval_online"), dict):
+        online["retrieval"] = copy.deepcopy(data.get("retrieval_online", {}))
+    if "api" not in online and isinstance(data.get("api"), dict):
+        api_section = copy.deepcopy(data.get("api", {}))
+        for key in ("endpoint", "auth_scheme", "provider", "allowed_endpoint_prefixes", "api_version"):
+            api_section.pop(key, None)
+        online["api"] = api_section
+    if "query" not in online:
+        online["query"] = copy.deepcopy(MODE_RUNTIME_DEFAULTS["online"]["query"])
+
+    return data
+
+
+def normalize_config_dict(project_dir: str, yaml_data: dict | None) -> dict:
+    data = copy.deepcopy(yaml_data or {})
+    data.pop("setup_complete", None)
+
+    legacy_overlay = _legacy_mode_tuning_overrides(project_dir)
+    if legacy_overlay:
+        data = _deep_merge(data, legacy_overlay)
+
+    data = _seed_modes_from_flat_sections(data)
+    active_mode = normalize_mode(data.get("mode", "offline"))
+    active_entry = data.get("modes", {}).get(active_mode, {})
+    if isinstance(active_entry, dict):
+        data = _deep_merge(data, mode_runtime_overlay(active_mode, active_entry))
+
+    data["mode"] = active_mode
+    data.pop("retrieval_online", None)
+    return data
+
+
+def load_config_data(
+    project_dir: str = ".",
+    config_filename: str = "default_config.yaml",
+) -> dict:
+    config_path = Path(project_dir) / "config" / config_filename
+    yaml_data = _read_yaml_dict(config_path)
+
+    overrides_path = Path(project_dir) / "config" / "user_overrides.yaml"
+    overrides = _read_yaml_dict(overrides_path)
+    if overrides:
+        yaml_data = _deep_merge(yaml_data, overrides)
+
+    return normalize_config_dict(project_dir, yaml_data)
+
+
 # -------------------------------------------------------------------
 # Main entry point: load_config()
 # -------------------------------------------------------------------
@@ -765,29 +880,7 @@ def load_config(
     Config
         Fully resolved configuration object ready for use.
     """
-    # Look for the YAML file at: <project_dir>/config/<config_filename>
-    config_path = Path(project_dir) / "config" / config_filename
-
-    # Load YAML if it exists; otherwise use all defaults
-    yaml_data: dict = {}
-    if config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as f:
-            raw = yaml.safe_load(f)
-            if isinstance(raw, dict):
-                yaml_data = raw
-
-    yaml_data.pop("setup_complete", None)  # Wizard flag, not a runtime setting
-
-    # --- Overlay: merge user_overrides.yaml on top of defaults ---
-    # User overrides are written by the GUI (model selection, path changes,
-    # mode switches) and persist across restarts without modifying the
-    # shipped default_config.yaml.
-    overrides_path = Path(project_dir) / "config" / "user_overrides.yaml"
-    if overrides_path.exists():
-        with open(overrides_path, "r", encoding="utf-8") as f:
-            overrides = yaml.safe_load(f)
-            if isinstance(overrides, dict):
-                yaml_data = _deep_merge(yaml_data, overrides)
+    yaml_data = load_config_data(project_dir, config_filename)
 
     # Build the Config object from YAML sections
     # Each section (like "paths", "embedding") maps to a sub-dataclass.
@@ -803,6 +896,7 @@ def load_config(
         api=_dict_to_dataclass(APIConfig, yaml_data.get("api", {})),
         cost=_dict_to_dataclass(CostConfig, yaml_data.get("cost", {})),
         retrieval=_dict_to_dataclass(RetrievalConfig, yaml_data.get("retrieval", {})),
+        query=_dict_to_dataclass(QueryConfig, yaml_data.get("query", {})),
         indexing=_dict_to_dataclass(IndexingConfig, yaml_data.get("indexing", {})),
         security=_dict_to_dataclass(SecurityConfig, yaml_data.get("security", {})),
         performance=_dict_to_dataclass(
@@ -813,6 +907,13 @@ def load_config(
             yaml_data.get("hallucination_guard", {}),
         ),
     )
+
+    try:
+        from .query_mode import apply_query_mode_to_config
+
+        apply_query_mode_to_config(config)
+    except Exception:
+        pass
 
     # --- Auto-configure the network gate ---
     # The gate must be configured BEFORE any network calls. By doing it

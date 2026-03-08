@@ -491,7 +491,7 @@ for pf in PSROOT_FILES + ["tools/rebuilt_rag_commands.ps1"]:
 section(14, "PHASE 1 REGRESSION (portable config paths)")
 # ======================================================================
 
-# Phase 1 scripts must still have _config_path() function
+# Phase 1 scripts must still use the shared _config_io helper
 phase1_scripts = [
     "scripts/_set_online.py",
     "scripts/_set_offline.py",
@@ -504,8 +504,8 @@ for sf in phase1_scripts:
         skip_check(f"{sf} not found")
         continue
     code = open(sf, "r").read()
-    check(f"{sf} has _config_path()",
-          "def _config_path" in code or "_config_path()" in code)
+    check(f"{sf} uses shared _config_io helper",
+          "_config_io" in code and "_config_path" not in code)
 
 # requirements.txt must be UTF-8 (not UTF-16LE)
 if os.path.exists("requirements.txt"):

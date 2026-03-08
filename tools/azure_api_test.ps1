@@ -7,7 +7,7 @@ Outputs: Console messages, changed files, or system configuration updates.
 Safety notes: Run in a test environment before using on production systems.
 =============================
 #>
-﻿# ===========================================================================
+# ===========================================================================
 # AZURE API TEST TOOL -- COMPLETE DIAGNOSTIC + LIVE TEST
 # ===========================================================================
 #

@@ -8,7 +8,7 @@ Default safe behavior:
 
 - Start with a **50-question screening pass**
 - Use the small **starter** candidate grid
-- **Do not** change `config/mode_tuning.yaml` unless you explicitly apply winners
+- **Do not** change `config/user_overrides.yaml` unless you explicitly apply winners
 
 The tool writes timestamped results under:
 
@@ -217,14 +217,22 @@ tools\autotune_apply_winners.bat
 
 This writes the winning tuned keys into:
 
-- `config/mode_tuning.yaml`
+- `config/user_overrides.yaml`
+
+It updates the mirrored per-mode sections under:
+
+- `modes.offline`
+- `modes.online`
 
 It updates both:
 
-- `values`
-- `defaults`
+- active values
+- stored defaults
 
-It does **not** touch `grounding_bias` or `allow_open_knowledge`.
+The March 7, 2026 tuned baseline currently shipping in the repo is:
+
+- offline: `phi4-mini`, `top_k=4`, `min_score=0.10`, `num_predict=384`
+- online: `top_k=6`, `min_score=0.08`, `max_tokens=1024`
 
 ## Online mode
 

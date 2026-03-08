@@ -7,7 +7,7 @@ Outputs: Console messages, changed files, or system configuration updates.
 Safety notes: Run in a test environment before using on production systems.
 =============================
 #>
-﻿# ============================================================================
+# ============================================================================
 # HybridRAG -- Work Transfer Unpacker (tools/work_transfer.ps1)
 # ============================================================================
 #

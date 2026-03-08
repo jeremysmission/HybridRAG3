@@ -189,7 +189,13 @@ def load_config(config_path=None) -> dict:
         except Exception as exc:
             logger.warning("[BOOT:CONFIG] Failed to merge user_overrides.yaml: %s", exc)
 
-    return config
+    try:
+        from src.core.config import normalize_config_dict
+
+        return normalize_config_dict(str(project_root), config)
+    except Exception as exc:
+        logger.warning("[BOOT:CONFIG] Failed to normalize mode overlays: %s", exc)
+        return config
 
 
 def _boot_step(msg):

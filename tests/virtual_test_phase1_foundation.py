@@ -51,6 +51,7 @@ from unittest.mock import patch
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 # Import the test framework
 from tests.virtual_test_framework import (
@@ -71,9 +72,16 @@ MODIFIED_SCRIPTS = {
     "_profile_switch.py": PROJECT_ROOT / "scripts" / "_profile_switch.py",
     "_set_model.py": PROJECT_ROOT / "scripts" / "_set_model.py",
 }
+CONFIG_IO = PROJECT_ROOT / "scripts" / "_config_io.py"
 
 REQUIREMENTS = PROJECT_ROOT / "requirements.txt"
 GITIGNORE = PROJECT_ROOT / ".gitignore"
+
+
+def _workspace_tmpdir() -> str:
+    root = PROJECT_ROOT / "output" / "virtual_tmp"
+    root.mkdir(parents=True, exist_ok=True)
+    return tempfile.mkdtemp(dir=str(root))
 
 
 # ============================================================================
@@ -120,22 +128,28 @@ def _():
 # SIM-02: PORTABLE CONFIG PATH PATTERN
 # ============================================================================
 
-section("SIM-02: PORTABLE CONFIG PATH (every script uses _config_path)")
+section("SIM-02: PORTABLE CONFIG PATH (shared _config_io helpers)")
+
+
+@test("_config_io.py exists")
+def _():
+    assert CONFIG_IO.exists(), f"Missing helper: {CONFIG_IO}"
+
+
+@test("_config_io.py uses HYBRIDRAG_PROJECT_ROOT")
+def _():
+    content = CONFIG_IO.read_text(encoding="utf-8")
+    assert "HYBRIDRAG_PROJECT_ROOT" in content, (
+        "_config_io.py missing HYBRIDRAG_PROJECT_ROOT reference"
+    )
 
 for label, filepath in MODIFIED_SCRIPTS.items():
 
-    @test(f"{label} has _config_path() function defined")
+    @test(f"{label} imports shared _config_io helpers")
     def _func(fp=filepath, lbl=label):
         content = fp.read_text(encoding="utf-8")
-        assert "def _config_path()" in content, (
-            f"{lbl} missing _config_path() function definition"
-        )
-
-    @test(f"{label} uses HYBRIDRAG_PROJECT_ROOT in _config_path()")
-    def _env(fp=filepath, lbl=label):
-        content = fp.read_text(encoding="utf-8")
-        assert "HYBRIDRAG_PROJECT_ROOT" in content, (
-            f"{lbl} missing HYBRIDRAG_PROJECT_ROOT reference"
+        assert "from _config_io import" in content, (
+            f"{lbl} missing shared _config_io import"
         )
 
     @test(f"{label} has ZERO bare 'config/default_config.yaml' opens")
@@ -160,77 +174,56 @@ for label, filepath in MODIFIED_SCRIPTS.items():
             f"{lbl} still has bare config opens:\n" + "\n".join(violations)
         )
 
-    @test(f"{label} imports os module")
-    def _os(fp=filepath, lbl=label):
-        content = fp.read_text(encoding="utf-8")
-        assert "import os" in content, f"{lbl} missing 'import os'"
-
-
 # ============================================================================
-# SIM-03: BEHAVIORAL TEST - _config_path works correctly
+# SIM-03: BEHAVIORAL TEST - shared config I/O works correctly
 # ============================================================================
 
-section("SIM-03: BEHAVIORAL TEST (_config_path resolves correctly)")
+section("SIM-03: BEHAVIORAL TEST (_config_io resolves correctly)")
 
 
-@test("_config_path with HYBRIDRAG_PROJECT_ROOT set")
+@test("default_config_path with HYBRIDRAG_PROJECT_ROOT set")
 def _():
-    # Simulate what _config_path does
+    from _config_io import default_config_path
     with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": "/test/project"}):
-        root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
-        result = os.path.join(root, "config", "default_config.yaml")
-        # os.path.join uses OS-native separators:
-        #   Linux:   /test/project/config/default_config.yaml
-        #   Windows: /test/project\config\default_config.yaml
-        # Both are correct -- normalize before checking
-        normalized = result.replace("\\", "/")
+        normalized = str(default_config_path()).replace("\\", "/")
         assert normalized.endswith("/test/project/config/default_config.yaml"), (
-            f"Bad path: {result}"
+            f"Bad path: {normalized}"
         )
 
 
-@test("_config_path without HYBRIDRAG_PROJECT_ROOT (fallback to '.')")
+@test("default_config_path without HYBRIDRAG_PROJECT_ROOT (fallback to repo)")
 def _():
     env_copy = os.environ.copy()
     env_copy.pop("HYBRIDRAG_PROJECT_ROOT", None)
     with patch.dict(os.environ, env_copy, clear=True):
-        root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
-        result = os.path.join(root, "config", "default_config.yaml")
-        expected = os.path.join(".", "config", "default_config.yaml")
-        assert result == expected, f"Expected '{expected}', got '{result}'"
+        from _config_io import default_config_path
+        expected = (PROJECT_ROOT / "config" / "default_config.yaml").resolve()
+        assert default_config_path() == expected, (
+            f"Expected '{expected}', got '{default_config_path()}'"
+        )
 
 
 @test("_set_online.py reads and writes config correctly (round-trip)")
 def _():
     """Create a temp config, run the logic, verify mode changes."""
-    tmpdir = tempfile.mkdtemp()
+    from _config_io import load_default_config, save_default_config_atomic
+
+    tmpdir = _workspace_tmpdir()
     try:
         # Create temp config
         cfg_dir = os.path.join(tmpdir, "config")
-        os.makedirs(cfg_dir)
+        os.makedirs(cfg_dir, exist_ok=True)
         cfg_file = os.path.join(cfg_dir, "default_config.yaml")
         with open(cfg_file, "w") as f:
             f.write("mode: offline\napi:\n  endpoint: https://test.com\n")
 
-        # Simulate what _set_online does
-        import yaml
         with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": tmpdir}):
-            root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
-            path = os.path.join(root, "config", "default_config.yaml")
-
-            # Read
-            with open(path, "r") as f:
-                cfg = yaml.safe_load(f)
+            cfg = load_default_config()
             assert cfg["mode"] == "offline", f"Initial mode should be offline"
 
-            # Write
             cfg["mode"] = "online"
-            with open(path, "w") as f:
-                yaml.dump(cfg, f, default_flow_style=False)
-
-            # Verify
-            with open(path, "r") as f:
-                cfg2 = yaml.safe_load(f)
+            save_default_config_atomic(cfg)
+            cfg2 = load_default_config()
             assert cfg2["mode"] == "online", f"Mode should be online after write"
     finally:
         shutil.rmtree(tmpdir)
@@ -239,10 +232,10 @@ def _():
 @test("_profile_switch.py deep merge preserves unrelated settings")
 def _():
     """Verify profile switching only changes profile keys."""
-    tmpdir = tempfile.mkdtemp()
+    tmpdir = _workspace_tmpdir()
     try:
         cfg_dir = os.path.join(tmpdir, "config")
-        os.makedirs(cfg_dir)
+        os.makedirs(cfg_dir, exist_ok=True)
         cfg_file = os.path.join(cfg_dir, "default_config.yaml")
         with open(cfg_file, "w") as f:
             f.write(
@@ -252,14 +245,10 @@ def _():
                 "  model_name: nomic-embed-text\n"
                 "  device: cpu\n"
             )
-
-        import yaml
         with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": tmpdir}):
-            root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
-            path = os.path.join(root, "config", "default_config.yaml")
+            from _config_io import load_default_config, save_default_config_atomic
 
-            with open(path, "r") as f:
-                cfg = yaml.safe_load(f)
+            cfg = load_default_config()
 
             # Simulate desktop_power profile
             profile_settings = {"embedding": {"batch_size": 64}}
@@ -269,11 +258,8 @@ def _():
                 for k, v in vals.items():
                     cfg[sec][k] = v
 
-            with open(path, "w") as f:
-                yaml.dump(cfg, f, default_flow_style=False)
-
-            with open(path, "r") as f:
-                cfg2 = yaml.safe_load(f)
+            save_default_config_atomic(cfg)
+            cfg2 = load_default_config()
 
             assert cfg2["embedding"]["batch_size"] == 64, "batch_size not updated"
             assert cfg2["embedding"]["model_name"] == "nomic-embed-text", (

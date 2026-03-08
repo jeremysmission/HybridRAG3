@@ -38,6 +38,15 @@ def _make_config():
             temperature=0.1,
             timeout_seconds=180,
         ),
+        query=SimpleNamespace(
+            grounding_bias=8,
+            allow_open_knowledge=True,
+        ),
+        hallucination_guard=SimpleNamespace(
+            enabled=False,
+            threshold=0.8,
+            failure_action="block",
+        ),
     )
 
 
@@ -60,19 +69,19 @@ def test_online_mode_bootstraps_from_online_defaults_not_shared_runtime_values()
             store = ModeTuningStore()
             state = store.get_mode_state(cfg, "online")
 
-            assert state["defaults"]["top_k"] == 8
-            assert abs(state["defaults"]["min_score"] - 0.10) < 1e-9
+            assert state["defaults"]["top_k"] == 6
+            assert abs(state["defaults"]["min_score"] - 0.08) < 1e-9
             assert state["defaults"]["context_window"] == 128000
-            assert state["defaults"]["max_tokens"] == 16384
+            assert state["defaults"]["max_tokens"] == 1024
 
             store.apply_to_config(cfg, "online")
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)
 
-    assert cfg.retrieval.top_k == 8
-    assert abs(cfg.retrieval.min_score - 0.10) < 1e-9
+    assert cfg.retrieval.top_k == 6
+    assert abs(cfg.retrieval.min_score - 0.08) < 1e-9
     assert cfg.api.context_window == 128000
-    assert cfg.api.max_tokens == 16384
+    assert cfg.api.max_tokens == 1024
 
 
 def test_first_active_mode_bootstraps_from_live_config_values():
@@ -96,10 +105,10 @@ def test_first_active_mode_bootstraps_from_live_config_values():
     assert abs(offline_state["values"]["min_score"] - 0.15) < 1e-9
     assert offline_state["values"]["context_window"] == 8192
     assert offline_state["values"]["num_predict"] == 1024
-    assert online_state["values"]["top_k"] == 8
-    assert abs(online_state["values"]["min_score"] - 0.10) < 1e-9
+    assert online_state["values"]["top_k"] == 6
+    assert abs(online_state["values"]["min_score"] - 0.08) < 1e-9
     assert online_state["values"]["context_window"] == 128000
-    assert online_state["values"]["max_tokens"] == 16384
+    assert online_state["values"]["max_tokens"] == 1024
 
 
 def test_mode_values_and_locks_stay_independent_between_online_and_offline():
@@ -170,3 +179,37 @@ def test_legacy_reasoning_dial_migrates_to_open_knowledge_flag():
     assert "reasoning_dial" not in state["values"]
     assert "reasoning_dial" not in state["defaults"]
     assert "reasoning_dial" not in state["locks"]
+
+
+def test_apply_to_config_pushes_query_mode_settings_into_runtime_config():
+    cfg = _make_config()
+
+    temp_root = _make_local_temp_root()
+    try:
+        with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": temp_root}):
+            store = ModeTuningStore()
+            store.update_value(cfg, "offline", "grounding_bias", 9)
+            store.update_value(cfg, "offline", "allow_open_knowledge", False)
+            store.apply_to_config(cfg, "offline")
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+    assert cfg.query.grounding_bias == 9
+    assert cfg.query.allow_open_knowledge is False
+
+
+def test_snapshot_config_captures_query_values_from_live_config():
+    cfg = _make_config()
+    cfg.query.grounding_bias = 3
+    cfg.query.allow_open_knowledge = False
+
+    temp_root = _make_local_temp_root()
+    try:
+        with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": temp_root}):
+            store = ModeTuningStore()
+            snapshot = store.snapshot_config(cfg, "offline")
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+    assert snapshot["grounding_bias"] == 3
+    assert snapshot["allow_open_knowledge"] is False

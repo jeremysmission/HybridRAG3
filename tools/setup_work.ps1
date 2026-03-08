@@ -7,7 +7,7 @@ Outputs: Console messages, changed files, or system configuration updates.
 Safety notes: Run in a test environment before using on production systems.
 =============================
 #>
-﻿# ============================================================================
+# ============================================================================
 # HybridRAG3 -- Automated Work/Educational Setup
 # Date: 2026-02-25
 # Uses: requirements_approved.txt (enterprise-approved packages only)
@@ -134,7 +134,7 @@ function Set-OllamaOfflineDefaults {
         $cfg = @{}
         if (Test-Path $serverJsonPath) {
             try {
-                $raw = Get-Content $serverJsonPath -Raw
+                $raw = Get-Content $serverJsonPath -Raw -ErrorAction Stop
                 if (-not [string]::IsNullOrWhiteSpace($raw)) {
                     $obj = $raw | ConvertFrom-Json
                     foreach ($p in $obj.PSObject.Properties) {

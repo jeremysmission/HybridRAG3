@@ -36,7 +36,6 @@
 #   All other operations: NONE
 # ============================================================================
 
-import json
 import logging
 import os
 import re
@@ -44,7 +43,6 @@ import subprocess
 import threading
 import time
 import tkinter as tk
-from datetime import datetime
 from tkinter import filedialog, ttk
 
 import psutil
@@ -52,6 +50,7 @@ import psutil
 from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_SMALL, FONT_MONO, bind_hover
 from src.gui.scrollable import ScrollableFrame
 from src.core.model_identity import canonicalize_model_name, resolve_ollama_model_name
+from src.core.mode_config import MODE_TUNED_DEFAULTS
 from src.core.ollama_endpoint_resolver import sanitize_ollama_base_url
 from src.security.credentials import (
     resolve_credentials, validate_endpoint,
@@ -60,15 +59,6 @@ from src.security.credentials import (
 )
 
 logger = logging.getLogger(__name__)
-
-# --- MODULE CONSTANTS ---
-
-# Path for admin defaults file (no secrets stored here -- safe to commit)
-_DEFAULTS_PATH = os.path.join(
-    os.environ.get("HYBRIDRAG_PROJECT_ROOT", "."),
-    "config", "admin_defaults.json",
-)
-
 
 # --- THEME HELPER ---
 
@@ -563,8 +553,15 @@ class ModelSelectionPanel(tk.LabelFrame):
         if api:
             api.model = model_id
             api.deployment = model_id
+        try:
+            from src.gui.helpers.mode_tuning import update_mode_section
+
+            update_mode_section(self.config, "online", "api", "model", model_id)
+            update_mode_section(self.config, "online", "api", "deployment", model_id)
+        except Exception:
+            logger.debug("Could not persist online model selection", exc_info=True)
         t = current_theme()
-        self.status_label.config(text="Selected: {}".format(model_id), fg=t["fg"])
+        self.status_label.config(text="Selected: {} (saved)".format(model_id), fg=t["fg"])
 
     # -- Theme --
 
@@ -712,20 +709,6 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
         ) or ""
         current_model = canonicalize_model_name(current_model)
 
-        # Legacy cleanup: older sessions stored phi4-mini as the default
-        # offline model. Normalize to the approved primary default so the
-        # admin panel does not appear to regress to a stale baseline.
-        if current_model in ("phi4-mini", "phi4-mini:latest"):
-            current_model = "phi4:14b-q4_K_M"
-            try:
-                ollama = getattr(self.config, "ollama", None)
-                if ollama:
-                    ollama.model = current_model
-                from src.core.config import save_config_field
-                save_config_field("ollama.model", current_model)
-            except Exception:
-                pass
-
         scored = []
         for name, meta in WORK_ONLY_MODELS.items():
             score = uc_score(meta["tier_eng"], meta["tier_gen"], uc_key)
@@ -847,9 +830,10 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
 
         # Persist to YAML so it survives restart
         try:
-            from src.core.config import save_config_field
-            save_config_field("ollama.model", model_name)
-            save_config_field("ollama.base_url", base)
+            from src.gui.helpers.mode_tuning import update_mode_section
+
+            update_mode_section(self.config, "offline", "ollama", "model", model_name)
+            update_mode_section(self.config, "offline", "ollama", "base_url", base)
             logger.info("[OK] Offline model persisted: %s", model_name)
         except Exception as e:
             logger.warning("[WARN] Could not persist model to YAML: %s", e)
@@ -1068,62 +1052,6 @@ class OfflineModelSelectionPanel(tk.LabelFrame):
         else:
             self.tree.tag_configure("primary", background="#e8f5e9")
         _theme_widget(self, t)
-
-
-# ====================================================================
-# Module-level helper -- config snapshot (no widget state needed)
-# ====================================================================
-
-def _capture_config_snapshot(config):
-    """Build a JSON-serializable dict of all current admin settings.
-
-    This snapshot captures paths, retrieval params, API params, Ollama
-    model, and mode -- everything needed to fully restore the system
-    to its current state later.  Saved to config/admin_defaults.json.
-
-    Args:
-        config: Live config object shared across the application.
-
-    Returns:
-        dict: Flat snapshot suitable for JSON serialization.
-    """
-    retrieval = getattr(config, "retrieval", None)
-    api = getattr(config, "api", None)
-    ollama = getattr(config, "ollama", None)
-    paths = getattr(config, "paths", None)
-    return {
-        "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "paths": {
-            "source_folder": getattr(paths, "source_folder", "") if paths else "",
-            "database": getattr(paths, "database", "") if paths else "",
-            "embeddings_cache": getattr(paths, "embeddings_cache", "") if paths else "",
-        },
-        "retrieval": {
-            "top_k": getattr(retrieval, "top_k", 8) if retrieval else 8,
-            "min_score": getattr(retrieval, "min_score", 0.20) if retrieval else 0.20,
-            "hybrid_search": getattr(retrieval, "hybrid_search", True) if retrieval else True,
-            "reranker_enabled": getattr(retrieval, "reranker_enabled", False) if retrieval else False,
-        },
-        "chunking": {
-            "chunk_size": getattr(getattr(config, "chunking", None), "chunk_size", 1200),
-            "overlap": getattr(getattr(config, "chunking", None), "overlap", 200),
-        },
-        "api": {
-            "model": getattr(api, "model", "") if api else "",
-            "deployment": getattr(api, "deployment", "") if api else "",
-            "context_window": getattr(api, "context_window", 128000) if api else 128000,
-            "max_tokens": getattr(api, "max_tokens", 16384) if api else 16384,
-            "temperature": getattr(api, "temperature", 0.1) if api else 0.1,
-            "timeout_seconds": getattr(api, "timeout_seconds", 180) if api else 180,
-        },
-        "ollama": {
-            "model": getattr(ollama, "model", "") if ollama else "",
-            "context_window": getattr(ollama, "context_window", 4096) if ollama else 4096,
-            "num_predict": getattr(ollama, "num_predict", 512) if ollama else 512,
-            "timeout_seconds": getattr(ollama, "timeout_seconds", 180) if ollama else 180,
-        },
-        "mode": getattr(config, "mode", "offline"),
-    }
 
 
 # ====================================================================
@@ -2197,8 +2125,9 @@ def _api_admintab__on_save_offline_runtime(self):
 
     if self.persist_ollama_context_var.get():
         try:
-            from src.core.config import save_config_field
-            save_config_field("ollama.context_window", context_window)
+            from src.gui.helpers.mode_tuning import update_mode_setting
+
+            update_mode_setting(self.config, "offline", "context_window", context_window)
             self.offline_runtime_status_label.config(
                 text="[OK] Context window set to {} and saved as default.".format(
                     context_window
@@ -2441,19 +2370,18 @@ def _api_admintab__on_save_defaults(self):
     """Save the current system state as the admin baseline.
 
     This lets admins set up the system once and restore it after
-    experiments or accidental changes.  The file is plain JSON,
-    not YAML, because it stores a flat snapshot -- not the full config.
+    experiments or accidental changes. The baseline now lives in
+    config/user_overrides.yaml so the admin GUI and YAML share one path.
     """
     t = current_theme()
     try:
-        snapshot = _capture_config_snapshot(self.config)
-        os.makedirs(os.path.dirname(_DEFAULTS_PATH), exist_ok=True)
-        with open(_DEFAULTS_PATH, "w", encoding="utf-8") as f:
-            json.dump(snapshot, f, indent=2)
+        from src.gui.helpers.mode_tuning import ModeTuningStore
+
+        snapshot = ModeTuningStore().save_admin_defaults(self.config)
         self.defaults_status_label.config(
             text="[OK] Defaults saved at {}".format(snapshot["saved_at"]),
             fg=t["green"])
-        logger.info("Admin defaults saved to %s", _DEFAULTS_PATH)
+        logger.info("Admin defaults saved to config/user_overrides.yaml")
     except Exception as e:
         self.defaults_status_label.config(
             text="[FAIL] {}".format(str(e)[:60]), fg=t["red"])
@@ -2461,64 +2389,23 @@ def _api_admintab__on_save_defaults(self):
 def _api_admintab__on_restore_defaults(self):
     """Restore all settings from the previously saved admin defaults.
 
-    Reads admin_defaults.json, writes values back into the live config,
+    Reads the YAML-backed admin defaults, writes values back into the live config,
     syncs the tuning tab sliders, and refreshes the path entries --
     so the entire UI reflects the restored state immediately.
     """
     t = current_theme()
-    if not os.path.isfile(_DEFAULTS_PATH):
-        self.defaults_status_label.config(
-            text="[WARN] No defaults file found. Save defaults first.",
-            fg=t["orange"])
-        return
     try:
-        with open(_DEFAULTS_PATH, "r", encoding="utf-8") as f:
-            snapshot = json.load(f)
+        from src.gui.helpers.mode_tuning import ModeTuningStore
 
-        retrieval = getattr(self.config, "retrieval", None)
-        api = getattr(self.config, "api", None)
-        ollama = getattr(self.config, "ollama", None)
-        paths = getattr(self.config, "paths", None)
-
+        store = ModeTuningStore()
+        snapshot = store.restore_admin_defaults(self.config)
+        if snapshot is None:
+            self.defaults_status_label.config(
+                text="[WARN] No defaults saved yet. Save defaults first.",
+                fg=t["orange"])
+            return
         p_snap = snapshot.get("paths", {})
-        if paths and p_snap:
-            paths.source_folder = p_snap.get("source_folder", paths.source_folder)
-            paths.database = p_snap.get("database", paths.database)
-            paths.embeddings_cache = p_snap.get("embeddings_cache", paths.embeddings_cache)
-
-        r_snap = snapshot.get("retrieval", {})
-        if retrieval:
-            retrieval.top_k = r_snap.get("top_k", retrieval.top_k)
-            retrieval.min_score = r_snap.get("min_score", retrieval.min_score)
-            retrieval.hybrid_search = r_snap.get("hybrid_search", retrieval.hybrid_search)
-            retrieval.reranker_enabled = r_snap.get("reranker_enabled", retrieval.reranker_enabled)
-
         c_snap = snapshot.get("chunking", {})
-        chunking = getattr(self.config, "chunking", None)
-        if chunking and c_snap:
-            chunking.chunk_size = c_snap.get("chunk_size", chunking.chunk_size)
-            chunking.overlap = c_snap.get("overlap", chunking.overlap)
-
-        a_snap = snapshot.get("api", {})
-        if api:
-            api.model = a_snap.get("model", api.model)
-            api.deployment = a_snap.get("deployment", getattr(api, "deployment", ""))
-            api.context_window = a_snap.get("context_window", getattr(api, "context_window", 128000))
-            api.max_tokens = a_snap.get("max_tokens", api.max_tokens)
-            api.temperature = a_snap.get("temperature", api.temperature)
-            api.timeout_seconds = a_snap.get("timeout_seconds", api.timeout_seconds)
-
-        o_snap = snapshot.get("ollama", {})
-        if ollama:
-            ollama.model = o_snap.get("model", ollama.model)
-            ollama.context_window = o_snap.get(
-                "context_window", getattr(ollama, "context_window", 4096)
-            )
-            if hasattr(ollama, "num_predict"):
-                ollama.num_predict = o_snap.get("num_predict", getattr(ollama, "num_predict", 512))
-            ollama.timeout_seconds = o_snap.get(
-                "timeout_seconds", getattr(ollama, "timeout_seconds", 180)
-            )
 
         # Sync tuning tab sliders
         sv = self._app._views.get("settings") if hasattr(self._app, "_views") else None
@@ -2540,14 +2427,16 @@ def _api_admintab__on_restore_defaults(self):
                 self.overlap_var.set(str(c_snap.get("overlap", "")))
         if hasattr(self, "ollama_context_var"):
             self.ollama_context_var.set(
-                str(snapshot.get("ollama", {}).get("context_window", 4096))
+                str(snapshot.get("ollama", {}).get("context_window", MODE_TUNED_DEFAULTS["offline"]["context_window"]))
             )
+
+        self._apply_mode_state()
 
         saved_at = snapshot.get("saved_at", "?")
         self.defaults_status_label.config(
             text="[OK] Defaults restored (saved {})".format(saved_at),
             fg=t["green"])
-        logger.info("Admin defaults restored from %s", _DEFAULTS_PATH)
+        logger.info("Admin defaults restored from config/user_overrides.yaml")
     except Exception as e:
         self.defaults_status_label.config(
             text="[FAIL] {}".format(str(e)[:60]), fg=t["red"])
@@ -2555,20 +2444,21 @@ def _api_admintab__on_restore_defaults(self):
 def _api_admintab__refresh_defaults_status(self):
     """Show when defaults were last saved (or 'not saved yet')."""
     t = current_theme()
-    if os.path.isfile(_DEFAULTS_PATH):
-        try:
-            with open(_DEFAULTS_PATH, "r", encoding="utf-8") as f:
-                snapshot = json.load(f)
-            self.defaults_status_label.config(
-                text="Last saved: {}".format(snapshot.get("saved_at", "unknown")),
-                fg=t["gray"])
-        except Exception:
-            self.defaults_status_label.config(
-                text="Defaults file exists but could not be read.",
-                fg=t["orange"])
-    else:
+    try:
+        from src.gui.helpers.mode_tuning import ModeTuningStore
+
+        snapshot = ModeTuningStore().get_admin_defaults()
+    except Exception:
+        snapshot = None
+
+    if not snapshot:
         self.defaults_status_label.config(
             text="No defaults saved yet.", fg=t["gray"])
+        return
+
+    self.defaults_status_label.config(
+        text="Last saved: {}".format(snapshot.get("saved_at", "unknown")),
+        fg=t["gray"])
 
 def _api_admintab_apply_theme(self, t):
     """Plain-English: This function handles apply theme."""

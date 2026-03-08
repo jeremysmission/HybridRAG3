@@ -7,7 +7,7 @@ Outputs: Console messages, changed files, or system configuration updates.
 Safety notes: Run in a test environment before using on production systems.
 =============================
 #>
-﻿# =============================================================
+# =============================================================
 # EXECUTION ENVIRONMENT DETECTION -- HybridRAG3
 # =============================================================
 # Automatically detects Group Policy restrictions and uses the
@@ -105,7 +105,16 @@ function Write-StartupLog {
     param([string]$Message, [string]$Level = 'INFO')
     if (-not $script:_startupLogPath) { return }
     $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    Add-Content -Path $script:_startupLogPath -Value "[$ts] [$Level] $Message" -Encoding UTF8
+    try {
+        $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::AppendAllText(
+            $script:_startupLogPath,
+            "[$ts] [$Level] $Message`r`n",
+            $utf8NoBom
+        )
+    } catch {
+        # Logging must never break startup or flood the terminal.
+    }
 }
 
 
@@ -156,7 +165,16 @@ if (-not (Test-Path $_logsDir)) {
 }
 $script:_startupLogPath = Join-Path $_logsDir 'startup.log'
 $_tsInit = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-Set-Content -Path $script:_startupLogPath -Value "[$_tsInit] [INFO] === HybridRAG Startup ===" -Encoding UTF8
+try {
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText(
+        $script:_startupLogPath,
+        "[$_tsInit] [INFO] === HybridRAG Startup ===`r`n",
+        $utf8NoBom
+    )
+} catch {
+    $script:_startupLogPath = $null
+}
 Write-StartupLog "Project root: $PROJECT_ROOT"
 
 # ---- 2) CANONICAL PATHS ----------------------------------------------------

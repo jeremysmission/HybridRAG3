@@ -382,14 +382,14 @@ wins:
 
 ## 7. Performance Profiles
 
-Profiles adjust batch sizes and search parameters for different
-hardware.
+Profiles adjust hardware-sensitive settings. They no longer overwrite
+the tuned query defaults.
 
-| Profile | RAM | Batch Size | top_k | Best For |
-|---------|-----|-----------|-------|----------|
-| `laptop_safe` | 8-16 GB | 16 | 5 | Laptop, conservative |
-| `desktop_power` | 32-64 GB | 64 | 10 | Desktop, balanced |
-| `server_max` | 64+ GB | 128 | 15 | Workstation, maximum |
+| Profile | RAM | Batch Size | Query Tuning | Best For |
+|---------|-----|-----------|--------------|----------|
+| `laptop_safe` | 8-16 GB | 16 | Preserved | Laptop, conservative |
+| `desktop_power` | 32-64 GB | 64 | Preserved | Desktop, balanced |
+| `server_max` | 64+ GB | 128 | Preserved | Workstation, maximum |
 
 ### Check and Switch
 
@@ -414,7 +414,7 @@ Open the admin menu from the GUI: **Admin** >
 
 | Setting | Default | What It Does |
 |---------|---------|-------------|
-| **top_k** | 12 | How many document chunks to retrieve and send to the AI. Higher = more context but more noise. |
+| **top_k** | Offline `4`, Online `6` | How many document chunks to retrieve and send to the AI. Higher = more context but more noise. |
 | **min_score** | 0.10 | Minimum relevance score. Chunks below this are discarded. Raise if answers include irrelevant info. Lower if queries return no results. |
 | **Hybrid search** | ON | Combines meaning search + keyword search. Leave ON for best results. |
 | **Reranker** | OFF | Second-pass accuracy model. **Keep OFF for general use** -- enabling it degrades unanswerable, injection, and ambiguous question handling. |
@@ -429,9 +429,9 @@ Open the admin menu from the GUI: **Admin** >
 
 | Setting | Default | What It Does |
 |---------|---------|-------------|
-| **Max tokens** | 2048 | Maximum answer length. 512 for short answers, 4096 for detailed explanations. |
+| **Output cap** | Offline `384`, Online `1024` | Offline mode uses `num_predict`; online mode uses `max_tokens`. Raise only when answers are getting cut off. |
 | **Temperature** | 0.05 | Randomness. 0.05 is nearly deterministic (best for factual queries). Above 0.3 gets creative. |
-| **Timeout** | 30 sec | How long to wait for the AI. Raise to 120 sec for offline CPU mode. |
+| **Timeout** | 180 sec | How long to wait for the AI. Both tuned modes currently use 180 seconds for stability. |
 
 ### Test Query
 
@@ -627,8 +627,8 @@ content extraction yet.
 |---------|-----------|
 | "No results found" on queries that should work | Lower `min_score` from 0.10 to 0.05 |
 | Answers include irrelevant information | Raise `min_score` to 0.25-0.30 |
-| Answer is missing context from multiple docs | Raise `top_k` from 5 to 12-15 |
-| Answers are too verbose/wandering | Lower `top_k` from 12 to 5-8 |
+| Answer is missing context from multiple docs | Raise `top_k` from the tuned default in small steps (for example 4 -> 6 -> 8 offline, or 6 -> 8 -> 10 online) |
+| Answers are too verbose/wandering | Lower `top_k` below the tuned default in small steps and re-test |
 | Offline answers are too slow | Set `retrieval.offline_top_k` to 3-5 (keeps offline prompts shorter) |
 | Need faster answers | Switch to online mode |
 | Need better accuracy | Switch to online mode with a larger model |

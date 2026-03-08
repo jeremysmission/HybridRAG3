@@ -460,14 +460,14 @@ normal use, leave it ON.
 
 These control how the system searches your indexed documents.
 
-**top_k** (slider, 1 to 50, default: 12)
+**top_k** (slider, 1 to 50, tuned default: offline 4, online 6)
 
 How many document chunks to retrieve and send to the LLM. Higher values
 give the LLM more context but cost more tokens and can dilute relevance.
 
-- Leave at 12 for most use cases.
-- Lower to 5 if answers are wandering off topic (too much noise).
-- Raise to 20-30 if the answer needs information scattered across many
+- Leave it at the mode default first.
+- Lower it if answers are wandering off topic (too much noise).
+- Raise it only when the answer needs information scattered across many
   documents.
 
 **min_score** (slider, 0.00 to 1.00, default: 0.10)
@@ -507,14 +507,15 @@ know every question has an answer in the documents.
 
 These control how the language model generates answers.
 
-**Max tokens** (slider, 256 to 4096, default: 2048)
+**Output tokens** (slider, mode-aware)
 
-Maximum number of tokens the LLM can generate in its answer. One token is
-roughly 3/4 of a word.
+Offline mode uses `num_predict` and the tuned default is 384. Online mode
+uses `max_tokens` and the tuned default is 1024. One token is roughly
+3/4 of a word.
 
-- 512: Short, focused answers (good for factual lookups).
-- 2048: Medium-length answers (good default for most questions).
-- 4096: Long answers (for detailed explanations or summaries).
+- 384-512: Short, focused answers (good for factual lookups).
+- 1024: Current tuned online default.
+- 2048+: Only raise this when answers are clearly truncating.
 
 Higher values do not make the model write more -- they just raise the ceiling.
 The model stops when it finishes its answer regardless of this limit.
@@ -532,13 +533,13 @@ Controls randomness in the LLM output.
 The system default is 0.05 (nearly deterministic). This is correct for RAG
 where you want the model to stick to what the documents say.
 
-**Timeout (s)** (slider, 10 to 120, default: 30)
+**Timeout (s)** (slider, 30 to 1200, tuned default: 180)
 
 How many seconds to wait for the LLM to respond before giving up.
 
-- 30 seconds is enough for online API calls.
-- For offline mode on CPU, Ollama can take 30-180 seconds for a single
-  answer. If you get timeout errors in offline mode, raise this to 120.
+- 180 seconds is the current tuned baseline for both modes.
+- For offline mode on CPU, Ollama can still need most of that budget.
+- Lower it only if you want faster failure on unhealthy backends.
 
 ### Performance Profile
 
@@ -546,28 +547,28 @@ A dropdown with three options:
 
 **laptop_safe** (default)
 - Embedding batch size: 16
-- Search top_k: 5
+- Query tuning: unchanged
 - Index block: 200K chars
 - Concurrent files: 1
 - For machines with 8-16 GB RAM.
 
 **desktop_power**
 - Embedding batch size: 64
-- Search top_k: 10
+- Query tuning: unchanged
 - Index block: 500K chars
 - Concurrent files: 2
 - For machines with 32-64 GB RAM.
 
 **server_max**
 - Embedding batch size: 128
-- Search top_k: 15
+- Query tuning: unchanged
 - Index block: 1M chars
 - Concurrent files: 4
 - For overnight runs on 64+ GB machines.
 
 When you change the profile, the system calls `_profile_switch.py` which
-writes the new settings directly to `config/default_config.yaml`. This is
-one of the few settings that persist to disk.
+writes the new hardware settings directly to `config/default_config.yaml`.
+Query tuning stays on the YAML mode-store path you last saved.
 
 After switching profiles, existing indexed data still works fine. Only
 indexing speed changes.
@@ -1099,7 +1100,7 @@ reduces batch size from 64/128 to 16 and processes one file at a time.
    and raise min_score from 0.10 to 0.25 or 0.30.
 
 2. **top_k too high.** Too many chunks dilute the good results. Lower top_k
-   from 12 to 5-8.
+   below the tuned mode default in small steps and re-test.
 
 3. **Documents not indexed.** The answer can only come from indexed documents.
    If you recently added files, re-run indexing.

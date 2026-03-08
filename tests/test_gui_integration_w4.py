@@ -51,10 +51,10 @@ class FakePathsConfig:
 class FakeOllamaConfig:
     base_url: str = "http://localhost:11434"
     model: str = "phi4-mini"
-    timeout_seconds: int = 120
+    timeout_seconds: int = 180
     context_window: int = 4096
-    num_predict: int = 512
-    temperature: float = 0.1
+    num_predict: int = 384
+    temperature: float = 0.05
 
 
 @dataclass
@@ -62,9 +62,9 @@ class FakeAPIConfig:
     endpoint: str = ""
     model: str = "gpt-4o"
     context_window: int = 128000
-    max_tokens: int = 2048
-    temperature: float = 0.1
-    timeout_seconds: int = 30
+    max_tokens: int = 1024
+    temperature: float = 0.05
+    timeout_seconds: int = 180
     deployment: str = ""
     api_version: str = ""
     allowed_endpoint_prefixes: list = field(default_factory=list)
@@ -72,8 +72,8 @@ class FakeAPIConfig:
 
 @dataclass
 class FakeRetrievalConfig:
-    top_k: int = 8
-    min_score: float = 0.20
+    top_k: int = 4
+    min_score: float = 0.10
     hybrid_search: bool = True
     reranker_enabled: bool = False
     reranker_model: str = ""
@@ -100,12 +100,19 @@ class FakeChunkingConfig:
 
 
 @dataclass
+class FakeQueryConfig:
+    grounding_bias: int = 8
+    allow_open_knowledge: bool = True
+
+
+@dataclass
 class FakeGUIConfig:
     mode: str = "offline"
     paths: FakePathsConfig = field(default_factory=FakePathsConfig)
     ollama: FakeOllamaConfig = field(default_factory=FakeOllamaConfig)
     api: FakeAPIConfig = field(default_factory=FakeAPIConfig)
     retrieval: FakeRetrievalConfig = field(default_factory=FakeRetrievalConfig)
+    query: FakeQueryConfig = field(default_factory=FakeQueryConfig)
     cost: FakeCostConfig = field(default_factory=FakeCostConfig)
     chunking: FakeChunkingConfig = field(default_factory=FakeChunkingConfig)
 
@@ -153,6 +160,18 @@ def _make_root():
     return root
 
 
+def _make_app(*args, **kwargs):
+    """Create the full app or skip cleanly when Tk is unavailable."""
+    from src.gui.app import HybridRAGApp
+
+    try:
+        app = HybridRAGApp(*args, **kwargs)
+        app.withdraw()
+    except tk.TclError:
+        pytest.skip("Tk runtime unavailable (Tcl interpreter state)")
+    return app
+
+
 def _pump_events(root, ms=100):
     """Process pending tkinter events for a short time."""
     end = time.time() + ms / 1000.0
@@ -184,13 +203,10 @@ def _wait_and_pump(root, ms=500):
 
 def test_01_gui_launches_without_crashing():
     """GUI app window creates successfully with mocked boot result."""
-    from src.gui.app import HybridRAGApp
-
     config = FakeGUIConfig()
     boot = FakeBootResult()
 
-    app = HybridRAGApp(boot_result=boot, config=config)
-    app.withdraw()
+    app = _make_app(boot_result=boot, config=config)
 
     assert app.winfo_exists()
     assert app.title() == "HybridRAG v3"
@@ -437,6 +453,53 @@ def test_05e_open_knowledge_toggle_updates_engine_boolean():
     root.destroy()
 
 
+def test_05f_mode_switch_rehydrates_query_panel_grounding_controls(tmp_path):
+    """Offline and online query dials must reload from separate mode-store values."""
+    root = _make_root()
+    config = FakeGUIConfig(mode="offline")
+    engine = SimpleNamespace(
+        allow_open_knowledge=True,
+        guard_enabled=False,
+        guard_threshold=0.0,
+        guard_min_chunks=0,
+        guard_min_score=0.0,
+        guard_action="",
+    )
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+
+    with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": str(tmp_path)}):
+        from src.gui.helpers.mode_tuning import ModeTuningStore
+        store = ModeTuningStore(str(tmp_path))
+        store.update_value(config, "offline", "grounding_bias", 9)
+        store.update_value(config, "offline", "allow_open_knowledge", False)
+        store.update_value(config, "online", "grounding_bias", 4)
+        store.update_value(config, "online", "allow_open_knowledge", True)
+
+        from src.gui.panels.query_panel import QueryPanel
+
+        panel = QueryPanel(root, config=config, query_engine=engine)
+        panel.pack()
+        _pump_events(root, 50)
+
+        panel._on_use_case_change()
+        assert panel._grounding_bias_var.get() == 9
+        assert panel._open_knowledge_var.get() is False
+        assert engine.allow_open_knowledge is False
+        assert engine.guard_action == "block"
+
+        config.mode = "online"
+        panel._on_use_case_change()
+        assert panel._grounding_bias_var.get() == 4
+        assert panel._open_knowledge_var.get() is True
+        assert engine.allow_open_knowledge is True
+        assert engine.guard_action == "flag"
+
+        panel.destroy()
+
+    root.destroy()
+
+
 # ============================================================================
 # TEST 06: Index panel shows read-only paths from config
 # ============================================================================
@@ -557,12 +620,10 @@ def test_10_online_button_cred_error():
     Tests the credential check in _do_switch_to_online directly (synchronous)
     since the async wrapper + app.after() require a running Tk mainloop.
     """
-    from src.gui.app import HybridRAGApp
     from src.security.credentials import ApiCredentials, invalidate_credential_cache
 
     config = FakeGUIConfig(mode="offline")
-    app = HybridRAGApp(config=config)
-    app.withdraw()
+    app = _make_app(config=config)
 
     # Track warning calls -- intercept messagebox at the tkinter level
     from tkinter import messagebox as mb_module
@@ -613,13 +674,15 @@ def test_10_online_button_cred_error():
 # ============================================================================
 
 def test_11_settings_view_reads_config():
-    """Settings view sliders are initialized from config values."""
+    """Settings view sliders are initialized from the active mode values."""
     root = _make_root()
     config = FakeGUIConfig()
     config.retrieval.top_k = 12
     config.retrieval.min_score = 0.15
-    config.api.temperature = 0.3
-    config.api.max_tokens = 3000
+    config.ollama.context_window = 8192
+    config.ollama.num_predict = 768
+    config.ollama.temperature = 0.3
+    config.ollama.timeout_seconds = 240
 
     from src.gui.panels.settings_view import SettingsView
 
@@ -628,8 +691,10 @@ def test_11_settings_view_reads_config():
 
     assert view.topk_var.get() == 12
     assert abs(view.minscore_var.get() - 0.15) < 0.01
+    assert view.ctx_window_var.get() == 8192
+    assert view.num_predict_var.get() == 768
     assert abs(view.temp_var.get() - 0.3) < 0.01
-    assert view.maxtokens_var.get() == 3000
+    assert view.timeout_var.get() == 240
 
     view.destroy()
     root.destroy()
@@ -640,7 +705,7 @@ def test_11_settings_view_reads_config():
 # ============================================================================
 
 def test_12_settings_view_writes_config():
-    """Changing a slider immediately updates the config object."""
+    """Changing an offline slider updates the active offline config fields."""
     root = _make_root()
     config = FakeGUIConfig()
 
@@ -654,10 +719,118 @@ def test_12_settings_view_writes_config():
     view._on_retrieval_change()
     assert config.retrieval.top_k == 25
 
-    # Change temperature
+    # Change active offline runtime knobs
+    view.num_predict_var.set(2048)
     view.temp_var.set(0.5)
+    view.timeout_var.set(240)
     view._on_llm_change()
-    assert abs(config.api.temperature - 0.5) < 0.01
+    assert config.ollama.num_predict == 2048
+    assert abs(config.ollama.temperature - 0.5) < 0.01
+    assert config.ollama.timeout_seconds == 240
+
+    view.destroy()
+    root.destroy()
+
+
+def test_12b_settings_view_online_mode_reads_and_writes_api_values():
+    """Hidden tuning view must stay mode-aware in online mode."""
+    root = _make_root()
+    config = FakeGUIConfig(mode="online")
+    config.api.context_window = 64000
+    config.api.max_tokens = 4096
+    config.api.temperature = 1.25
+    config.api.timeout_seconds = 900
+    config.ollama.context_window = 4096
+    config.ollama.temperature = 0.05
+    config.ollama.timeout_seconds = 180
+
+    from src.gui.panels.settings_view import SettingsView
+
+    app_ref = MagicMock()
+    view = SettingsView(root, config=config, app_ref=app_ref)
+
+    assert view.ctx_window_var.get() == 64000
+    assert view.maxtokens_var.get() == 4096
+    assert abs(view.temp_var.get() - 1.25) < 0.01
+    assert view.timeout_var.get() == 900
+
+    view.ctx_window_var.set(128000)
+    view.maxtokens_var.set(16384)
+    view.temp_var.set(2.0)
+    view.timeout_var.set(1200)
+    view._on_llm_change()
+
+    assert config.api.context_window == 128000
+    assert config.api.max_tokens == 16384
+    assert abs(config.api.temperature - 2.0) < 0.01
+    assert config.api.timeout_seconds == 1200
+    assert config.ollama.context_window == 4096
+    assert abs(config.ollama.temperature - 0.05) < 0.01
+
+    view.destroy()
+    root.destroy()
+
+
+def test_12c_settings_view_mode_store_persists_min_max_without_snapback(tmp_path):
+    """Mode-store backed controls must keep user-selected extremes after resync."""
+    root = _make_root()
+    config = FakeGUIConfig(mode="online")
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+
+    from src.gui.panels.settings_view import SettingsView
+
+    with patch.dict(
+        os.environ,
+        {
+            "HYBRIDRAG_PROJECT_ROOT": str(tmp_path),
+            "HYBRIDRAG_DEV_UI": "1",
+        },
+    ):
+        app_ref = MagicMock()
+        app_ref._views = {}
+        view = SettingsView(root, config=config, app_ref=app_ref)
+        tab = view._tuning_tab
+
+        tab.topk_var.set(1)
+        tab.ctx_window_var.set(128000)
+        tab.maxtokens_var.set(16384)
+        tab.temp_var.set(2.0)
+        tab.timeout_var.set(1200)
+        tab._on_retrieval_change()
+        tab._on_llm_change()
+        tab._sync_sliders_to_config()
+
+        assert tab.topk_var.get() == 1
+        assert tab.ctx_window_var.get() == 128000
+        assert tab.maxtokens_var.get() == 16384
+        assert abs(tab.temp_var.get() - 2.0) < 0.01
+        assert tab.timeout_var.get() == 1200
+
+        tab._on_save_mode_defaults()
+        max_tokens_default = tab._default_vars["max_tokens"]
+        max_tokens_default.set(True)
+        tab._on_default_toggle(
+            "max_tokens",
+            tab.maxtokens_var,
+            max_tokens_default,
+            tab._on_llm_change,
+        )
+        tab.maxtokens_var.set(256)
+        tab._sync_sliders_to_config()
+
+        assert tab.maxtokens_var.get() == 16384
+
+        import yaml
+        with open(cfg_dir / "user_overrides.yaml", "r", encoding="utf-8") as f:
+            saved = yaml.safe_load(f)
+        assert saved["modes"]["online"]["retrieval"]["top_k"] == 1
+        assert saved["modes"]["online"]["api"]["context_window"] == 128000
+        assert saved["modes"]["online"]["api"]["max_tokens"] == 16384
+        assert saved["modes"]["online"]["api"]["temperature"] == 2.0
+        assert saved["modes"]["online"]["api"]["timeout_seconds"] == 1200
+        assert saved["modes"]["online"]["defaults"]["max_tokens"] == 16384
+        assert saved["modes"]["online"]["locks"]["max_tokens"] is True
 
     view.destroy()
     root.destroy()
@@ -703,7 +876,7 @@ def test_14_settings_view_reset_defaults():
     root = _make_root()
     config = FakeGUIConfig()
     config.retrieval.top_k = 8
-    config.api.temperature = 0.1
+    config.ollama.temperature = 0.1
 
     from src.gui.panels.settings_view import SettingsView
 
@@ -722,6 +895,7 @@ def test_14_settings_view_reset_defaults():
     assert view.topk_var.get() == 8
     assert abs(view.temp_var.get() - 0.1) < 0.01
     assert config.retrieval.top_k == 8
+    assert abs(config.ollama.temperature - 0.1) < 0.01
 
     view.destroy()
     root.destroy()
@@ -846,10 +1020,12 @@ def test_17_admin_defaults_round_trip(tmp_path):
     mock_creds.source_key = None
     mock_creds.source_endpoint = None
 
-    defaults_file = str(tmp_path / "admin_defaults.json")
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "default_config.yaml").write_text("mode: offline\n", encoding="utf-8")
 
     with patch("src.gui.panels.api_admin_tab.resolve_credentials", return_value=mock_creds), \
-         patch("src.gui.panels.api_admin_tab._DEFAULTS_PATH", defaults_file):
+         patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": str(tmp_path)}):
         from src.gui.panels.settings_view import SettingsView
         app_ref = MagicMock()
         app_ref._views = {}
@@ -859,15 +1035,14 @@ def test_17_admin_defaults_round_trip(tmp_path):
 
         # Save defaults
         tab._on_save_defaults()
-        assert os.path.isfile(defaults_file)
-
-        # Read back to verify
-        import json
-        with open(defaults_file, "r") as f:
-            saved = json.load(f)
-        assert saved["retrieval"]["top_k"] == 15
-        assert abs(saved["api"]["temperature"] - 0.3) < 0.01
-        assert saved["api"]["model"] == "gpt-4o"
+        import yaml
+        with open(cfg_dir / "user_overrides.yaml", "r", encoding="utf-8") as f:
+            saved = yaml.safe_load(f)
+        assert saved["admin_defaults"]["mode"] == "offline"
+        assert saved["admin_defaults"]["paths"]["source_folder"] == config.paths.source_folder
+        assert saved["modes"]["offline"]["defaults"]["top_k"] == 15
+        assert abs(saved["modes"]["online"]["defaults"]["temperature"] - 0.3) < 0.01
+        assert saved["modes"]["online"]["api"]["model"] == "gpt-4o"
 
         # Mutate config
         config.retrieval.top_k = 99
@@ -879,6 +1054,13 @@ def test_17_admin_defaults_round_trip(tmp_path):
         assert config.retrieval.top_k == 15
         assert abs(config.api.temperature - 0.3) < 0.01
         assert config.api.model == "gpt-4o"
+
+        with open(cfg_dir / "user_overrides.yaml", "r", encoding="utf-8") as f:
+            restored = yaml.safe_load(f)
+        assert restored["mode"] == "offline"
+        assert restored["modes"]["offline"]["retrieval"]["top_k"] == 15
+        assert restored["modes"]["offline"]["defaults"]["top_k"] == 15
+        assert restored["modes"]["online"]["api"]["model"] == "gpt-4o"
 
     view.destroy()
     root.destroy()

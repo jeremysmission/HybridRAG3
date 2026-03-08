@@ -227,7 +227,7 @@
 
 ### Q31. "Walk me through the architecture end-to-end."
 **Who asks**: Chief Engineer, architects
-**Your answer**: "Documents are chunked into passages, embedded into vectors using sentence-transformers, stored in a local FAISS index. At query time, your question is embedded, similar chunks are retrieved via cosine similarity (top_k=12, min_score=0.10), and a local LLM (phi4-mini via Ollama) generates an answer grounded exclusively in those chunks. FastAPI server exposes it as a REST API. No cloud, no external calls."
+**Your answer**: "Documents are chunked into passages, embedded into vectors using sentence-transformers, stored in a local FAISS index. At query time, your question is embedded, similar chunks are retrieved via hybrid search with tuned mode defaults (offline top_k=4, online top_k=6, min_score 0.10/0.08), and a local or API-backed LLM generates an answer grounded exclusively in those chunks. FastAPI server exposes it as a REST API. No cloud is required for offline mode."
 
 ---
 

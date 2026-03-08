@@ -33,6 +33,18 @@ def main() -> None:
     overrides = load_yaml(overrides_path)
 
     api_section = overrides.get("api", {})
+    modes = overrides.setdefault("modes", {})
+    if not isinstance(modes, dict):
+        modes = {}
+        overrides["modes"] = modes
+    online = modes.setdefault("online", {})
+    if not isinstance(online, dict):
+        online = {}
+        modes["online"] = online
+    online_api = online.setdefault("api", {})
+    if not isinstance(online_api, dict):
+        online_api = {}
+        online["api"] = online_api
 
     endpoint = prompt_if_missing(
         api_section.get("endpoint", ""), "Enter online API endpoint (e.g. https://your.openrouter.com/chat): "
@@ -45,8 +57,10 @@ def main() -> None:
     api_section["endpoint"] = endpoint
     api_section["auth_scheme"] = auth_scheme
     api_section["provider"] = prompt_if_missing(api_section.get("provider", ""), "Provider (azure/openai): ") or "openai"
-    api_section["model"] = prompt_if_missing(api_section.get("model", ""), "Model name o retrieve (e.g. gpt-4o-mini): ")
+    api_section["model"] = prompt_if_missing(api_section.get("model", ""), "Model name to retrieve (e.g. gpt-4o-mini): ")
     overrides["api"] = api_section
+    online_api["model"] = api_section["model"]
+    online_api["deployment"] = api_section["model"]
 
     save_yaml(overrides_path, overrides)
 

@@ -28,8 +28,9 @@ def test_detect_index_contamination_flags_temp_and_outside_root(tmp_path):
     source_root.mkdir()
     good_doc = source_root / "good.docx"
     temp_doc = Path(r"C:\Users\jerem\AppData\Local\Temp\junk.txt")
-    outside_doc = tmp_path / "other" / "bad.pdf"
-    outside_doc.parent.mkdir()
+    # Use a path that is NOT inside AppData\Local\Temp so it only triggers
+    # the outside-root check, not the temp-path heuristic.
+    outside_doc = Path(r"D:\other\bad.pdf")
 
     _build_chunks_db(
         db_path,

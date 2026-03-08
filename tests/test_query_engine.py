@@ -162,6 +162,7 @@ class TestQueryEngine:
               should see a friendly message explaining nothing was found.
         """
         engine, mocks = self._make_engine(search_results=[])
+        engine.config.query.allow_open_knowledge = False
 
         result = engine.query("What is quantum entanglement?")
 
@@ -181,6 +182,7 @@ class TestQueryEngine:
               Rather than sending a blank prompt to the LLM, we catch this.
         """
         engine, mocks = self._make_engine()
+        engine.config.query.allow_open_knowledge = False
 
         # Override build_context to return empty string
         mocks["retriever"].build_context.return_value = ""

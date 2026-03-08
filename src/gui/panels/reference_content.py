@@ -72,7 +72,8 @@ REST API ENDPOINTS:
 PROFILES: laptop_safe (8-16GB), desktop_power (32-64GB), server_max (64GB+)
 
 KEY CONFIG: chunk_size=1200, overlap=200, embedding=nomic-embed-text (768d)
-  top_k=12, min_score=0.10, temperature=0.05, reranker=OFF
+  offline: top_k=4, num_predict=384 | online: top_k=6, max_tokens=1024
+  min_score=0.10/0.08, temperature=0.05, reranker=OFF
 
 EMERGENCY RECOVERY:
   Delete .venv, recreate, pip install, re-source start_hybridrag.ps1.
@@ -102,9 +103,11 @@ MODE TOGGLE:
   ONLINE: Queries go to cloud API. Requires stored credentials.
 
 ADMIN MENU (Admin > Admin Settings):
-  top_k (1-50, default 12), min_score (0.00-1.00, default 0.10)
+  offline top_k (1-50, default 4), online top_k (1-50, default 6)
+  min_score (0.00-1.00, default 0.10 offline / 0.08 online)
   Hybrid search (ON), Reranker (OFF -- keep OFF for eval accuracy)
-  Max tokens (256-4096), Temperature (0.00-1.00, default 0.05)
+  Num predict offline default 384, Max tokens online default 1024
+  Temperature (0.00-1.00, default 0.05)
   Timeout (10-120s), Profile selector
 
 ADMIN MENU SWITCH (Admin > Production API Auth Guard):
@@ -292,7 +295,7 @@ EMBEDDING: nomic-embed-text (768d, 274MB, Apache 2.0, served by Ollama)
 STORAGE: SQLite + NumPy memmap (float16). No external DB server.
 RETRIEVAL: Hybrid vector + BM25 via RRF (k=60). Reranker available but OFF.
 CHUNKING: 1200 chars, 200 overlap, smart boundary detection, heading prepend.
-LLM OFFLINE: Ollama (phi4:14b-q4_K_M default). vLLM on workstation.
+LLM OFFLINE: Ollama (phi4-mini default; phi4:14b-q4_K_M optional on workstation).
 LLM ONLINE: OpenRouter / Azure OpenAI / OpenAI (openai SDK 1.109.1).
 GUI: tkinter (stdlib, zero deps). REST API: FastAPI 0.115.0 + Uvicorn.
 PARSING: pdfplumber, python-docx, openpyxl, python-pptx, pytesseract, Pillow.
@@ -624,23 +627,22 @@ RETRIEVAL_SETTINGS = [
 ]
 
 LLM_SETTINGS = [
-    ("model (offline)", "phi4:14b-q4_K_M", "--",
+    ("model (offline)", "phi4-mini", "--",
      "Primary Ollama model for offline queries.",
-     "14B params, MIT license, Microsoft/USA. Quantized Q4_K_M for 12GB GPU."),
+     "3.8B params, MIT license, Microsoft/USA. Tuned March 2026 default."),
     ("temperature", "0.05", "0.0-2.0",
      "Randomness in LLM output.",
      "Lower = more focused/consistent. 0.05 tuned for factual accuracy. "
      "Raise to 0.3-0.7 for creative/brainstorming tasks."),
-    ("timeout_seconds", "600", "30-1200",
+    ("timeout_seconds", "180", "30-1200",
      "Max wait time for Ollama response.",
-     "600s (10min) allows slow hardware to finish long responses. "
-     "Reduce to 120s on fast hardware."),
+     "180s matches the tuned offline baseline without hiding hung calls."),
     ("context_window", "4096", "2048-131072",
      "Max tokens the model sees at once.",
-     "4096 is the stability baseline for phi4:14b-q4_K_M on 12GB-class GPUs."),
-    ("max_tokens (online)", "2048", "256-8192",
+     "4096 is the tuned offline stability baseline for phi4-mini."),
+    ("max_tokens (online)", "1024", "256-16384",
      "Max output tokens for API mode responses.",
-     "2048 is generous for most answers. Reduce to save cost on simple queries."),
+     "1024 is the tuned online default. Raise only when evals justify the extra cost."),
 ]
 
 PROFILES = [
@@ -664,14 +666,11 @@ MODEL_RANKING = [
 ]
 
 TUNING_LOG = """\
-SESSION 11: OPTIMIZATION CAMPAIGN
-  Result: 98% pass rate on 400-question golden set
-  LLM: API via OpenRouter, temperature=0.05
-  Config: min_score=0.10, top_k=12 (eval), reranker_enabled=false
-  Prompt: v4, 9-rule source-bounded generation with priority ordering
-  8 known failures:
-    - 6 log retention questions (embedding quality issue)
-    - 2 calibration questions (fixed by adding Exact: rule)
+SESSION 13: MODE DEFAULT ALIGNMENT
+  Result: shipped defaults now match the tuned March 2026 baselines
+  Offline: phi4-mini, top_k=4, min_score=0.10, num_predict=384
+  Online: top_k=6, min_score=0.08, max_tokens=1024
+  Prompt: source-bounded generation, reranker_enabled=false
 
 CRITICAL FINDINGS:
   - Reranker ON destroys multi-type eval scores:

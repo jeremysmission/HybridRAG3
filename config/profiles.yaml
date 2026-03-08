@@ -25,7 +25,7 @@
 #   - Embedding model (nomic-embed-text 768d, served by Ollama)
 #   - Embedding device (cpu / cuda)
 #   - LLM model (phi4-mini / mistral-nemo:12b / phi4:14b-q4_K_M)
-#   - Batch size, top_k, block_chars, concurrency
+#   - Batch size, block_chars, concurrency
 #
 # IMPORTANT:
 #   Switching to a profile with a DIFFERENT embedding model requires a
@@ -50,7 +50,6 @@ laptop_safe:
     chunk_size: 1200
     overlap: 200
   retrieval:
-    top_k: 5                    # Fewer results = faster query
     reranker_top_n: 20
   indexing:
     block_chars: 200000          # 200K chars per block (RAM-safe)
@@ -81,7 +80,6 @@ desktop_power:
     chunk_size: 1200
     overlap: 200
   retrieval:
-    top_k: 5                    # Keep prompt small for lower latency
     reranker_top_n: 20
   indexing:
     block_chars: 500000          # 500K chars per block
@@ -112,7 +110,6 @@ server_max:
     chunk_size: 1200
     overlap: 200
   retrieval:
-    top_k: 10                   # Higher recall for server-class hardware
     reranker_top_n: 30
   indexing:
     block_chars: 1000000         # 1M chars per block

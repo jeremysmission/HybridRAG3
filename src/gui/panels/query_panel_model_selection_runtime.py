@@ -11,6 +11,7 @@ from scripts._model_meta import (
 )
 from src.core.llm_router import get_available_deployments
 from src.core.model_identity import canonicalize_model_name
+from src.core.query_mode import apply_query_mode_to_config, apply_query_mode_to_engine
 from src.gui.helpers.mode_tuning import update_mode_setting
 from src.gui.helpers.safe_after import safe_after
 from src.gui.panels.query_constants import (
@@ -274,19 +275,17 @@ def _apply_grounding_bias_live(self, bias: int):
     """
     b = max(0, min(10, int(bias)))
     allow_open_knowledge = bool(self._open_knowledge_var.get())
-    guard_on = b > 0
-    threshold = 0.35 + (max(1, b) / 10.0) * 0.55
-    min_chunks = 1 if b <= 4 else 2 if b <= 7 else 3
-    guard_min_score = 0.00 if b <= 2 else 0.03 if b <= 4 else 0.06 if b <= 7 else 0.10
-    action = "flag" if b <= 5 else "block"
-
-    # Config object update (if fields exist)
+    settings = None
     try:
-        hg = getattr(self.config, "hallucination_guard", None)
-        if hg is not None:
-            hg.enabled = bool(guard_on)
-            hg.threshold = float(round(threshold, 2))
-            hg.failure_action = action
+        query_cfg = getattr(self.config, "query", None)
+        if query_cfg is None:
+            from types import SimpleNamespace
+
+            query_cfg = SimpleNamespace()
+            setattr(self.config, "query", query_cfg)
+        query_cfg.grounding_bias = int(b)
+        query_cfg.allow_open_knowledge = allow_open_knowledge
+        settings = apply_query_mode_to_config(self.config)
     except Exception:
         logger.debug("Grounding bias config update failed", exc_info=True)
 
@@ -294,17 +293,20 @@ def _apply_grounding_bias_live(self, bias: int):
     qe = self.query_engine
     if qe is not None:
         try:
-            setattr(qe, "allow_open_knowledge", allow_open_knowledge)
-            if hasattr(qe, "guard_enabled"):
-                qe.guard_enabled = bool(guard_on)
-            if hasattr(qe, "guard_threshold"):
-                qe.guard_threshold = float(round(threshold, 2))
-            if hasattr(qe, "guard_min_chunks"):
-                qe.guard_min_chunks = int(min_chunks)
-            if hasattr(qe, "guard_min_score"):
-                qe.guard_min_score = float(guard_min_score)
-            if hasattr(qe, "guard_action"):
-                qe.guard_action = action
+            if hasattr(qe, "config"):
+                apply_query_mode_to_engine(qe, sync_guard_policy=True)
+            elif settings is not None:
+                setattr(qe, "allow_open_knowledge", settings["allow_open_knowledge"])
+                if hasattr(qe, "guard_enabled"):
+                    qe.guard_enabled = settings["guard_enabled"]
+                if hasattr(qe, "guard_threshold"):
+                    qe.guard_threshold = settings["guard_threshold"]
+                if hasattr(qe, "guard_min_chunks"):
+                    qe.guard_min_chunks = settings["guard_min_chunks"]
+                if hasattr(qe, "guard_min_score"):
+                    qe.guard_min_score = settings["guard_min_score"]
+                if hasattr(qe, "guard_action"):
+                    qe.guard_action = settings["guard_action"]
         except Exception:
             logger.debug("Grounding bias live-update failed", exc_info=True)
 

@@ -61,6 +61,12 @@ REF_PATH = _project_root / "src" / "gui" / "panels" / "reference_panel.py"
 APP_PATH = _project_root / "src" / "gui" / "app.py"
 
 
+def _workspace_tmp_dir(prefix: str) -> str:
+    base = _project_root / "output" / "virtual_tmp"
+    base.mkdir(parents=True, exist_ok=True)
+    return tempfile.mkdtemp(prefix=prefix, dir=str(base))
+
+
 # ============================================================================
 # SIM-01: FILE INTEGRITY
 # ============================================================================
@@ -464,11 +470,11 @@ def _():
     assert "from src.gui.panels.reference_panel import ReferencePanel" in content
 
 
-@test("Admin menu has 'Ref' item")
+@test("Admin menu has reference item")
 def _():
     content = APP_PATH.read_text(encoding="utf-8")
-    assert '"Ref"' in content, \
-        "Admin menu must have a 'Ref' menu item"
+    assert '"Reference"' in content or '"Ref"' in content, \
+        "Admin menu must have a Reference/Ref menu item"
 
 
 @test("Admin menu Ref item switches to reference view")
@@ -487,7 +493,7 @@ def _():
 
 @test("Sticky notes round-trip (write, read back)")
 def _():
-    tmp = tempfile.mkdtemp(prefix="ref_notes_")
+    tmp = _workspace_tmp_dir("ref_notes_")
     try:
         notes_path = os.path.join(tmp, "config", "sticky_notes.txt")
         os.makedirs(os.path.dirname(notes_path), exist_ok=True)
@@ -504,7 +510,7 @@ def _():
 
 @test("Sticky notes purge deletes file")
 def _():
-    tmp = tempfile.mkdtemp(prefix="ref_notes_")
+    tmp = _workspace_tmp_dir("ref_notes_")
     try:
         notes_path = os.path.join(tmp, "config", "sticky_notes.txt")
         os.makedirs(os.path.dirname(notes_path), exist_ok=True)

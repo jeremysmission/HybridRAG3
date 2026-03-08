@@ -413,13 +413,14 @@ rag-mode-offline
 
 ## Part 4: Performance Profiles
 
-Three profiles adapt the system to different hardware.
+Three profiles adapt the system to different hardware without overwriting
+the tuned query defaults.
 
-| Profile | RAM | Batch Size | Search top_k | Use Case |
-|---------|-----|-----------|-------------|----------|
-| `laptop_safe` | 8-16 GB | 16 | 5 | Default. Slow but stable. |
-| `desktop_power` | 32-64 GB | 64 | 10 | Faster indexing and search. |
-| `server_max` | 64+ GB | 128 | 15 | Maximum throughput. |
+| Profile | RAM | Batch Size | Query Tuning | Use Case |
+|---------|-----|-----------|--------------|----------|
+| `laptop_safe` | 8-16 GB | 16 | Preserved | Default. Slow but stable. |
+| `desktop_power` | 32-64 GB | 64 | Preserved | Faster indexing and search. |
+| `server_max` | 64+ GB | 128 | Preserved | Maximum throughput. |
 
 ### Check Current Profile
 
@@ -471,7 +472,7 @@ chunking:
   overlap: 200                       # Overlap between chunks
 
 retrieval:
-  top_k: 5                          # Chunks sent to LLM
+  top_k: 4                          # Offline tuned default
   min_score: 0.1                    # Minimum relevance score
   hybrid_search: true               # Vector + BM25 fusion
   reranker_enabled: false           # Keep OFF (see warnings below)
@@ -488,7 +489,7 @@ ollama:
 api:
   endpoint: ''                       # Set via rag-store-endpoint
   temperature: 0.05                  # Low = deterministic answers
-  max_tokens: 2048                   # Max answer length in tokens
+  max_tokens: 1024                   # Online tuned default
 ```
 
 Any setting can be overridden with an environment variable:

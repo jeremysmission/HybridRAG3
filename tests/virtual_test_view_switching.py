@@ -54,6 +54,7 @@ report.files_modified = [
     "src/gui/panels/cost_dashboard.py",
     "src/gui/panels/reference_panel.py",
     "src/gui/app.py",
+    "src/gui/app_runtime.py",
     "src/gui/panels/engineering_menu.py (DELETED)",
 ]
 
@@ -64,6 +65,7 @@ SETTINGS_VIEW = ROOT / "src" / "gui" / "panels" / "settings_view.py"
 COST_DASHBOARD = ROOT / "src" / "gui" / "panels" / "cost_dashboard.py"
 REFERENCE_PANEL = ROOT / "src" / "gui" / "panels" / "reference_panel.py"
 APP_PY = ROOT / "src" / "gui" / "app.py"
+APP_RUNTIME = ROOT / "src" / "gui" / "app_runtime.py"
 ENG_MENU = ROOT / "src" / "gui" / "panels" / "engineering_menu.py"
 LAUNCH_GUI = ROOT / "src" / "gui" / "launch_gui.py"
 
@@ -112,6 +114,7 @@ MODIFIED_FILES = {
     "cost_dashboard.py": COST_DASHBOARD,
     "reference_panel.py": REFERENCE_PANEL,
     "app.py": APP_PY,
+    "app_runtime.py": APP_RUNTIME,
 }
 ALL_FILES = {**NEW_FILES, **MODIFIED_FILES}
 
@@ -168,9 +171,9 @@ def _():
     assert "class NavBar" in nav_src, "class NavBar not found"
 
 
-@test("NavBar has 4 tabs: Query, Settings, Cost, Ref")
+@test("NavBar includes core tabs: Query, Settings, Cost, Reference")
 def _():
-    for tab_name in ["Query", "Settings", "Cost", "Ref"]:
+    for tab_name in ["Query", "Settings", "Cost", "Reference"]:
         assert '"{}"'.format(tab_name) in nav_src, "Tab '{}' not found in TABS".format(tab_name)
 
 
@@ -198,54 +201,56 @@ def _():
 # ============================================================================
 # SIM-03: VIEW SWITCHING MECHANISM
 # ============================================================================
-section("SIM-03: VIEW SWITCHING MECHANISM (app.py)")
+section("SIM-03: VIEW SWITCHING MECHANISM (app.py + app_runtime.py)")
 
 app_src = _read(APP_PY)
+app_runtime_src = _read(APP_RUNTIME)
+app_combined_src = app_src + "\n" + app_runtime_src
 
 
 @test("app.py has show_view() method")
 def _():
-    assert "def show_view(" in app_src, "show_view() not found"
+    assert "def show_view(" in app_combined_src, "show_view() not found"
 
 
 @test("app.py has _build_content_frame() method")
 def _():
-    assert "def _build_content_frame(" in app_src, "_build_content_frame() not found"
+    assert "def _build_content_frame(" in app_combined_src, "_build_content_frame() not found"
 
 
 @test("app.py has _build_view() for lazy construction")
 def _():
-    assert "def _build_view(" in app_src, "_build_view() not found"
+    assert "def _build_view(" in app_combined_src, "_build_view() not found"
 
 
 @test("app.py has _build_query_view() for eager build")
 def _():
-    assert "def _build_query_view(" in app_src, "_build_query_view() not found"
+    assert "def _build_query_view(" in app_combined_src, "_build_query_view() not found"
 
 
 @test("_views dict exists in app.py")
 def _():
-    assert "_views" in app_src, "_views dict not found"
+    assert "_views" in app_combined_src, "_views dict not found"
 
 
 @test("_current_view tracking exists in app.py")
 def _():
-    assert "_current_view" in app_src, "_current_view not found"
+    assert "_current_view" in app_combined_src, "_current_view not found"
 
 
 @test("pack_forget used for view hiding")
 def _():
-    assert "pack_forget" in app_src, "pack_forget not used for instant view switching"
+    assert "pack_forget" in app_combined_src, "pack_forget not used for instant view switching"
 
 
 @test("Admin menu commands call show_view() not _open_*")
 def _():
-    assert "_open_engineering_menu" not in app_src, "Old _open_engineering_menu still present"
-    assert "_open_cost_dashboard" not in app_src, "Old _open_cost_dashboard still present"
-    assert "_open_reference" not in app_src, "Old _open_reference still present"
-    assert 'show_view("settings")' in app_src, "Menu does not call show_view(settings)"
-    assert 'show_view("cost")' in app_src, "Menu does not call show_view(cost)"
-    assert 'show_view("reference")' in app_src, "Menu does not call show_view(reference)"
+    assert "_open_engineering_menu" not in app_combined_src, "Old _open_engineering_menu still present"
+    assert "_open_cost_dashboard" not in app_combined_src, "Old _open_cost_dashboard still present"
+    assert "_open_reference" not in app_combined_src, "Old _open_reference still present"
+    assert 'show_view("settings")' in app_combined_src, "Menu does not call show_view(settings)"
+    assert 'show_view("cost")' in app_combined_src, "Menu does not call show_view(cost)"
+    assert 'show_view("reference")' in app_combined_src, "Menu does not call show_view(reference)"
 
 
 # ============================================================================
@@ -426,22 +431,22 @@ section("SIM-07: INTEGRATION + REGRESSION")
 
 @test("app.py does NOT import EngineeringMenu")
 def _():
-    assert "EngineeringMenu" not in app_src, "EngineeringMenu still imported in app.py"
-    assert "engineering_menu" not in app_src, "engineering_menu module still referenced"
+    assert "EngineeringMenu" not in app_combined_src, "EngineeringMenu still imported in app.py"
+    assert "engineering_menu" not in app_combined_src, "engineering_menu module still referenced"
 
 
 @test("app.py imports NavBar and SettingsView (or lazy imports)")
 def _():
-    assert "NavBar" in app_src, "NavBar not referenced in app.py"
+    assert "NavBar" in app_combined_src, "NavBar not referenced in app.py"
     # SettingsView can be lazy-imported inside _build_view
-    assert "SettingsView" in app_src, "SettingsView not referenced in app.py"
+    assert "SettingsView" in app_combined_src, "SettingsView not referenced in app.py"
 
 
 @test("No Toplevel references for settings/cost/reference in app.py")
 def _():
     # Should not have Toplevel in the context of building settings/cost/ref views
     # (CostDashboard and ReferencePanel are imported but are now Frames)
-    lines = app_src.split("\n")
+    lines = app_combined_src.split("\n")
     for i, line in enumerate(lines, 1):
         stripped = line.strip()
         if stripped.startswith("#"):
@@ -452,7 +457,7 @@ def _():
 
 @test("Status bar still packed side=BOTTOM")
 def _():
-    assert "side=tk.BOTTOM" in app_src, "Status bar not packed BOTTOM"
+    assert "side=tk.BOTTOM" in app_runtime_src, "Status bar not packed BOTTOM"
 
 
 @test("IBIT/CBIT still wired (launch_gui.py references intact)")
@@ -464,21 +469,23 @@ def _():
 
 @test("Title bar still has mode toggles and theme button")
 def _():
-    assert "toggle_mode" in app_src, "toggle_mode not found"
-    assert "theme_btn" in app_src, "theme_btn not found"
-    assert "_toggle_theme" in app_src, "_toggle_theme not found"
+    assert "toggle_mode" in app_combined_src, "toggle_mode not found"
+    assert "theme_btn" in app_runtime_src, "theme_btn not found"
+    assert "offline_btn" in app_runtime_src, "offline_btn not found"
+    assert "online_btn" in app_runtime_src, "online_btn not found"
+    assert "_toggle_theme" in app_combined_src, "_toggle_theme not found"
 
 
 @test("Nav bar theme propagation in _apply_theme_to_all")
 def _():
-    assert "nav_bar.apply_theme" in app_src, "nav_bar.apply_theme not in _apply_theme_to_all"
+    assert "nav_bar.apply_theme" in app_runtime_src, "nav_bar.apply_theme not in _apply_theme_to_all"
 
 
 @test("Cleanup calls cost dashboard cleanup on close")
 def _():
-    assert "cleanup" in app_src, "cleanup not called in _on_close"
+    assert "cleanup" in app_runtime_src, "cleanup not called in _on_close"
     # Check that _on_close references cost view cleanup
-    on_close_section = app_src[app_src.index("def _on_close"):]
+    on_close_section = app_runtime_src[app_runtime_src.index("def _on_close"):]
     assert "cost" in on_close_section[:300], "cost view cleanup not in _on_close"
 
 
@@ -523,7 +530,7 @@ def _():
     # Verify the TABS names in NavBar match what app.py expects
     for name in ["query", "settings", "cost", "reference"]:
         assert '"{}"'.format(name) in nav_src, "View name '{}' missing from NavBar TABS".format(name)
-        assert '"{}"'.format(name) in app_src, "View name '{}' missing from app.py".format(name)
+        assert '"{}"'.format(name) in app_combined_src, "View name '{}' missing from app.py".format(name)
 
 
 @test("No orphan imports (no unused engineering_menu imports anywhere)")

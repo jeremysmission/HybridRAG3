@@ -7,7 +7,7 @@ Outputs: Console messages, changed files, or system configuration updates.
 Safety notes: Run in a test environment before using on production systems.
 =============================
 #>
-﻿param(
+param(
     [string]$PrivateRepo = "D:\HybridRAG3",
     [string]$EducationalRepo = "D:\HybridRAG3_Educational",
     [switch]$SkipSync,

@@ -1,16 +1,12 @@
 #!/usr/bin/env python
 """
-Synchronize the single mode config overrides for both offline and online.
+Synchronize the mirrored per-mode overrides inside config/user_overrides.yaml.
 
 Run this after you update the admin panel knobs or want to hard-reset both
-sections to the tuned March 7 winners.
+offline and online sections to the tuned March 7 winners.
 
 Examples:
   python tools/sync_mode_overrides.py --api-endpoint https://openrouter.example/v1/chat/completions --api-model gpt-4o-mini
-
-By default it preserves whatever endpoint/key you already configured and only
-overwrites the other tuned fields (top_k, min_score, num_predict/max_tokens,
-colorspace of timeouts, etc.).
 """
 
 from __future__ import annotations
@@ -24,30 +20,45 @@ import yaml
 DEFAULTS = {
     "tuned_date": "2026-03-07",
     "offline": {
-        "ollama": {
-            "model": "phi4:14b-q4_K_M",
-            "context_window": 4096,
-            "timeout_seconds": 180,
-            "temperature": 0.05,
-            "base_url": "http://localhost:11434",
-            "num_predict": 384,
-        },
         "retrieval": {
             "hybrid_search": True,
             "top_k": 4,
             "min_score": 0.10,
+            "reranker_enabled": False,
+            "reranker_top_n": 20,
+        },
+        "ollama": {
+            "model": "phi4-mini",
+            "context_window": 4096,
+            "timeout_seconds": 180,
+            "temperature": 0.05,
+            "base_url": "http://127.0.0.1:11434",
+            "num_predict": 384,
+        },
+        "query": {
+            "grounding_bias": 8,
+            "allow_open_knowledge": True,
         },
     },
     "online": {
-        "api": {
-            "max_tokens": 1024,
-            "temperature": 0.05,
-            "timeout_seconds": 180,
-        },
         "retrieval": {
             "hybrid_search": True,
             "top_k": 6,
             "min_score": 0.08,
+            "reranker_enabled": False,
+            "reranker_top_n": 20,
+        },
+        "api": {
+            "max_tokens": 1024,
+            "context_window": 128000,
+            "temperature": 0.05,
+            "timeout_seconds": 180,
+            "model": "",
+            "deployment": "",
+        },
+        "query": {
+            "grounding_bias": 7,
+            "allow_open_knowledge": True,
         },
     },
 }
@@ -78,25 +89,48 @@ def main() -> None:
     overrides_path = Path("config/user_overrides.yaml")
     overrides = load_yaml(overrides_path)
 
+    overrides["mode_store_version"] = 2
     overrides["mode"] = overrides.get("mode", "offline")
     overrides.setdefault("embedding", {})
     overrides.setdefault("indexing", overrides.get("indexing", {}))
 
-    offline = overrides.get("ollama", {})
-    offline.update(DEFAULTS["offline"]["ollama"])
-    overrides["ollama"] = offline
-    overrides.setdefault("retrieval", {}).update(DEFAULTS["offline"]["retrieval"])
-
     online_api = overrides.get("api", {})
-    online_api.update(DEFAULTS["online"]["api"])
     if args.api_endpoint:
         online_api["endpoint"] = args.api_endpoint
     if args.api_model:
         online_api["model"] = args.api_model
     overrides["api"] = online_api
+    modes = overrides.setdefault("modes", {})
+    if not isinstance(modes, dict):
+        modes = {}
+        overrides["modes"] = modes
 
-    online_retrieval = overrides.setdefault("retrieval_online", {})
-    online_retrieval.update(DEFAULTS["online"]["retrieval"])
+    for mode_name in ("offline", "online"):
+        entry = modes.setdefault(mode_name, {})
+        if not isinstance(entry, dict):
+            entry = {}
+            modes[mode_name] = entry
+        for section_name, values in DEFAULTS[mode_name].items():
+            section = entry.setdefault(section_name, {})
+            if not isinstance(section, dict):
+                section = {}
+                entry[section_name] = section
+            section.update(values)
+        defaults = entry.setdefault("defaults", {})
+        locks = entry.setdefault("locks", {})
+        for section_name, values in DEFAULTS[mode_name].items():
+            if section_name == "query":
+                continue
+            for key, value in values.items():
+                defaults[key] = value
+                locks.setdefault(key, False)
+        for key, value in DEFAULTS[mode_name]["query"].items():
+            defaults[key] = value
+            locks.setdefault(key, False)
+
+    if args.api_model:
+        modes["online"]["api"]["model"] = args.api_model
+        modes["online"]["api"]["deployment"] = args.api_model
 
     overrides["tuned_baseline"] = {
         "date": args.tune_date,
@@ -106,8 +140,8 @@ def main() -> None:
 
     save_yaml(overrides_path, overrides)
     print("Updated", overrides_path.resolve())
-    print("Offline defaults point to", overrides["ollama"]["model"], "with", overrides["retrieval"])
-    print("Online defaults point to", online_api.get("model", "<unset>"), "with", online_retrieval)
+    print("Offline defaults point to", modes["offline"]["ollama"]["model"], "with", modes["offline"]["retrieval"])
+    print("Online defaults point to", modes["online"]["api"].get("model", "<unset>"), "with", modes["online"]["retrieval"])
 
 
 if __name__ == "__main__":

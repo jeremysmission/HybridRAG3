@@ -7,7 +7,7 @@ Outputs: Console messages, changed files, or system configuration updates.
 Safety notes: Run in a test environment before using on production systems.
 =============================
 #>
-﻿# ============================================================================
+# ============================================================================
 # HybridRAG3 -- Automated Home/Personal Setup
 # Date: 2026-02-25
 # Uses: requirements.txt (personal, more software liberty)

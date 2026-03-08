@@ -138,7 +138,7 @@ Click **Admin > Admin Settings**.
 > we used to achieve 98% accuracy on our evaluation set."*
 
 Point out key sliders:
-- **top_k**: how many chunks to retrieve (currently 12)
+- **top_k**: how many chunks to retrieve (currently 4 offline / 6 online)
 - **min_score**: minimum relevance threshold (currently 0.10)
 - **temperature**: LLM creativity (currently 0.05 -- very precise)
 

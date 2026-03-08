@@ -90,3 +90,39 @@ def test_grounded_stream_empty_generator_falls_back_to_non_stream_query():
     assert done[0]["result"].error is None
     assert done[0]["result"].answer == "Guarded fallback answer."
     assert router.query.called is True
+
+
+def test_grounded_online_prompt_uses_trimmed_context_blocks_and_system_user_split():
+    engine, _ = _make_engine()
+    engine.config.mode = "online"
+    engine._guard_available = True
+
+    captured = {}
+
+    def fake_harden(system_prompt, user_query, chunks, source_files=None):
+        captured["system_prompt"] = system_prompt
+        captured["user_query"] = user_query
+        captured["chunks"] = list(chunks)
+        return {
+            "system": "HARDENED SYSTEM",
+            "user": "HARDENED USER",
+        }
+
+    engine._harden_prompt = fake_harden
+    context = "[Source 1] /docs/manual.txt\nTrimmed evidence only."
+    hits = [
+        SimpleNamespace(
+            text="UNTRIMMED HIT TEXT SHOULD NOT BE USED",
+            source_path="/docs/manual.txt",
+            chunk_index=0,
+            score=0.92,
+        )
+    ]
+
+    prompt = engine._build_grounded_prompt("What is the threshold?", context, hits)
+
+    assert captured["user_query"] == "What is the threshold?"
+    assert captured["chunks"] == [context]
+    assert "Trimmed evidence only." in captured["chunks"][0]
+    assert "UNTRIMMED HIT TEXT SHOULD NOT BE USED" not in captured["chunks"][0]
+    assert prompt.startswith("HARDENED SYSTEM\n\nContext:\nHARDENED USER")

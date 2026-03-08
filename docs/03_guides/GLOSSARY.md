@@ -94,7 +94,7 @@ Last Updated: 2026-02-27
 | **Structured logging** | Logging where each entry is a data object with typed fields (timestamp, level, module, message) rather than plain text |
 | **Tkinter** | Python's built-in GUI toolkit. Included with Python, no additional installation needed |
 | **Token** | The smallest unit of text that an LLM processes. Roughly 1 token = 0.75 words. Used for cost estimation |
-| **Top-K** | The number of highest-scoring search results to return. top_k=12 means the 12 most relevant chunks are sent to the LLM |
+| **Top-K** | The number of highest-scoring search results to return. The current tuned defaults are top_k=4 offline and top_k=6 online. |
 | **Vector** | An ordered list of numbers. In RAG, a 768-dimensional vector represents the meaning of a text chunk |
 | **Vector store** | A database optimized for storing and searching embedding vectors |
 | **Virtual environment** | An isolated Python installation that keeps project dependencies separate from the system Python |

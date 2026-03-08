@@ -122,6 +122,13 @@ class FakeRetrievalConfig:
 
 
 @dataclass
+class FakeQueryConfig:
+    """Fake config section for query-time grounding/fallback controls."""
+    grounding_bias: int = 7
+    allow_open_knowledge: bool = True
+
+
+@dataclass
 class FakeVLLMConfig:
     """Fake config section for vLLM settings."""
     base_url: str = "http://localhost:8000"
@@ -176,6 +183,7 @@ class FakeConfig:
     cost: FakeCostConfig = field(default_factory=FakeCostConfig)
     chunking: FakeChunkingConfig = field(default_factory=FakeChunkingConfig)
     retrieval: FakeRetrievalConfig = field(default_factory=FakeRetrievalConfig)
+    query: FakeQueryConfig = field(default_factory=FakeQueryConfig)
     indexing: FakeIndexingConfig = field(default_factory=FakeIndexingConfig)
 
 

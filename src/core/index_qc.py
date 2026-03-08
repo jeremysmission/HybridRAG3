@@ -109,18 +109,29 @@ def detect_index_contamination(
         normalized_source = _normalize_path(source_path)
         flags: list[str] = []
 
-        if normalized_source and "\\appdata\\local\\temp\\" in normalized_source:
-            flags.append("temp_path")
-            temp_count += 1
-
         if normalized_source.startswith("\\\\?\\"):
             normalized_source = normalized_source[4:]
 
+        # Determine if the file lives under source_root first so we can
+        # skip the temp-path heuristic for legitimate source files (the
+        # source_root itself may reside inside a temp directory).
+        inside_root = False
         if root_path is not None and source_path:
             source_obj = Path(source_path)
-            if source_obj.is_absolute() and not _is_relative_to(source_obj, root_path):
-                flags.append("outside_source_root")
-                outside_root_count += 1
+            if source_obj.is_absolute():
+                if _is_relative_to(source_obj, root_path):
+                    inside_root = True
+                else:
+                    flags.append("outside_source_root")
+                    outside_root_count += 1
+
+        if (
+            not inside_root
+            and normalized_source
+            and "\\appdata\\local\\temp\\" in normalized_source
+        ):
+            flags.append("temp_path")
+            temp_count += 1
 
         if flags:
             suspicious_sources.append(
