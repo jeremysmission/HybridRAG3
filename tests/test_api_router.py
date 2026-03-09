@@ -178,6 +178,10 @@ class TestAPIRouter:
         config = FakeConfig(mode="online")
         config.api.max_tokens = 1024
         config.api.temperature = 0.7
+        config.api.top_p = 0.85
+        config.api.presence_penalty = 0.2
+        config.api.frequency_penalty = 0.1
+        config.api.seed = 7
 
         # WHY mock get_gate here:
         #   query() calls get_gate().check_allowed() per-call (mode may have
@@ -235,6 +239,11 @@ class TestAPIRouter:
         assert result.tokens_out == 30
         assert result.model == "gpt-3.5-turbo"
         assert result.latency_ms > 0
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert call_kwargs["top_p"] == 0.85
+        assert call_kwargs["presence_penalty"] == 0.2
+        assert call_kwargs["frequency_penalty"] == 0.1
+        assert call_kwargs["seed"] == 7
 
     def test_query_uses_deployment_fallback_for_non_azure_model(self):
         """Non-Azure mode should fall back from api.model to api.deployment."""
@@ -280,6 +289,48 @@ class TestAPIRouter:
         assert config.api.model == ""
         assert result is not None
         assert result.model == "gpt-4o"
+
+    def test_query_uses_max_completion_tokens_for_official_openai(self):
+        """Official OpenAI endpoints should receive the GPT-4o token-budget field."""
+        config = FakeConfig(mode="online")
+        config.api.endpoint = "https://api.openai.com/v1/chat/completions"
+        config.api.max_tokens = 2048
+
+        mock_gate = MagicMock()
+        mock_gate.check_allowed.return_value = None
+
+        with patch("src.core.llm_router.get_gate", return_value=mock_gate):
+            with patch("src.core.llm_router.get_app_logger") as mock_logger:
+                mock_logger.return_value = MagicMock()
+
+                with patch("openai.OpenAI") as MockOpenAI:
+                    mock_choice = MagicMock()
+                    mock_choice.message.content = "ok"
+
+                    mock_usage = MagicMock()
+                    mock_usage.prompt_tokens = 10
+                    mock_usage.completion_tokens = 5
+
+                    mock_completion = MagicMock()
+                    mock_completion.choices = [mock_choice]
+                    mock_completion.usage = mock_usage
+                    mock_completion.model = "gpt-4o"
+
+                    mock_client = MagicMock()
+                    mock_client.chat.completions.create.return_value = mock_completion
+                    MockOpenAI.return_value = mock_client
+
+                    from src.core.llm_router import APIRouter
+                    router = APIRouter(
+                        config, "test-key", config.api.endpoint
+                    )
+
+                    result = router.query("Budget test")
+
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert call_kwargs["max_completion_tokens"] == 2048
+        assert "max_tokens" not in call_kwargs
+        assert result is not None
 
     # ------------------------------------------------------------------
     # Test 2.7: API query with no client (SDK not installed)

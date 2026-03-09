@@ -19,6 +19,8 @@ MODE_TUNING_KEYS = {
         "context_window",
         "num_predict",
         "temperature",
+        "top_p",
+        "seed",
         "timeout_seconds",
         "grounding_bias",
         "allow_open_knowledge",
@@ -32,6 +34,10 @@ MODE_TUNING_KEYS = {
         "context_window",
         "max_tokens",
         "temperature",
+        "top_p",
+        "presence_penalty",
+        "frequency_penalty",
+        "seed",
         "timeout_seconds",
         "grounding_bias",
         "allow_open_knowledge",
@@ -48,6 +54,10 @@ MODE_KEY_TYPES = {
     "num_predict": int,
     "max_tokens": int,
     "temperature": float,
+    "top_p": float,
+    "presence_penalty": float,
+    "frequency_penalty": float,
+    "seed": int,
     "timeout_seconds": int,
     "grounding_bias": int,
     "allow_open_knowledge": bool,
@@ -67,6 +77,8 @@ MODE_TUNED_DEFAULTS = {
         "context_window": 4096,
         "num_predict": 384,
         "temperature": 0.05,
+        "top_p": 0.90,
+        "seed": 0,
         "timeout_seconds": 180,
         "grounding_bias": 8,
         "allow_open_knowledge": True,
@@ -80,6 +92,10 @@ MODE_TUNED_DEFAULTS = {
         "context_window": 128000,
         "max_tokens": 1024,
         "temperature": 0.05,
+        "top_p": 1.0,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0,
+        "seed": 0,
         "timeout_seconds": 180,
         "grounding_bias": 7,
         "allow_open_knowledge": True,
@@ -101,6 +117,8 @@ MODE_RUNTIME_DEFAULTS = {
             "context_window": 4096,
             "num_predict": 384,
             "temperature": 0.05,
+            "top_p": 0.90,
+            "seed": 0,
             "timeout_seconds": 180,
         },
         "query": {
@@ -122,6 +140,10 @@ MODE_RUNTIME_DEFAULTS = {
             "context_window": 128000,
             "max_tokens": 1024,
             "temperature": 0.05,
+            "top_p": 1.0,
+            "presence_penalty": 0.0,
+            "frequency_penalty": 0.0,
+            "seed": 0,
             "timeout_seconds": 180,
         },
         "query": {
@@ -141,6 +163,8 @@ MODE_RUNTIME_PATHS = {
         "context_window": ("ollama", "context_window"),
         "num_predict": ("ollama", "num_predict"),
         "temperature": ("ollama", "temperature"),
+        "top_p": ("ollama", "top_p"),
+        "seed": ("ollama", "seed"),
         "timeout_seconds": ("ollama", "timeout_seconds"),
         "grounding_bias": ("query", "grounding_bias"),
         "allow_open_knowledge": ("query", "allow_open_knowledge"),
@@ -154,6 +178,10 @@ MODE_RUNTIME_PATHS = {
         "context_window": ("api", "context_window"),
         "max_tokens": ("api", "max_tokens"),
         "temperature": ("api", "temperature"),
+        "top_p": ("api", "top_p"),
+        "presence_penalty": ("api", "presence_penalty"),
+        "frequency_penalty": ("api", "frequency_penalty"),
+        "seed": ("api", "seed"),
         "timeout_seconds": ("api", "timeout_seconds"),
         "grounding_bias": ("query", "grounding_bias"),
         "allow_open_knowledge": ("query", "allow_open_knowledge"),
@@ -199,12 +227,32 @@ def snapshot_mode_entry(config, mode: str) -> dict[str, Any]:
 
     if mode == "online":
         if api is not None:
-            for key in ("model", "deployment", "context_window", "max_tokens", "temperature", "timeout_seconds"):
+            for key in (
+                "model",
+                "deployment",
+                "context_window",
+                "max_tokens",
+                "temperature",
+                "top_p",
+                "presence_penalty",
+                "frequency_penalty",
+                "seed",
+                "timeout_seconds",
+            ):
                 if hasattr(api, key):
                     entry["api"][key] = getattr(api, key)
     else:
         if ollama is not None:
-            for key in ("model", "base_url", "context_window", "num_predict", "temperature", "timeout_seconds"):
+            for key in (
+                "model",
+                "base_url",
+                "context_window",
+                "num_predict",
+                "temperature",
+                "top_p",
+                "seed",
+                "timeout_seconds",
+            ):
                 if hasattr(ollama, key):
                     entry["ollama"][key] = getattr(ollama, key)
 

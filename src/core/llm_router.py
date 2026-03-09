@@ -163,6 +163,7 @@ def _openai_sdk_available():
 
 # -- Import HybridRAG internals ---------------------------------------------
 from .config import Config
+from .generation_params import build_api_generation_params, build_ollama_generation_options
 from .model_identity import canonicalize_model_name, resolve_ollama_model_name
 from .network_gate import get_gate, NetworkBlockedError
 from .ollama_endpoint_resolver import sanitize_ollama_base_url
@@ -186,6 +187,55 @@ class LLMResponse:
     tokens_out: int        # How many tokens the AI generated
     model: str             # Which model answered (e.g., "phi4-mini")
     latency_ms: float      # How long the call took in milliseconds
+
+
+def _ollama_retry_model_name(router, attempted_model: str, error: Exception) -> str:
+    """Retry with a fresh tag probe when Ollama rejects a cold-cache alias."""
+    response = getattr(error, "response", None)
+    status_code = getattr(response, "status_code", 0) if response is not None else 0
+    if status_code and status_code < 500 and status_code != 404:
+        return ""
+
+    refreshed = router._resolve_model_name(
+        router.config.ollama.model,
+        allow_network=True,
+    )
+    if refreshed and refreshed != attempted_model:
+        router.logger.info(
+            "ollama_model_retry_refresh",
+            configured=router.config.ollama.model,
+            attempted=attempted_model,
+            refreshed=refreshed,
+            status_code=status_code or None,
+        )
+        return refreshed
+    return ""
+
+
+def _http_error_message(error: Exception) -> str:
+    """Include backend-provided error details when an HTTP call fails."""
+    message = f"{type(error).__name__}: {error}"
+    response = getattr(error, "response", None)
+    if response is None:
+        return message
+
+    detail = ""
+    try:
+        data = response.json()
+        if isinstance(data, dict):
+            detail = str(data.get("error", "") or "").strip()
+    except Exception:
+        detail = ""
+
+    if not detail:
+        try:
+            detail = str(getattr(response, "text", "") or "").strip()
+        except Exception:
+            detail = ""
+
+    if detail:
+        return f"{message} | {detail}"
+    return message
 
 
 # --- SECTION 2: OLLAMA ROUTER (OFFLINE, LOCALHOST) -------------------------
@@ -244,19 +294,7 @@ class OllamaRouter:
         Centralised here so query() and query_stream() stay in sync.
         Keys with value 0 are omitted so Ollama uses its own defaults.
         """
-        # Read temperature from ollama config first, fall back to api config
-        temperature = getattr(self.config.ollama, "temperature", None)
-        if temperature is None:
-            temperature = getattr(self.config.api, "temperature", 0.05)
-        opts = {
-            "temperature": temperature,
-            "num_ctx": self.config.ollama.context_window,
-            "num_predict": getattr(self.config.ollama, "num_predict", 512),
-        }
-        num_thread = getattr(self.config.ollama, "num_thread", 0)
-        if num_thread > 0:
-            opts["num_thread"] = num_thread
-        return opts
+        return build_ollama_generation_options(self.config)
 
     def _available_models(self) -> list[str]:
         """Query /api/tags with short cache to avoid repeated roundtrips."""
@@ -349,23 +387,33 @@ class OllamaRouter:
             self.logger.error("ollama_blocked_by_gate", error=str(e))
             return None
 
-        # Build the request body for Ollama's /api/generate endpoint
-        model_name = self._resolve_model_name(self.config.ollama.model)
-        payload = {
-            "model": model_name,
-            "prompt": prompt,
-            "stream": False,
-            "keep_alive": getattr(self.config.ollama, "keep_alive", -1),
-            "options": self._build_options(),
-        }
-
-        try:
-            resp = self._client.post(
+        def _post_generate(selected_model: str):
+            payload = {
+                "model": selected_model,
+                "prompt": prompt,
+                "stream": False,
+                "keep_alive": getattr(self.config.ollama, "keep_alive", -1),
+                "options": self._build_options(),
+            }
+            response = self._client.post(
                 f"{self.base_url}/api/generate",
                 json=payload,
                 timeout=self.config.ollama.timeout_seconds,
             )
-            resp.raise_for_status()
+            response.raise_for_status()
+            return response
+
+        model_name = self._resolve_model_name(self.config.ollama.model)
+
+        try:
+            try:
+                resp = _post_generate(model_name)
+            except httpx.HTTPStatusError as e:
+                retry_model = _ollama_retry_model_name(self, model_name, e)
+                if not retry_model:
+                    raise
+                model_name = retry_model
+                resp = _post_generate(model_name)
 
             data = resp.json()
             response_text = data.get("response", "")
@@ -390,7 +438,7 @@ class OllamaRouter:
             )
 
         except httpx.HTTPError as e:
-            self.last_error = f"{type(e).__name__}: {e}"
+            self.last_error = _http_error_message(e)
             self.logger.error("ollama_http_error", error=str(e))
             return None
         except Exception as e:
@@ -424,35 +472,47 @@ class OllamaRouter:
             return
 
         model_name = self._resolve_model_name(self.config.ollama.model)
-        payload = {
-            "model": model_name,
-            "prompt": prompt,
-            "stream": True,
-            "keep_alive": getattr(self.config.ollama, "keep_alive", -1),
-            "options": self._build_options(),
-        }
 
         try:
-            with self._client.stream(
-                "POST",
-                f"{self.base_url}/api/generate",
-                json=payload,
-                timeout=self.config.ollama.timeout_seconds,
-            ) as response:
-                response.raise_for_status()
-                tokens_in = 0
-                tokens_out = 0
-                for line in response.iter_lines():
-                    if not line:
-                        continue
-                    chunk = json.loads(line)
-                    token_text = chunk.get("response", "")
-                    if token_text:
-                        yield {"token": token_text}
-                    if chunk.get("done", False):
-                        tokens_in = chunk.get("prompt_eval_count", 0)
-                        tokens_out = chunk.get("eval_count", 0)
-                        break
+            refreshed = False
+            while True:
+                payload = {
+                    "model": model_name,
+                    "prompt": prompt,
+                    "stream": True,
+                    "keep_alive": getattr(self.config.ollama, "keep_alive", -1),
+                    "options": self._build_options(),
+                }
+                try:
+                    with self._client.stream(
+                        "POST",
+                        f"{self.base_url}/api/generate",
+                        json=payload,
+                        timeout=self.config.ollama.timeout_seconds,
+                    ) as response:
+                        response.raise_for_status()
+                        tokens_in = 0
+                        tokens_out = 0
+                        for line in response.iter_lines():
+                            if not line:
+                                continue
+                            chunk = json.loads(line)
+                            token_text = chunk.get("response", "")
+                            if token_text:
+                                yield {"token": token_text}
+                            if chunk.get("done", False):
+                                tokens_in = chunk.get("prompt_eval_count", 0)
+                                tokens_out = chunk.get("eval_count", 0)
+                                break
+                    break
+                except httpx.HTTPStatusError as e:
+                    retry_model = ""
+                    if not refreshed:
+                        retry_model = _ollama_retry_model_name(self, model_name, e)
+                    if not retry_model:
+                        raise
+                    model_name = retry_model
+                    refreshed = True
 
             latency_ms = (time.time() - start_time) * 1000
             self.logger.info(
@@ -471,7 +531,7 @@ class OllamaRouter:
             }
 
         except httpx.HTTPError as e:
-            self.last_error = f"{type(e).__name__}: {e}"
+            self.last_error = _http_error_message(e)
             self.logger.error("ollama_stream_http_error", error=str(e))
             yield {"error": self.last_error, "backend": "ollama"}
         except Exception as e:
@@ -1156,13 +1216,17 @@ class APIRouter:
             # this split, the 9-rule grounding prompt is treated as a
             # suggestion rather than a directive.
             messages = _split_prompt_to_messages(prompt)
+            generation_params = build_api_generation_params(
+                self.config.api,
+                provider=("azure" if self.is_azure else getattr(self.config.api, "provider", "")),
+                endpoint=self.base_endpoint,
+            )
 
             if self.client is not None:
                 response = self.client.chat.completions.create(
                     model=model_name,
                     messages=messages,
-                    max_tokens=self.config.api.max_tokens,
-                    temperature=self.config.api.temperature,
+                    **generation_params,
                 )
                 answer_text = response.choices[0].message.content
                 tokens_in = response.usage.prompt_tokens if response.usage else 0
@@ -1173,8 +1237,7 @@ class APIRouter:
                 fallback = self.http_api_client.chat(
                     user_message=usr_msg,
                     system_prompt=sys_msg or None,
-                    max_tokens=self.config.api.max_tokens,
-                    temperature=self.config.api.temperature,
+                    generation_params=generation_params,
                 )
                 answer_text = fallback.get("answer", "")
                 usage = fallback.get("usage", {}) or {}

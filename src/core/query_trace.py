@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .generation_params import snapshot_backend_generation_settings
 from .query_mode import resolve_query_mode_settings
 
 
@@ -240,11 +241,7 @@ def new_query_trace(engine, user_query: str, *, stream: bool, engine_kind: str) 
                 "endpoint": str(getattr(backend_cfg, "endpoint", "") or ""),
                 "base_url": str(getattr(backend_cfg, "base_url", "") or ""),
                 "api_version": str(getattr(backend_cfg, "api_version", "") or ""),
-                "context_window": _safe_int(getattr(backend_cfg, "context_window", 0), 0),
-                "max_tokens": _safe_int(getattr(backend_cfg, "max_tokens", 0), 0),
-                "num_predict": _safe_int(getattr(backend_cfg, "num_predict", 0), 0),
-                "temperature": _safe_float(getattr(backend_cfg, "temperature", 0.0), 0.0),
-                "timeout_seconds": _safe_int(getattr(backend_cfg, "timeout_seconds", 0), 0),
+                **snapshot_backend_generation_settings(backend_cfg),
             },
         },
         "retrieval": {},
@@ -357,6 +354,12 @@ def format_query_trace_text(trace: dict[str, Any] | None) -> str:
             backend.get("max_tokens", 0),
             backend.get("num_predict", 0),
             backend.get("temperature", 0.0),
+        ),
+        "Top p: {} | Seed: {} | Presence penalty: {} | Frequency penalty: {}".format(
+            backend.get("top_p", 0.0),
+            backend.get("seed", 0),
+            backend.get("presence_penalty", 0.0),
+            backend.get("frequency_penalty", 0.0),
         ),
         "",
         "Query Policy",

@@ -232,6 +232,22 @@ class SettingsView(tk.Frame):
         return self._tuning_tab.temp_var
 
     @property
+    def top_p_var(self):
+        return self._tuning_tab.top_p_var
+
+    @property
+    def presence_penalty_var(self):
+        return self._tuning_tab.presence_penalty_var
+
+    @property
+    def frequency_penalty_var(self):
+        return self._tuning_tab.frequency_penalty_var
+
+    @property
+    def seed_var(self):
+        return self._tuning_tab.seed_var
+
+    @property
     def timeout_var(self):
         return self._tuning_tab.timeout_var
 

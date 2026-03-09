@@ -12,7 +12,7 @@ from scripts._model_meta import (
 from src.core.llm_router import get_available_deployments
 from src.core.model_identity import canonicalize_model_name
 from src.core.query_mode import apply_query_mode_to_config, apply_query_mode_to_engine
-from src.gui.helpers.mode_tuning import update_mode_setting
+from src.gui.helpers.mode_tuning import update_mode_section, update_mode_setting
 from src.gui.helpers.safe_after import safe_after
 from src.gui.panels.query_constants import (
     PROFILE_DIAL_DEFAULTS,
@@ -129,6 +129,11 @@ def _on_model_select(self, event=None):
         if hasattr(self.config, "api"):
             self.config.api.deployment = chosen
             self.config.api.model = chosen
+        try:
+            update_mode_section(self.config, "online", "api", "deployment", chosen)
+            update_mode_section(self.config, "online", "api", "model", chosen)
+        except Exception as e:
+            logger.debug("Online deployment persist failed: %s", e)
         # Apply to live router if already initialized
         try:
             if self.query_engine and hasattr(self.query_engine, "llm_router"):
@@ -136,6 +141,7 @@ def _on_model_select(self, event=None):
                 if api_router is not None:
                     api_router.deployment = chosen
                     if hasattr(api_router.config, "api"):
+                        api_router.config.api.deployment = chosen
                         api_router.config.api.model = chosen
         except Exception as e:
             logger.debug("Online deployment apply failed: %s", e)
@@ -151,6 +157,16 @@ def _on_model_select(self, event=None):
         self._model_auto = False
         if hasattr(self.config, "ollama"):
             self.config.ollama.model = canonicalize_model_name(chosen)
+        try:
+            update_mode_section(
+                self.config,
+                "offline",
+                "ollama",
+                "model",
+                canonicalize_model_name(chosen),
+            )
+        except Exception as e:
+            logger.debug("Offline model persist failed: %s", e)
         self._update_model_info(chosen)
 
 def _update_model_info(self, model_name):

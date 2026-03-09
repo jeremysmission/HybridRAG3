@@ -69,6 +69,8 @@ class FakeOllamaConfig:
     context_window: int = 4096
     num_predict: int = 512
     temperature: float = 0.1
+    top_p: float = 0.90
+    seed: int = 0
     keep_alive: int = -1
     num_thread: int = 0
 
@@ -86,6 +88,10 @@ class FakeAPIConfig:
     context_window: int = 128000
     max_tokens: int = 1024
     temperature: float = 0.7
+    top_p: float = 1.0
+    presence_penalty: float = 0.0
+    frequency_penalty: float = 0.0
+    seed: int = 0
     timeout_seconds: int = 30
 
 

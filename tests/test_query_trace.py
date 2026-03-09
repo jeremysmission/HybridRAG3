@@ -146,6 +146,8 @@ def _make_grounded_engine():
 
 def test_query_attaches_debug_trace_on_success():
     engine, _, _ = _make_query_engine()
+    engine.config.ollama.top_p = 0.82
+    engine.config.ollama.seed = 13
 
     result = engine.query("What is nominal voltage?")
 
@@ -153,6 +155,8 @@ def test_query_attaches_debug_trace_on_success():
     assert result.debug_trace["decision"]["path"] == "answer"
     assert result.debug_trace["mode"] == "offline"
     assert result.debug_trace["settings"]["backend"]["name"] == "ollama"
+    assert abs(result.debug_trace["settings"]["backend"]["top_p"] - 0.82) < 1e-9
+    assert result.debug_trace["settings"]["backend"]["seed"] == 13
     assert result.debug_trace["retrieval"]["counts"]["final_hits"] == 1
     assert result.debug_trace["retrieval"]["hits"]["final"][0]["source_file"] == "spec.md"
     assert "12V" in result.debug_trace["retrieval"]["hits"]["final"][0]["text"]
@@ -161,6 +165,9 @@ def test_query_attaches_debug_trace_on_success():
 
 def test_query_stream_attaches_debug_trace_on_success():
     engine, _, router = _make_query_engine(FakeConfig(mode="online"))
+    engine.config.api.top_p = 0.91
+    engine.config.api.presence_penalty = 0.3
+    engine.config.api.frequency_penalty = 0.15
     router.query_stream.return_value = iter(
         [
             {"token": "Nominal voltage is 12V."},
@@ -181,6 +188,9 @@ def test_query_stream_attaches_debug_trace_on_success():
     assert result.debug_trace["stream"] is True
     assert result.debug_trace["decision"]["path"] == "stream_answer"
     assert result.debug_trace["settings"]["backend"]["name"] == "api"
+    assert abs(result.debug_trace["settings"]["backend"]["top_p"] - 0.91) < 1e-9
+    assert abs(result.debug_trace["settings"]["backend"]["presence_penalty"] - 0.3) < 1e-9
+    assert abs(result.debug_trace["settings"]["backend"]["frequency_penalty"] - 0.15) < 1e-9
     assert result.debug_trace["llm"]["model"] == "gpt-4o"
 
 

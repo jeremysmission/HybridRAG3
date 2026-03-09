@@ -277,12 +277,32 @@ class ModeTuningStore:
         online_entry = self._ensure_mode_entry(root_data, config, "online")
         api = getattr(config, "api", None)
         if api is not None:
-            for key in ("model", "deployment", "context_window", "max_tokens", "temperature", "timeout_seconds"):
+            for key in (
+                "model",
+                "deployment",
+                "context_window",
+                "max_tokens",
+                "temperature",
+                "top_p",
+                "presence_penalty",
+                "frequency_penalty",
+                "seed",
+                "timeout_seconds",
+            ):
                 if hasattr(api, key):
                     online_entry.setdefault("api", {})[key] = copy.deepcopy(getattr(api, key))
         ollama = getattr(config, "ollama", None)
         if ollama is not None:
-            for key in ("model", "base_url", "context_window", "num_predict", "temperature", "timeout_seconds"):
+            for key in (
+                "model",
+                "base_url",
+                "context_window",
+                "num_predict",
+                "temperature",
+                "top_p",
+                "seed",
+                "timeout_seconds",
+            ):
                 if hasattr(ollama, key):
                     offline_entry.setdefault("ollama", {})[key] = copy.deepcopy(getattr(ollama, key))
 
@@ -416,6 +436,20 @@ class ModeTuningStore:
                     ollama.temperature = float(value)
                 elif api is not None:
                     api.temperature = float(value)
+        elif key == "top_p":
+            if mode == "online" and api is not None:
+                api.top_p = float(value)
+            elif mode == "offline" and ollama is not None:
+                ollama.top_p = float(value)
+        elif key == "presence_penalty" and api is not None:
+            api.presence_penalty = float(value)
+        elif key == "frequency_penalty" and api is not None:
+            api.frequency_penalty = float(value)
+        elif key == "seed":
+            if mode == "online" and api is not None:
+                api.seed = int(value)
+            elif mode == "offline" and ollama is not None:
+                ollama.seed = int(value)
         elif key == "timeout_seconds":
             if mode == "online" and api is not None:
                 api.timeout_seconds = int(value)

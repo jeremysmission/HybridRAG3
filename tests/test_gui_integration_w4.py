@@ -55,6 +55,8 @@ class FakeOllamaConfig:
     context_window: int = 4096
     num_predict: int = 384
     temperature: float = 0.05
+    top_p: float = 0.90
+    seed: int = 0
 
 
 @dataclass
@@ -64,6 +66,10 @@ class FakeAPIConfig:
     context_window: int = 128000
     max_tokens: int = 1024
     temperature: float = 0.05
+    top_p: float = 1.0
+    presence_penalty: float = 0.0
+    frequency_penalty: float = 0.0
+    seed: int = 0
     timeout_seconds: int = 180
     deployment: str = ""
     api_version: str = ""
@@ -749,6 +755,8 @@ def test_11_settings_view_reads_config(tmp_path):
     config.ollama.context_window = 8192
     config.ollama.num_predict = 768
     config.ollama.temperature = 0.3
+    config.ollama.top_p = 0.77
+    config.ollama.seed = 42
     config.ollama.timeout_seconds = 240
 
     from src.gui.panels.settings_view import SettingsView
@@ -762,6 +770,8 @@ def test_11_settings_view_reads_config(tmp_path):
         assert view.ctx_window_var.get() == 8192
         assert view.num_predict_var.get() == 768
         assert abs(view.temp_var.get() - 0.3) < 0.01
+        assert abs(view.top_p_var.get() - 0.77) < 0.01
+        assert view.seed_var.get() == 42
         assert view.timeout_var.get() == 240
 
     view.destroy()
@@ -772,29 +782,34 @@ def test_11_settings_view_reads_config(tmp_path):
 # TEST 12: Settings view writes config on slider change
 # ============================================================================
 
-def test_12_settings_view_writes_config():
+def test_12_settings_view_writes_config(tmp_path):
     """Changing an offline slider updates the active offline config fields."""
     root = _make_root()
     config = FakeGUIConfig()
 
     from src.gui.panels.settings_view import SettingsView
 
-    app_ref = MagicMock()
-    view = SettingsView(root, config=config, app_ref=app_ref)
+    with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": str(tmp_path)}):
+        app_ref = MagicMock()
+        view = SettingsView(root, config=config, app_ref=app_ref)
 
-    # Change top_k
-    view.topk_var.set(25)
-    view._on_retrieval_change()
-    assert config.retrieval.top_k == 25
+        # Change top_k
+        view.topk_var.set(25)
+        view._on_retrieval_change()
+        assert config.retrieval.top_k == 25
 
-    # Change active offline runtime knobs
-    view.num_predict_var.set(2048)
-    view.temp_var.set(0.5)
-    view.timeout_var.set(240)
-    view._on_llm_change()
-    assert config.ollama.num_predict == 2048
-    assert abs(config.ollama.temperature - 0.5) < 0.01
-    assert config.ollama.timeout_seconds == 240
+        # Change active offline runtime knobs
+        view.num_predict_var.set(2048)
+        view.temp_var.set(0.5)
+        view.top_p_var.set(0.72)
+        view.seed_var.set(99)
+        view.timeout_var.set(240)
+        view._on_llm_change()
+        assert config.ollama.num_predict == 2048
+        assert abs(config.ollama.temperature - 0.5) < 0.01
+        assert abs(config.ollama.top_p - 0.72) < 0.01
+        assert config.ollama.seed == 99
+        assert config.ollama.timeout_seconds == 240
 
     view.destroy()
     root.destroy()
@@ -807,6 +822,10 @@ def test_12b_settings_view_online_mode_reads_and_writes_api_values(tmp_path):
     config.api.context_window = 64000
     config.api.max_tokens = 4096
     config.api.temperature = 1.25
+    config.api.top_p = 0.88
+    config.api.presence_penalty = 0.35
+    config.api.frequency_penalty = 0.15
+    config.api.seed = 21
     config.api.timeout_seconds = 900
     config.ollama.context_window = 4096
     config.ollama.temperature = 0.05
@@ -821,20 +840,63 @@ def test_12b_settings_view_online_mode_reads_and_writes_api_values(tmp_path):
         assert view.ctx_window_var.get() == 64000
         assert view.maxtokens_var.get() == 4096
         assert abs(view.temp_var.get() - 1.25) < 0.01
+        assert abs(view.top_p_var.get() - 0.88) < 0.01
+        assert abs(view.presence_penalty_var.get() - 0.35) < 0.01
+        assert abs(view.frequency_penalty_var.get() - 0.15) < 0.01
+        assert view.seed_var.get() == 21
         assert view.timeout_var.get() == 900
 
         view.ctx_window_var.set(128000)
         view.maxtokens_var.set(16384)
         view.temp_var.set(2.0)
+        view.top_p_var.set(0.93)
+        view.presence_penalty_var.set(0.4)
+        view.frequency_penalty_var.set(0.2)
+        view.seed_var.set(77)
         view.timeout_var.set(1200)
         view._on_llm_change()
 
         assert config.api.context_window == 128000
         assert config.api.max_tokens == 16384
         assert abs(config.api.temperature - 2.0) < 0.01
+        assert abs(config.api.top_p - 0.93) < 0.01
+        assert abs(config.api.presence_penalty - 0.4) < 0.01
+        assert abs(config.api.frequency_penalty - 0.2) < 0.01
+        assert config.api.seed == 77
         assert config.api.timeout_seconds == 1200
         assert config.ollama.context_window == 4096
         assert abs(config.ollama.temperature - 0.05) < 0.01
+
+    view.destroy()
+    root.destroy()
+
+
+def test_12c_seed_entry_tolerates_temporary_invalid_text(tmp_path):
+    """Seed entry should ignore temporary invalid text instead of raising."""
+    root = _make_root()
+    config = FakeGUIConfig()
+    config.ollama.seed = 42
+
+    from src.gui.panels.settings_view import SettingsView
+
+    with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": str(tmp_path)}):
+        app_ref = MagicMock()
+        view = SettingsView(root, config=config, app_ref=app_ref)
+        seed_entry = view._tuning_tab._scales["seed"]
+
+        seed_entry.delete(0, tk.END)
+        view._on_llm_change()
+        assert config.ollama.seed == 42
+
+        seed_entry.delete(0, tk.END)
+        seed_entry.insert(0, "abc")
+        view._on_llm_change()
+        assert config.ollama.seed == 42
+
+        seed_entry.delete(0, tk.END)
+        seed_entry.insert(0, "77")
+        view._on_llm_change()
+        assert config.ollama.seed == 77
 
     view.destroy()
     root.destroy()
@@ -865,6 +927,10 @@ def test_12c_settings_view_mode_store_persists_min_max_without_snapback(tmp_path
         tab.ctx_window_var.set(128000)
         tab.maxtokens_var.set(16384)
         tab.temp_var.set(2.0)
+        tab.top_p_var.set(0.94)
+        tab.presence_penalty_var.set(0.25)
+        tab.frequency_penalty_var.set(0.1)
+        tab.seed_var.set(55)
         tab.timeout_var.set(1200)
         tab._on_retrieval_change()
         tab._on_llm_change()
@@ -874,6 +940,10 @@ def test_12c_settings_view_mode_store_persists_min_max_without_snapback(tmp_path
         assert tab.ctx_window_var.get() == 128000
         assert tab.maxtokens_var.get() == 16384
         assert abs(tab.temp_var.get() - 2.0) < 0.01
+        assert abs(tab.top_p_var.get() - 0.94) < 0.01
+        assert abs(tab.presence_penalty_var.get() - 0.25) < 0.01
+        assert abs(tab.frequency_penalty_var.get() - 0.1) < 0.01
+        assert tab.seed_var.get() == 55
         assert tab.timeout_var.get() == 1200
 
         tab._on_save_mode_defaults()
@@ -897,6 +967,10 @@ def test_12c_settings_view_mode_store_persists_min_max_without_snapback(tmp_path
         assert saved["modes"]["online"]["api"]["context_window"] == 128000
         assert saved["modes"]["online"]["api"]["max_tokens"] == 16384
         assert saved["modes"]["online"]["api"]["temperature"] == 2.0
+        assert abs(saved["modes"]["online"]["api"]["top_p"] - 0.94) < 0.01
+        assert abs(saved["modes"]["online"]["api"]["presence_penalty"] - 0.25) < 0.01
+        assert abs(saved["modes"]["online"]["api"]["frequency_penalty"] - 0.1) < 0.01
+        assert saved["modes"]["online"]["api"]["seed"] == 55
         assert saved["modes"]["online"]["api"]["timeout_seconds"] == 1200
         assert saved["modes"]["online"]["defaults"]["max_tokens"] == 16384
         assert saved["modes"]["online"]["locks"]["max_tokens"] is True

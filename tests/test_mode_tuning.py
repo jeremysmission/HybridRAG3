@@ -30,12 +30,18 @@ def _make_config():
             context_window=4096,
             max_tokens=1024,
             temperature=0.2,
+            top_p=1.0,
+            presence_penalty=0.0,
+            frequency_penalty=0.0,
+            seed=0,
             timeout_seconds=45,
         ),
         ollama=SimpleNamespace(
             context_window=4096,
             num_predict=512,
             temperature=0.1,
+            top_p=0.90,
+            seed=0,
             timeout_seconds=180,
         ),
         query=SimpleNamespace(
@@ -73,6 +79,8 @@ def test_online_mode_bootstraps_from_online_defaults_not_shared_runtime_values()
             assert abs(state["defaults"]["min_score"] - 0.08) < 1e-9
             assert state["defaults"]["context_window"] == 128000
             assert state["defaults"]["max_tokens"] == 1024
+            assert abs(state["defaults"]["top_p"] - 1.0) < 1e-9
+            assert state["defaults"]["seed"] == 0
 
             store.apply_to_config(cfg, "online")
     finally:
@@ -82,6 +90,8 @@ def test_online_mode_bootstraps_from_online_defaults_not_shared_runtime_values()
     assert abs(cfg.retrieval.min_score - 0.08) < 1e-9
     assert cfg.api.context_window == 128000
     assert cfg.api.max_tokens == 1024
+    assert abs(cfg.api.top_p - 1.0) < 1e-9
+    assert cfg.api.seed == 0
 
 
 def test_first_active_mode_bootstraps_from_live_config_values():
@@ -105,10 +115,12 @@ def test_first_active_mode_bootstraps_from_live_config_values():
     assert abs(offline_state["values"]["min_score"] - 0.15) < 1e-9
     assert offline_state["values"]["context_window"] == 8192
     assert offline_state["values"]["num_predict"] == 1024
+    assert abs(offline_state["values"]["top_p"] - 0.90) < 1e-9
     assert online_state["values"]["top_k"] == 6
     assert abs(online_state["values"]["min_score"] - 0.08) < 1e-9
     assert online_state["values"]["context_window"] == 128000
     assert online_state["values"]["max_tokens"] == 1024
+    assert abs(online_state["values"]["top_p"] - 1.0) < 1e-9
 
 
 def test_mode_values_and_locks_stay_independent_between_online_and_offline():

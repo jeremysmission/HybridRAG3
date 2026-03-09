@@ -7,12 +7,17 @@
 # ============================
 
 import os
+import shutil
+import tempfile
 import time
 import tkinter as tk
 from dataclasses import dataclass, field
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+import yaml
 
 
 @dataclass
@@ -35,6 +40,17 @@ class _FakeConfig:
     api: _FakeAPIConfig = field(default_factory=_FakeAPIConfig)
 
 
+class _Var:
+    def __init__(self, value=""):
+        self.value = value
+
+    def get(self):
+        return self.value
+
+    def set(self, value):
+        self.value = value
+
+
 def _make_root():
     try:
         root = tk.Tk()
@@ -53,6 +69,12 @@ def _pump_events(root, ms=50):
         except tk.TclError:
             break
         time.sleep(0.005)
+
+
+def _make_local_temp_root() -> str:
+    base = Path(".tmp_pytest_gui_mode").resolve()
+    base.mkdir(parents=True, exist_ok=True)
+    return tempfile.mkdtemp(prefix="gui_mode_", dir=str(base))
 
 
 def test_online_model_selection_updates_model_and_deployment():
@@ -86,6 +108,75 @@ def test_online_model_selection_updates_model_and_deployment():
 
     panel.destroy()
     root.destroy()
+
+
+def test_query_panel_manual_online_selection_persists_mode_store():
+    from src.gui.panels.query_panel_model_selection_runtime import _on_model_select
+
+    router_cfg = SimpleNamespace(api=SimpleNamespace(model="", deployment=""))
+    api_router = SimpleNamespace(deployment="", config=router_cfg)
+    fake_self = SimpleNamespace(
+        config=SimpleNamespace(
+            mode="online",
+            api=SimpleNamespace(model="", deployment=""),
+            ollama=SimpleNamespace(model="phi4-mini"),
+        ),
+        model_var=_Var("Online: gpt-4o"),
+        query_engine=SimpleNamespace(llm_router=SimpleNamespace(api=api_router)),
+        model_info_var=_Var(),
+        _model_auto=True,
+        _update_model_info=lambda *_args, **_kwargs: None,
+    )
+
+    temp_root = _make_local_temp_root()
+    try:
+        with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": temp_root}):
+            _on_model_select(fake_self)
+
+        assert fake_self.config.api.model == "gpt-4o"
+        assert fake_self.config.api.deployment == "gpt-4o"
+        assert api_router.deployment == "gpt-4o"
+        assert api_router.config.api.model == "gpt-4o"
+        assert api_router.config.api.deployment == "gpt-4o"
+
+        saved = yaml.safe_load(
+            (Path(temp_root) / "config" / "config.yaml").read_text(encoding="utf-8")
+        )
+        assert saved["modes"]["online"]["api"]["model"] == "gpt-4o"
+        assert saved["modes"]["online"]["api"]["deployment"] == "gpt-4o"
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_query_panel_manual_offline_selection_persists_canonical_model():
+    from src.gui.panels.query_panel_model_selection_runtime import _on_model_select
+
+    fake_self = SimpleNamespace(
+        config=SimpleNamespace(
+            mode="offline",
+            api=SimpleNamespace(model="", deployment=""),
+            ollama=SimpleNamespace(model="phi4-mini"),
+        ),
+        model_var=_Var("phi4:14b"),
+        query_engine=None,
+        model_info_var=_Var(),
+        _model_auto=True,
+        _update_model_info=lambda *_args, **_kwargs: None,
+    )
+
+    temp_root = _make_local_temp_root()
+    try:
+        with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": temp_root}):
+            _on_model_select(fake_self)
+
+        assert fake_self.config.ollama.model == "phi4:14b-q4_K_M"
+
+        saved = yaml.safe_load(
+            (Path(temp_root) / "config" / "config.yaml").read_text(encoding="utf-8")
+        )
+        assert saved["modes"]["offline"]["ollama"]["model"] == "phi4:14b-q4_K_M"
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
 
 
 def test_index_clear_starts_locked_and_requires_explicit_unlock():

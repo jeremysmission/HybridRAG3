@@ -213,6 +213,8 @@ class OllamaConfig:
     num_predict: int = 384         # Max output tokens per generation
     num_thread: int = 0            # CPU threads (0 = auto-detect)
     temperature: float = 0.05      # Generation temperature (0=deterministic)
+    top_p: float = 0.90            # Nucleus sampling cutoff (1.0 = disabled)
+    seed: int = 0                  # 0 = provider default / unset
 
     def __post_init__(self) -> None:
         """Plain-English: Applies defaults, validation, and value cleanup right after object creation."""
@@ -276,6 +278,10 @@ class APIConfig:
     context_window: int = 128000   # GPT-4o-class default; refined by model metadata at runtime
     max_tokens: int = 1024
     temperature: float = 0.05      # Low = more focused/deterministic answers
+    top_p: float = 1.0             # Keep broad by default; temperature is the primary dial
+    presence_penalty: float = 0.0
+    frequency_penalty: float = 0.0
+    seed: int = 0                  # 0 = provider default / unset
     timeout_seconds: int = 180
 
     # Azure-specific settings (ignored for non-Azure providers)

@@ -188,6 +188,36 @@ class TestOllamaRouter:
             "query() should return None on HTTP error, not raise an exception"
         )
 
+    def test_query_http_error_includes_ollama_error_detail(self):
+        """
+        WHAT: Preserve Ollama's structured error body in last_error.
+        WHY:  Live probes need the real backend cause, not just HTTP 500.
+        """
+        import httpx as real_httpx
+
+        router = self._make_router()
+        router._client = MagicMock()
+
+        error_request = real_httpx.Request(
+            "POST",
+            "http://localhost:11434/api/generate",
+        )
+        error_response = real_httpx.Response(
+            500,
+            request=error_request,
+            json={"error": "model requires more system memory"},
+        )
+        router._client.post.side_effect = real_httpx.HTTPStatusError(
+            "500 Server Error",
+            request=error_request,
+            response=error_response,
+        )
+
+        result = router.query("Test query")
+
+        assert result is None
+        assert "model requires more system memory" in router.last_error
+
     # ------------------------------------------------------------------
     # Test 1.5: Ollama query with empty response
     # ------------------------------------------------------------------
@@ -295,6 +325,134 @@ class TestOllamaRouter:
         router._client.get.assert_not_called()
         sent_payload = router._client.post.call_args.kwargs["json"]
         assert sent_payload["model"] == "phi4-mini"
+
+    def test_query_retries_with_refreshed_phi4_alias_after_server_error(self):
+        """
+        WHAT: Recover from a cold-cache Phi-4 alias mismatch on first query.
+        WHY:  Some installs expose phi4:14b while config stores
+              phi4:14b-q4_K_M. A one-time tag refresh avoids a false 500.
+        """
+        import httpx as real_httpx
+
+        router = self._make_router()
+        router.config.ollama.model = "phi4:14b-q4_K_M"
+        router._tags_cache = None
+        router._client = MagicMock()
+
+        tag_response = MagicMock()
+        tag_response.raise_for_status = MagicMock()
+        tag_response.json.return_value = {
+            "models": [
+                {"name": "phi4:14b"},
+            ]
+        }
+
+        error_request = real_httpx.Request(
+            "POST",
+            "http://localhost:11434/api/generate",
+        )
+        error_response = real_httpx.Response(
+            500,
+            request=error_request,
+        )
+        retry_error = real_httpx.HTTPStatusError(
+            "500 Server Error",
+            request=error_request,
+            response=error_response,
+        )
+
+        ok_response = MagicMock()
+        ok_response.raise_for_status = MagicMock()
+        ok_response.json.return_value = {
+            "response": "Recovered answer",
+            "prompt_eval_count": 20,
+            "eval_count": 8,
+            "done": True,
+        }
+
+        router._client.post.side_effect = [retry_error, ok_response]
+        router._client.get.return_value = tag_response
+
+        result = router.query("Retry with alias")
+
+        assert result is not None
+        assert result.text == "Recovered answer"
+        assert result.model == "phi4:14b"
+        assert router._client.post.call_count == 2
+        first_payload = router._client.post.call_args_list[0].kwargs["json"]
+        second_payload = router._client.post.call_args_list[1].kwargs["json"]
+        assert first_payload["model"] == "phi4:14b-q4_K_M"
+        assert second_payload["model"] == "phi4:14b"
+        router._client.get.assert_called_once()
+
+    def test_query_stream_retries_with_refreshed_phi4_alias_after_server_error(self):
+        """
+        WHAT: Recover from a cold-cache Phi-4 alias mismatch in streaming mode.
+        WHY:  The UI uses streaming first, so this path must refresh tags too.
+        """
+        import httpx as real_httpx
+
+        router = self._make_router()
+        router.config.ollama.model = "phi4:14b-q4_K_M"
+        router._tags_cache = None
+        router._client = MagicMock()
+
+        tag_response = MagicMock()
+        tag_response.raise_for_status = MagicMock()
+        tag_response.json.return_value = {
+            "models": [
+                {"name": "phi4:14b"},
+            ]
+        }
+
+        error_request = real_httpx.Request(
+            "POST",
+            "http://localhost:11434/api/generate",
+        )
+        error_response = real_httpx.Response(
+            500,
+            request=error_request,
+        )
+        retry_error = real_httpx.HTTPStatusError(
+            "500 Server Error",
+            request=error_request,
+            response=error_response,
+        )
+
+        fail_cm = MagicMock()
+        fail_response = MagicMock()
+        fail_response.raise_for_status.side_effect = retry_error
+        fail_cm.__enter__.return_value = fail_response
+        fail_cm.__exit__.return_value = False
+
+        ok_cm = MagicMock()
+        ok_response = MagicMock()
+        ok_response.raise_for_status = MagicMock()
+        ok_response.iter_lines.return_value = iter(
+            [
+                '{"response":"Recovered ","done":false}',
+                '{"response":"stream","done":false}',
+                '{"done":true,"prompt_eval_count":20,"eval_count":8}',
+            ]
+        )
+        ok_cm.__enter__.return_value = ok_response
+        ok_cm.__exit__.return_value = False
+
+        router._client.stream.side_effect = [fail_cm, ok_cm]
+        router._client.get.return_value = tag_response
+
+        events = list(router.query_stream("Retry stream"))
+
+        assert events[0] == {"token": "Recovered "}
+        assert events[1] == {"token": "stream"}
+        assert events[2]["done"] is True
+        assert events[2]["model"] == "phi4:14b"
+        assert router._client.stream.call_count == 2
+        first_payload = router._client.stream.call_args_list[0].kwargs["json"]
+        second_payload = router._client.stream.call_args_list[1].kwargs["json"]
+        assert first_payload["model"] == "phi4:14b-q4_K_M"
+        assert second_payload["model"] == "phi4:14b"
+        router._client.get.assert_called_once()
 
 
 class TestLLMRouter:

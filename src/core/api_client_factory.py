@@ -147,6 +147,7 @@ class ApiClient:
         context_chunks: Optional[List[str]] = None,
         max_tokens: int = 1024,
         temperature: float = 0.1,
+        generation_params: Optional[Dict[str, Any]] = None,
     ) -> dict:
         """
         Send a chat completion request to the API.
@@ -158,6 +159,7 @@ class ApiClient:
                 include as context. These get prepended to the user message.
             max_tokens: Maximum tokens in the response.
             temperature: Randomness (0.0 = deterministic, 1.0 = creative).
+            generation_params: Additional provider-supported generation knobs.
 
         Returns:
             Dict with keys:
@@ -197,11 +199,16 @@ class ApiClient:
             messages.append({"role": "user", "content": user_message})
 
         # --- Build request body ---
-        body = {
-            "messages": messages,
+        body = {"messages": messages}
+        request_params: Dict[str, Any] = {
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
+        if generation_params:
+            request_params.update(generation_params)
+        if "max_completion_tokens" in request_params:
+            request_params.pop("max_tokens", None)
+        body.update(request_params)
 
         # OpenAI requires model in the body; Azure uses deployment in the URL
         if self.config.provider == "openai" and self.config.model:

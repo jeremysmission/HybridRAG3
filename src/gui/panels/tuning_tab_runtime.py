@@ -31,6 +31,10 @@ SAFE_DEFAULTS = {
         "num_predict": 384,
         "max_tokens": 1024,
         "temperature": 0.05,
+        "top_p": 0.90,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0,
+        "seed": 0,
         "timeout_seconds": 180,
     },
     "desktop_power": {
@@ -43,6 +47,10 @@ SAFE_DEFAULTS = {
         "num_predict": 384,
         "max_tokens": 1024,
         "temperature": 0.05,
+        "top_p": 0.90,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0,
+        "seed": 0,
         "timeout_seconds": 180,
     },
     "server_max": {
@@ -55,6 +63,10 @@ SAFE_DEFAULTS = {
         "num_predict": 384,
         "max_tokens": 1024,
         "temperature": 0.05,
+        "top_p": 0.90,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0,
+        "seed": 0,
         "timeout_seconds": 180,
     },
 }
@@ -78,6 +90,10 @@ def _mode_llm_values_from_config(config, mode: str) -> dict:
         "num_predict": getattr(ollama, "num_predict", offline_defaults["num_predict"]) if ollama else offline_defaults["num_predict"],
         "max_tokens": getattr(api, "max_tokens", online_defaults["max_tokens"]) if api else online_defaults["max_tokens"],
         "temperature": offline_defaults["temperature"] if mode == "offline" else online_defaults["temperature"],
+        "top_p": offline_defaults["top_p"] if mode == "offline" else online_defaults["top_p"],
+        "presence_penalty": online_defaults["presence_penalty"],
+        "frequency_penalty": online_defaults["frequency_penalty"],
+        "seed": offline_defaults["seed"] if mode == "offline" else online_defaults["seed"],
         "timeout_seconds": offline_defaults["timeout_seconds"] if mode == "offline" else online_defaults["timeout_seconds"],
     }
 
@@ -91,6 +107,26 @@ def _mode_llm_values_from_config(config, mode: str) -> dict:
             getattr(api, "temperature", online_defaults["temperature"])
             if api
             else online_defaults["temperature"]
+        )
+        values["top_p"] = (
+            getattr(api, "top_p", online_defaults["top_p"])
+            if api
+            else online_defaults["top_p"]
+        )
+        values["presence_penalty"] = (
+            getattr(api, "presence_penalty", online_defaults["presence_penalty"])
+            if api
+            else online_defaults["presence_penalty"]
+        )
+        values["frequency_penalty"] = (
+            getattr(api, "frequency_penalty", online_defaults["frequency_penalty"])
+            if api
+            else online_defaults["frequency_penalty"]
+        )
+        values["seed"] = (
+            getattr(api, "seed", online_defaults["seed"])
+            if api
+            else online_defaults["seed"]
         )
         values["timeout_seconds"] = (
             getattr(api, "timeout_seconds", online_defaults["timeout_seconds"])
@@ -107,6 +143,16 @@ def _mode_llm_values_from_config(config, mode: str) -> dict:
             getattr(ollama, "temperature", offline_defaults["temperature"])
             if ollama and hasattr(ollama, "temperature")
             else offline_defaults["temperature"]
+        )
+        values["top_p"] = (
+            getattr(ollama, "top_p", offline_defaults["top_p"])
+            if ollama
+            else offline_defaults["top_p"]
+        )
+        values["seed"] = (
+            getattr(ollama, "seed", offline_defaults["seed"])
+            if ollama
+            else offline_defaults["seed"]
         )
         values["timeout_seconds"] = (
             getattr(ollama, "timeout_seconds", offline_defaults["timeout_seconds"])
@@ -381,11 +427,38 @@ def _display_values_from_config(self):
     return _mode_llm_values_from_config(self.config, self._current_mode())
 
 
+def _current_seed_value(self):
+    mode = self._current_mode()
+    if mode == "online":
+        api = getattr(self.config, "api", None)
+        return int(getattr(api, "seed", 0) or 0) if api is not None else 0
+    ollama = getattr(self.config, "ollama", None)
+    return int(getattr(ollama, "seed", 0) or 0) if ollama is not None else 0
+
+
+def _seed_value_or_current(self):
+    try:
+        return int(self.seed_var.get())
+    except (tk.TclError, TypeError, ValueError):
+        return self._current_seed_value()
+
+
+def _var_value(self, key, var):
+    if key == "seed":
+        return self._seed_value_or_current()
+    try:
+        return var.get()
+    except tk.TclError:
+        return None
+
+
 def _mode_key_enabled(self, key):
     mode = self._current_mode()
     if key == "num_predict":
         return mode == "offline"
     if key == "max_tokens":
+        return mode == "online"
+    if key in ("presence_penalty", "frequency_penalty"):
         return mode == "online"
     return True
 
@@ -419,6 +492,10 @@ def _write_active_vars_to_config(self):
                 api.context_window = self.ctx_window_var.get()
                 api.max_tokens = self.maxtokens_var.get()
                 api.temperature = self.temp_var.get()
+                api.top_p = self.top_p_var.get()
+                api.presence_penalty = self.presence_penalty_var.get()
+                api.frequency_penalty = self.frequency_penalty_var.get()
+                api.seed = self._seed_value_or_current()
                 api.timeout_seconds = self.timeout_var.get()
         else:
             if ollama:
@@ -426,6 +503,8 @@ def _write_active_vars_to_config(self):
                 ollama.num_predict = self.num_predict_var.get()
                 if hasattr(ollama, "temperature"):
                     ollama.temperature = self.temp_var.get()
+                ollama.top_p = self.top_p_var.get()
+                ollama.seed = self._seed_value_or_current()
                 ollama.timeout_seconds = self.timeout_var.get()
         return
     if mode == "online":
@@ -433,6 +512,10 @@ def _write_active_vars_to_config(self):
             api.context_window = self.ctx_window_var.get()
             api.max_tokens = self.maxtokens_var.get()
             api.temperature = self.temp_var.get()
+            api.top_p = self.top_p_var.get()
+            api.presence_penalty = self.presence_penalty_var.get()
+            api.frequency_penalty = self.frequency_penalty_var.get()
+            api.seed = self._seed_value_or_current()
             api.timeout_seconds = self.timeout_var.get()
     else:
         if ollama:
@@ -440,6 +523,8 @@ def _write_active_vars_to_config(self):
             ollama.num_predict = self.num_predict_var.get()
             if hasattr(ollama, "temperature"):
                 ollama.temperature = self.temp_var.get()
+            ollama.top_p = self.top_p_var.get()
+            ollama.seed = self._seed_value_or_current()
             ollama.timeout_seconds = self.timeout_var.get()
         elif api:
             api.temperature = self.temp_var.get()
@@ -455,10 +540,14 @@ def _persist_active_mode_values(self):
         "hybrid_search": self.hybrid_var.get(),
         "context_window": self.ctx_window_var.get(),
         "temperature": self.temp_var.get(),
+        "top_p": self.top_p_var.get(),
+        "seed": self._seed_value_or_current(),
         "timeout_seconds": self.timeout_var.get(),
     }
     if mode == "online":
         values["max_tokens"] = self.maxtokens_var.get()
+        values["presence_penalty"] = self.presence_penalty_var.get()
+        values["frequency_penalty"] = self.frequency_penalty_var.get()
     else:
         values["num_predict"] = self.num_predict_var.get()
     for key, value in values.items():
@@ -507,6 +596,49 @@ def _build_slider_row(self, parent, theme, key, label, var, from_, to_, resoluti
     self._default_vars[key] = def_var
     self._scales[key] = scale
     return scale
+
+
+def _build_entry_row(self, parent, theme, key, label, var, on_change=None, width=12):
+    row = tk.Frame(parent, bg=theme["panel_bg"])
+    row.pack(fill=tk.X, pady=3)
+
+    tk.Label(row, text=label, width=16, anchor=tk.W, bg=theme["panel_bg"], fg=theme["fg"], font=FONT).pack(
+        side=tk.LEFT
+    )
+
+    entry = tk.Entry(
+        row,
+        textvariable=var,
+        width=width,
+        bg=theme["input_bg"],
+        fg=theme["fg"],
+        insertbackground=theme["fg"],
+        relief=tk.FLAT,
+        font=FONT,
+    )
+    entry.pack(side=tk.LEFT, padx=(0, 8))
+    if on_change is not None:
+        entry.bind("<FocusOut>", lambda _event: on_change())
+        entry.bind("<Return>", lambda _event: on_change())
+
+    def_var = tk.BooleanVar(value=False)
+    checkbox = tk.Checkbutton(
+        row,
+        text="Default",
+        variable=def_var,
+        command=lambda: self._on_default_toggle(key, var, def_var, on_change),
+        bg=theme["panel_bg"],
+        fg=theme["fg"],
+        selectcolor=theme["input_bg"],
+        activebackground=theme["panel_bg"],
+        activeforeground=theme["fg"],
+        font=FONT_SMALL,
+    )
+    checkbox.pack(side=tk.RIGHT, padx=(4, 0))
+
+    self._default_vars[key] = def_var
+    self._scales[key] = entry
+    return entry
 
 
 def _build_check_row(self, parent, theme, key, label, var, on_change=None):
@@ -686,6 +818,55 @@ def _build_llm_section(self, theme, parent=None):
         0.0,
         2.0,
         resolution=0.01,
+        on_change=self._on_llm_change,
+    )
+
+    self.top_p_var = tk.DoubleVar(value=values["top_p"])
+    self._build_slider_row(
+        frame,
+        theme,
+        "top_p",
+        "Top p:",
+        self.top_p_var,
+        0.05,
+        1.0,
+        resolution=0.01,
+        on_change=self._on_llm_change,
+    )
+
+    self.presence_penalty_var = tk.DoubleVar(value=values["presence_penalty"])
+    self._build_slider_row(
+        frame,
+        theme,
+        "presence_penalty",
+        "Presence penalty:",
+        self.presence_penalty_var,
+        -2.0,
+        2.0,
+        resolution=0.05,
+        on_change=self._on_llm_change,
+    )
+
+    self.frequency_penalty_var = tk.DoubleVar(value=values["frequency_penalty"])
+    self._build_slider_row(
+        frame,
+        theme,
+        "frequency_penalty",
+        "Frequency penalty:",
+        self.frequency_penalty_var,
+        -2.0,
+        2.0,
+        resolution=0.05,
+        on_change=self._on_llm_change,
+    )
+
+    self.seed_var = tk.IntVar(value=values["seed"])
+    self._build_entry_row(
+        frame,
+        theme,
+        "seed",
+        "Seed:",
+        self.seed_var,
         on_change=self._on_llm_change,
     )
 
@@ -1014,6 +1195,10 @@ def _all_vars(self):
         "num_predict": self.num_predict_var,
         "max_tokens": self.maxtokens_var,
         "temperature": self.temp_var,
+        "top_p": self.top_p_var,
+        "presence_penalty": self.presence_penalty_var,
+        "frequency_penalty": self.frequency_penalty_var,
+        "seed": self.seed_var,
         "timeout_seconds": self.timeout_var,
     }
 
@@ -1021,7 +1206,8 @@ def _all_vars(self):
 def _var_matches_safe(self, key):
     var = self._all_vars().get(key)
     default_value = self._default_value(key)
-    return var is None or default_value is None or var.get() == default_value
+    current_value = self._var_value(key, var) if var is not None else None
+    return var is None or default_value is None or current_value == default_value
 
 
 def _build_reset_button(self, theme):
@@ -1162,11 +1348,15 @@ def bind_tuning_tab_runtime_methods(tab_cls) -> None:
     tab_cls._active_locks = _active_locks
     tab_cls._default_value = _default_value
     tab_cls._display_values_from_config = _display_values_from_config
+    tab_cls._current_seed_value = _current_seed_value
+    tab_cls._seed_value_or_current = _seed_value_or_current
+    tab_cls._var_value = _var_value
     tab_cls._mode_key_enabled = _mode_key_enabled
     tab_cls._apply_mode_widget_states = _apply_mode_widget_states
     tab_cls._write_active_vars_to_config = _write_active_vars_to_config
     tab_cls._persist_active_mode_values = _persist_active_mode_values
     tab_cls._build_slider_row = _build_slider_row
+    tab_cls._build_entry_row = _build_entry_row
     tab_cls._build_check_row = _build_check_row
     tab_cls._on_default_toggle = _on_default_toggle
     tab_cls._build_retrieval_section = _build_retrieval_section
