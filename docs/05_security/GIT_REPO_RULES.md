@@ -2,7 +2,7 @@
 # ============================================================================
 # Reference document -- print this, bookmark it, keep it on your phone.
 # Established across sessions Feb 8-14, 2026.
-# Updated: Feb 15, 2026 (Claude/AI references, virtual test framework)
+# Updated: Mar 08, 2026 (config authority + approved requirements baseline)
 # ============================================================================
 
 
@@ -45,9 +45,9 @@
 ### HybridRAG3 (Private -- your real workspace)
 INCLUDES:
 - All source code (src/, scripts/, tests/, diagnostics/)
-- Config files (config/default_config.yaml, config/profiles.yaml)
+- Config authorities (config/config.yaml, config/user_modes.yaml)
 - Documentation (docs/, README.md, SETUP.md, ARCHITECTURE.md)
-- Requirements files (requirements.txt, requirements-lock.txt)
+- Requirements files (requirements_approved.txt baseline, requirements.txt broader/private)
 - Personal tutorials and cheat sheets (docs/ folder)
 - Evaluation framework (eval/)
 - Tools and utilities (tools/)
@@ -95,7 +95,7 @@ NEVER INCLUDES:
 
 SAME ON ALL MACHINES:
 - All Python source code (src/, scripts/, tests/)
-- Config templates (config/default_config.yaml)
+- Config authorities (config/config.yaml, config/user_modes.yaml)
 - Documentation (docs/, README.md)
 - Requirements files
 - Evaluation framework
@@ -164,6 +164,10 @@ git status
 git commit -m "descriptive message about what changed"
 git push origin main
 ```
+
+Approved dependency rule:
+- Prefer `requirements_approved.txt` for installs, rebuilds, and workstation parity.
+- Treat `requirements.txt` as the broader/private stack, not the default work-approved baseline.
 
 ### Before Committing -- Safety Checks
 ```

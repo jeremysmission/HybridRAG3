@@ -19,5 +19,5 @@
 #         scheduled_scan.py     -- Weekly integrity scan via Task Scheduler
 # HOW:  Each tool is a standalone script that can be run from the
 #       command line or called programmatically. They share the same
-#       config system (config/default_config.yaml) and logging patterns.
+#       config system (config/config.yaml) and logging patterns.
 # ===================================================================

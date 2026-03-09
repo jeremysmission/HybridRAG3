@@ -107,7 +107,7 @@ def main():
     from src.core.llm_router import LLMRouter
     from src.core.query_engine import QueryEngine
 
-    cfg = load_config(project_dir=str(repo_root), config_filename="default_config.yaml")
+    cfg = load_config(project_dir=str(repo_root), config_filename="config.yaml")
 
     store = VectorStore(db_path=cfg.paths.database, embedding_dim=cfg.embedding.dimension)
     store.connect()

@@ -18,7 +18,7 @@ Tests:
   Phase 3: File transfer (copy file into temp source folder)
   Phase 4: Index the transferred file (real pipeline: chunk/embed/store)
   Phase 5: Offline model selection (select model, verify config + YAML)
-  Phase 6: Mode switch persists to user_overrides.yaml (not default_config)
+  Phase 6: Mode switch persists to config/config.yaml
 
 Usage:
     python tools/test_gui_full_harness.py
@@ -43,6 +43,12 @@ os.chdir(str(PROJECT_ROOT))
 
 PASS = 0
 FAIL = 0
+
+
+def _local_temp_dir(prefix):
+    base = Path(".tmp_gui_harness").resolve()
+    base.mkdir(parents=True, exist_ok=True)
+    return tempfile.mkdtemp(prefix=prefix, dir=str(base))
 
 
 def check(label, condition, detail=""):
@@ -347,8 +353,8 @@ def phase_3_file_transfer():
     print()
     print("--- PHASE 3: File Transfer ---")
 
-    tmp_src = tempfile.mkdtemp(prefix="hrag_src_")
-    tmp_dest = tempfile.mkdtemp(prefix="hrag_dest_")
+    tmp_src = _local_temp_dir("hrag_src_")
+    tmp_dest = _local_temp_dir("hrag_dest_")
 
     try:
         # Create a test document in the "source" folder
@@ -395,7 +401,7 @@ def phase_4_index_file(dest_file):
         check("Phase 4 (needs transferred file)", False, "no file")
         return None
 
-    tmp_db = tempfile.mkdtemp(prefix="hrag_db_")
+    tmp_db = _local_temp_dir("hrag_db_")
     db_path = os.path.join(tmp_db, "harness_test.sqlite3")
 
     try:
@@ -555,67 +561,70 @@ def phase_5_model_selection():
 
 
 # ===================================================================
-# PHASE 6: Mode switch persists to user_overrides.yaml
+# PHASE 6: Mode switch persists to config/config.yaml
 # ===================================================================
 
 def phase_6_config_persistence():
     print()
-    print("--- PHASE 6: Config Persistence (user_overrides.yaml) ---")
+    print("--- PHASE 6: Config Persistence (config/config.yaml) ---")
 
     from src.core.config import save_config_field, load_config
     import yaml
 
-    ovr_path = os.path.join(".", "config", "user_overrides.yaml")
-    default_path = os.path.join(".", "config", "default_config.yaml")
+    cfg_path = os.path.join(".", "config", "config.yaml")
 
     # Save current state to restore later
-    ovr_backup = None
-    if os.path.isfile(ovr_path):
-        with open(ovr_path, "r", encoding="utf-8") as f:
-            ovr_backup = f.read()
+    cfg_backup = None
+    if os.path.isfile(cfg_path):
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg_backup = f.read()
 
     try:
         # Switch to online
         save_config_field("mode", "online")
         check("save_config_field('mode', 'online') succeeded", True)
 
-        # Verify user_overrides.yaml was written
-        check("user_overrides.yaml exists", os.path.isfile(ovr_path))
+        # Verify config/config.yaml was written
+        check("config.yaml exists", os.path.isfile(cfg_path))
 
-        with open(ovr_path, "r", encoding="utf-8") as f:
-            ovr = yaml.safe_load(f)
-        check("user_overrides has mode=online",
-              ovr.get("mode") == "online",
-              "got: {}".format(ovr.get("mode")))
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            saved = yaml.safe_load(f)
+        check("config.yaml has mode=online",
+              saved.get("mode") == "online",
+              "got: {}".format(saved.get("mode")))
 
-        # Verify default_config.yaml was NOT touched
-        import subprocess
-        diff = subprocess.run(
-            ["git", "diff", "--", "config/default_config.yaml"],
-            capture_output=True, text=True,
-        )
-        check("default_config.yaml untouched",
-              not diff.stdout.strip())
+        # Verify retired default_config.yaml was not recreated or dirtied
+        retired_path = os.path.join(".", "config", "default_config.yaml")
+        if not os.path.exists(retired_path):
+            check("default_config.yaml untouched", True, "retired file absent")
+        else:
+            import subprocess
+            diff = subprocess.run(
+                ["git", "diff", "--", "config/default_config.yaml"],
+                capture_output=True, text=True,
+            )
+            check("default_config.yaml untouched",
+                  not diff.stdout.strip())
 
         # Switch back to offline
         save_config_field("mode", "offline")
-        with open(ovr_path, "r", encoding="utf-8") as f:
-            ovr = yaml.safe_load(f)
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            saved = yaml.safe_load(f)
         check("Mode reverted to offline",
-              ovr.get("mode") == "offline",
-              "got: {}".format(ovr.get("mode")))
+              saved.get("mode") == "offline",
+              "got: {}".format(saved.get("mode")))
 
-        # Verify load_config merges overlay
+        # Verify load_config sees the persisted authority
         cfg = load_config()
         check("load_config() returns offline mode",
               cfg.mode == "offline",
               "got: {}".format(cfg.mode))
 
     finally:
-        # Restore original user_overrides.yaml
-        if ovr_backup is not None:
-            with open(ovr_path, "w", encoding="utf-8") as f:
-                f.write(ovr_backup)
+        # Restore original config/config.yaml
+        if cfg_backup is not None:
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                f.write(cfg_backup)
 
 
 # ===================================================================

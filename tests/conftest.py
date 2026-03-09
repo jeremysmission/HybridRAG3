@@ -154,18 +154,6 @@ class FakeIndexingConfig:
 
 
 @dataclass
-class FakeTransformersConfig:
-    """Fake config section for TransformersRouter settings."""
-    enabled: bool = False
-    model: str = "microsoft/phi-4"
-    max_new_tokens: int = 2048
-    temperature: float = 0.05
-    load_in_4bit: bool = False
-    device_map: str = "auto"
-    trust_remote_code: bool = True
-
-
-@dataclass
 class FakeConfig:
     """
     Lightweight fake of the full HybridRAG3 Config object.
@@ -178,7 +166,6 @@ class FakeConfig:
     mode: str = "offline"
     ollama: FakeOllamaConfig = field(default_factory=FakeOllamaConfig)
     vllm: FakeVLLMConfig = field(default_factory=FakeVLLMConfig)
-    transformers_llm: FakeTransformersConfig = field(default_factory=FakeTransformersConfig)
     api: FakeAPIConfig = field(default_factory=FakeAPIConfig)
     cost: FakeCostConfig = field(default_factory=FakeCostConfig)
     chunking: FakeChunkingConfig = field(default_factory=FakeChunkingConfig)

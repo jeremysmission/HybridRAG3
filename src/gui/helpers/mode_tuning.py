@@ -8,6 +8,8 @@ from typing import Any
 
 import yaml
 
+from src.core.config_authority import canonicalize_config_dict
+from src.core.config_files import PRIMARY_CONFIG_NAME
 from src.core.mode_config import (
     MODE_BACKEND_SECTION,
     MODE_LEGACY_KEY_ALIASES,
@@ -30,11 +32,7 @@ def _project_root() -> str:
 
 
 def _store_path(root: str) -> str:
-    return os.path.join(root, "config", "user_overrides.yaml")
-
-
-def _legacy_store_path(root: str) -> str:
-    return os.path.join(root, "config", "mode_tuning.yaml")
+    return os.path.join(root, "config", PRIMARY_CONFIG_NAME)
 
 
 def _load_yaml(path: str) -> dict[str, Any]:
@@ -88,26 +86,22 @@ def _new_mode_entry(mode: str) -> dict[str, Any]:
 
 
 class ModeTuningStore:
-    """Persist per-mode values/defaults/locks inside config/user_overrides.yaml."""
+    """Persist per-mode values/defaults/locks inside config/config.yaml."""
 
     def __init__(self, root: str | None = None):
         self.root = os.path.abspath(root or _project_root())
         self.path = _store_path(self.root)
-        self.legacy_path = _legacy_store_path(self.root)
 
     def _load_root(self) -> dict[str, Any]:
+        if not os.path.isfile(self.path):
+            return {}
         with _STORE_LOCK:
             data = _load_yaml(self.path)
-        return data
+        return canonicalize_config_dict(data)
 
     def _save_root(self, root_data: dict[str, Any]) -> None:
         with _STORE_LOCK:
-            _save_yaml(self.path, root_data)
-
-    def _load_legacy_modes(self) -> dict[str, Any]:
-        legacy = _load_yaml(self.legacy_path)
-        modes = legacy.get("modes", {}) if isinstance(legacy, dict) else {}
-        return modes if isinstance(modes, dict) else {}
+            _save_yaml(self.path, canonicalize_config_dict(root_data))
 
     def _migrate_legacy_entry(self, entry: dict[str, Any], mode: str) -> None:
         mode = normalize_mode(mode)
@@ -116,11 +110,11 @@ class ModeTuningStore:
             set_mode_value(entry, mode, key, flat_values[key])
 
         defaults = entry.get("defaults", {})
-        if not isinstance(defaults, dict):
+        if not isinstance(defaults, dict) or "defaults" not in entry:
             defaults = {}
             entry["defaults"] = defaults
         locks = entry.get("locks", {})
-        if not isinstance(locks, dict):
+        if not isinstance(locks, dict) or "locks" not in entry:
             locks = {}
             entry["locks"] = locks
 
@@ -151,18 +145,13 @@ class ModeTuningStore:
 
         entry = modes.get(mode)
         if not isinstance(entry, dict):
-            legacy_modes = self._load_legacy_modes()
-            legacy_entry = legacy_modes.get(mode)
-            if isinstance(legacy_entry, dict):
-                entry = copy.deepcopy(legacy_entry)
+            current_mode = normalize_mode(getattr(config, "mode", mode))
+            if not modes and mode == current_mode:
+                entry = snapshot_mode_entry(config, mode)
+                entry["defaults"] = copy.deepcopy(mode_entry_to_flat_values(mode, entry))
+                entry["locks"] = {key: False for key in MODE_TUNING_KEYS[mode]}
             else:
-                current_mode = normalize_mode(getattr(config, "mode", mode))
-                if not modes and mode == current_mode:
-                    entry = snapshot_mode_entry(config, mode)
-                    entry["defaults"] = copy.deepcopy(mode_entry_to_flat_values(mode, entry))
-                    entry["locks"] = {key: False for key in MODE_TUNING_KEYS[mode]}
-                else:
-                    entry = _new_mode_entry(mode)
+                entry = _new_mode_entry(mode)
             modes[mode] = entry
 
         self._migrate_legacy_entry(entry, mode)
@@ -270,7 +259,7 @@ class ModeTuningStore:
         self._save_root(root_data)
 
     def save_admin_defaults(self, config) -> dict[str, Any]:
-        """Persist admin defaults into user_overrides.yaml.
+        """Persist admin defaults into config.yaml.
 
         This keeps the admin save/restore flow on the same YAML path used
         by mode tuning instead of maintaining a separate JSON snapshot file.
@@ -330,7 +319,7 @@ class ModeTuningStore:
         return copy.deepcopy(snapshot) if isinstance(snapshot, dict) else None
 
     def restore_admin_defaults(self, config) -> dict[str, Any] | None:
-        """Restore admin defaults from user_overrides.yaml into live config."""
+        """Restore admin defaults from config.yaml into live config."""
         root_data = self._load_root()
         snapshot = root_data.get("admin_defaults")
         if not isinstance(snapshot, dict):

@@ -16,7 +16,7 @@
 #
 # HOW IT WORKS:
 #   1. Python "dataclasses" define every setting with a sensible default
-#   2. A YAML file (config/default_config.yaml) can override those defaults
+#   2. A YAML file (config/config.yaml) can override those defaults
 #   3. Environment variables can override YAML (for machine-specific paths)
 #
 #   Priority: env vars > YAML file > hardcoded defaults
@@ -56,19 +56,20 @@ import copy
 import os
 import sys
 import uuid
-import yaml
 import dataclasses
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import List, Optional
-from .model_identity import canonicalize_model_name
-from .mode_config import (
-    MODE_RUNTIME_DEFAULTS,
-    legacy_mode_store_to_runtime,
-    mode_runtime_overlay,
-    normalize_mode,
+
+from .config_files import (
+    PRIMARY_CONFIG_NAME,
+    load_primary_config_dict,
+    normalize_requested_config_name,
+    save_primary_config_dict,
 )
+from .config_authority import build_runtime_config_dict, set_canonical_config_value
+from .model_identity import canonicalize_model_name
 from .ollama_endpoint_resolver import sanitize_ollama_base_url
+from .user_modes import load_user_modes_data
 
 # Guard config lives in its own file to keep config.py under 500 lines.
 # Re-exported here so callers can do: from src.core.config import HallucinationGuardConfig
@@ -245,29 +246,6 @@ class VLLMConfig:
 
 
 @dataclass
-class TransformersConfig:
-    """
-    Direct HuggingFace Transformers inference (no server needed).
-
-    Loads a model directly into GPU/CPU memory using the transformers
-    library. No Ollama or vLLM server required. The model is loaded
-    once at startup and stays in memory for subsequent queries.
-
-    Use 4-bit quantization (load_in_4bit=True) to fit larger models
-    like phi-4 (14B) into 12GB VRAM.
-
-    License: MIT (Microsoft phi-4).
-    """
-    enabled: bool = False
-    model: str = "microsoft/phi-4"
-    max_new_tokens: int = 2048
-    temperature: float = 0.05
-    load_in_4bit: bool = True
-    device_map: str = "auto"
-    trust_remote_code: bool = False
-
-
-@dataclass
 class APIConfig:
     """
     Online LLM (OpenAI-compatible API) settings.
@@ -286,7 +264,7 @@ class APIConfig:
       design -- if you forget to configure it, nothing leaks.
 
     HOW TO CONFIGURE FOR ONLINE MODE:
-      Option 1 -- YAML (config/default_config.yaml):
+      Option 1 -- YAML (config/config.yaml):
         api:
           endpoint: "https://your-company-api.internal/v1/chat/completions"
 
@@ -588,13 +566,13 @@ class Config:
         snap.mode = "online"                  # raises RuntimeError
     """
     mode: str = "offline"   # "offline" (Ollama) or "online" (OpenAI API)
+    active_profile: str = ""  # active user_modes.yaml profile, blank = base config
 
     paths: PathsConfig = field(default_factory=PathsConfig)
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     chunking: ChunkingConfig = field(default_factory=ChunkingConfig)
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
     vllm: VLLMConfig = field(default_factory=VLLMConfig)
-    transformers_llm: TransformersConfig = field(default_factory=TransformersConfig)
     api: APIConfig = field(default_factory=APIConfig)
     cost: CostConfig = field(default_factory=CostConfig)
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
@@ -741,113 +719,18 @@ def _dict_to_dataclass(cls, data: dict):
     return cls(**filtered)
 
 
-# -------------------------------------------------------------------
-# Deep merge helper for config overlay
-# -------------------------------------------------------------------
-
-def _deep_merge(base: dict, overlay: dict) -> dict:
-    """Recursively merge overlay into base. overlay wins on conflicts."""
-    merged = dict(base)
-    for k, v in overlay.items():
-        if k in merged and isinstance(merged[k], dict) and isinstance(v, dict):
-            merged[k] = _deep_merge(merged[k], v)
-        else:
-            merged[k] = v
-    return merged
-
-
-def _read_yaml_dict(path: Path) -> dict:
-    if not path.exists():
-        return {}
-    with open(path, "r", encoding="utf-8") as f:
-        raw = yaml.safe_load(f)
-    return raw if isinstance(raw, dict) else {}
-
-
-def _legacy_mode_tuning_overrides(project_dir: str) -> dict:
-    legacy_path = Path(project_dir) / "config" / "mode_tuning.yaml"
-    legacy = _read_yaml_dict(legacy_path)
-    modes = legacy.get("modes", {}) if isinstance(legacy, dict) else {}
-    if not isinstance(modes, dict) or not modes:
-        return {}
-
-    overlay = {"modes": {}}
-    for mode_name, legacy_entry in modes.items():
-        mode_key = normalize_mode(mode_name)
-        overlay["modes"][mode_key] = legacy_mode_store_to_runtime(
-            mode_key,
-            legacy_entry if isinstance(legacy_entry, dict) else {},
-        )
-    return overlay
-
-
-def _seed_modes_from_flat_sections(data: dict) -> dict:
-    if not isinstance(data, dict):
-        return {}
-    modes = data.setdefault("modes", {})
-    if not isinstance(modes, dict):
-        modes = {}
-        data["modes"] = modes
-
-    offline = modes.setdefault("offline", {})
-    if not isinstance(offline, dict):
-        offline = {}
-        modes["offline"] = offline
-    if "retrieval" not in offline and isinstance(data.get("retrieval"), dict):
-        offline["retrieval"] = copy.deepcopy(data.get("retrieval", {}))
-    if "ollama" not in offline and isinstance(data.get("ollama"), dict):
-        offline["ollama"] = copy.deepcopy(data.get("ollama", {}))
-    if "query" not in offline:
-        offline["query"] = copy.deepcopy(MODE_RUNTIME_DEFAULTS["offline"]["query"])
-
-    online = modes.setdefault("online", {})
-    if not isinstance(online, dict):
-        online = {}
-        modes["online"] = online
-    if "retrieval" not in online and isinstance(data.get("retrieval_online"), dict):
-        online["retrieval"] = copy.deepcopy(data.get("retrieval_online", {}))
-    if "api" not in online and isinstance(data.get("api"), dict):
-        api_section = copy.deepcopy(data.get("api", {}))
-        for key in ("endpoint", "auth_scheme", "provider", "allowed_endpoint_prefixes", "api_version"):
-            api_section.pop(key, None)
-        online["api"] = api_section
-    if "query" not in online:
-        online["query"] = copy.deepcopy(MODE_RUNTIME_DEFAULTS["online"]["query"])
-
-    return data
-
-
 def normalize_config_dict(project_dir: str, yaml_data: dict | None) -> dict:
-    data = copy.deepcopy(yaml_data or {})
+    user_modes = load_user_modes_data(project_dir)
+    data = build_runtime_config_dict(yaml_data, user_modes)
     data.pop("setup_complete", None)
-
-    legacy_overlay = _legacy_mode_tuning_overrides(project_dir)
-    if legacy_overlay:
-        data = _deep_merge(data, legacy_overlay)
-
-    data = _seed_modes_from_flat_sections(data)
-    active_mode = normalize_mode(data.get("mode", "offline"))
-    active_entry = data.get("modes", {}).get(active_mode, {})
-    if isinstance(active_entry, dict):
-        data = _deep_merge(data, mode_runtime_overlay(active_mode, active_entry))
-
-    data["mode"] = active_mode
-    data.pop("retrieval_online", None)
     return data
 
 
 def load_config_data(
     project_dir: str = ".",
-    config_filename: str = "default_config.yaml",
+    config_filename: str = PRIMARY_CONFIG_NAME,
 ) -> dict:
-    config_path = Path(project_dir) / "config" / config_filename
-    yaml_data = _read_yaml_dict(config_path)
-
-    overrides_path = Path(project_dir) / "config" / "user_overrides.yaml"
-    overrides = _read_yaml_dict(overrides_path)
-    if overrides:
-        yaml_data = _deep_merge(yaml_data, overrides)
-
+    yaml_data = load_primary_config_dict(project_dir, config_filename)
     return normalize_config_dict(project_dir, yaml_data)
 
 
@@ -857,7 +740,7 @@ def load_config_data(
 
 def load_config(
     project_dir: str = ".",
-    config_filename: str = "default_config.yaml",
+    config_filename: str = PRIMARY_CONFIG_NAME,
 ) -> Config:
     """
     Load configuration from YAML file, with defaults and env var overrides.
@@ -888,6 +771,7 @@ def load_config(
     # which means "use all defaults for that section."
     config = Config(
         mode=yaml_data.get("mode", "offline"),
+        active_profile=yaml_data.get("active_profile", ""),
         paths=_dict_to_dataclass(PathsConfig, yaml_data.get("paths", {})),
         embedding=_dict_to_dataclass(EmbeddingConfig, yaml_data.get("embedding", {})),
         chunking=_dict_to_dataclass(ChunkingConfig, yaml_data.get("chunking", {})),
@@ -1011,13 +895,13 @@ def validate_config(config: Config) -> List[str]:
     return errors
 
 
-def save_config_field(key: str, value, config_filename: str = "user_overrides.yaml") -> None:
+def save_config_field(key: str, value, config_filename: str = PRIMARY_CONFIG_NAME) -> None:
     """
-    Persist a config key to user_overrides.yaml (NOT default_config.yaml).
+    Persist a config key to the primary config YAML.
 
-    Reads the existing overrides YAML, updates one key, writes back.
-    This keeps shipped defaults pristine -- runtime changes live in
-    config/user_overrides.yaml which is loaded on top of defaults.
+    All GUI/system saves now target the same base authority:
+    `config/config.yaml`. Legacy filenames are accepted for compatibility
+    but are redirected to the primary config file.
 
     Supports dotted key paths for nested updates.  For example,
     ``save_config_field("paths.source_folder", "/data")`` will set
@@ -1032,44 +916,24 @@ def save_config_field(key: str, value, config_filename: str = "user_overrides.ya
     value
         New value for the key (str, int, dict, etc.).
     config_filename : str
-        YAML file inside config/ to update.  Defaults to
-        user_overrides.yaml to protect shipped defaults.
+        YAML file inside config/ to update. Legacy names are redirected
+        to the primary config authority.
     """
     root = os.path.abspath(os.environ.get("HYBRIDRAG_PROJECT_ROOT", "."))
-    cfg_dir = os.path.join(root, "config")
-    safe_name = os.path.basename(config_filename or "user_overrides.yaml")
-    if safe_name != (config_filename or ""):
+    raw_name = config_filename or PRIMARY_CONFIG_NAME
+    safe_name = normalize_requested_config_name(raw_name)
+    if safe_name != raw_name:
         raise ValueError("config_filename must be a base filename inside config/")
     if not safe_name.lower().endswith((".yaml", ".yml")):
         raise ValueError("config_filename must be a .yaml/.yml file")
-    cfg_path = os.path.abspath(os.path.join(cfg_dir, safe_name))
-    if not os.path.normcase(cfg_path).startswith(os.path.normcase(cfg_dir + os.sep)):
-        raise ValueError("config_filename resolves outside config/")
-
-    if os.path.isfile(cfg_path):
-        with open(cfg_path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-    else:
-        data = {}
+    data = load_primary_config_dict(root, safe_name)
 
     # Canonicalize persisted local-model tags so stale aliases do not drift
-    # back into user_overrides and startup diagnostics.
+    # back into config.yaml and startup diagnostics.
     if key in ("ollama.model", "vllm.model") and isinstance(value, str):
         value = canonicalize_model_name(value)
-
-    parts = key.split(".")
-    target = data
-    for part in parts[:-1]:
-        if part not in target or not isinstance(target[part], dict):
-            target[part] = {}
-        target = target[part]
-    target[parts[-1]] = value
-
-    os.makedirs(cfg_dir, exist_ok=True)
-    tmp_path = cfg_path + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-    os.replace(tmp_path, cfg_path)
+    data = set_canonical_config_value(data, key, value)
+    save_primary_config_dict(root, data)
 
 
 def ensure_directories(config: Config) -> None:

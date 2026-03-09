@@ -75,7 +75,7 @@ def main():
     ensure_directories(config)
 
     # Only override mode if explicitly passed on command line
-    # Otherwise use whatever is in default_config.yaml
+    # Otherwise use whatever is in config/config.yaml
     if args.mode:
         config.mode = args.mode
 

@@ -102,7 +102,6 @@ def test_query_engine_rebinds_retriever_and_router_to_latest_config():
         ollama=SimpleNamespace(config=cfg_old),
         api=SimpleNamespace(config=cfg_old),
         vllm=None,
-        transformers_rt=SimpleNamespace(config=cfg_old),
     )
 
     with patch("src.core.query_engine.get_app_logger", return_value=MagicMock()), \
@@ -122,7 +121,6 @@ def test_query_engine_rebinds_retriever_and_router_to_latest_config():
         assert engine.retriever.config is engine.config
         assert engine.llm_router.config is engine.config
         assert engine.llm_router.api.config is engine.config
-        assert engine.llm_router.transformers_rt.config is engine.config
         return []
 
     engine.retriever.search.side_effect = _assert_rebound
@@ -141,7 +139,6 @@ def test_query_engine_applies_query_mode_on_init():
         ollama=SimpleNamespace(config=cfg),
         api=SimpleNamespace(config=cfg),
         vllm=None,
-        transformers_rt=SimpleNamespace(config=cfg),
     )
 
     with patch("src.core.query_engine.get_app_logger", return_value=MagicMock()), \
@@ -161,7 +158,6 @@ def test_grounded_query_engine_rebinds_retriever_and_router_to_latest_config():
         ollama=SimpleNamespace(config=cfg_old),
         api=SimpleNamespace(config=cfg_old),
         vllm=None,
-        transformers_rt=SimpleNamespace(config=cfg_old),
         query=MagicMock(
             return_value=SimpleNamespace(
                 text="ok",
@@ -200,7 +196,6 @@ def test_grounded_query_engine_rebinds_retriever_and_router_to_latest_config():
     assert engine.retriever.config is cfg_new
     assert engine.llm_router.config is cfg_new
     assert engine.llm_router.api.config is cfg_new
-    assert engine.llm_router.transformers_rt.config is cfg_new
 
 
 def test_grounded_query_uses_trimmed_context_before_prompt():
@@ -211,7 +206,6 @@ def test_grounded_query_uses_trimmed_context_before_prompt():
         ollama=SimpleNamespace(config=cfg),
         api=SimpleNamespace(config=cfg),
         vllm=None,
-        transformers_rt=SimpleNamespace(config=cfg),
         query=MagicMock(
             return_value=SimpleNamespace(
                 text="ok",
@@ -309,7 +303,6 @@ def test_sync_runtime_components_reapplies_active_query_mode_settings():
         ollama=SimpleNamespace(config=cfg_offline),
         api=SimpleNamespace(config=cfg_offline),
         vllm=None,
-        transformers_rt=None,
     )
 
     with patch("src.core.query_engine.get_app_logger", return_value=MagicMock()), \

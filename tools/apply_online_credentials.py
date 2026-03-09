@@ -29,14 +29,14 @@ def prompt_if_missing(value: str, prompt: str) -> str:
 
 
 def main() -> None:
-    overrides_path = Path("config/user_overrides.yaml")
-    overrides = load_yaml(overrides_path)
+    config_path = Path("config/config.yaml")
+    config_data = load_yaml(config_path)
 
-    api_section = overrides.get("api", {})
-    modes = overrides.setdefault("modes", {})
+    api_section = config_data.get("api", {})
+    modes = config_data.setdefault("modes", {})
     if not isinstance(modes, dict):
         modes = {}
-        overrides["modes"] = modes
+        config_data["modes"] = modes
     online = modes.setdefault("online", {})
     if not isinstance(online, dict):
         online = {}
@@ -58,13 +58,13 @@ def main() -> None:
     api_section["auth_scheme"] = auth_scheme
     api_section["provider"] = prompt_if_missing(api_section.get("provider", ""), "Provider (azure/openai): ") or "openai"
     api_section["model"] = prompt_if_missing(api_section.get("model", ""), "Model name to retrieve (e.g. gpt-4o-mini): ")
-    overrides["api"] = api_section
+    config_data["api"] = api_section
     online_api["model"] = api_section["model"]
     online_api["deployment"] = api_section["model"]
 
-    save_yaml(overrides_path, overrides)
+    save_yaml(config_path, config_data)
 
-    print("\nUpdated config/user_overrides.yaml with your online API details.")
+    print("\nUpdated config/config.yaml with your online API details.")
     print("Now set your API key in the environment before running autotune.")
     print("Windows example (run in the same terminal before the Python call):")
     print('  setx OPENAI_API_KEY "sk-xxxx"')

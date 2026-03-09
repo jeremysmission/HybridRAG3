@@ -132,7 +132,7 @@ COMMON FIXES:
 
 DEMO-SAFE OFFLINE / 500 RECOVERY (added 2026-03-03):
   If query errors include HTTP 500 / timeout / "LLM call failed",
-  set these in config/user_overrides.yaml:
+  set these in config/config.yaml:
 
     mode: offline
     ollama.model: phi4-mini

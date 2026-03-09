@@ -43,8 +43,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="HybridRAG index quality-control checker.")
     ap.add_argument(
         "--config",
-        default="config/default_config.yaml",
-        help="Config YAML path. Default: config/default_config.yaml",
+        default="config/config.yaml",
+        help="Config YAML path. Default: config/config.yaml",
     )
     ap.add_argument(
         "--baseline",

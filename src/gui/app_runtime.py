@@ -325,12 +325,8 @@ def _build_view(self, name):
             return
 
         if name == "tuning":
-            from src.gui.panels.tuning_tab import TuningTab
-            wrapper = ScrollableFrame(self._content, bg=self._theme["bg"])
-            view = TuningTab(wrapper.inner, config=self.config, app_ref=self)
-            view.pack(fill=tk.BOTH, expand=True)
-            self._tuning_panel = view
-            self._views["tuning"] = wrapper
+            # Legacy key: tuning controls now live inside the Admin view.
+            self._build_view("admin")
             return
 
         if name == "cost":
@@ -345,6 +341,7 @@ def _build_view(self, name):
             view = ApiAdminTab(wrapper.inner, config=self.config, app_ref=self)
             view.pack(fill=tk.BOTH, expand=True)
             self._admin_panel = view
+            self._tuning_panel = getattr(view, "_mode_panel", None)
             self._views["admin"] = wrapper
             return
 
@@ -587,6 +584,7 @@ def set_ready(self, enabled):
 def reload_config(self, new_config):
     """Replace the running config and propagate to all panels."""
     from src.gui.helpers.mode_tuning import apply_mode_settings_to_config
+    from src.core.query_engine import refresh_query_engine_runtime
 
     self.config = new_config
     apply_mode_settings_to_config(new_config, getattr(new_config, "mode", "offline"))
@@ -594,10 +592,7 @@ def reload_config(self, new_config):
     # Propagate to query engine so it uses the new settings
     if hasattr(self, "query_engine") and self.query_engine:
         self.query_engine.config = new_config
-        if hasattr(self.query_engine, "retriever") and self.query_engine.retriever:
-            self.query_engine.retriever.config = new_config
-        if hasattr(self.query_engine, "llm_router") and self.query_engine.llm_router:
-            self.query_engine.llm_router.config = new_config
+        refresh_query_engine_runtime(self.query_engine, clear_caches=True)
 
     if hasattr(self, "query_panel"):
         self.query_panel.config = new_config

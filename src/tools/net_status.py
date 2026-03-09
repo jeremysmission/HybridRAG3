@@ -61,7 +61,7 @@ def show_status():
     if gate.mode_name == "offline":
         print("    - Only localhost connections allowed (Ollama)")
         print("    - ALL internet access is blocked")
-        print("    - Switch to online: set mode=online in config/default_config.yaml")
+        print("    - Switch to online: set mode=online in config/config.yaml")
     elif gate.mode_name == "online":
         print("    - Localhost allowed (Ollama)")
         print(f"    - API endpoint allowed: {', '.join(gate._allowed_hosts)}")

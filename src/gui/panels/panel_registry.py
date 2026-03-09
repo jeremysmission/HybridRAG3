@@ -69,7 +69,6 @@ _PANEL_DEFS: List[Dict[str, Any]] = [
     {"key": VIEW_QUERY,   "label": "Query",     "module": "src.gui.panels.query_panel",      "cls": "QueryPanel"},
     {"key": VIEW_DATA,    "label": "Downloader (Data)", "module": "src.gui.panels.data_panel", "cls": "DataPanel", "optional": True},
     {"key": VIEW_INDEX,   "label": "Index",     "module": "src.gui.panels.index_panel",       "cls": "IndexPanel"},
-    {"key": VIEW_TUNING,  "label": "Tuning",    "module": "src.gui.panels.tuning_tab",        "cls": "TuningTab"},
     {"key": VIEW_COST,    "label": "Cost",      "module": "src.gui.panels.cost_dashboard",    "cls": "CostDashboard"},
     {"key": VIEW_ADMIN,   "label": "Admin",     "module": "src.gui.panels.api_admin_tab",     "cls": "ApiAdminTab"},
     {"key": VIEW_REFERENCE, "label": "Reference", "module": "src.gui.panels.reference_panel",   "cls": "ReferencePanel"},

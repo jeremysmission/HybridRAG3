@@ -1,15 +1,6 @@
-# Online mode settings (Azure OpenAI / OpenAI cloud endpoints)
-api:
-  api_version: ''
-  auth_scheme: ''
-  context_window: 128000
-  deployment: ''
-  endpoint: ''
-  max_tokens: 1024
-  model: ''
-  provider: ''
-  temperature: 0.05
-  timeout_seconds: 180
+setup_complete: true
+mode_store_version: 2
+mode: offline
 chunking:
   chunk_size: 1200
   max_heading_len: 160
@@ -19,10 +10,9 @@ cost:
   input_cost_per_1k: 0.0015
   output_cost_per_1k: 0.002
   track_enabled: true
-# Embedding model settings (Ollama nomic-embed-text)
 embedding:
-  batch_size: 16
-  device: cpu
+  batch_size: 128
+  device: cuda
   dimension: 768
   model_name: nomic-embed-text
 hallucination_guard:
@@ -36,24 +26,25 @@ hallucination_guard:
   shortcircuit_pass: 5
   threshold: 0.8
 indexing:
-  block_chars: 200000
-  max_chars_per_file: 2000000
-mode: offline
+  block_chars: 1000000
+  max_chars_per_file: 10000000
 modes:
   offline:
     retrieval:
-      hybrid_search: true
-      top_k: 4
+      top_k: 25
       min_score: 0.1
+      hybrid_search: true
       reranker_enabled: false
       reranker_top_n: 20
     ollama:
-      model: phi4-mini
-      base_url: http://127.0.0.1:11434
+      model: phi4:14b-q4_K_M
+      base_url: http://localhost:11434
       context_window: 4096
-      num_predict: 384
-      temperature: 0.05
-      timeout_seconds: 180
+      num_predict: 2048
+      temperature: 0.5
+      timeout_seconds: 240
+      keep_alive: -1
+      num_thread: 0
     query:
       grounding_bias: 8
       allow_open_knowledge: true
@@ -83,18 +74,23 @@ modes:
       allow_open_knowledge: false
   online:
     retrieval:
-      hybrid_search: true
       top_k: 6
       min_score: 0.08
+      hybrid_search: true
       reranker_enabled: false
       reranker_top_n: 20
     api:
-      model: ''
-      deployment: ''
+      model: gpt-4o
+      deployment: gpt-4o
       context_window: 128000
       max_tokens: 1024
       temperature: 0.05
       timeout_seconds: 180
+      endpoint: ''
+      provider: ''
+      auth_scheme: ''
+      api_version: ''
+      allowed_endpoint_prefixes: []
     query:
       grounding_bias: 7
       allow_open_knowledge: true
@@ -122,52 +118,30 @@ modes:
       timeout_seconds: false
       grounding_bias: false
       allow_open_knowledge: false
-# Offline mode settings (local Ollama LLM inference)
-ollama:
-  base_url: http://127.0.0.1:11434
-  context_window: 4096
-  keep_alive: -1
-  model: phi4-mini
-  num_predict: 384
-  num_thread: 0
-  timeout_seconds: 180
-# File system paths for data storage
 paths:
-  database: "D:\\RAG Indexed Data\\hybridrag.sqlite3"
-  embeddings_cache: "D:\\RAG Indexed Data\\_embeddings"
-  source_folder: "D:\\RAG Source Data"
-  download_folder: "D:\\RAG Source Data"
-  transfer_source_folder: ""
+  database: D:\RAG Indexed Data\hybridrag.sqlite3
+  download_folder: D:\RAG Source Data
+  embeddings_cache: D:\RAG Indexed Data\_embeddings
+  source_folder: D:\RAG Source Data
+  transfer_source_folder: ''
 performance:
-  gc_between_blocks: true
-  gc_between_files: true
-  max_concurrent_files: 1
-# Retrieval and ranking parameters
+  gc_between_blocks: false
+  gc_between_files: false
+  max_concurrent_files: 4
 retrieval:
-  hybrid_search: true
-  min_chunks: 1
-  min_score: 0.1
-  reranker_enabled: false
-  reranker_model: cross-encoder/ms-marco-MiniLM-L-6-v2
-  reranker_top_n: 20
+  block_rows: 25000
+  lex_boost: 0.06
+  offline_top_k: null
   rrf_k: 60
-  top_k: 4
-# Security and compliance settings
+  reranker_model: cross-encoder/ms-marco-MiniLM-L-6-v2
+  min_chunks: 1
 security:
   audit_logging: true
   pii_sanitization: true
-setup_complete: true
-# RETIRED (Session 15): transformers_llm requires torch + HuggingFace (removed).
-# Use ollama section above for local LLM inference.
-# Kept for config schema compatibility -- TransformersRouter degrades gracefully.
-transformers_llm:
-  device_map: auto
-  enabled: false
-  load_in_4bit: true
-  max_new_tokens: 2048
-  model: microsoft/phi-4
-  temperature: 0.05
-  trust_remote_code: false
+tuned_baseline:
+  date: '2026-03-07'
+  offline: tk4_ms10_np384
+  online: tk6_ms08_mt1024
 vllm:
   base_url: http://localhost:8000
   context_window: 16384

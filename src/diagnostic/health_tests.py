@@ -69,7 +69,7 @@ def test_config_load() -> TestResult:
         if errors:
             return TestResult("config_load", "Config", "FAIL",
                 f"Validation failed: {'; '.join(errors)}", {"errors": errors},
-                fix_hint="Check config/default_config.yaml and env vars.")
+                fix_hint="Check config/config.yaml, config/user_modes.yaml, and env vars.")
         return TestResult("config_load", "Config", "PASS",
             f"Config OK (mode={config.mode})",
             {"mode": config.mode,

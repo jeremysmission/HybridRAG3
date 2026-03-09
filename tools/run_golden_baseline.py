@@ -16,7 +16,7 @@ What this does
 
 Usage
   python tools/run_golden_baseline.py --mode offline
-  python tools/run_golden_baseline.py --mode online --config config/default_config.yaml
+  python tools/run_golden_baseline.py --mode online --config config/config.yaml
 """
 
 import argparse
@@ -34,7 +34,7 @@ def run(cmd):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", default="offline", choices=["offline", "online"])
-    ap.add_argument("--config", default="config/default_config.yaml")
+    ap.add_argument("--config", default="config/config.yaml")
     ap.add_argument(
         "--dataset",
         default="Eval/golden_baseline/golden_baseline_24.json",

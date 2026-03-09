@@ -215,7 +215,7 @@ if (Test-Path $wheels) {
 }
 
 Write-Info "Applying config paths..."
-$cfg = Join-Path $installDir "config\default_config.yaml"
+$cfg = Join-Path $installDir "config\config.yaml"
 Write-LocalConfig -CfgPath $cfg -DataDir $dataDir -SourceDir $sourceDir
 Write-Ok "Config updated"
 

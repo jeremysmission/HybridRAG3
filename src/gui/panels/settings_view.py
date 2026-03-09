@@ -29,12 +29,14 @@
 #   API & Admin: one GET to /models (optional, user-initiated)
 # ============================================================================
 
-import tkinter as tk
-from tkinter import ttk
 import os
 import logging
+import tkinter as tk
+from tkinter import ttk
+import copy
 
 from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_SMALL, FONT_MONO, bind_hover
+from src.core.user_modes import active_profile_name, load_user_modes_data
 
 logger = logging.getLogger(__name__)
 
@@ -44,39 +46,24 @@ logger = logging.getLogger(__name__)
 # ====================================================================
 
 def _load_profile_names():
-    """Read profile names from profiles.yaml.
-
-    Returns a list like ['laptop_safe', 'desktop_power', 'server_max'].
-    Falls back to hardcoded defaults if the file is missing or unreadable.
-    """
+    """Read profile names from user_modes.yaml."""
+    root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
     try:
-        import yaml
-        root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
-        path = os.path.join(root, "config", "profiles.yaml")
-        with open(path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-        if isinstance(data, dict):
-            return list(data.keys())
+        data = load_user_modes_data(root)
+        names = list(data.get("profiles", {}).keys())
     except Exception:
-        pass
-    return ["laptop_safe", "desktop_power", "server_max"]
+        names = []
+    return names or ["laptop_safe", "desktop_power", "server_max"]
 
 
 def _detect_profile_name(config):
-    """Return the best-matching profile name for the given config.
-
-    Compares the current embedding model + device + LLM model against
-    each profile in profiles.yaml.  This lets us show the user which
-    profile they are actually running, even if they never explicitly
-    selected one.
-    """
+    """Return the active user_modes.yaml profile, falling back to a best match."""
+    root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
     try:
-        import yaml
-        root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
-        path = os.path.join(root, "config", "profiles.yaml")
-        with open(path, "r", encoding="utf-8") as f:
-            profiles_data = yaml.safe_load(f) or {}
-
+        active = active_profile_name(root)
+        if active:
+            return active
+        profiles_data = load_user_modes_data(root).get("profiles", {})
         current_model = getattr(
             getattr(config, "embedding", None), "model_name", ""
         )
@@ -85,8 +72,9 @@ def _detect_profile_name(config):
         )
 
         for name, pdata in profiles_data.items():
-            p_model = pdata.get("embedding", {}).get("model_name", "")
-            p_device = pdata.get("embedding", {}).get("device", "cpu")
+            overrides = pdata.get("overrides", {}) if isinstance(pdata, dict) else {}
+            p_model = overrides.get("embedding", {}).get("model_name", "")
+            p_device = overrides.get("embedding", {}).get("device", "cpu")
             if p_model == current_model and p_device == current_device:
                 return name
 
@@ -94,13 +82,14 @@ def _detect_profile_name(config):
             getattr(config, "ollama", None), "model", ""
         )
         for name, pdata in profiles_data.items():
-            p_llm = pdata.get("ollama", {}).get("model", "")
-            p_device = pdata.get("embedding", {}).get("device", "cpu")
+            overrides = pdata.get("overrides", {}) if isinstance(pdata, dict) else {}
+            p_llm = overrides.get("modes", {}).get("offline", {}).get("ollama", {}).get("model", "")
+            p_device = overrides.get("embedding", {}).get("device", "cpu")
             if p_llm == current_llm and p_device == current_device:
                 return name
     except Exception:
         pass
-    return "desktop_power"
+    return ""
 
 
 def _build_ranking_text(profile):
@@ -173,12 +162,11 @@ def _theme_widget(widget, t):
 
 class SettingsView(tk.Frame):
     """
-    Admin settings coordinator with a two-tab Notebook:
-      - Tuning:     retrieval/LLM sliders, profile/model ranking, reset
-      - API & Admin: credentials, online model selection, admin defaults
+    Admin settings coordinator.
 
-    Preserves all public attributes from the original monolithic class
-    (topk_var, temp_var, etc.) via delegation to the TuningTab.
+    The Admin tab is the single GUI authority for development-time mode
+    tuning, profile switching, credentials, and path/model management.
+    Public tuning properties are delegated to the embedded admin mode panel.
     """
 
     def __init__(self, parent, config, app_ref):
@@ -187,29 +175,15 @@ class SettingsView(tk.Frame):
         super().__init__(parent, bg=t["bg"])
         self.config = config
         self._app = app_ref
-        self._dev_ui_enabled = os.environ.get(
-            "HYBRIDRAG_DEV_UI", ""
-        ).strip().lower() in ("1", "true", "yes")
 
-        # Build notebook with two tabs
+        # Build notebook with one authoritative Admin tab.
         self._notebook = ttk.Notebook(self)
         self._notebook.pack(fill=tk.BOTH, expand=True)
 
-        # Dev-only tuning tab (hidden by default in production-style runs).
-        from src.gui.panels.tuning_tab import TuningTab
-        self._tuning_tab = TuningTab(
-            self._notebook,
-            config=config,
-            app_ref=app_ref,
-            enable_mode_store=self._dev_ui_enabled,
-        )
-        if self._dev_ui_enabled:
-            self._notebook.add(self._tuning_tab, text="  Development Tuning  ")
-
-        # Main operations/admin tab (always visible).
         from src.gui.panels.api_admin_tab import ApiAdminTab
         self._api_admin_tab = ApiAdminTab(self._notebook, config=config, app_ref=app_ref)
-        self._notebook.add(self._api_admin_tab, text="  API & Admin  ")
+        self._tuning_tab = self._api_admin_tab._mode_panel
+        self._notebook.add(self._api_admin_tab, text="  Admin  ")
 
     # ----------------------------------------------------------------
     # PUBLIC ATTRIBUTE PROXIES (backward compatibility)

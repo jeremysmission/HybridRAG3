@@ -16,7 +16,7 @@
 #       is friendlier than editing a YAML file by hand.
 # HOW:  Four stacked frames with Back/Next/Finish navigation.  Each
 #       page collects one piece of information.  On Finish, the wizard
-#       writes everything to config/default_config.yaml and sets
+#       writes everything to config/config.yaml and sets
 #       setup_complete: true so it never runs again.
 # USAGE: Launched automatically by launch_gui.py when needs_setup()
 #        returns True.  Can also be triggered manually for re-setup.
@@ -63,7 +63,7 @@ def needs_setup(project_root):
     if os.environ.get("HYBRIDRAG_DATA_DIR"):
         return False
 
-    cfg_path = os.path.join(project_root, "config", "default_config.yaml")
+    cfg_path = os.path.join(project_root, "config", "config.yaml")
     if not os.path.isfile(cfg_path):
         return True
 
@@ -495,7 +495,7 @@ class SetupWizard(tk.Toplevel):
         os.makedirs(idx, exist_ok=True)
         os.makedirs(emb_path, exist_ok=True)
 
-        # Write user settings to user_overrides.yaml (not default_config)
+        # Write user settings to the primary config authority.
         from src.core.config import save_config_field
         save_config_field("paths.database", db_path)
         save_config_field("paths.embeddings_cache", emb_path)

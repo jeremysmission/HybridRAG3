@@ -9,14 +9,14 @@
 # WHAT: Switch HybridRAG to online mode (cloud API)
 # WHY:  When you want queries answered by a cloud AI model (GPT, etc.)
 #       for faster, more powerful responses at a per-query cost
-# HOW:  Opens config/default_config.yaml, sets mode: online, saves it.
+# HOW:  Opens config/config.yaml, sets mode: online, saves it.
 #       Security layers (HF lockdown, model caches) remain unchanged.
 # USAGE: Usually called by api_mode_commands.ps1 -> rag-mode-online.
 #        Also runnable directly: python scripts/_set_online.py
 # ===================================================================
 #
 # WHAT IT CHANGES:
-#   config/default_config.yaml -> mode: online
+#   config/config.yaml -> mode: online
 #
 # WHAT IT DOES NOT CHANGE:
 #   HuggingFace lockdown stays active (HF_HUB_OFFLINE=1)

@@ -80,11 +80,16 @@ def collect_system(base: Path) -> dict:
     (base / "system_info.json").write_text(json.dumps(system, indent=2), encoding="utf-8")
 
     # Config snapshot
-    cfg_path = Path("config/default_config.yaml")
-    if cfg_path.exists():
-        (base / "config_snapshot.yaml").write_text(
-            _redact(cfg_path.read_text(encoding="utf-8")), encoding="utf-8",
-        )
+    for rel_path, out_name in [
+        ("config/config.yaml", "config_snapshot.yaml"),
+        ("config/user_modes.yaml", "user_modes_snapshot.yaml"),
+    ]:
+        cfg_path = Path(rel_path)
+        if cfg_path.exists():
+            (base / out_name).write_text(
+                _redact(cfg_path.read_text(encoding="utf-8")),
+                encoding="utf-8",
+            )
 
     return system
 

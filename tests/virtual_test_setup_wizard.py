@@ -62,7 +62,7 @@ LAUNCH_PATH = _project_root / "src" / "gui" / "launch_gui.py"
 CONFIG_PATH = _project_root / "src" / "core" / "config.py"
 GUI_BAT = _project_root / "start_gui.bat"
 RAG_BAT = _project_root / "start_rag.bat"
-YAML_PATH = _project_root / "config" / "default_config.yaml"
+YAML_PATH = _project_root / "config" / "config.yaml"
 VIRTUAL_TMP_ROOT = _project_root / "output" / "virtual_tmp" / "setup_wizard"
 VIRTUAL_TMP_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -172,7 +172,7 @@ def _():
     try:
         cfg_dir = os.path.join(tmp, "config")
         os.makedirs(cfg_dir)
-        with open(os.path.join(cfg_dir, "default_config.yaml"), "w") as f:
+        with open(os.path.join(cfg_dir, "config.yaml"), "w") as f:
             yaml.dump({"mode": "offline", "paths": {
                 "database": "", "source_folder": "", "embeddings_cache": "",
             }}, f)
@@ -196,7 +196,7 @@ def _():
     try:
         cfg_dir = os.path.join(tmp, "config")
         os.makedirs(cfg_dir)
-        with open(os.path.join(cfg_dir, "default_config.yaml"), "w") as f:
+        with open(os.path.join(cfg_dir, "config.yaml"), "w") as f:
             yaml.dump({
                 "mode": "offline",
                 "setup_complete": True,
@@ -226,7 +226,7 @@ def _():
         index_dir = os.path.join(tmp, "index")
         os.makedirs(source_dir, exist_ok=True)
         os.makedirs(index_dir, exist_ok=True)
-        with open(os.path.join(cfg_dir, "default_config.yaml"), "w") as f:
+        with open(os.path.join(cfg_dir, "config.yaml"), "w") as f:
             yaml.dump({
                 "mode": "offline",
                 "paths": {
@@ -269,7 +269,7 @@ def _():
     try:
         cfg_dir = os.path.join(tmp, "config")
         os.makedirs(cfg_dir)
-        with open(os.path.join(cfg_dir, "default_config.yaml"), "w") as f:
+        with open(os.path.join(cfg_dir, "config.yaml"), "w") as f:
             f.write("{{{{not valid yaml: [[[")
 
         saved = os.environ.pop("HYBRIDRAG_DATA_DIR", None)
@@ -297,7 +297,7 @@ def _():
     try:
         cfg_dir = os.path.join(tmp, "config")
         os.makedirs(cfg_dir)
-        cfg_path = os.path.join(cfg_dir, "default_config.yaml")
+        cfg_path = os.path.join(cfg_dir, "config.yaml")
         # Start with a minimal existing config (simulates fresh install)
         with open(cfg_path, "w") as f:
             yaml.dump({
@@ -349,7 +349,7 @@ def _():
     try:
         cfg_dir = os.path.join(tmp, "config")
         os.makedirs(cfg_dir)
-        cfg_path = os.path.join(cfg_dir, "default_config.yaml")
+        cfg_path = os.path.join(cfg_dir, "config.yaml")
 
         # Full config with lots of sections
         original = {
@@ -396,7 +396,7 @@ def _():
     try:
         cfg_dir = os.path.join(tmp, "config")
         os.makedirs(cfg_dir)
-        cfg_path = os.path.join(cfg_dir, "default_config.yaml")
+        cfg_path = os.path.join(cfg_dir, "config.yaml")
         with open(cfg_path, "w") as f:
             yaml.dump({"mode": "offline", "paths": {}}, f)
 
@@ -512,7 +512,7 @@ def _():
     try:
         cfg_dir = os.path.join(tmp, "config")
         os.makedirs(cfg_dir)
-        cfg_path = os.path.join(cfg_dir, "default_config.yaml")
+        cfg_path = os.path.join(cfg_dir, "config.yaml")
         with open(cfg_path, "w") as f:
             yaml.dump({
                 "mode": "offline",
@@ -551,7 +551,7 @@ def _():
     try:
         cfg_dir = os.path.join(tmp, "config")
         os.makedirs(cfg_dir)
-        cfg_path = os.path.join(cfg_dir, "default_config.yaml")
+        cfg_path = os.path.join(cfg_dir, "config.yaml")
         with open(cfg_path, "w") as f:
             yaml.dump({"mode": "offline"}, f)
 

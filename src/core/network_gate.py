@@ -124,7 +124,7 @@ class NetworkBlockedError(Exception):
             f"NETWORK BLOCKED [{mode}]: {reason}\n"
             f"  URL: {url}\n"
             f"  To allow this connection, check your network mode and "
-            f"allowed endpoints in config/default_config.yaml"
+            f"allowed endpoints in config/config.yaml"
         )
 
 
@@ -421,7 +421,7 @@ class NetworkGate:
                 reason=(
                     f"Host '{host}' is not in the allowed endpoints list. "
                     f"Allowed: {', '.join(self._allowed_hosts) or '(none configured)'}. "
-                    f"Configure api.endpoint in config/default_config.yaml or use "
+                    f"Configure api.endpoint in config/config.yaml or use "
                     f"api.allowed_endpoint_prefixes to add more allowed destinations."
                 ),
             )

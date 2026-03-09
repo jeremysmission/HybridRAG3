@@ -796,9 +796,9 @@ function rag-config {
     Write-Host "-------------" -ForegroundColor Gray
     
     $configPaths = @(
-        "config\default_config.yaml",
         "config.yaml",
-        "config\config.yaml"
+        "config\config.yaml",
+        "config\user_modes.yaml"
     )
     
     foreach ($p in $configPaths) {
@@ -825,7 +825,8 @@ function rag-paths {
     $paths = @{
         "Project root"    = (Get-Location).Path
         "Virtual env"     = "$((Get-Location).Path)\.venv"
-        "Config"          = "$((Get-Location).Path)\config\default_config.yaml"
+        "Config"          = "$((Get-Location).Path)\config\config.yaml"
+        "User modes"      = "$((Get-Location).Path)\config\user_modes.yaml"
         "Source code"     = "$((Get-Location).Path)\src\core"
         "Tools"           = "$((Get-Location).Path)\tools"
         "Tests"           = "$((Get-Location).Path)\tests"

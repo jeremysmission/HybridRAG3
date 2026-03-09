@@ -9,7 +9,7 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from src.gui.helpers.mode_switch import _finish_switch
+from src.gui.helpers.mode_switch import _commit_router_and_mode, _finish_switch
 
 
 def test_finish_switch_refreshes_active_tuning_panel():
@@ -31,3 +31,28 @@ def test_finish_switch_refreshes_active_tuning_panel():
     app._tuning_panel._sync_sliders_to_config.assert_called_once()
     status_bar.set_ready.assert_called_once()
     status_bar.force_refresh.assert_called_once()
+
+
+def test_commit_router_and_mode_purges_query_state_and_refreshes_runtime():
+    app = SimpleNamespace(
+        config=SimpleNamespace(mode="offline"),
+        query_engine=MagicMock(),
+        query_panel=MagicMock(),
+        status_bar=MagicMock(),
+    )
+    new_router = MagicMock()
+
+    with patch("src.gui.helpers.mode_tuning.apply_mode_settings_to_config") as mock_apply, \
+         patch("src.core.query_engine.refresh_query_engine_runtime") as mock_refresh, \
+         patch("src.gui.helpers.mode_switch.persist_mode") as mock_persist:
+        _commit_router_and_mode(app, new_router, "online")
+
+    assert app.router is new_router
+    assert app.query_engine.llm_router is new_router
+    assert app.query_engine.config is app.config
+    assert app.status_bar.router is new_router
+    assert app.config.mode == "online"
+    mock_apply.assert_called_once_with(app.config, "online")
+    mock_persist.assert_called_once_with(app, "online")
+    mock_refresh.assert_called_once_with(app.query_engine, clear_caches=True)
+    app.query_panel._purge_mode_state.assert_called_once()

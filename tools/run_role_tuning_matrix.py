@@ -32,7 +32,7 @@ def run(cmd):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", default="Eval/role_sets/manifest.json")
-    ap.add_argument("--config", default="config/default_config.yaml")
+    ap.add_argument("--config", default="config/config.yaml")
     ap.add_argument("--mode", choices=["offline", "online"], default="offline")
     ap.add_argument("--outroot", default="eval_out/role_tuning")
     ap.add_argument("--roles", default="", help="Comma list of role keys from manifest")

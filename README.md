@@ -35,7 +35,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 
 # 4. Install dependencies (one-time, requires internet)
-pip install -r requirements.txt
+pip install -r requirements_approved.txt
 
 # 5. Launch the environment (sets security lockdown + paths)
 . .\start_hybridrag.ps1
@@ -159,8 +159,8 @@ All three must fail before data leaves the machine.
 HybridRAG3/
 |
 |-- config/                            Settings
-|   |-- default_config.yaml            All settings (paths, models, thresholds)
-|   |-- profiles.yaml                  Hardware profile definitions (3 profiles)
+|   |-- config.yaml                    Base runtime/system authority
+|   |-- user_modes.yaml                Profile authority (checked vs agnostic)
 |   +-- system_profile.json            Auto-detected hardware fingerprint
 |
 |-- src/
@@ -284,8 +284,8 @@ HybridRAG3/
 |-- start_hybridrag.ps1                Environment setup + aliases (machine-specific)
 |-- start_rag.bat                      Double-click launcher (CLI)
 |-- start_gui.bat                      Double-click launcher (GUI)
-|-- requirements.txt                   Python dependencies
-|-- requirements_approved.txt          Store-approved exact versions
+|-- requirements.txt                   Broader/private dependency set
+|-- requirements_approved.txt          Work-approved dependency baseline
 |-- .gitignore                         Files excluded from git
 +-- README.md                          This file
 ```
@@ -342,7 +342,7 @@ All packages sourced from PyPI (pypi.org) -- open-source with permissive license
 - ~3 GB disk space (venv + model cache)
 - Ollama (optional, for offline LLM mode)
 - Tesseract (optional, for OCR on scanned documents)
-- See `requirements.txt` for Python dependencies
+- See `requirements_approved.txt` for the approved Python dependency baseline
 
 ## Documentation
 
@@ -365,13 +365,14 @@ All packages sourced from PyPI (pypi.org) -- open-source with permissive license
 - `docs/Development_Inventory.md` -- Current dependency and model inventory
 
 ### Configuration
-- `config/default_config.yaml` -- All runtime settings
-- `config/profiles.yaml` -- Hardware performance profiles (laptop / desktop / server)
+- `config/config.yaml` -- All base runtime settings
+- `config/user_modes.yaml` -- User/admin profiles with checked vs agnostic overrides
 
 ### Additional Guides
 - `docs/04_demo/DEMO_PREP.md` -- Demo preparation checklist
 - `docs/04_demo/DEMO_GUIDE.md` -- Demo walkthrough script
-- `docs/HANDOVER_AND_SPRINT_PLAN_FREEZE_SAFE.md` -- Active handoff and sprint planning notes
+- `docs/09_project_mgmt/SPRINT_PLAN.md` -- Active sprint tracker with status and exit criteria
+- `docs/HANDOVER_AND_SPRINT_PLAN_FREEZE_SAFE.md` -- Historical freeze-safe handoff notes
 - `docs/05_security/GIT_REPO_RULES.md` -- Git workflow and sync rules
 - `docs/05_security/DEFENSE_MODEL_AUDIT.md` -- Approved model stack and audit trail
 
@@ -384,7 +385,7 @@ are machine-specific:
 
 **Syncs via git (same on all machines):**
 - All source code (src/, scripts/, tests/)
-- Config templates (config/default_config.yaml, config/profiles.yaml)
+- Config templates and authorities (config/config.yaml, config/user_modes.yaml)
 - Documentation (docs/, README.md)
 - Requirements files
 

@@ -8,7 +8,7 @@ Default safe behavior:
 
 - Start with a **50-question screening pass**
 - Use the small **starter** candidate grid
-- **Do not** change `config/user_overrides.yaml` unless you explicitly apply winners
+- **Do not** change `config/config.yaml` unless you explicitly apply winners
 
 The tool writes timestamped results under:
 
@@ -217,7 +217,7 @@ tools\autotune_apply_winners.bat
 
 This writes the winning tuned keys into:
 
-- `config/user_overrides.yaml`
+- `config/config.yaml`
 
 It updates the mirrored per-mode sections under:
 

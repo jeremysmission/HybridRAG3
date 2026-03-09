@@ -10,7 +10,7 @@
 # WHY:  Users need to verify which profile is active (laptop_safe,
 #       desktop_power, or server_max) because batch size, chunk size,
 #       and search depth all affect RAM usage and indexing speed
-# HOW:  Reads config/default_config.yaml and infers the profile from
+# HOW:  Reads config/config.yaml and infers the profile from
 #       the embedding batch_size setting (16=laptop, 64=desktop, 128=server)
 # USAGE: Called by api_mode_commands.ps1 -> rag-profile status.
 #        Not run directly by users.

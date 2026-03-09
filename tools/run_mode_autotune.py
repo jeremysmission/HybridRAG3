@@ -12,11 +12,11 @@ HybridRAG3 Mode Autotune Orchestrator
 Default safe workflow:
 1. Run a 50-question screening pass across a small starter grid
 2. Save ranked results under logs/autotune_runs/<timestamp>/
-3. Stop without changing config/user_overrides.yaml
+3. Stop without changing config/config.yaml
 
 When you are happy with the screening results:
 4. Re-run with --workflow full to promote the top finalists onto the full dataset
-5. Re-run with --apply-winner to save the winning bundle into config/user_overrides.yaml
+5. Re-run with --apply-winner to save the winning bundle into config/config.yaml
 
 Quick start:
   python tools/run_mode_autotune.py
@@ -464,7 +464,7 @@ def _apply_candidate_to_mode_store(
     lock_winner: bool,
 ) -> Dict[str, Any]:
     store = ModeTuningStore(str(PROJECT_ROOT))
-    cfg = load_config(str(PROJECT_ROOT), "default_config.yaml")
+    cfg = load_config(str(PROJECT_ROOT), "config.yaml")
     applied = {}
     for key, value in values.items():
         store.update_value(cfg, mode, key, value)
@@ -480,10 +480,10 @@ def _apply_winners(
     lock_winner: bool,
     run_dir: Path,
 ) -> Dict[str, Any]:
-    overrides_path = PROJECT_ROOT / "config" / "user_overrides.yaml"
-    backup_path = run_dir / "user_overrides_backup.yaml"
-    if overrides_path.exists():
-        shutil.copyfile(overrides_path, backup_path)
+    config_path = PROJECT_ROOT / "config" / "config.yaml"
+    backup_path = run_dir / "config_backup.yaml"
+    if config_path.exists():
+        shutil.copyfile(config_path, backup_path)
 
     applied = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -535,7 +535,7 @@ def _write_next_steps(path: Path, args: argparse.Namespace, winners: Dict[str, A
         lines.extend(
             [
                 "2. Review winners.json and the scored summaries for the finalists.",
-                "3. If the winners look good, save them to user_overrides.yaml:",
+                "3. If the winners look good, save them to config.yaml:",
                 "   python tools/run_mode_autotune.py --workflow full --mode both --apply-winner",
             ]
         )
@@ -698,7 +698,7 @@ def _parse_args() -> argparse.Namespace:
     )
     ap.add_argument(
         "--config",
-        default="config/default_config.yaml",
+        default="config/config.yaml",
         help="Base config YAML to copy and override for each candidate.",
     )
     ap.add_argument(
@@ -727,7 +727,7 @@ def _parse_args() -> argparse.Namespace:
     ap.add_argument(
         "--apply-winner",
         action="store_true",
-        help="Write the full-run winner into config/user_overrides.yaml.",
+        help="Write the full-run winner into config/config.yaml.",
     )
     ap.add_argument(
         "--lock-winner",
@@ -924,7 +924,7 @@ def main() -> int:
             run_dir=run_dir,
         )
         _write_json(run_dir / "applied_defaults.json", applied)
-        _print("[APPLY] Winners saved to config/user_overrides.yaml")
+        _print("[APPLY] Winners saved to config/config.yaml")
 
     _write_next_steps(run_dir / "README_NEXT_STEPS.txt", args, winners)
 

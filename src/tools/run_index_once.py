@@ -246,7 +246,7 @@ def main():
     if errors:
         for e in errors:
             log.error("config_error", message=e)
-        log.error("config_invalid", hint="Fix config/default_config.yaml or env vars")
+        log.error("config_invalid", hint="Fix config/config.yaml, config/user_modes.yaml, or env vars")
         sys.exit(1)
 
     ensure_directories(config)

@@ -58,10 +58,12 @@ def _rebuild_router(app, credentials=None):
 def _commit_router_and_mode(app, new_router, new_mode):
     """Apply router/mode mutation on GUI thread to avoid cross-thread writes."""
     from src.gui.helpers.mode_tuning import apply_mode_settings_to_config
+    from src.core.query_engine import refresh_query_engine_runtime
 
     if new_router is not None:
         app.router = new_router
         if hasattr(app, "query_engine") and app.query_engine:
+            app.query_engine.config = app.config
             app.query_engine.llm_router = new_router
         if hasattr(app, "status_bar"):
             app.status_bar.router = new_router
@@ -69,6 +71,23 @@ def _commit_router_and_mode(app, new_router, new_mode):
         app.config.mode = new_mode
         apply_mode_settings_to_config(app.config, new_mode)
         persist_mode(app, new_mode)
+    if hasattr(app, "query_engine") and app.query_engine:
+        try:
+            refresh_query_engine_runtime(app.query_engine, clear_caches=True)
+        except Exception as e:
+            logger.debug("Query-engine runtime refresh skipped: %s", e)
+    query_panel = getattr(app, "query_panel", None)
+    if query_panel is not None:
+        try:
+            query_panel.query_engine = getattr(app, "query_engine", None)
+            if hasattr(query_panel, "_purge_mode_state"):
+                query_panel._purge_mode_state(
+                    "Mode switched to {}. Previous results cleared.".format(
+                        str(new_mode).upper()
+                    )
+                )
+        except Exception as e:
+            logger.debug("Query-panel mode purge skipped: %s", e)
     if new_mode == "online":
         os.environ["HYBRIDRAG_OFFLINE"] = "0"
         os.environ["HYBRIDRAG_NETWORK_KILL_SWITCH"] = "0"

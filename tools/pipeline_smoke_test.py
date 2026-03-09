@@ -22,7 +22,7 @@ Tests:
     4. VectorStore auto-connects and accepts embeddings
     5. Indexer.index_file() indexes a single file
     6. Semantic search returns the indexed document
-    7. Mode switch writes to user_overrides.yaml (not default_config)
+    7. Mode switch writes to config/config.yaml
     8. Cleanup succeeds
 """
 
@@ -132,12 +132,12 @@ def main():
                   "calibration" in top_text.lower(),
                   "got: {}...".format(top_text[:60]))
 
-        # 7. Mode switch uses user_overrides.yaml
+        # 7. Mode switch uses config/config.yaml
         from src.core.config import save_config_field
         save_config_field("mode", "online")
-        ovr_path = os.path.join(".", "config", "user_overrides.yaml")
-        check("Mode switch created user_overrides.yaml",
-              os.path.isfile(ovr_path))
+        cfg_path = os.path.join(".", "config", "config.yaml")
+        check("Mode switch wrote config/config.yaml",
+              os.path.isfile(cfg_path))
 
         # Restore
         save_config_field("mode", "offline")

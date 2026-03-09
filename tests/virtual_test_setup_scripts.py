@@ -112,7 +112,7 @@ else:
     check("Creates directories", "New-Item" in home and "Directory" in home)
 
     # Config file updates
-    check("Updates default_config.yaml", "default_config.yaml" in home)
+    check("Updates config.yaml", "config.yaml" in home)
     check("Updates start_hybridrag.ps1", "start_hybridrag.ps1" in home)
 
     # Ollama check
@@ -260,7 +260,7 @@ if home and work:
     check("Both have Ollama check",
           "11434" in home and "11434" in work)
     check("Both update config paths",
-          "default_config.yaml" in home and "default_config.yaml" in work)
+          "config.yaml" in home and "config.yaml" in work)
 
     # Work should have MORE security than home
     check("Work has proxy handling, home does not",
@@ -358,7 +358,7 @@ for script_name, content in [("setup_home.ps1", home), ("setup_work.ps1", work)]
         r'Set-Content.*\$configPath.*-Encoding UTF8', content)
     check(f"{script_name} YAML config avoids Set-Content BOM",
           yaml_set_content is None,
-          "default_config.yaml written with Set-Content -Encoding UTF8 (adds BOM)")
+          "config.yaml written with Set-Content -Encoding UTF8 (adds BOM)")
 
     # pip.ini must NOT use Out-File
     pipini_outfile = re.search(

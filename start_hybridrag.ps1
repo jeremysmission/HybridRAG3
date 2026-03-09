@@ -211,7 +211,7 @@ if (-not (Test-Path ".\.venv\Scripts\Activate.ps1")) {
     Write-Host "Fix:"
     Write-Host "  python -m venv .venv"
     Write-Host "  .\.venv\Scripts\Activate.ps1"
-    Write-Host "  pip install -r requirements-lock.txt"
+    Write-Host "  pip install -r requirements_approved.txt"
     return
 }
 
@@ -434,11 +434,10 @@ Write-Host ""
 Write-Host "Current mode:" -ForegroundColor Cyan
 python -c "
 try:
-    import yaml
-    with open('config/default_config.yaml', 'r') as f:
-        c = yaml.safe_load(f)
-    mode = c.get('mode', 'unknown')
-    model = c.get('api', {}).get('model', 'unknown') if mode == 'online' else c.get('ollama', {}).get('model', 'unknown')
+    from src.core.config import load_config
+    c = load_config('.')
+    mode = getattr(c, 'mode', 'unknown')
+    model = getattr(c.api, 'model', 'unknown') if mode == 'online' else getattr(c.ollama, 'model', 'unknown')
     print(f'  Mode:  {mode}')
     print(f'  Model: {model}')
 except Exception as e:

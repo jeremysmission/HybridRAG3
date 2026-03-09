@@ -348,7 +348,7 @@ class TestConfigIntegration:
             "  enabled: true\n"
             "  threshold: 0.90\n"
         )
-        (config_dir / "default_config.yaml").write_text(yaml_content, encoding="utf-8")
+        (config_dir / "config.yaml").write_text(yaml_content, encoding="utf-8")
         cfg = load_config(str(tmp_path))
         assert cfg.chunking.chunk_size == 800
         assert cfg.hallucination_guard.enabled is True

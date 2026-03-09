@@ -34,13 +34,13 @@ def main() -> int:
     failures = []
 
     # 1. Config file exists and is valid YAML
-    config_path = os.path.join(_root, "config", "default_config.yaml")
+    config_path = os.path.join(_root, "config", "config.yaml")
     try:
         import yaml
         with open(config_path, "r", encoding="utf-8") as f:
             raw = yaml.safe_load(f)
-        expected_keys = {"api", "chunking", "embedding", "indexing", "mode",
-                         "ollama", "paths", "retrieval", "security"}
+        expected_keys = {"chunking", "embedding", "mode", "modes",
+                         "paths", "retrieval", "security"}
         actual_keys = set(raw.keys())
         missing = expected_keys - actual_keys
         if missing:
@@ -70,23 +70,35 @@ def main() -> int:
     try:
         from src.core.config import save_config_field
         with tempfile.TemporaryDirectory() as tmpdir:
-            tmp_config = os.path.join(tmpdir, "default_config.yaml")
+            tmp_config = os.path.join(tmpdir, "config.yaml")
             shutil.copy2(config_path, tmp_config)
 
             with open(tmp_config, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
-            original = data.get("ollama", {}).get("model", "")
+            original = (
+                data.get("modes", {})
+                .get("offline", {})
+                .get("ollama", {})
+                .get("model", "")
+            )
 
             # Write test value
             test_val = "integrity-test-model"
-            data["ollama"]["model"] = test_val
+            data.setdefault("modes", {}).setdefault("offline", {}).setdefault(
+                "ollama", {}
+            )["model"] = test_val
             with open(tmp_config, "w", encoding="utf-8") as f:
                 yaml.safe_dump(data, f, default_flow_style=False)
 
             # Read back
             with open(tmp_config, "r", encoding="utf-8") as f:
                 data2 = yaml.safe_load(f)
-            roundtrip = data2.get("ollama", {}).get("model", "")
+            roundtrip = (
+                data2.get("modes", {})
+                .get("offline", {})
+                .get("ollama", {})
+                .get("model", "")
+            )
 
             if roundtrip == test_val:
                 print("[OK] YAML roundtrip: '{}' -> '{}'".format(test_val, roundtrip))
@@ -110,13 +122,23 @@ def main() -> int:
         from src.core.config import save_config_field
         with open(config_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
-        real_model = data.get("ollama", {}).get("model", "")
+        real_model = (
+            data.get("modes", {})
+            .get("offline", {})
+            .get("ollama", {})
+            .get("model", "")
+        )
         save_config_field("ollama.model", real_model)
 
         # Re-read to verify
         with open(config_path, "r", encoding="utf-8") as f:
             data2 = yaml.safe_load(f)
-        after = data2.get("ollama", {}).get("model", "")
+        after = (
+            data2.get("modes", {})
+            .get("offline", {})
+            .get("ollama", {})
+            .get("model", "")
+        )
         if after == real_model:
             print("[OK] save_config_field no-op write: '{}'".format(real_model))
         else:

@@ -714,187 +714,6 @@ class VLLMRouter:
             self._client.close()
 
 
-# --- SECTION 3B: TRANSFORMERS ROUTER (DIRECT GPU, NO SERVER) ---------------
-
-# ============================================================================
-# TransformersRouter -- RETIRED (Session 15, 2026-02-24)
-# ============================================================================
-#
-# STATUS: DORMANT. Requires torch + HuggingFace transformers, which were
-# retired in Session 15 (embeddings moved to Ollama nomic-embed-text).
-# This class remains for forward compatibility -- if torch/transformers
-# are ever re-approved, this code path works without changes.
-# Config: transformers_llm.enabled = false (default_config.yaml).
-# Degrades gracefully: ImportError caught, logged, router marked unavailable.
-#
-# Original purpose: Load HuggingFace model directly into GPU memory.
-# Uses 4-bit quantization (bitsandbytes) to fit 14B models in 12GB VRAM.
-# Requires: transformers, torch, accelerate, bitsandbytes (all retired).
-# ============================================================================
-class TransformersRouter:
-    """Route queries to a locally loaded HuggingFace transformers model."""
-
-    def __init__(self, config: Config):
-        """
-        Load the model into GPU memory.
-
-        Args:
-            config: HybridRAG config. Reads config.transformers_llm.*
-        """
-        self.config = config
-        self.logger = get_app_logger("transformers_router")
-        self.last_error = ""
-        self._model = None
-        self._tokenizer = None
-        self._pipe = None
-        self._available = False
-
-        tc = config.transformers_llm
-        self.model_name = tc.model
-        self.max_new_tokens = tc.max_new_tokens
-        self.temperature = tc.temperature
-
-        try:
-            import torch
-            from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
-
-            load_kwargs = {
-                "device_map": tc.device_map,
-                "torch_dtype": "auto",
-                "trust_remote_code": tc.trust_remote_code,
-            }
-
-            if tc.load_in_4bit:
-                try:
-                    from transformers import BitsAndBytesConfig
-                    load_kwargs["quantization_config"] = BitsAndBytesConfig(
-                        load_in_4bit=True,
-                        bnb_4bit_compute_dtype=torch.float16,
-                    )
-                    self.logger.info("transformers_4bit_enabled", model=self.model_name)
-                except ImportError:
-                    self.logger.warning(
-                        "transformers_no_bitsandbytes",
-                        hint="pip install bitsandbytes for 4-bit quantization",
-                    )
-
-            self.logger.info("transformers_loading_model", model=self.model_name)
-            self._model = AutoModelForCausalLM.from_pretrained(
-                self.model_name, **load_kwargs
-            )
-            self._tokenizer = AutoTokenizer.from_pretrained(
-                self.model_name, trust_remote_code=tc.trust_remote_code
-            )
-            self._pipe = pipeline(
-                "text-generation",
-                model=self._model,
-                tokenizer=self._tokenizer,
-            )
-            self._available = True
-            self.logger.info("transformers_model_loaded", model=self.model_name)
-
-        except ImportError as e:
-            self.logger.warning("transformers_import_error", error=str(e))
-        except Exception as e:
-            self.logger.error("transformers_load_error", error=str(e))
-
-    def is_available(self) -> bool:
-        """Check if the model is loaded and ready."""
-        return self._available
-
-    def query(self, prompt: str) -> Optional[LLMResponse]:
-        """
-        Send a prompt directly to the loaded model.
-
-        Args:
-            prompt: The complete prompt (context + user question)
-
-        Returns:
-            LLMResponse with the answer, or None if the call failed
-        """
-        if not self._available:
-            return None
-
-        start_time = time.time()
-        self.last_error = ""
-
-        try:
-            messages = [{"role": "user", "content": prompt}]
-
-            output = self._pipe(
-                messages,
-                max_new_tokens=self.max_new_tokens,
-                temperature=self.temperature if self.temperature > 0 else None,
-                do_sample=self.temperature > 0,
-                return_full_text=False,
-            )
-
-            response_text = output[0]["generated_text"]
-            if isinstance(response_text, list):
-                response_text = response_text[0].get("content", "") if response_text else ""
-            elif isinstance(response_text, dict):
-                response_text = response_text.get("content", str(response_text))
-
-            latency_ms = (time.time() - start_time) * 1000
-
-            # Estimate token counts (transformers doesn't always report exact)
-            tokens_in = len(self._tokenizer.encode(prompt))
-            tokens_out = len(self._tokenizer.encode(str(response_text)))
-
-            self.logger.info(
-                "transformers_query_success",
-                model=self.model_name,
-                tokens_in=tokens_in,
-                tokens_out=tokens_out,
-                latency_ms=latency_ms,
-            )
-
-            return LLMResponse(
-                text=str(response_text),
-                tokens_in=tokens_in,
-                tokens_out=tokens_out,
-                model=self.model_name,
-                latency_ms=latency_ms,
-            )
-
-        except Exception as e:
-            self.last_error = f"{type(e).__name__}: {e}"
-            self.logger.error("transformers_query_error", error=str(e))
-            return None
-
-    def query_stream(self, prompt: str) -> Generator[Dict[str, Any], None, None]:
-        """
-        Stream is not natively supported by pipeline.
-        Falls back to non-streaming query wrapped as a single chunk.
-        """
-        result = self.query(prompt)
-        if result:
-            yield {"token": result.text}
-            yield {
-                "done": True,
-                "tokens_in": result.tokens_in,
-                "tokens_out": result.tokens_out,
-                "model": result.model,
-                "latency_ms": result.latency_ms,
-            }
-        else:
-            msg = self.last_error or "Transformers backend returned no result"
-            yield {"error": msg, "backend": "transformers"}
-
-    def close(self):
-        """Release model from GPU memory."""
-        self._model = None
-        self._tokenizer = None
-        self._pipe = None
-        self._available = False
-        try:
-            import torch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except ImportError:
-            pass
-
-
 # --- SECTION 4: API ROUTER (CLOUD, ONLINE MODE) ---------------------------
 
 # ============================================================================
@@ -1050,7 +869,7 @@ class APIRouter:
 
         RESOLUTION ORDER for deployment and api_version:
             0. Override from resolve_credentials() (if provided by LLMRouter)
-            1. config/default_config.yaml (api.deployment, api.api_version)
+            1. config/config.yaml (api.deployment, api.api_version)
             2. Environment variables (AZURE_OPENAI_DEPLOYMENT, etc.)
             3. Extracted from endpoint URL (if it contains /deployments/xxx)
             4. Hardcoded fallback defaults (last resort)
@@ -1883,18 +1702,6 @@ class LLMRouter:
         else:
             self.vllm = None
 
-        # -- Create Transformers router if enabled (direct GPU mode) --
-        # Loads model directly into GPU memory via HuggingFace transformers.
-        # No server needed. Preferred over Ollama and vLLM when enabled.
-        if config.transformers_llm.enabled:
-            self.transformers_rt = TransformersRouter(config)
-            self.logger.info(
-                "llm_router_transformers_enabled",
-                model=config.transformers_llm.model,
-            )
-        else:
-            self.transformers_rt = None
-
         # Offline mode does not need API credentials or APIRouter bootstrap.
         # Skipping this avoids expensive keyring lookups that can block first query.
         mode = str(getattr(config, "mode", "offline")).lower()
@@ -2056,16 +1863,7 @@ class LLMRouter:
             return result
 
         else:
-            # Offline mode priority: Transformers > vLLM > Ollama
-            if self.transformers_rt and self.transformers_rt.is_available():
-                result = self.transformers_rt.query(prompt)
-                if result is not None:
-                    return result
-                self.last_error = (
-                    getattr(self.transformers_rt, "last_error", "")
-                    or "Transformers query failed"
-                )
-                self.logger.warning("transformers_query_failed_falling_back")
+            # Offline mode priority: vLLM > Ollama
             if self.vllm and self.vllm.is_available():
                 result = self.vllm.query(prompt)
                 if result is not None:
@@ -2096,13 +1894,8 @@ class LLMRouter:
         self.last_error = ""
 
         if mode == "offline":
-            # Priority: Transformers > vLLM > Ollama
-            if self.transformers_rt and self.transformers_rt.is_available():
-                for chunk in self.transformers_rt.query_stream(prompt):
-                    if "error" in chunk:
-                        self.last_error = str(chunk.get("error", ""))
-                    yield chunk
-            elif self.vllm and self.vllm.is_available():
+            # Priority: vLLM > Ollama
+            if self.vllm and self.vllm.is_available():
                 for chunk in self.vllm.query_stream(prompt):
                     if "error" in chunk:
                         self.last_error = str(chunk.get("error", ""))
@@ -2175,10 +1968,6 @@ class LLMRouter:
             "ollama_available": self.ollama.is_available(),
             "vllm_enabled": self.vllm is not None,
             "vllm_available": self.vllm.is_available() if self.vllm else False,
-            "transformers_enabled": self.transformers_rt is not None,
-            "transformers_available": (
-                self.transformers_rt.is_available() if self.transformers_rt else False
-            ),
             # Mode-aware: in offline mode API is not considered "configured"
             # for active routing, even if credentials are present.
             "api_configured": (self.config.mode == "online" and api_present),

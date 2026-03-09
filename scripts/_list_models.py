@@ -100,7 +100,7 @@ def main():
     try:
         cfg = load_default_config()
     except FileNotFoundError:
-        print("  [FAIL] config/default_config.yaml not found")
+        print("  [FAIL] config/config.yaml not found")
         sys.exit(1)
 
     current_mode = cfg.get("mode", "offline")

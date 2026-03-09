@@ -8,7 +8,7 @@
 """Selftest: Offline model selection persists and is applied.
 
 Verifies:
-  - config/default_config.yaml has ollama.model field
+  - config/config.yaml has modes.offline.ollama.model field
   - The value can be changed via save_config_field
   - The config roundtrips correctly (write then read)
   - The LLM router reads config.ollama.model (not a cached copy)
@@ -51,29 +51,41 @@ def main() -> int:
         from src.core.config import save_config_field
         import yaml
 
-        config_src = os.path.join(_root, "config", "default_config.yaml")
+        config_src = os.path.join(_root, "config", "config.yaml")
         with tempfile.TemporaryDirectory() as tmpdir:
             # Copy config to temp
-            tmp_config = os.path.join(tmpdir, "default_config.yaml")
+            tmp_config = os.path.join(tmpdir, "config.yaml")
             shutil.copy2(config_src, tmp_config)
 
             # Read original
             with open(tmp_config, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
-            original_model = data.get("ollama", {}).get("model", "")
+            original_model = (
+                data.get("modes", {})
+                .get("offline", {})
+                .get("ollama", {})
+                .get("model", "")
+            )
             print("YAML_MODEL_BEFORE: {}".format(original_model))
 
             # Write a test value
             test_model = "selftest-model-12345"
             # Manually update the temp file (save_config_field uses project root)
-            data["ollama"]["model"] = test_model
+            data.setdefault("modes", {}).setdefault("offline", {}).setdefault(
+                "ollama", {}
+            )["model"] = test_model
             with open(tmp_config, "w", encoding="utf-8") as f:
                 yaml.safe_dump(data, f, default_flow_style=False)
 
             # Re-read and verify
             with open(tmp_config, "r", encoding="utf-8") as f:
                 data2 = yaml.safe_load(f)
-            roundtrip_model = data2.get("ollama", {}).get("model", "")
+            roundtrip_model = (
+                data2.get("modes", {})
+                .get("offline", {})
+                .get("ollama", {})
+                .get("model", "")
+            )
             if roundtrip_model == test_model:
                 print("[OK] YAML roundtrip: wrote '{}', read '{}'".format(
                     test_model, roundtrip_model))
@@ -91,10 +103,15 @@ def main() -> int:
         from src.core.config import save_config_field
         # Read current value, write same value back (no-op change)
         import yaml
-        config_path = os.path.join(_root, "config", "default_config.yaml")
+        config_path = os.path.join(_root, "config", "config.yaml")
         with open(config_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
-        real_model = data.get("ollama", {}).get("model", "")
+        real_model = (
+            data.get("modes", {})
+            .get("offline", {})
+            .get("ollama", {})
+            .get("model", "")
+        )
         save_config_field("ollama.model", real_model)
         print("[OK] save_config_field('ollama.model', '{}') succeeded".format(real_model))
     except Exception as e:

@@ -186,7 +186,7 @@ def _():
     from _config_io import default_config_path
     with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": "/test/project"}):
         normalized = str(default_config_path()).replace("\\", "/")
-        assert normalized.endswith("/test/project/config/default_config.yaml"), (
+        assert normalized.endswith("/test/project/config/config.yaml"), (
             f"Bad path: {normalized}"
         )
 
@@ -197,7 +197,7 @@ def _():
     env_copy.pop("HYBRIDRAG_PROJECT_ROOT", None)
     with patch.dict(os.environ, env_copy, clear=True):
         from _config_io import default_config_path
-        expected = (PROJECT_ROOT / "config" / "default_config.yaml").resolve()
+        expected = (PROJECT_ROOT / "config" / "config.yaml").resolve()
         assert default_config_path() == expected, (
             f"Expected '{expected}', got '{default_config_path()}'"
         )
@@ -213,7 +213,7 @@ def _():
         # Create temp config
         cfg_dir = os.path.join(tmpdir, "config")
         os.makedirs(cfg_dir, exist_ok=True)
-        cfg_file = os.path.join(cfg_dir, "default_config.yaml")
+        cfg_file = os.path.join(cfg_dir, "config.yaml")
         with open(cfg_file, "w") as f:
             f.write("mode: offline\napi:\n  endpoint: https://test.com\n")
 
@@ -236,7 +236,7 @@ def _():
     try:
         cfg_dir = os.path.join(tmpdir, "config")
         os.makedirs(cfg_dir, exist_ok=True)
-        cfg_file = os.path.join(cfg_dir, "default_config.yaml")
+        cfg_file = os.path.join(cfg_dir, "config.yaml")
         with open(cfg_file, "w") as f:
             f.write(
                 "mode: offline\n"

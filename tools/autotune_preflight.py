@@ -322,8 +322,8 @@ def main() -> int:
     )
     ap.add_argument(
         "--config",
-        default="config/default_config.yaml",
-        help="Base config YAML. Default: config/default_config.yaml",
+        default="config/config.yaml",
+        help="Base config YAML. Default: config/config.yaml",
     )
     ap.add_argument(
         "--mode",

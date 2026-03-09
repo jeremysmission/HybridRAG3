@@ -598,7 +598,7 @@ def main():
     try:
         cfg = load_default_config()
     except FileNotFoundError:
-        print("  [FAIL] config/default_config.yaml not found")
+        print("  [FAIL] config/config.yaml not found")
         sys.exit(1)
 
     # Auto-detect everything
@@ -665,7 +665,7 @@ def main():
             print(f"      Price/Question: {fc}")
 
     print()
-    print(f"      Saved to: config/default_config.yaml")
+    print(f"      Saved to: config/config.yaml")
     print()
 
 

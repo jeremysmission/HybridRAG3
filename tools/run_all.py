@@ -14,7 +14,7 @@ Runs:
 2) hidden set evaluation + scoring
 
 Usage:
-  python tools/run_all.py --config config/default_config.yaml
+  python tools/run_all.py --config config/config.yaml
 
 Outputs:
   eval_out/tuning/*

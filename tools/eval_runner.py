@@ -19,8 +19,8 @@ IMPORTANT
 - This runner does NOT open raw source documents. It only calls your RAG pipeline.
 
 Usage (from repo root)
-  python tools/eval_runner.py --dataset Eval/golden_tuning_400.json --outdir eval_out/tuning --config config/default_config.yaml
-  python tools/eval_runner.py --dataset Eval/golden_hidden_validation_100.json --outdir eval_out/hidden --config config/default_config.yaml
+  python tools/eval_runner.py --dataset Eval/golden_tuning_400.json --outdir eval_out/tuning --config config/config.yaml
+  python tools/eval_runner.py --dataset Eval/golden_hidden_validation_100.json --outdir eval_out/hidden --config config/config.yaml
 
 If your imports differ:
 - Adjust the imports in the "BOOT + CONSTRUCT" section only.
@@ -48,11 +48,11 @@ def _runtime_config_filename(config_arg: str | None) -> str:
     under config/.tmp_autotune/... and passes that path through here.
     """
     if not config_arg:
-        return "default_config.yaml"
+        return "config.yaml"
 
     raw = str(config_arg).replace("\\", "/").strip()
     if not raw:
-        return "default_config.yaml"
+        return "config.yaml"
 
     if os.path.isabs(raw):
         config_dir = (Path.cwd() / "config").resolve()
@@ -68,7 +68,7 @@ def _runtime_config_filename(config_arg: str | None) -> str:
         raw = raw[2:]
     if raw.startswith("config/"):
         raw = raw[len("config/") :]
-    return raw or "default_config.yaml"
+    return raw or "config.yaml"
 
 def main():
     ap = argparse.ArgumentParser()

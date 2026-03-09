@@ -545,9 +545,12 @@ async def set_mode(req: ModeRequest, request: Request):
     # see new_mode until the swap is complete (no transient partial state).
     import copy
     from src.core.llm_router import LLMRouter
+    from src.core.query_engine import refresh_query_engine_runtime
+    from src.gui.helpers.mode_tuning import apply_mode_settings_to_config
     old_router = getattr(s, "llm_router", None)
     build_config = copy.copy(s.config)
     build_config.mode = new_mode
+    apply_mode_settings_to_config(build_config, new_mode)
     try:
         new_router = LLMRouter(build_config)
     except Exception as e:
@@ -557,6 +560,8 @@ async def set_mode(req: ModeRequest, request: Request):
     s.llm_router = new_router
     s.query_engine.llm_router = new_router
     s.config.mode = new_mode
+    apply_mode_settings_to_config(s.config, new_mode)
+    refresh_query_engine_runtime(s.query_engine, clear_caches=True)
     if old_router and hasattr(old_router, "close"):
         old_router.close()
 
@@ -596,6 +601,6 @@ async def set_mode(req: ModeRequest, request: Request):
 # Helper: update mode in YAML config
 # -------------------------------------------------------------------
 def _update_yaml_mode(new_mode: str) -> None:
-    """Write mode change to config/user_overrides.yaml (not defaults)."""
+    """Write mode change to the primary config authority."""
     from src.core.config import save_config_field
     save_config_field("mode", new_mode)

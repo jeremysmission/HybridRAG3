@@ -148,10 +148,10 @@ def test_legacy_reasoning_dial_migrates_to_open_knowledge_flag():
         with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": temp_root}):
             cfg_dir = Path(temp_root) / "config"
             cfg_dir.mkdir(parents=True, exist_ok=True)
-            (cfg_dir / "mode_tuning.yaml").write_text(
+            (cfg_dir / "config.yaml").write_text(
                 "\n".join(
                     [
-                        "version: 1",
+                        "mode: offline",
                         "modes:",
                         "  offline:",
                         "    values:",

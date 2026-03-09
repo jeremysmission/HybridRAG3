@@ -142,60 +142,24 @@ def load_config(config_path=None) -> dict:
 
     Search order:
       1. Explicit path argument
-      2. config/default_config.yaml (relative to project root)
-      3. config.yaml (relative to project root)
+      2. config/config.yaml (relative to project root)
 
     Returns:
         Dict of configuration values.
     """
-    try:
-        import yaml
-    except ImportError:
-        logger.warning("[BOOT:CONFIG] PyYAML not installed -- using empty config")
-        return {}
-
-    # Determine project root (two levels up from this file)
     project_root = Path(__file__).resolve().parent.parent.parent
-
-    search_paths = []
-    if config_path:
-        search_paths.append(Path(config_path))
-    search_paths.extend([
-        project_root / "config" / "default_config.yaml",
-        project_root / "config.yaml",
-    ])
-
-    config = {}
-    for path in search_paths:
-        if path.exists():
-            logger.info("Loading config from: %s", path)
-            with open(path, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f) or {}
-            break
-
-    if not config:
-        logger.warning("[BOOT:CONFIG] No config file found -- using defaults")
-        return {}
-
-    # Merge user_overrides.yaml on top, matching src.core.config.load_config
-    overrides_path = project_root / "config" / "user_overrides.yaml"
-    if overrides_path.exists():
-        try:
-            with open(overrides_path, "r", encoding="utf-8") as f:
-                overrides = yaml.safe_load(f)
-            if isinstance(overrides, dict):
-                config = _deep_merge_dict(config, overrides)
-                logger.info("Boot config: merged user_overrides.yaml")
-        except Exception as exc:
-            logger.warning("[BOOT:CONFIG] Failed to merge user_overrides.yaml: %s", exc)
-
     try:
+        from src.core.config_files import load_primary_config_dict
         from src.core.config import normalize_config_dict
 
-        return normalize_config_dict(str(project_root), config)
+        raw = load_primary_config_dict(str(project_root), config_path)
+        if not raw:
+            logger.warning("[BOOT:CONFIG] No config file found -- using defaults")
+            return {}
+        return normalize_config_dict(str(project_root), raw)
     except Exception as exc:
-        logger.warning("[BOOT:CONFIG] Failed to normalize mode overlays: %s", exc)
-        return config
+        logger.warning("[BOOT:CONFIG] Failed to load config: %s", exc)
+        return {}
 
 
 def _boot_step(msg):

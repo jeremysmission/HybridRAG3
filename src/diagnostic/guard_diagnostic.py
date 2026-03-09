@@ -41,7 +41,7 @@ def test_guard_config() -> TestResult:
             return TestResult(
                 "guard_config", "Hallucination Filter", "FAIL",
                 "No hallucination_guard section in config",
-                fix_hint="Add hallucination_guard to default_config.yaml",
+                fix_hint="Add hallucination_guard to config/config.yaml",
             )
 
         enabled = getattr(guard_cfg, "enabled", False)

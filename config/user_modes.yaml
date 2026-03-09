@@ -1,0 +1,199 @@
+active_profile: ""
+profiles:
+  laptop_safe:
+    label: Laptop Safe
+    notes: Conservative laptop profile
+    values:
+      embedding:
+        model_name: nomic-embed-text
+        dimension: 768
+        batch_size: 16
+        device: cpu
+      chunking:
+        chunk_size: 1200
+        overlap: 200
+      indexing:
+        block_chars: 200000
+        max_chars_per_file: 2000000
+      performance:
+        max_concurrent_files: 1
+        gc_between_files: true
+        gc_between_blocks: true
+      modes:
+        offline:
+          ollama:
+            model: phi4-mini
+            context_window: 4096
+          retrieval:
+            reranker_top_n: 20
+        online:
+          api:
+            model: gpt-4o
+            deployment: gpt-4o
+            context_window: 128000
+            max_tokens: 1024
+          retrieval:
+            reranker_top_n: 20
+    checked:
+      embedding:
+        model_name: true
+        dimension: true
+        batch_size: true
+        device: true
+      chunking:
+        chunk_size: true
+        overlap: true
+      indexing:
+        block_chars: true
+        max_chars_per_file: true
+      performance:
+        max_concurrent_files: true
+        gc_between_files: true
+        gc_between_blocks: true
+      modes:
+        offline:
+          ollama:
+            model: true
+            context_window: true
+          retrieval:
+            reranker_top_n: true
+        online:
+          api:
+            model: true
+            deployment: true
+            context_window: true
+            max_tokens: true
+          retrieval:
+            reranker_top_n: true
+
+  desktop_power:
+    label: Desktop Power
+    notes: Balanced desktop/workstation profile
+    values:
+      embedding:
+        model_name: nomic-embed-text
+        dimension: 768
+        batch_size: 64
+        device: cuda
+      chunking:
+        chunk_size: 1200
+        overlap: 200
+      indexing:
+        block_chars: 500000
+        max_chars_per_file: 5000000
+      performance:
+        max_concurrent_files: 2
+        gc_between_files: false
+        gc_between_blocks: false
+      modes:
+        offline:
+          ollama:
+            model: phi4:14b-q4_K_M
+            context_window: 4096
+          retrieval:
+            reranker_top_n: 20
+        online:
+          api:
+            model: gpt-4o
+            deployment: gpt-4o
+            context_window: 128000
+            max_tokens: 1024
+          retrieval:
+            reranker_top_n: 20
+    checked:
+      embedding:
+        model_name: true
+        dimension: true
+        batch_size: true
+        device: true
+      chunking:
+        chunk_size: true
+        overlap: true
+      indexing:
+        block_chars: true
+        max_chars_per_file: true
+      performance:
+        max_concurrent_files: true
+        gc_between_files: true
+        gc_between_blocks: true
+      modes:
+        offline:
+          ollama:
+            model: true
+            context_window: true
+          retrieval:
+            reranker_top_n: true
+        online:
+          api:
+            model: true
+            deployment: true
+            context_window: true
+            max_tokens: true
+          retrieval:
+            reranker_top_n: true
+
+  server_max:
+    label: Server Max
+    notes: High-end workstation/server profile
+    values:
+      embedding:
+        model_name: nomic-embed-text
+        dimension: 768
+        batch_size: 128
+        device: cuda
+      chunking:
+        chunk_size: 1200
+        overlap: 200
+      indexing:
+        block_chars: 1000000
+        max_chars_per_file: 10000000
+      performance:
+        max_concurrent_files: 4
+        gc_between_files: false
+        gc_between_blocks: false
+      modes:
+        offline:
+          ollama:
+            model: phi4:14b-q4_K_M
+            context_window: 4096
+          retrieval:
+            reranker_top_n: 30
+        online:
+          api:
+            model: gpt-4o
+            deployment: gpt-4o
+            context_window: 128000
+            max_tokens: 2048
+          retrieval:
+            reranker_top_n: 30
+    checked:
+      embedding:
+        model_name: true
+        dimension: true
+        batch_size: true
+        device: true
+      chunking:
+        chunk_size: true
+        overlap: true
+      indexing:
+        block_chars: true
+        max_chars_per_file: true
+      performance:
+        max_concurrent_files: true
+        gc_between_files: true
+        gc_between_blocks: true
+      modes:
+        offline:
+          ollama:
+            model: true
+            context_window: true
+          retrieval:
+            reranker_top_n: true
+        online:
+          api:
+            model: true
+            deployment: true
+            context_window: true
+            max_tokens: true
+          retrieval:
+            reranker_top_n: true

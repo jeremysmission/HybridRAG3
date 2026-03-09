@@ -9,7 +9,7 @@
 # WHAT: Switch HybridRAG to offline mode (local Ollama)
 # WHY:  When you want queries answered by a local AI model running on
 #       your own hardware -- no internet, no API costs, full privacy
-# HOW:  Opens config/default_config.yaml, sets mode: offline, saves it
+# HOW:  Opens config/config.yaml, sets mode: offline, saves it
 # USAGE: Usually called by api_mode_commands.ps1 -> rag-mode-offline.
 #        Also runnable directly: python scripts/_set_offline.py
 # ===================================================================

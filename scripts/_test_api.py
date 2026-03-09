@@ -34,7 +34,7 @@ import os
 # HYBRIDRAG_PROJECT_ROOT is set by start_hybridrag.ps1 when you launch HybridRAG.
 sys.path.insert(0, os.environ.get('HYBRIDRAG_PROJECT_ROOT', '.'))
 
-# Import the config loader (reads settings from config/default_config.yaml)
+# Import the config loader (reads settings from config/config.yaml)
 # and the LLM router (decides whether to talk to Ollama or the GPT API)
 from src.core.config import load_config, ensure_directories
 from src.core.llm_router import LLMRouter

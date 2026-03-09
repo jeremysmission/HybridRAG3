@@ -57,11 +57,11 @@ DEFAULT_QUERIES = [
 
 def _runtime_config_filename(config_arg: str | None) -> str:
     if not config_arg:
-        return "default_config.yaml"
+        return "config.yaml"
 
     raw = str(config_arg).replace("\\", "/").strip()
     if not raw:
-        return "default_config.yaml"
+        return "config.yaml"
 
     if os.path.isabs(raw):
         config_dir = (PROJECT_ROOT / "config").resolve()
@@ -77,7 +77,7 @@ def _runtime_config_filename(config_arg: str | None) -> str:
         raw = raw[2:]
     if raw.startswith("config/"):
         raw = raw[len("config/") :]
-    return raw or "default_config.yaml"
+    return raw or "config.yaml"
 
 
 def _now_stamp() -> str:
@@ -173,9 +173,7 @@ def _router_snapshot(engine, creds) -> dict[str, Any]:
     if mode == "online":
         selected_backend = "api" if getattr(router, "api", None) is not None else "none"
     else:
-        if getattr(router, "transformers_rt", None) is not None:
-            selected_backend = "transformers_rt"
-        elif getattr(router, "vllm", None) is not None:
+        if getattr(router, "vllm", None) is not None:
             selected_backend = "vllm"
         elif getattr(router, "ollama", None) is not None:
             selected_backend = "ollama"
@@ -195,7 +193,6 @@ def _router_snapshot(engine, creds) -> dict[str, Any]:
         ),
         "router_has_ollama": getattr(router, "ollama", None) is not None,
         "router_has_vllm": getattr(router, "vllm", None) is not None,
-        "router_has_transformers": getattr(router, "transformers_rt", None) is not None,
     }
 
 
@@ -530,7 +527,7 @@ def _load_queries(args) -> list[str]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Trace query architecture across offline/online modes.")
-    ap.add_argument("--config", default="config/default_config.yaml", help="Config filename/path inside repo config/.")
+    ap.add_argument("--config", default="config/config.yaml", help="Config filename/path inside repo config/.")
     ap.add_argument("--engine", choices=("grounded", "base"), default="grounded", help="Use the guarded query engine or the plain core query engine.")
     ap.add_argument("--mode", choices=("offline", "online", "both"), default="both")
     ap.add_argument("--query", action="append", default=[], help="Query string to probe. Repeatable.")

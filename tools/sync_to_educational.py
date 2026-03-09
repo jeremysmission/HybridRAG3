@@ -290,7 +290,7 @@ python -m venv .venv
 pip install -r requirements_approved.txt
 ```
 
-See `config/default_config.yaml` for configuration options.
+See `config/config.yaml` and `config/user_modes.yaml` for configuration options.
 
 ## Requirements
 

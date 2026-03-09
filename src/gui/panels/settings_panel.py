@@ -109,7 +109,8 @@ class SettingsPanel(tk.Frame):
         root = os.environ.get("HYBRIDRAG_PROJECT_ROOT", ".")
         path_rows = [
             ("Project Root", root),
-            ("Config", os.path.join(root, "config", "default_config.yaml")),
+            ("Config", os.path.join(root, "config", "config.yaml")),
+            ("User Modes", os.path.join(root, "config", "user_modes.yaml")),
         ]
         if self.config:
             paths = getattr(self.config, "paths", None)

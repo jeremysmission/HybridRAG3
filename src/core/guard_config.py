@@ -23,7 +23,7 @@
 # HOW IT CONNECTS:
 #   config.py imports HallucinationGuardConfig from this file.
 #   load_config() in config.py parses the "hallucination_guard" section
-#   of default_config.yaml into this dataclass.
+#   of config.yaml into this dataclass.
 #   grounded_query_engine.py reads these settings via config.hallucination_guard.
 #
 # NETWORK ACCESS:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Synchronize the mirrored per-mode overrides inside config/user_overrides.yaml.
+Synchronize the mirrored per-mode overrides inside config/config.yaml.
 
 Run this after you update the admin panel knobs or want to hard-reset both
 offline and online sections to the tuned March 7 winners.
@@ -86,8 +86,8 @@ def main() -> None:
     parser.add_argument("--tune-date", default=DEFAULTS["tuned_date"])
     args = parser.parse_args()
 
-    overrides_path = Path("config/user_overrides.yaml")
-    overrides = load_yaml(overrides_path)
+    config_path = Path("config/config.yaml")
+    overrides = load_yaml(config_path)
 
     overrides["mode_store_version"] = 2
     overrides["mode"] = overrides.get("mode", "offline")
@@ -138,8 +138,8 @@ def main() -> None:
         "online": "tk6_ms08_mt1024",
     }
 
-    save_yaml(overrides_path, overrides)
-    print("Updated", overrides_path.resolve())
+    save_yaml(config_path, overrides)
+    print("Updated", config_path.resolve())
     print("Offline defaults point to", modes["offline"]["ollama"]["model"], "with", modes["offline"]["retrieval"])
     print("Online defaults point to", modes["online"]["api"].get("model", "<unset>"), "with", modes["online"]["retrieval"])
 

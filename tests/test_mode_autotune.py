@@ -95,15 +95,6 @@ def _write_default_config(root: Path) -> None:
             "timeout_seconds": 120,
             "context_window": 16384,
         },
-        "transformers_llm": {
-            "enabled": False,
-            "model": "microsoft/phi-4",
-            "max_new_tokens": 2048,
-            "temperature": 0.05,
-            "load_in_4bit": True,
-            "device_map": "auto",
-            "trust_remote_code": False,
-        },
     }
     with open(cfg_dir / "default_config.yaml", "w", encoding="utf-8") as f:
         yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
@@ -116,6 +107,7 @@ def test_runtime_config_filename_strips_repo_config_prefix():
         == ".tmp_autotune/run1/candidate.yaml"
     )
     assert eval_runner._runtime_config_filename("default_config.yaml") == "default_config.yaml"
+    assert eval_runner._runtime_config_filename(None) == "config.yaml"
 
 
 def test_build_candidates_starter_grid_counts():

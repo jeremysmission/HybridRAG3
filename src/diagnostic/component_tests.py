@@ -207,7 +207,7 @@ def test_security_endpoint() -> TestResult:
                         keys.append(str(f.relative_to(PROJ_ROOT)))
                 except Exception:
                     pass
-        yp = PROJ_ROOT / "config" / "default_config.yaml"
+        yp = PROJ_ROOT / "config" / "config.yaml"
         if yp.exists():
             try:
                 yaml_key = bool(re.search(r'sk-[a-zA-Z0-9]{20,}', yp.read_text(errors="ignore")))

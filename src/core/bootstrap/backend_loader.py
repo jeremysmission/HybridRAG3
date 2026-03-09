@@ -254,7 +254,7 @@ class BackendLoader:
                 sample = ", ".join(available[:4])
                 errors.append(
                     "Ollama model mismatch: configured '{}' is not installed. "
-                    "Installed: {}. FIX: set config/user_overrides.yaml -> "
+                    "Installed: {}. FIX: set config/config.yaml -> "
                     "ollama.model to an installed tag OR run 'ollama pull {}'."
                     .format(configured, sample or "(none)", configured)
                 )
@@ -264,7 +264,7 @@ class BackendLoader:
             if configured_c != resolved_c:
                 errors.append(
                     "Ollama model alias drift: configured '{}' resolves to installed '{}'. "
-                    "FIX: save exact installed tag '{}' in config/user_overrides.yaml "
+                    "FIX: save exact installed tag '{}' in config/config.yaml "
                     "(ollama.model) to prevent future startup/query confusion."
                     .format(configured, resolved)
                 )

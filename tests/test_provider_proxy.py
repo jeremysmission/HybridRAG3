@@ -390,7 +390,7 @@ class TestConfigProviderFields:
         )
         config_dir = tmp_path / "config"
         config_dir.mkdir()
-        (config_dir / "default_config.yaml").write_text(yaml_content)
+        (config_dir / "config.yaml").write_text(yaml_content)
         with patch("src.core.network_gate.configure_gate"):
             from src.core.config import load_config
             config = load_config(str(tmp_path))

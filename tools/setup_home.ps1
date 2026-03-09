@@ -478,11 +478,11 @@ $stepTimer.Stop()
 Write-Ok "All packages installed ($(Format-Elapsed $stepTimer))"
 
 # ==================================================================
-# Step 7: Configure default_config.yaml
+# Step 7: Configure config.yaml
 # ==================================================================
-Write-Step 7 "Configuring default_config.yaml"
+Write-Step 7 "Configuring config.yaml"
 
-$configPath = "$PROJECT_ROOT\config\default_config.yaml"
+$configPath = "$PROJECT_ROOT\config\config.yaml"
 $stepDone = $false
 while (-not $stepDone) {
     try {
@@ -752,7 +752,7 @@ Write-Host ""
 Write-Host "  --- Config Validation ---" -ForegroundColor Cyan
 Write-Host ""
 if (Test-Path "$configPath") {
-    Write-Host "    [OK] default_config.yaml exists" -ForegroundColor Green
+    Write-Host "    [OK] config.yaml exists" -ForegroundColor Green
     $diagPass++
     $cfgContent = Get-Content "$configPath" -Raw
     if ($cfgContent -match "database:") {
@@ -770,7 +770,7 @@ if (Test-Path "$configPath") {
         $diagFail++
     }
 } else {
-    Write-Host "    [FAIL] default_config.yaml not found" -ForegroundColor Red
+    Write-Host "    [FAIL] config.yaml not found" -ForegroundColor Red
     $diagFail++
 }
 

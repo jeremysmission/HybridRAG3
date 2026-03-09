@@ -111,7 +111,7 @@ function rag-mode-online {
 
     WHAT HAPPENS:
       1. Checks that API key and endpoint are configured
-      2. Sets mode to "online" in config/default_config.yaml
+      2. Sets mode to "online" in config/config.yaml
       3. Shows current API model and endpoint
       4. Queries now route to cloud API
 
@@ -136,10 +136,10 @@ function rag-mode-online {
     }
 
     if (-not $hasEndpoint) {
-        Write-Host "  WARNING: No custom endpoint set." -ForegroundColor Yellow
-        Write-Host "  Using default: api.openai.com" -ForegroundColor Yellow
-        Write-Host "  To set your company endpoint: rag-store-endpoint" -ForegroundColor Yellow
+        Write-Host "  ERROR: No API endpoint found!" -ForegroundColor Red
+        Write-Host "  Run: rag-store-endpoint" -ForegroundColor Yellow
         Write-Host ""
+        return
     }
 
     python "$PROJECT_ROOT\scripts\_set_online.py"
@@ -165,7 +165,7 @@ function rag-mode-offline {
     WHAT HAPPENS:
       1. Detects all installed local AI models (Phi-4, Mistral, etc.)
       2. Prompts you to choose which model to use
-      3. Sets mode to "offline" in config/default_config.yaml
+      3. Sets mode to "offline" in config/config.yaml
       4. Queries now route to your local model via Ollama
 
     MODELS ARE AUTO-DETECTED:

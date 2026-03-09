@@ -14,7 +14,7 @@
 #     - project root
 #     - data root
 #     - index root
-#     - default config path
+#     - primary config path
 #
 # Notes:
 #   - No YAML writes.
@@ -54,7 +54,7 @@ class Environment:
                 # 3) derive from file location: .../src/core/bootstrap/environment.py
                 pr = Path(__file__).resolve().parents[3]
 
-        config_path = pr / "config" / "default_config.yaml"
+        config_path = pr / "config" / "config.yaml"
 
         # Data root convention:
         # - If HYBRIDRAG_DATA_DIR is set, we treat it as the *index root*

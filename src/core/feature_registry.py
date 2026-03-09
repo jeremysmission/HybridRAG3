@@ -28,7 +28,7 @@
 #       and GUI automatically pick it up.
 #
 # USAGE (Python):
-#       reg = FeatureRegistry("config/default_config.yaml")
+#       reg = FeatureRegistry("config/config.yaml")
 #       reg.list_features()                     # Show all with status
 #       reg.enable("hallucination-filter")      # Turn feature ON
 #       catalog = reg.get_feature_catalog()     # Dict list for GUI
@@ -236,12 +236,12 @@ class FeatureRegistry:
     to render toggle switches.
     """
 
-    def __init__(self, config_path: str = "config/default_config.yaml"):
+    def __init__(self, config_path: str = "config/config.yaml"):
         """
         Initialize with path to the YAML config file.
 
         PARAMETERS:
-            config_path: str -- Path to default_config.yaml
+            config_path: str -- Path to the primary config YAML
                                (relative to project root or absolute)
         """
         self.config_path = Path(config_path)
@@ -274,9 +274,7 @@ class FeatureRegistry:
 
     def _set_state(self, feature: FeatureDefinition, enabled: bool):
         """
-        Write the on/off state to user_overrides.yaml (not default_config).
-
-        Uses save_config_field() so shipped defaults stay pristine.
+        Write the on/off state to the primary config YAML.
         """
         from src.core.config import save_config_field
         dotted_key = "{}.{}".format(feature.config_section, feature.config_key)
@@ -466,9 +464,8 @@ Feature IDs:
 
     # Find config path (look in common locations)
     config_candidates = [
-        Path("config/default_config.yaml"),
-        Path("default_config.yaml"),
-        Path(os.environ.get("HYBRIDRAG_CONFIG", "config/default_config.yaml")),
+        Path("config/config.yaml"),
+        Path(os.environ.get("HYBRIDRAG_CONFIG", "config/config.yaml")),
     ]
     config_path = None
     for c in config_candidates:
@@ -476,7 +473,7 @@ Feature IDs:
             config_path = str(c)
             break
     if not config_path:
-        config_path = "config/default_config.yaml"
+        config_path = "config/config.yaml"
 
     reg = FeatureRegistry(config_path)
     command = args[0].lower()
