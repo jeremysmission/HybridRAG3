@@ -468,6 +468,19 @@ class GroundedQueryEngine(QueryEngine):
                     fallback = super().query(user_query)
                     yield {"done": True, "result": fallback}
                     return
+                attach_result_trace(
+                    self,
+                    gate_result,
+                    trace,
+                    decision_path="retrieval_gate_blocked",
+                    retrieval_trace=retrieval_trace,
+                    grounding={
+                        "score": getattr(gate_result, "grounding_score", -1.0),
+                        "safe": getattr(gate_result, "grounding_safe", False),
+                        "blocked": getattr(gate_result, "grounding_blocked", True),
+                        "details": copy.deepcopy(getattr(gate_result, "grounding_details", None)),
+                    },
+                )
                 yield {"done": True, "result": gate_result}
                 return
 

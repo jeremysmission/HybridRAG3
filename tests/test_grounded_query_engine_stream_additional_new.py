@@ -84,6 +84,9 @@ def test_stream_retrieval_gate_blocking_no_results():
     result = done[0]["result"]
     assert result.grounding_blocked is True
     assert result.grounding_details.get("reason") == "no_search_results"
+    assert result.debug_trace is not None
+    assert result.debug_trace["decision"]["path"] == "retrieval_gate_blocked"
+    assert result.debug_trace["grounding"]["blocked"] is True
 
 
 def test_stream_guard_action_strip_emits_only_supported_claims():
