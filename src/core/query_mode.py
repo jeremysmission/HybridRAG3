@@ -52,14 +52,10 @@ def apply_query_mode_to_config(config) -> dict:
     return settings
 
 
-def apply_query_mode_to_engine(engine, sync_guard_policy: bool = False) -> dict:
-    """Push query-mode settings into a live query engine.
-
-    General runtime sync only mirrors open-knowledge fallback so config
-    hydration does not stomp explicit guard overrides. Guard-policy sync
-    is opt-in for UI actions that intentionally change the grounding mode.
-    """
-    settings = apply_query_mode_to_config(engine.config)
+def apply_query_mode_settings_to_engine(
+    engine, settings: dict, sync_guard_policy: bool = False
+) -> dict:
+    """Apply resolved query-mode settings to a live engine-like object."""
     setattr(engine, "allow_open_knowledge", settings["allow_open_knowledge"])
     if sync_guard_policy:
         if hasattr(engine, "guard_enabled"):
@@ -73,3 +69,39 @@ def apply_query_mode_to_engine(engine, sync_guard_policy: bool = False) -> dict:
         if hasattr(engine, "guard_action"):
             engine.guard_action = settings["guard_action"]
     return settings
+
+
+def apply_query_mode_to_engine(engine, sync_guard_policy: bool = False) -> dict:
+    """Push query-mode settings into a live query engine.
+
+    General runtime sync only mirrors open-knowledge fallback so config
+    hydration does not stomp explicit guard overrides. Guard-policy sync
+    is opt-in for UI actions that intentionally change the grounding mode.
+    """
+    settings = apply_query_mode_to_config(engine.config)
+    return apply_query_mode_settings_to_engine(
+        engine, settings, sync_guard_policy=sync_guard_policy
+    )
+
+
+def apply_query_mode_to_runtime(
+    config, engine=None, sync_guard_policy: bool = False
+) -> dict:
+    """Apply query-mode settings to config and an optional live engine."""
+    settings = apply_query_mode_to_config(config)
+    if engine is None:
+        return settings
+
+    engine_config = getattr(engine, "config", None)
+    if engine_config is not None:
+        if engine_config is not config:
+            engine_query = _ensure_query_config(engine_config)
+            engine_query.grounding_bias = settings["grounding_bias"]
+            engine_query.allow_open_knowledge = settings["allow_open_knowledge"]
+        return apply_query_mode_to_engine(
+            engine, sync_guard_policy=sync_guard_policy
+        )
+
+    return apply_query_mode_settings_to_engine(
+        engine, settings, sync_guard_policy=sync_guard_policy
+    )

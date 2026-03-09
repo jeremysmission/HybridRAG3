@@ -38,6 +38,7 @@ class TuningTab(tk.Frame):
         self._default_vars = {}
         self._scales = {}
         self._check_widgets = {}
+        self._row_frames = {}
 
         self._last_popup_key = None
         self._mode_banner_var = tk.StringVar(value="")

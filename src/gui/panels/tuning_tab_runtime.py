@@ -8,12 +8,17 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from src.core.mode_config import MODE_TUNED_DEFAULTS, normalize_mode
+from src.core.query_mode import apply_query_mode_to_runtime
 from src.gui.helpers.safe_after import safe_after
 from src.gui.panels.settings_view import (
     _build_ranking_text,
     _detect_profile_name,
     _load_profile_names,
     _theme_widget,
+)
+from src.gui.panels.query_constants import (
+    GROUNDING_BIAS_HINTS,
+    OPEN_KNOWLEDGE_HINTS,
 )
 from src.gui.theme import FONT, FONT_BOLD, FONT_SMALL, bind_hover, current_theme
 
@@ -36,6 +41,8 @@ SAFE_DEFAULTS = {
         "frequency_penalty": 0.0,
         "seed": 0,
         "timeout_seconds": 180,
+        "grounding_bias": 8,
+        "allow_open_knowledge": True,
     },
     "desktop_power": {
         "top_k": 4,
@@ -52,6 +59,8 @@ SAFE_DEFAULTS = {
         "frequency_penalty": 0.0,
         "seed": 0,
         "timeout_seconds": 180,
+        "grounding_bias": 8,
+        "allow_open_knowledge": True,
     },
     "server_max": {
         "top_k": 10,
@@ -68,6 +77,8 @@ SAFE_DEFAULTS = {
         "frequency_penalty": 0.0,
         "seed": 0,
         "timeout_seconds": 180,
+        "grounding_bias": 7,
+        "allow_open_knowledge": True,
     },
 }
 
@@ -78,6 +89,7 @@ def _mode_llm_values_from_config(config, mode: str) -> dict:
     retrieval = getattr(config, "retrieval", None)
     api = getattr(config, "api", None)
     ollama = getattr(config, "ollama", None)
+    query = getattr(config, "query", None)
     offline_defaults = MODE_TUNED_DEFAULTS["offline"]
     online_defaults = MODE_TUNED_DEFAULTS["online"]
     active_defaults = MODE_TUNED_DEFAULTS[mode]
@@ -86,6 +98,8 @@ def _mode_llm_values_from_config(config, mode: str) -> dict:
         "top_k": getattr(retrieval, "top_k", active_defaults["top_k"]) if retrieval else active_defaults["top_k"],
         "min_score": getattr(retrieval, "min_score", active_defaults["min_score"]) if retrieval else active_defaults["min_score"],
         "hybrid_search": getattr(retrieval, "hybrid_search", True) if retrieval else True,
+        "reranker_enabled": getattr(retrieval, "reranker_enabled", active_defaults["reranker_enabled"]) if retrieval else active_defaults["reranker_enabled"],
+        "reranker_top_n": getattr(retrieval, "reranker_top_n", active_defaults["reranker_top_n"]) if retrieval else active_defaults["reranker_top_n"],
         "context_window": offline_defaults["context_window"],
         "num_predict": getattr(ollama, "num_predict", offline_defaults["num_predict"]) if ollama else offline_defaults["num_predict"],
         "max_tokens": getattr(api, "max_tokens", online_defaults["max_tokens"]) if api else online_defaults["max_tokens"],
@@ -95,6 +109,8 @@ def _mode_llm_values_from_config(config, mode: str) -> dict:
         "frequency_penalty": online_defaults["frequency_penalty"],
         "seed": offline_defaults["seed"] if mode == "offline" else online_defaults["seed"],
         "timeout_seconds": offline_defaults["timeout_seconds"] if mode == "offline" else online_defaults["timeout_seconds"],
+        "grounding_bias": getattr(query, "grounding_bias", active_defaults["grounding_bias"]) if query else active_defaults["grounding_bias"],
+        "allow_open_knowledge": getattr(query, "allow_open_knowledge", active_defaults["allow_open_knowledge"]) if query else active_defaults["allow_open_knowledge"],
     }
 
     if mode == "online":
@@ -369,8 +385,10 @@ def _build_editor_columns(self, theme):
     right = tk.Frame(split, bg=theme["panel_bg"])
     right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(6, 8))
     self._query_column = right
+    self._generation_column = right
 
     self._build_retrieval_section(theme, parent=left)
+    self._build_query_policy_section(theme, parent=right)
     self._build_llm_section(theme, parent=right)
 
 
@@ -380,23 +398,33 @@ def _refresh_mode_banner(self):
     self._mode_banner_var.set(
         "Editing {} defaults in Admin  |  Runtime mode: {}.".format(mode.upper(), runtime_mode.upper())
     )
-    if hasattr(self, "_llm_frame"):
-        self._llm_frame.config(text="Query & Generation ({})".format(mode.capitalize()))
+    if hasattr(self, "_query_policy_frame"):
+        self._query_policy_frame.config(text="Query Policy ({})".format(mode.capitalize()))
+    if hasattr(self, "_generation_frame"):
+        self._generation_frame.config(text="Generation ({})".format(mode.capitalize()))
+    if hasattr(self, "_query_policy_note"):
+        self._query_policy_note.config(
+            text=(
+                "Grounding strictness and open-knowledge fallback are saved per mode "
+                "under config.yaml and apply live when {} is the runtime mode."
+            ).format(mode)
+        )
     if hasattr(self, "_llm_mode_note"):
         if mode == "online":
             self._llm_mode_note.config(
                 text=(
-                    "Online mode uses api.context_window + max_tokens. "
-                    "Changes save to config.yaml and apply live when runtime is online."
+                    "Online generation uses api.context_window + max_tokens. "
+                    "Provider-only controls stay disabled when they do not apply."
                 )
             )
         else:
             self._llm_mode_note.config(
                 text=(
-                    "Offline mode uses ollama.context_window + num_predict. "
-                    "Changes save to config.yaml and apply live when runtime is offline."
+                    "Offline generation uses ollama.context_window + num_predict. "
+                    "Common controls stay mirrored; online-only penalties stay disabled."
                 )
             )
+    self._update_query_policy_hints()
 
 
 def _set_mode_status(self, text):
@@ -473,6 +501,72 @@ def _apply_mode_widget_states(self):
         enabled = self._mode_key_enabled(key)
         locked = bool(locks.get(key, False))
         widget.config(state=(tk.NORMAL if enabled and not locked else tk.DISABLED))
+    self._sync_retrieval_advanced_visibility()
+    self._sync_generation_advanced_visibility()
+
+
+def _set_row_visible(self, key, visible: bool):
+    row = self._row_frames.get(key)
+    if row is None:
+        return
+    mapped = bool(row.winfo_manager())
+    if visible and not mapped:
+        row.pack(fill=tk.X, pady=3)
+    elif not visible and mapped:
+        row.pack_forget()
+
+
+def _set_frame_visible(frame, visible: bool):
+    mapped = bool(frame.winfo_manager())
+    if visible and not mapped:
+        frame.pack(fill=tk.X, pady=(4, 0))
+    elif not visible and mapped:
+        frame.pack_forget()
+
+
+def _advanced_retrieval_active(self) -> bool:
+    return bool(self.reranker_var.get()) or int(self.reranker_topn_var.get()) != int(
+        self._default_value("reranker_top_n") or MODE_TUNED_DEFAULTS[self._current_mode()]["reranker_top_n"]
+    )
+
+
+def _advanced_generation_active(self) -> bool:
+    if int(self._seed_value_or_current()) > 0:
+        return True
+    if self._current_mode() == "online":
+        return (
+            abs(float(self.presence_penalty_var.get())) > 1e-9
+            or abs(float(self.frequency_penalty_var.get())) > 1e-9
+        )
+    return False
+
+
+def _sync_retrieval_advanced_visibility(self):
+    frame = getattr(self, "_retrieval_advanced_frame", None)
+    if frame is None:
+        return
+    show = bool(self._show_retrieval_advanced_var.get()) or self._advanced_retrieval_active()
+    _set_frame_visible(frame, show)
+
+    reranker_enabled = bool(self.reranker_var.get())
+    topn_widget = self._scales.get("reranker_top_n")
+    topn_enabled = self._mode_key_enabled("reranker_top_n") and reranker_enabled and not bool(
+        self._active_locks().get("reranker_top_n", False)
+    )
+    if topn_widget is not None:
+        topn_widget.config(state=(tk.NORMAL if topn_enabled else tk.DISABLED))
+
+
+def _sync_generation_advanced_visibility(self):
+    frame = getattr(self, "_generation_advanced_frame", None)
+    if frame is None:
+        return
+    show = bool(self._show_generation_advanced_var.get()) or self._advanced_generation_active()
+    _set_frame_visible(frame, show)
+    online = self._current_mode() == "online"
+    self._set_row_visible("seed", show)
+    self._set_row_visible("presence_penalty", show and online)
+    self._set_row_visible("frequency_penalty", show and online)
 
 
 def _write_active_vars_to_config(self):
@@ -481,11 +575,17 @@ def _write_active_vars_to_config(self):
     retrieval = getattr(self.config, "retrieval", None)
     api = getattr(self.config, "api", None)
     ollama = getattr(self.config, "ollama", None)
+    query = getattr(self.config, "query", None)
     mode = self._current_mode()
     if retrieval:
         retrieval.top_k = self.topk_var.get()
         retrieval.min_score = self.minscore_var.get()
         retrieval.hybrid_search = self.hybrid_var.get()
+        retrieval.reranker_enabled = bool(self.reranker_var.get())
+        retrieval.reranker_top_n = int(self.reranker_topn_var.get())
+    if query:
+        query.grounding_bias = int(self.grounding_bias_var.get())
+        query.allow_open_knowledge = bool(self.allow_open_knowledge_var.get())
     if not self._mode_store_enabled:
         if mode == "online":
             if api:
@@ -538,11 +638,15 @@ def _persist_active_mode_values(self):
         "top_k": self.topk_var.get(),
         "min_score": self.minscore_var.get(),
         "hybrid_search": self.hybrid_var.get(),
+        "reranker_enabled": bool(self.reranker_var.get()),
+        "reranker_top_n": int(self.reranker_topn_var.get()),
         "context_window": self.ctx_window_var.get(),
         "temperature": self.temp_var.get(),
         "top_p": self.top_p_var.get(),
         "seed": self._seed_value_or_current(),
         "timeout_seconds": self.timeout_var.get(),
+        "grounding_bias": int(self.grounding_bias_var.get()),
+        "allow_open_knowledge": bool(self.allow_open_knowledge_var.get()),
     }
     if mode == "online":
         values["max_tokens"] = self.maxtokens_var.get()
@@ -557,6 +661,7 @@ def _persist_active_mode_values(self):
 def _build_slider_row(self, parent, theme, key, label, var, from_, to_, resolution=1, on_change=None):
     row = tk.Frame(parent, bg=theme["panel_bg"])
     row.pack(fill=tk.X, pady=3)
+    self._row_frames[key] = row
 
     tk.Label(row, text=label, width=16, anchor=tk.W, bg=theme["panel_bg"], fg=theme["fg"], font=FONT).pack(
         side=tk.LEFT
@@ -601,6 +706,7 @@ def _build_slider_row(self, parent, theme, key, label, var, from_, to_, resoluti
 def _build_entry_row(self, parent, theme, key, label, var, on_change=None, width=12):
     row = tk.Frame(parent, bg=theme["panel_bg"])
     row.pack(fill=tk.X, pady=3)
+    self._row_frames[key] = row
 
     tk.Label(row, text=label, width=16, anchor=tk.W, bg=theme["panel_bg"], fg=theme["fg"], font=FONT).pack(
         side=tk.LEFT
@@ -644,6 +750,7 @@ def _build_entry_row(self, parent, theme, key, label, var, on_change=None, width
 def _build_check_row(self, parent, theme, key, label, var, on_change=None):
     row = tk.Frame(parent, bg=theme["panel_bg"])
     row.pack(fill=tk.X, pady=3)
+    self._row_frames[key] = row
 
     tk.Label(row, text=label, width=16, anchor=tk.W, bg=theme["panel_bg"], fg=theme["fg"], font=FONT).pack(
         side=tk.LEFT
@@ -739,6 +846,59 @@ def _build_retrieval_section(self, theme, parent=None):
     self.hybrid_var = tk.BooleanVar(value=values["hybrid_search"])
     self._build_check_row(frame, theme, "hybrid_search", "Hybrid search:", self.hybrid_var, on_change=self._on_retrieval_change)
 
+    toggle_row = tk.Frame(frame, bg=theme["panel_bg"])
+    toggle_row.pack(fill=tk.X, pady=(4, 0))
+    self._show_retrieval_advanced_var = tk.BooleanVar(
+        value=bool(values["reranker_enabled"])
+    )
+    tk.Checkbutton(
+        toggle_row,
+        text="Show advanced retrieval",
+        variable=self._show_retrieval_advanced_var,
+        command=self._sync_retrieval_advanced_visibility,
+        bg=theme["panel_bg"],
+        fg=theme["fg"],
+        selectcolor=theme["input_bg"],
+        activebackground=theme["panel_bg"],
+        activeforeground=theme["fg"],
+        font=FONT_SMALL,
+    ).pack(side=tk.LEFT)
+
+    advanced = tk.Frame(frame, bg=theme["panel_bg"])
+    self._retrieval_advanced_frame = advanced
+
+    self.reranker_var = tk.BooleanVar(value=values["reranker_enabled"])
+    self._build_check_row(
+        advanced,
+        theme,
+        "reranker_enabled",
+        "Reranker:",
+        self.reranker_var,
+        on_change=self._on_retrieval_change,
+    )
+
+    self.reranker_topn_var = tk.IntVar(value=values["reranker_top_n"])
+    self._build_slider_row(
+        advanced,
+        theme,
+        "reranker_top_n",
+        "Reranker top_n:",
+        self.reranker_topn_var,
+        5,
+        100,
+        on_change=self._on_retrieval_change,
+    )
+
+    tk.Label(
+        advanced,
+        text="Reranker is optional and should stay off until retrieval quality needs the extra pass.",
+        anchor=tk.W,
+        wraplength=360,
+        bg=theme["panel_bg"],
+        fg=theme["gray"],
+        font=FONT_SMALL,
+    ).pack(fill=tk.X, pady=(2, 0))
+
     self._latency_warn_label = tk.Label(
         frame,
         text="",
@@ -749,14 +909,165 @@ def _build_retrieval_section(self, theme, parent=None):
         font=FONT_SMALL,
     )
     self._latency_warn_label.pack(fill=tk.X, pady=(4, 0))
+    self._sync_retrieval_advanced_visibility()
     self._update_latency_warning()
 
 
 def _on_retrieval_change(self):
     self._write_active_vars_to_config()
+    self._sync_retrieval_advanced_visibility()
     if not self._syncing:
         self._persist_active_mode_values()
     self._update_latency_warning()
+    self._check_dangerous_change()
+
+
+def _build_query_policy_section(self, theme, parent=None):
+    host = parent or self
+    frame = tk.LabelFrame(
+        host,
+        text="Query Policy",
+        padx=16,
+        pady=8,
+        bg=theme["panel_bg"],
+        fg=theme["accent"],
+        font=FONT_BOLD,
+    )
+    frame.pack(
+        fill=tk.BOTH if parent is not None else tk.X,
+        expand=False,
+        padx=8 if parent is not None else 16,
+        pady=(4, 4),
+    )
+    self._query_policy_frame = frame
+
+    values = self._display_values_from_config()
+
+    self.grounding_bias_var = tk.IntVar(value=values["grounding_bias"])
+    self._build_slider_row(
+        frame,
+        theme,
+        "grounding_bias",
+        "Grounding bias:",
+        self.grounding_bias_var,
+        0,
+        10,
+        on_change=self._on_query_policy_change,
+    )
+
+    self._grounding_bias_hint_var = tk.StringVar(value="")
+    tk.Label(
+        frame,
+        textvariable=self._grounding_bias_hint_var,
+        anchor=tk.W,
+        wraplength=360,
+        bg=theme["panel_bg"],
+        fg=theme["gray"],
+        font=FONT_SMALL,
+    ).pack(fill=tk.X, pady=(2, 0))
+
+    self.allow_open_knowledge_var = tk.BooleanVar(value=values["allow_open_knowledge"])
+    self._build_check_row(
+        frame,
+        theme,
+        "allow_open_knowledge",
+        "Open knowledge:",
+        self.allow_open_knowledge_var,
+        on_change=self._on_query_policy_change,
+    )
+
+    self._open_knowledge_hint_var = tk.StringVar(value="")
+    tk.Label(
+        frame,
+        textvariable=self._open_knowledge_hint_var,
+        anchor=tk.W,
+        wraplength=360,
+        bg=theme["panel_bg"],
+        fg=theme["gray"],
+        font=FONT_SMALL,
+    ).pack(fill=tk.X, pady=(2, 0))
+
+    self._query_policy_note = tk.Label(
+        frame,
+        text="",
+        anchor=tk.W,
+        wraplength=360,
+        bg=theme["panel_bg"],
+        fg=theme["gray"],
+        font=FONT_SMALL,
+    )
+    self._query_policy_note.pack(fill=tk.X, pady=(4, 0))
+    self._update_query_policy_hints()
+
+
+def _update_query_policy_hints(self):
+    if hasattr(self, "_grounding_bias_hint_var") and hasattr(self, "grounding_bias_var"):
+        try:
+            bias = int(self.grounding_bias_var.get())
+        except (tk.TclError, TypeError, ValueError):
+            bias = int(self._default_value("grounding_bias") or 0)
+        bias = max(0, min(10, bias))
+        self._grounding_bias_hint_var.set(
+            GROUNDING_BIAS_HINTS.get(bias, "Grounding bias updated")
+        )
+    if hasattr(self, "_open_knowledge_hint_var") and hasattr(self, "allow_open_knowledge_var"):
+        enabled = bool(self.allow_open_knowledge_var.get())
+        self._open_knowledge_hint_var.set(
+            OPEN_KNOWLEDGE_HINTS.get(enabled, "Open knowledge updated")
+        )
+
+
+def _iter_live_query_engines(self):
+    app = getattr(self, "_app", None)
+    if app is None:
+        return []
+
+    seen = set()
+    engines = []
+    candidates = [
+        getattr(app, "query_engine", None),
+        getattr(getattr(app, "query_panel", None), "query_engine", None),
+    ]
+    for engine in candidates:
+        if engine is None:
+            continue
+        engine_id = id(engine)
+        if engine_id in seen:
+            continue
+        seen.add(engine_id)
+        engines.append(engine)
+    return engines
+
+
+def _apply_query_policy_live(self):
+    if self._current_mode() != self._runtime_mode():
+        return
+
+    engines = _iter_live_query_engines(self)
+    if not engines:
+        try:
+            apply_query_mode_to_runtime(self.config)
+        except Exception:
+            logger.debug("Query policy config normalization failed", exc_info=True)
+        return
+
+    for engine in engines:
+        try:
+            apply_query_mode_to_runtime(
+                self.config,
+                engine,
+                sync_guard_policy=True,
+            )
+        except Exception:
+            logger.debug("Query policy live-update failed", exc_info=True)
+
+
+def _on_query_policy_change(self):
+    self._write_active_vars_to_config()
+    self._apply_query_policy_live()
+    if not self._syncing:
+        self._persist_active_mode_values()
+    self._update_query_policy_hints()
     self._check_dangerous_change()
 
 
@@ -764,7 +1075,7 @@ def _build_llm_section(self, theme, parent=None):
     host = parent or self
     frame = tk.LabelFrame(
         host,
-        text="Query & Generation",
+        text="Generation",
         padx=16,
         pady=8,
         bg=theme["panel_bg"],
@@ -775,8 +1086,9 @@ def _build_llm_section(self, theme, parent=None):
         fill=tk.BOTH if parent is not None else tk.X,
         expand=bool(parent is not None),
         padx=8 if parent is not None else 16,
-        pady=8 if parent is None else (4, 4),
+        pady=(4, 4) if parent is not None else 8,
     )
+    self._generation_frame = frame
     self._llm_frame = frame
 
     values = self._display_values_from_config()
@@ -834,42 +1146,6 @@ def _build_llm_section(self, theme, parent=None):
         on_change=self._on_llm_change,
     )
 
-    self.presence_penalty_var = tk.DoubleVar(value=values["presence_penalty"])
-    self._build_slider_row(
-        frame,
-        theme,
-        "presence_penalty",
-        "Presence penalty:",
-        self.presence_penalty_var,
-        -2.0,
-        2.0,
-        resolution=0.05,
-        on_change=self._on_llm_change,
-    )
-
-    self.frequency_penalty_var = tk.DoubleVar(value=values["frequency_penalty"])
-    self._build_slider_row(
-        frame,
-        theme,
-        "frequency_penalty",
-        "Frequency penalty:",
-        self.frequency_penalty_var,
-        -2.0,
-        2.0,
-        resolution=0.05,
-        on_change=self._on_llm_change,
-    )
-
-    self.seed_var = tk.IntVar(value=values["seed"])
-    self._build_entry_row(
-        frame,
-        theme,
-        "seed",
-        "Seed:",
-        self.seed_var,
-        on_change=self._on_llm_change,
-    )
-
     self.timeout_var = tk.IntVar(value=values["timeout_seconds"])
     self._build_slider_row(
         frame,
@@ -882,6 +1158,79 @@ def _build_llm_section(self, theme, parent=None):
         on_change=self._on_llm_change,
     )
 
+    toggle_row = tk.Frame(frame, bg=theme["panel_bg"])
+    toggle_row.pack(fill=tk.X, pady=(4, 0))
+    generation_advanced_open = bool(values["seed"])
+    if self._current_mode() == "online":
+        generation_advanced_open = generation_advanced_open or (
+            abs(float(values["presence_penalty"])) > 1e-9
+            or abs(float(values["frequency_penalty"])) > 1e-9
+        )
+    self._show_generation_advanced_var = tk.BooleanVar(
+        value=generation_advanced_open
+    )
+    tk.Checkbutton(
+        toggle_row,
+        text="Show advanced generation",
+        variable=self._show_generation_advanced_var,
+        command=self._sync_generation_advanced_visibility,
+        bg=theme["panel_bg"],
+        fg=theme["fg"],
+        selectcolor=theme["input_bg"],
+        activebackground=theme["panel_bg"],
+        activeforeground=theme["fg"],
+        font=FONT_SMALL,
+    ).pack(side=tk.LEFT)
+
+    advanced = tk.Frame(frame, bg=theme["panel_bg"])
+    self._generation_advanced_frame = advanced
+
+    self.presence_penalty_var = tk.DoubleVar(value=values["presence_penalty"])
+    self._build_slider_row(
+        advanced,
+        theme,
+        "presence_penalty",
+        "Presence penalty:",
+        self.presence_penalty_var,
+        -2.0,
+        2.0,
+        resolution=0.05,
+        on_change=self._on_llm_change,
+    )
+
+    self.frequency_penalty_var = tk.DoubleVar(value=values["frequency_penalty"])
+    self._build_slider_row(
+        advanced,
+        theme,
+        "frequency_penalty",
+        "Frequency penalty:",
+        self.frequency_penalty_var,
+        -2.0,
+        2.0,
+        resolution=0.05,
+        on_change=self._on_llm_change,
+    )
+
+    self.seed_var = tk.IntVar(value=values["seed"])
+    self._build_entry_row(
+        advanced,
+        theme,
+        "seed",
+        "Seed:",
+        self.seed_var,
+        on_change=self._on_llm_change,
+    )
+
+    tk.Label(
+        advanced,
+        text="Advanced controls stay provider-aware: online penalties are hidden offline, seed is shared.",
+        anchor=tk.W,
+        wraplength=360,
+        bg=theme["panel_bg"],
+        fg=theme["gray"],
+        font=FONT_SMALL,
+    ).pack(fill=tk.X, pady=(2, 0))
+
     self._llm_mode_note = tk.Label(
         frame,
         text="",
@@ -892,10 +1241,12 @@ def _build_llm_section(self, theme, parent=None):
         font=FONT_SMALL,
     )
     self._llm_mode_note.pack(fill=tk.X, pady=(4, 0))
+    self._sync_generation_advanced_visibility()
 
 
 def _on_llm_change(self):
     self._write_active_vars_to_config()
+    self._sync_generation_advanced_visibility()
     if not self._syncing:
         self._persist_active_mode_values()
     self._update_latency_warning()
@@ -1191,6 +1542,10 @@ def _all_vars(self):
         "top_k": self.topk_var,
         "min_score": self.minscore_var,
         "hybrid_search": self.hybrid_var,
+        "reranker_enabled": self.reranker_var,
+        "reranker_top_n": self.reranker_topn_var,
+        "grounding_bias": self.grounding_bias_var,
+        "allow_open_knowledge": self.allow_open_knowledge_var,
         "context_window": self.ctx_window_var,
         "num_predict": self.num_predict_var,
         "max_tokens": self.maxtokens_var,
@@ -1275,6 +1630,7 @@ def _apply_values(self, values):
     self._apply_mode_widget_states()
     self._syncing = False
     self._write_active_vars_to_config()
+    self._update_query_policy_hints()
     self._update_latency_warning()
 
 
@@ -1318,7 +1674,7 @@ def apply_theme(self, theme):
         self._retrieval_column.configure(bg=theme["panel_bg"])
     if hasattr(self, "_query_column"):
         self._query_column.configure(bg=theme["panel_bg"])
-    for frame_attr in ("_retrieval_frame", "_llm_frame", "_profile_frame"):
+    for frame_attr in ("_retrieval_frame", "_query_policy_frame", "_generation_frame", "_profile_frame"):
         frame = getattr(self, frame_attr, None)
         if frame:
             frame.configure(bg=theme["panel_bg"], fg=theme["accent"])
@@ -1353,6 +1709,11 @@ def bind_tuning_tab_runtime_methods(tab_cls) -> None:
     tab_cls._var_value = _var_value
     tab_cls._mode_key_enabled = _mode_key_enabled
     tab_cls._apply_mode_widget_states = _apply_mode_widget_states
+    tab_cls._set_row_visible = _set_row_visible
+    tab_cls._advanced_retrieval_active = _advanced_retrieval_active
+    tab_cls._advanced_generation_active = _advanced_generation_active
+    tab_cls._sync_retrieval_advanced_visibility = _sync_retrieval_advanced_visibility
+    tab_cls._sync_generation_advanced_visibility = _sync_generation_advanced_visibility
     tab_cls._write_active_vars_to_config = _write_active_vars_to_config
     tab_cls._persist_active_mode_values = _persist_active_mode_values
     tab_cls._build_slider_row = _build_slider_row
@@ -1361,6 +1722,11 @@ def bind_tuning_tab_runtime_methods(tab_cls) -> None:
     tab_cls._on_default_toggle = _on_default_toggle
     tab_cls._build_retrieval_section = _build_retrieval_section
     tab_cls._on_retrieval_change = _on_retrieval_change
+    tab_cls._build_query_policy_section = _build_query_policy_section
+    tab_cls._update_query_policy_hints = _update_query_policy_hints
+    tab_cls._iter_live_query_engines = _iter_live_query_engines
+    tab_cls._apply_query_policy_live = _apply_query_policy_live
+    tab_cls._on_query_policy_change = _on_query_policy_change
     tab_cls._build_llm_section = _build_llm_section
     tab_cls._on_llm_change = _on_llm_change
     tab_cls._get_current_model = _get_current_model

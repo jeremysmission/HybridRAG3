@@ -11,7 +11,7 @@ from scripts._model_meta import (
 )
 from src.core.llm_router import get_available_deployments
 from src.core.model_identity import canonicalize_model_name
-from src.core.query_mode import apply_query_mode_to_config, apply_query_mode_to_engine
+from src.core.query_mode import apply_query_mode_to_runtime
 from src.gui.helpers.mode_tuning import update_mode_section, update_mode_setting
 from src.gui.helpers.safe_after import safe_after
 from src.gui.panels.query_constants import (
@@ -291,7 +291,6 @@ def _apply_grounding_bias_live(self, bias: int):
     """
     b = max(0, min(10, int(bias)))
     allow_open_knowledge = bool(self._open_knowledge_var.get())
-    settings = None
     try:
         query_cfg = getattr(self.config, "query", None)
         if query_cfg is None:
@@ -301,30 +300,13 @@ def _apply_grounding_bias_live(self, bias: int):
             setattr(self.config, "query", query_cfg)
         query_cfg.grounding_bias = int(b)
         query_cfg.allow_open_knowledge = allow_open_knowledge
-        settings = apply_query_mode_to_config(self.config)
+        apply_query_mode_to_runtime(
+            self.config,
+            self.query_engine,
+            sync_guard_policy=True,
+        )
     except Exception:
         logger.debug("Grounding bias config update failed", exc_info=True)
-
-    # Live engine update (works without restart)
-    qe = self.query_engine
-    if qe is not None:
-        try:
-            if hasattr(qe, "config"):
-                apply_query_mode_to_engine(qe, sync_guard_policy=True)
-            elif settings is not None:
-                setattr(qe, "allow_open_knowledge", settings["allow_open_knowledge"])
-                if hasattr(qe, "guard_enabled"):
-                    qe.guard_enabled = settings["guard_enabled"]
-                if hasattr(qe, "guard_threshold"):
-                    qe.guard_threshold = settings["guard_threshold"]
-                if hasattr(qe, "guard_min_chunks"):
-                    qe.guard_min_chunks = settings["guard_min_chunks"]
-                if hasattr(qe, "guard_min_score"):
-                    qe.guard_min_score = settings["guard_min_score"]
-                if hasattr(qe, "guard_action"):
-                    qe.guard_action = settings["guard_action"]
-        except Exception:
-            logger.debug("Grounding bias live-update failed", exc_info=True)
 
 def _check_primary_worker(self):
     """Background primary availability check."""

@@ -752,6 +752,10 @@ def test_11_settings_view_reads_config(tmp_path):
     config = FakeGUIConfig()
     config.retrieval.top_k = 12
     config.retrieval.min_score = 0.15
+    config.retrieval.reranker_enabled = True
+    config.retrieval.reranker_top_n = 32
+    config.query.grounding_bias = 6
+    config.query.allow_open_knowledge = False
     config.ollama.context_window = 8192
     config.ollama.num_predict = 768
     config.ollama.temperature = 0.3
@@ -765,8 +769,14 @@ def test_11_settings_view_reads_config(tmp_path):
         app_ref = MagicMock()
         view = SettingsView(root, config=config, app_ref=app_ref)
 
+        assert view._tuning_tab._query_policy_frame["text"].startswith("Query Policy")
+        assert view._tuning_tab._generation_frame["text"].startswith("Generation")
         assert view.topk_var.get() == 12
         assert abs(view.minscore_var.get() - 0.15) < 0.01
+        assert bool(view.reranker_var.get()) is True
+        assert view.reranker_topn_var.get() == 32
+        assert view.grounding_bias_var.get() == 6
+        assert bool(view.open_knowledge_var.get()) is False
         assert view.ctx_window_var.get() == 8192
         assert view.num_predict_var.get() == 768
         assert abs(view.temp_var.get() - 0.3) < 0.01
@@ -795,8 +805,12 @@ def test_12_settings_view_writes_config(tmp_path):
 
         # Change top_k
         view.topk_var.set(25)
+        view.reranker_var.set(True)
+        view.reranker_topn_var.set(24)
         view._on_retrieval_change()
         assert config.retrieval.top_k == 25
+        assert config.retrieval.reranker_enabled is True
+        assert config.retrieval.reranker_top_n == 24
 
         # Change active offline runtime knobs
         view.num_predict_var.set(2048)
@@ -805,11 +819,17 @@ def test_12_settings_view_writes_config(tmp_path):
         view.seed_var.set(99)
         view.timeout_var.set(240)
         view._on_llm_change()
+
+        view.grounding_bias_var.set(4)
+        view.open_knowledge_var.set(False)
+        view._on_query_policy_change()
         assert config.ollama.num_predict == 2048
         assert abs(config.ollama.temperature - 0.5) < 0.01
         assert abs(config.ollama.top_p - 0.72) < 0.01
         assert config.ollama.seed == 99
         assert config.ollama.timeout_seconds == 240
+        assert config.query.grounding_bias == 4
+        assert config.query.allow_open_knowledge is False
 
     view.destroy()
     root.destroy()
@@ -827,6 +847,8 @@ def test_12b_settings_view_online_mode_reads_and_writes_api_values(tmp_path):
     config.api.frequency_penalty = 0.15
     config.api.seed = 21
     config.api.timeout_seconds = 900
+    config.query.grounding_bias = 5
+    config.query.allow_open_knowledge = False
     config.ollama.context_window = 4096
     config.ollama.temperature = 0.05
     config.ollama.timeout_seconds = 180
@@ -845,6 +867,8 @@ def test_12b_settings_view_online_mode_reads_and_writes_api_values(tmp_path):
         assert abs(view.frequency_penalty_var.get() - 0.15) < 0.01
         assert view.seed_var.get() == 21
         assert view.timeout_var.get() == 900
+        assert view.grounding_bias_var.get() == 5
+        assert bool(view.open_knowledge_var.get()) is False
 
         view.ctx_window_var.set(128000)
         view.maxtokens_var.set(16384)
@@ -856,6 +880,10 @@ def test_12b_settings_view_online_mode_reads_and_writes_api_values(tmp_path):
         view.timeout_var.set(1200)
         view._on_llm_change()
 
+        view.grounding_bias_var.set(3)
+        view.open_knowledge_var.set(True)
+        view._on_query_policy_change()
+
         assert config.api.context_window == 128000
         assert config.api.max_tokens == 16384
         assert abs(config.api.temperature - 2.0) < 0.01
@@ -864,8 +892,52 @@ def test_12b_settings_view_online_mode_reads_and_writes_api_values(tmp_path):
         assert abs(config.api.frequency_penalty - 0.2) < 0.01
         assert config.api.seed == 77
         assert config.api.timeout_seconds == 1200
+        assert config.query.grounding_bias == 3
+        assert config.query.allow_open_knowledge is True
         assert config.ollama.context_window == 4096
         assert abs(config.ollama.temperature - 0.05) < 0.01
+
+    view.destroy()
+    root.destroy()
+
+
+def test_12bb_settings_view_query_policy_updates_live_engine(tmp_path):
+    """Admin query-policy changes must update the attached live engine."""
+    root = _make_root()
+    config = FakeGUIConfig(mode="online")
+    engine = SimpleNamespace(
+        config=config,
+        allow_open_knowledge=False,
+        guard_enabled=False,
+        guard_threshold=0.0,
+        guard_min_chunks=0,
+        guard_min_score=0.0,
+        guard_action="",
+    )
+
+    from src.core.query_mode import resolve_query_mode_settings
+    from src.gui.panels.settings_view import SettingsView
+
+    with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": str(tmp_path)}):
+        app_ref = MagicMock()
+        app_ref.query_engine = engine
+        app_ref.query_panel = SimpleNamespace(query_engine=engine)
+        view = SettingsView(root, config=config, app_ref=app_ref)
+
+        view.grounding_bias_var.set(4)
+        view.open_knowledge_var.set(True)
+        view._on_query_policy_change()
+
+        expected = resolve_query_mode_settings(config)
+
+        assert config.query.grounding_bias == 4
+        assert config.query.allow_open_knowledge is True
+        assert engine.allow_open_knowledge is True
+        assert engine.guard_enabled == expected["guard_enabled"]
+        assert abs(engine.guard_threshold - expected["guard_threshold"]) < 1e-9
+        assert engine.guard_min_chunks == expected["guard_min_chunks"]
+        assert abs(engine.guard_min_score - expected["guard_min_score"]) < 1e-9
+        assert engine.guard_action == expected["guard_action"]
 
     view.destroy()
     root.destroy()
@@ -924,6 +996,8 @@ def test_12c_settings_view_mode_store_persists_min_max_without_snapback(tmp_path
         tab = view._tuning_tab
 
         tab.topk_var.set(1)
+        tab.reranker_var.set(True)
+        tab.reranker_topn_var.set(28)
         tab.ctx_window_var.set(128000)
         tab.maxtokens_var.set(16384)
         tab.temp_var.set(2.0)
@@ -932,11 +1006,18 @@ def test_12c_settings_view_mode_store_persists_min_max_without_snapback(tmp_path
         tab.frequency_penalty_var.set(0.1)
         tab.seed_var.set(55)
         tab.timeout_var.set(1200)
+        tab.grounding_bias_var.set(2)
+        tab.allow_open_knowledge_var.set(False)
         tab._on_retrieval_change()
+        tab._on_query_policy_change()
         tab._on_llm_change()
         tab._sync_sliders_to_config()
 
         assert tab.topk_var.get() == 1
+        assert bool(tab.reranker_var.get()) is True
+        assert tab.reranker_topn_var.get() == 28
+        assert tab.grounding_bias_var.get() == 2
+        assert bool(tab.allow_open_knowledge_var.get()) is False
         assert tab.ctx_window_var.get() == 128000
         assert tab.maxtokens_var.get() == 16384
         assert abs(tab.temp_var.get() - 2.0) < 0.01
@@ -964,6 +1045,10 @@ def test_12c_settings_view_mode_store_persists_min_max_without_snapback(tmp_path
         with open(cfg_dir / "config.yaml", "r", encoding="utf-8") as f:
             saved = yaml.safe_load(f)
         assert saved["modes"]["online"]["retrieval"]["top_k"] == 1
+        assert saved["modes"]["online"]["retrieval"]["reranker_enabled"] is True
+        assert saved["modes"]["online"]["retrieval"]["reranker_top_n"] == 28
+        assert saved["modes"]["online"]["query"]["grounding_bias"] == 2
+        assert saved["modes"]["online"]["query"]["allow_open_knowledge"] is False
         assert saved["modes"]["online"]["api"]["context_window"] == 128000
         assert saved["modes"]["online"]["api"]["max_tokens"] == 16384
         assert saved["modes"]["online"]["api"]["temperature"] == 2.0

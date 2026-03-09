@@ -252,6 +252,14 @@ class SettingsView(tk.Frame):
         return self._tuning_tab.timeout_var
 
     @property
+    def grounding_bias_var(self):
+        return self._tuning_tab.grounding_bias_var
+
+    @property
+    def open_knowledge_var(self):
+        return self._tuning_tab.allow_open_knowledge_var
+
+    @property
     def profile_var(self):
         """Plain-English: This function handles profile var."""
         return self._tuning_tab.profile_var
@@ -292,6 +300,9 @@ class SettingsView(tk.Frame):
     def _on_llm_change(self):
         """Plain-English: This function handles on llm change."""
         self._tuning_tab._on_llm_change()
+
+    def _on_query_policy_change(self):
+        self._tuning_tab._on_query_policy_change()
 
     def _on_profile_change(self, event=None):
         """Plain-English: This function handles on profile change."""
