@@ -7,7 +7,7 @@
 Default safe behavior:
 
 - Start with a **50-question screening pass**
-- Use the small **starter** candidate grid
+- Use the small **starter** retrieval grid plus named query/generation bundles
 - **Do not** change `config/config.yaml` unless you explicitly apply winners
 
 The tool writes timestamped results under:
@@ -17,9 +17,30 @@ The tool writes timestamped results under:
 Key output files:
 
 - `leaderboard.csv` -- ranked candidates across the run
-- `winners.json` -- best candidate per mode
+- `winner_set.json` / `winner_set.csv` -- preferred-stage ranked candidate set per mode
+- `bundle_summary.json` / `bundle_summary.csv` -- grouped summary by mode, stage, and query/generation bundle
+- `winners.json` -- preferred winner per mode, including whether that winner is eligible for `--apply-winner`
+- `offline|online/<stage>/<candidate>/effective_settings.json` -- retrieval, query-policy, and generation snapshot for that candidate
 - `README_NEXT_STEPS.txt` -- plain-English next actions
 - `applied_defaults.json` -- only written when winners are applied
+
+## What Sprint 4 changed
+
+Autotune no longer screens only retrieval plus a token-budget dial.
+
+Each candidate now combines:
+
+- retrieval knobs:
+  - `top_k`
+  - `min_score`
+  - output budget (`num_predict` offline, `max_tokens` online)
+- query/generation bundle:
+  - `grounding_bias`
+  - `allow_open_knowledge`
+  - `temperature`
+  - `top_p`
+
+That keeps the search space manageable while finally tuning the query-policy and generation side, not just retriever behavior.
 
 ## Workstation-friendly launchers
 
@@ -195,6 +216,8 @@ logs\autotune_runs\
 Review:
 
 - `leaderboard.csv`
+- `winner_set.json`
+- `bundle_summary.csv`
 - `winners.json`
 
 ### 4. Promote offline finalists to the full dataset
@@ -229,10 +252,23 @@ It updates both:
 - active values
 - stored defaults
 
-The March 7, 2026 tuned baseline currently shipping in the repo is:
+Important baseline rule:
 
-- offline: `phi4-mini`, `top_k=4`, `min_score=0.10`, `num_predict=384`
-- online: `top_k=6`, `min_score=0.08`, `max_tokens=1024`
+- `tools/run_mode_autotune.py` defaults to `--config config/config.yaml`
+- that means each autotune run starts from the current active runtime sections under:
+  - `modes.offline.retrieval`
+  - `modes.offline.ollama`
+  - `modes.offline.query`
+  - `modes.online.retrieval`
+  - `modes.online.api`
+  - `modes.online.query`
+- the separate `modes.offline.defaults` and `modes.online.defaults` entries are stored defaults, not necessarily the active starting point for a run
+
+Before comparing a new autotune run to an older handoff or cheat sheet, check `config/config.yaml` first so you are comparing against the actual baseline used by the tool.
+
+Sprint 4 winner artifacts now also show the paired query/generation bundle and a preferred-stage ranked winner set, so review is no longer limited to retriever-side settings.
+
+If a full-run finalist stage fails but the screen-stage result is still the best available evidence, `winner_set.json` and `winners.json` can point back to that screen fallback. In that case `winners.json` marks the mode as not apply-eligible so `--apply-winner` does not silently promote a screen-only fallback.
 
 ## Online mode
 
@@ -298,7 +334,7 @@ tools\run_mode_autotune.bat --workflow full --mode offline --full-limit 100
 - Candidate configs are written under `config/.tmp_autotune/` for the run.
 - Results go under `logs/autotune_runs/`.
 - The v1 autotuner intentionally excludes:
-  - `grounding_bias`
-  - `allow_open_knowledge`
+  - advanced backend-specific generation knobs such as online `presence_penalty` / `frequency_penalty`
+  - backend-specific search-space expansion beyond the current shared bundle set
 
-That keeps the workflow aligned with the current runtime wiring.
+That keeps the overnight search space manageable while Sprint 4 focuses on retrieval plus shared query-policy and generation bundle tuning.

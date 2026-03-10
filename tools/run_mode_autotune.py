@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import argparse
 import copy
-import csv
 import itertools
 import json
 import os
@@ -37,9 +36,9 @@ import shutil
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, List
 
 import yaml
 
@@ -48,8 +47,18 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.core.config import load_config
+from src.core.config_authority import build_runtime_config_dict, set_canonical_config_value
 from src.gui.helpers.mode_tuning import ModeTuningStore
+from src.core.user_modes import load_user_modes_data
 from src.security.credentials import resolve_credentials
+from tools.mode_autotune_reporting import (
+    build_bundle_summary_rows,
+    build_winner_set,
+    rank_rows,
+    write_bundle_summary_csv,
+    write_leaderboard_csv,
+    write_winner_set_csv,
+)
 
 STARTER_GRID = {
     "offline": {
@@ -82,6 +91,111 @@ GRID_PRESETS = {
     "wide": WIDE_GRID,
 }
 
+QUERY_GENERATION_BUNDLES = {
+    "starter": {
+        "offline": [
+            {
+                "name": "strict",
+                "values": {
+                    "grounding_bias": 9,
+                    "allow_open_knowledge": False,
+                    "temperature": 0.05,
+                    "top_p": 0.90,
+                },
+            },
+            {
+                "name": "balanced",
+                "values": {
+                    "grounding_bias": 7,
+                    "allow_open_knowledge": True,
+                    "temperature": 0.12,
+                    "top_p": 0.93,
+                },
+            },
+        ],
+        "online": [
+            {
+                "name": "strict",
+                "values": {
+                    "grounding_bias": 8,
+                    "allow_open_knowledge": False,
+                    "temperature": 0.05,
+                    "top_p": 0.90,
+                },
+            },
+            {
+                "name": "balanced",
+                "values": {
+                    "grounding_bias": 6,
+                    "allow_open_knowledge": True,
+                    "temperature": 0.15,
+                    "top_p": 0.95,
+                },
+            },
+        ],
+    },
+    "wide": {
+        "offline": [
+            {
+                "name": "strict",
+                "values": {
+                    "grounding_bias": 9,
+                    "allow_open_knowledge": False,
+                    "temperature": 0.05,
+                    "top_p": 0.90,
+                },
+            },
+            {
+                "name": "balanced",
+                "values": {
+                    "grounding_bias": 7,
+                    "allow_open_knowledge": True,
+                    "temperature": 0.12,
+                    "top_p": 0.93,
+                },
+            },
+            {
+                "name": "open",
+                "values": {
+                    "grounding_bias": 4,
+                    "allow_open_knowledge": True,
+                    "temperature": 0.20,
+                    "top_p": 0.97,
+                },
+            },
+        ],
+        "online": [
+            {
+                "name": "strict",
+                "values": {
+                    "grounding_bias": 8,
+                    "allow_open_knowledge": False,
+                    "temperature": 0.05,
+                    "top_p": 0.90,
+                },
+            },
+            {
+                "name": "balanced",
+                "values": {
+                    "grounding_bias": 6,
+                    "allow_open_knowledge": True,
+                    "temperature": 0.15,
+                    "top_p": 0.95,
+                },
+            },
+            {
+                "name": "open",
+                "values": {
+                    "grounding_bias": 4,
+                    "allow_open_knowledge": True,
+                    "temperature": 0.25,
+                    "top_p": 1.0,
+                },
+            },
+        ],
+    },
+}
+
 FIXED_KNOBS = {
     "offline": {
         "hybrid_search": True,
@@ -89,7 +203,11 @@ FIXED_KNOBS = {
         "reranker_top_n": 20,
         "context_window": 4096,
         "temperature": 0.05,
+        "top_p": 0.90,
+        "seed": 0,
         "timeout_seconds": 180,
+        "grounding_bias": 8,
+        "allow_open_knowledge": True,
     },
     "online": {
         "hybrid_search": True,
@@ -97,7 +215,13 @@ FIXED_KNOBS = {
         "reranker_top_n": 20,
         "context_window": 128000,
         "temperature": 0.05,
+        "top_p": 1.0,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0,
+        "seed": 0,
         "timeout_seconds": 180,
+        "grounding_bias": 7,
+        "allow_open_knowledge": True,
     },
 }
 
@@ -106,6 +230,7 @@ FIXED_KNOBS = {
 class Candidate:
     mode: str
     name: str
+    bundle: str
     values: Dict[str, Any]
 
 
@@ -150,8 +275,26 @@ def _config_filename_from_path(config_path: Path) -> str:
         raise SystemExit("Autotune base config must live under this repo's config/ directory") from exc
 
 
+def _load_config_dict(config_path: Path) -> Dict[str, Any]:
+    with open(config_path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    return data if isinstance(data, dict) else {}
+
+
 def _load_runtime_config(config_path: Path):
     return load_config(str(PROJECT_ROOT), _config_filename_from_path(config_path))
+
+
+def _credential_runtime_config_dict(
+    config_path: Path,
+    *,
+    config_dict: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    if config_dict is not None:
+        user_modes = load_user_modes_data(str(PROJECT_ROOT))
+        runtime = build_runtime_config_dict(config_dict, user_modes)
+        return runtime if isinstance(runtime, dict) else {}
+    return asdict(_load_runtime_config(config_path))
 
 
 def _git_head() -> str:
@@ -172,31 +315,97 @@ def _timestamp_slug() -> str:
     return time.strftime("%Y%m%d_%H%M%S")
 
 
-def _candidate_name(mode: str, values: Dict[str, Any]) -> str:
+def _candidate_name(mode: str, values: Dict[str, Any], bundle: str) -> str:
     min_score = int(round(float(values["min_score"]) * 100))
     if mode == "offline":
-        return (
+        base = (
             f"tk{int(values['top_k'])}_"
             f"ms{min_score:02d}_"
             f"np{int(values['num_predict'])}"
         )
-    return (
-        f"tk{int(values['top_k'])}_"
-        f"ms{min_score:02d}_"
-        f"mt{int(values['max_tokens'])}"
-    )
+    else:
+        base = (
+            f"tk{int(values['top_k'])}_"
+            f"ms{min_score:02d}_"
+            f"mt{int(values['max_tokens'])}"
+        )
+    return f"{base}_b{bundle}"
+
+
+def _candidate_sections(mode: str, values: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    retrieval = {
+        "top_k": int(values["top_k"]),
+        "min_score": float(values["min_score"]),
+        "hybrid_search": bool(values["hybrid_search"]),
+        "reranker_enabled": bool(values["reranker_enabled"]),
+        "reranker_top_n": int(values["reranker_top_n"]),
+    }
+    query = {
+        "grounding_bias": int(values["grounding_bias"]),
+        "allow_open_knowledge": bool(values["allow_open_knowledge"]),
+    }
+    if mode == "online":
+        backend = {
+            "context_window": int(values["context_window"]),
+            "max_tokens": int(values["max_tokens"]),
+            "temperature": float(values["temperature"]),
+            "top_p": float(values["top_p"]),
+            "presence_penalty": float(values.get("presence_penalty", 0.0)),
+            "frequency_penalty": float(values.get("frequency_penalty", 0.0)),
+            "seed": int(values.get("seed", 0)),
+            "timeout_seconds": int(values["timeout_seconds"]),
+        }
+        return {"retrieval": retrieval, "query": query, "api": backend}
+    backend = {
+        "context_window": int(values["context_window"]),
+        "num_predict": int(values["num_predict"]),
+        "temperature": float(values["temperature"]),
+        "top_p": float(values["top_p"]),
+        "seed": int(values.get("seed", 0)),
+        "timeout_seconds": int(values["timeout_seconds"]),
+    }
+    return {"retrieval": retrieval, "query": query, "ollama": backend}
+
+
+def _candidate_snapshot(candidate: Candidate) -> Dict[str, Any]:
+    return {
+        "mode": candidate.mode,
+        "candidate": candidate.name,
+        "bundle": candidate.bundle,
+        "flat_values": copy.deepcopy(candidate.values),
+        "sections": _candidate_sections(candidate.mode, candidate.values),
+    }
+
+
+def _bundle_definitions(mode: str, grid_name: str) -> List[Dict[str, Any]]:
+    return copy.deepcopy(QUERY_GENERATION_BUNDLES[grid_name][_normalize_mode(mode)])
+
+
+def _retrieval_grid(mode: str, grid_name: str) -> Dict[str, List[Any]]:
+    return copy.deepcopy(GRID_PRESETS[grid_name][_normalize_mode(mode)])
 
 
 def build_candidates(mode: str, grid_name: str) -> List[Candidate]:
     mode = _normalize_mode(mode)
-    preset = GRID_PRESETS[grid_name][mode]
+    preset = _retrieval_grid(mode, grid_name)
+    bundles = _bundle_definitions(mode, grid_name)
     keys = list(preset.keys())
     out: List[Candidate] = []
     for combo in itertools.product(*(preset[key] for key in keys)):
-        values = copy.deepcopy(FIXED_KNOBS[mode])
+        base_values = copy.deepcopy(FIXED_KNOBS[mode])
         for key, value in zip(keys, combo):
-            values[key] = value
-        out.append(Candidate(mode=mode, name=_candidate_name(mode, values), values=values))
+            base_values[key] = value
+        for bundle in bundles:
+            values = copy.deepcopy(base_values)
+            values.update(copy.deepcopy(bundle["values"]))
+            out.append(
+                Candidate(
+                    mode=mode,
+                    name=_candidate_name(mode, values, bundle["name"]),
+                    bundle=str(bundle["name"]),
+                    values=values,
+                )
+            )
     return out
 
 
@@ -208,26 +417,14 @@ def _build_candidate_config(
     data = copy.deepcopy(base_config)
     data["mode"] = mode
 
-    retrieval = data.setdefault("retrieval", {})
-    retrieval["top_k"] = int(candidate_values["top_k"])
-    retrieval["min_score"] = float(candidate_values["min_score"])
-    retrieval["hybrid_search"] = bool(candidate_values["hybrid_search"])
-    retrieval["reranker_enabled"] = bool(candidate_values["reranker_enabled"])
-    retrieval["reranker_top_n"] = int(candidate_values["reranker_top_n"])
-
-    if mode == "online":
-        api = data.setdefault("api", {})
-        api["context_window"] = int(candidate_values["context_window"])
-        api["max_tokens"] = int(candidate_values["max_tokens"])
-        api["temperature"] = float(candidate_values["temperature"])
-        api["timeout_seconds"] = int(candidate_values["timeout_seconds"])
-    else:
-        ollama = data.setdefault("ollama", {})
-        ollama["context_window"] = int(candidate_values["context_window"])
-        ollama["num_predict"] = int(candidate_values["num_predict"])
-        ollama["temperature"] = float(candidate_values["temperature"])
-        ollama["timeout_seconds"] = int(candidate_values["timeout_seconds"])
-
+    sections = _candidate_sections(mode, candidate_values)
+    for key, value in sections["retrieval"].items():
+        data = set_canonical_config_value(data, f"retrieval.{key}", value)
+    for key, value in sections["query"].items():
+        data = set_canonical_config_value(data, f"query.{key}", value)
+    backend_section = "api" if mode == "online" else "ollama"
+    for key, value in sections[backend_section].items():
+        data = set_canonical_config_value(data, f"{backend_section}.{key}", value)
     return data
 
 
@@ -286,6 +483,7 @@ def _candidate_row_from_summary(
         "mode": mode,
         "stage": stage,
         "candidate": candidate.name,
+        "bundle": candidate.bundle,
         "status": status,
         "error": error,
         "count": int(overall.get("count", 0) or 0),
@@ -301,6 +499,7 @@ def _candidate_row_from_summary(
             gates.get("injection_resistance_proxy", 0.0) or 0.0
         ),
         "summary_path": str(candidate_dir / "scored" / "summary.json"),
+        "settings_path": str(candidate_dir / "effective_settings.json"),
         "candidate_dir": str(candidate_dir),
         "temp_config": temp_config_rel,
         "values": copy.deepcopy(candidate.values),
@@ -310,45 +509,6 @@ def _candidate_row_from_summary(
     return row
 
 
-def _sort_key(row: Dict[str, Any]) -> tuple:
-    failed = 1 if row.get("status") != "ok" else 0
-    gate_failed = 1 if row.get("gate_failed") else 0
-    return (
-        failed,
-        gate_failed,
-        -float(row.get("pass_rate", 0.0) or 0.0),
-        -float(row.get("avg_overall", 0.0) or 0.0),
-        int(row.get("p95_latency_ms", 0) or 0),
-        float(row.get("avg_cost_usd", 0.0) or 0.0),
-        str(row.get("candidate", "")),
-    )
-
-
-def rank_rows(
-    rows: Iterable[Dict[str, Any]],
-    *,
-    min_unanswerable_proxy: float,
-    min_injection_proxy: float,
-) -> List[Dict[str, Any]]:
-    ranked = []
-    for row in rows:
-        clone = dict(row)
-        clone["gate_failed"] = (
-            clone.get("status") == "ok"
-            and (
-                float(clone.get("unanswerable_accuracy_proxy", 0.0) or 0.0)
-                < float(min_unanswerable_proxy)
-                or float(clone.get("injection_resistance_proxy", 0.0) or 0.0)
-                < float(min_injection_proxy)
-            )
-        )
-        ranked.append(clone)
-    ranked.sort(key=_sort_key)
-    for idx, row in enumerate(ranked, start=1):
-        row["rank"] = idx
-    return ranked
-
-
 def _read_summary_json(path: Path) -> Dict[str, Any]:
     if not path.exists():
         return {}
@@ -356,36 +516,13 @@ def _read_summary_json(path: Path) -> Dict[str, Any]:
         return json.load(f)
 
 
-def _leaderboard_fieldnames() -> List[str]:
-    return [
-        "mode",
-        "stage",
-        "rank",
-        "candidate",
-        "status",
-        "gate_failed",
-        "count",
-        "pass_rate",
-        "avg_overall",
-        "p50_latency_ms",
-        "p95_latency_ms",
-        "avg_cost_usd",
-        "unanswerable_accuracy_proxy",
-        "injection_resistance_proxy",
-        "temp_config",
-        "summary_path",
-        "candidate_dir",
-        "error",
-    ]
-
-
-def _write_leaderboard_csv(path: Path, rows: Iterable[Dict[str, Any]]) -> None:
-    fieldnames = _leaderboard_fieldnames()
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({key: row.get(key, "") for key in fieldnames})
+def _candidate_from_ranked_row(mode: str, row: Dict[str, Any]) -> Candidate:
+    return Candidate(
+        mode=mode,
+        name=str(row["candidate"]),
+        bundle=str(row.get("bundle", "") or ""),
+        values=copy.deepcopy(row["values"]),
+    )
 
 
 def _dataset_count(dataset_path: Path) -> int:
@@ -438,12 +575,20 @@ def _offline_ready(config_path: Path) -> tuple[bool, str]:
     return True, ""
 
 
-def _online_ready(config_path: Path) -> tuple[bool, str]:
+def _online_ready(
+    config_path: Path,
+    *,
+    config_dict: Dict[str, Any] | None = None,
+) -> tuple[bool, str]:
     db_ready, db_reason = _database_ready(config_path)
     if not db_ready:
         return False, db_reason
+    resolved_config = _credential_runtime_config_dict(
+        config_path,
+        config_dict=config_dict,
+    )
     try:
-        creds = resolve_credentials(use_cache=False)
+        creds = resolve_credentials(config_dict=resolved_config, use_cache=False)
     except Exception as exc:
         return False, f"credential resolution failed: {exc}"
     if creds.is_online_ready:
@@ -474,6 +619,31 @@ def _apply_candidate_to_mode_store(
     return applied
 
 
+def _winner_from_mode_rows(
+    *,
+    mode: str,
+    rows: List[Dict[str, Any]],
+    workflow: str,
+) -> Dict[str, Any]:
+    winner_set = build_winner_set(rows)
+    mode_entry = winner_set.get("modes", {}).get(mode, {})
+    ranked = mode_entry.get("ranked", [])
+    if not ranked:
+        return {
+            "mode": mode,
+            "status": "failed",
+            "reason": "no ranked candidates",
+            "apply_eligible": False,
+        }
+    winner = copy.deepcopy(ranked[0])
+    winner["mode"] = mode
+    winner["candidate_count"] = int(mode_entry.get("candidate_count", len(ranked)) or 0)
+    winner["apply_eligible"] = bool(workflow == "full" and winner.get("stage") == "full")
+    if workflow == "full" and winner.get("stage") != "full":
+        winner["reason"] = "preferred screen fallback; no successful full-stage winner"
+    return winner
+
+
 def _apply_winners(
     *,
     winners: Dict[str, Dict[str, Any]],
@@ -495,6 +665,12 @@ def _apply_winners(
     for mode, winner in winners.items():
         if winner.get("status") != "ok":
             applied["skipped_modes"][mode] = winner.get("reason", "winner not available")
+            continue
+        if not bool(winner.get("apply_eligible", True)):
+            applied["skipped_modes"][mode] = winner.get(
+                "reason",
+                "winner is not eligible to apply",
+            )
             continue
         applied["modes"][mode] = {
             "candidate": winner["candidate"],
@@ -520,7 +696,7 @@ def _write_next_steps(path: Path, args: argparse.Namespace, winners: Dict[str, A
         f"Screen limit: {args.screen_limit}",
         "",
         "Recommended next steps:",
-        "1. Open leaderboard.csv and winners.json in this run folder.",
+        "1. Open leaderboard.csv, winner_set.json, bundle_summary.csv, winners.json, and the per-candidate effective_settings.json files in this run folder.",
     ]
     if args.workflow == "screen":
         lines.extend(
@@ -544,6 +720,17 @@ def _write_next_steps(path: Path, args: argparse.Namespace, winners: Dict[str, A
             [
                 "",
                 "Warning: at least one mode had no successful winner. Check the candidate logs first.",
+            ]
+        )
+    if args.workflow == "full" and any(
+        winner.get("status") == "ok" and winner.get("stage") != "full"
+        for winner in winners.values()
+    ):
+        lines.extend(
+            [
+                "",
+                "Note: at least one mode fell back to a screen-stage winner.",
+                "Those fallbacks are reviewable in winner_set.json but are not auto-applied by --apply-winner.",
             ]
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -576,6 +763,7 @@ def run_stage(
         candidate_config = _build_candidate_config(base_config, mode, candidate.values)
         _write_yaml(temp_config_path, candidate_config)
         _write_json(candidate_dir / "candidate_config.json", candidate.values)
+        _write_json(candidate_dir / "effective_settings.json", _candidate_snapshot(candidate))
 
         _print(
             f"[{mode} {stage}] {index}/{len(candidates)} {candidate.name} "
@@ -666,8 +854,11 @@ def run_stage(
         min_unanswerable_proxy=min_unanswerable_proxy,
         min_injection_proxy=min_injection_proxy,
     )
+    bundle_summary = build_bundle_summary_rows(ranked)
     _write_json(stage_dir / "leaderboard.json", ranked)
-    _write_leaderboard_csv(stage_dir / "leaderboard.csv", ranked)
+    write_leaderboard_csv(stage_dir / "leaderboard.csv", ranked)
+    _write_json(stage_dir / "bundle_summary.json", bundle_summary)
+    write_bundle_summary_csv(stage_dir / "bundle_summary.csv", bundle_summary)
     return ranked
 
 
@@ -769,8 +960,7 @@ def main() -> int:
     config_tmp_root.mkdir(parents=True, exist_ok=True)
     config_arg_prefix = Path("config") / ".tmp_autotune" / run_dir.name
 
-    with open(config_path, "r", encoding="utf-8") as f:
-        base_config = yaml.safe_load(f) or {}
+    base_config = _load_config_dict(config_path)
 
     dataset_total = _dataset_count(dataset_path)
     selected_modes = _selected_modes(args.mode)
@@ -780,12 +970,16 @@ def main() -> int:
         if mode == "offline":
             ready, reason = _offline_ready(config_path)
         else:
-            ready, reason = _online_ready(config_path)
+            ready, reason = _online_ready(config_path, config_dict=base_config)
         if ready:
             filtered_modes.append(mode)
         else:
             skipped_modes[mode] = reason
     selected_modes = filtered_modes
+    candidate_counts = {
+        mode: len(build_candidates(mode, args.grid))
+        for mode in selected_modes
+    }
 
     manifest = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -801,6 +995,7 @@ def main() -> int:
         "platform": platform.platform(),
         "python": sys.executable,
         "selected_modes": selected_modes,
+        "candidate_counts": candidate_counts,
         "skipped_modes": skipped_modes,
         "apply_winner": bool(args.apply_winner),
         "lock_winner": bool(args.lock_winner),
@@ -849,24 +1044,26 @@ def main() -> int:
                 "mode": mode,
                 "status": "failed",
                 "reason": "no successful screen candidates",
+                "apply_eligible": False,
             }
             _print(f"[WARN] {mode}: no successful screen candidates")
             continue
 
         if args.workflow == "screen":
-            winners[mode] = dict(successful_screen[0])
+            winners[mode] = _winner_from_mode_rows(
+                mode=mode,
+                rows=screen_rows,
+                workflow=args.workflow,
+            )
             _print(
-                f"[WINNER] {mode} screen -> {successful_screen[0]['candidate']} "
-                f"(pass={successful_screen[0]['pass_rate']:.3f}, "
-                f"avg={successful_screen[0]['avg_overall']:.3f})"
+                f"[WINNER] {mode} {winners[mode]['stage']} -> {winners[mode]['candidate']} "
+                f"(pass={winners[mode]['pass_rate']:.3f}, "
+                f"avg={winners[mode]['avg_overall']:.3f})"
             )
             continue
 
         finalists = successful_screen[: args.finalists]
-        finalist_candidates = [
-            Candidate(mode=mode, name=row["candidate"], values=row["values"])
-            for row in finalists
-        ]
+        finalist_candidates = [_candidate_from_ranked_row(mode, row) for row in finalists]
         full_rows = run_stage(
             mode=mode,
             stage="full",
@@ -881,31 +1078,47 @@ def main() -> int:
             min_injection_proxy=args.min_injection_proxy,
         )
         all_rows.extend(full_rows)
-        successful_full = [
-            row for row in full_rows if row["status"] == "ok" and not row["gate_failed"]
-        ]
-        if not successful_full:
-            successful_full = [row for row in full_rows if row["status"] == "ok"]
-        if successful_full:
-            winners[mode] = dict(successful_full[0])
+        if any(row["status"] == "ok" for row in full_rows):
+            winners[mode] = _winner_from_mode_rows(
+                mode=mode,
+                rows=screen_rows + full_rows,
+                workflow=args.workflow,
+            )
+            stage_label = str(winners[mode].get("stage", "") or "unknown")
+            if stage_label != "full":
+                stage_label = f"{stage_label} fallback"
             _print(
-                f"[WINNER] {mode} full -> {successful_full[0]['candidate']} "
-                f"(pass={successful_full[0]['pass_rate']:.3f}, "
-                f"avg={successful_full[0]['avg_overall']:.3f})"
+                f"[WINNER] {mode} {stage_label} -> {winners[mode]['candidate']} "
+                f"(pass={winners[mode]['pass_rate']:.3f}, "
+                f"avg={winners[mode]['avg_overall']:.3f})"
             )
         else:
-            winners[mode] = {
-                "mode": mode,
-                "status": "failed",
-                "reason": "no successful finalists",
-            }
-            _print(f"[WARN] {mode}: no successful finalists")
+            winners[mode] = _winner_from_mode_rows(
+                mode=mode,
+                rows=screen_rows + full_rows,
+                workflow=args.workflow,
+            )
+            if winners[mode].get("status") == "ok":
+                _print(
+                    f"[WINNER] {mode} screen fallback -> {winners[mode]['candidate']} "
+                    f"(pass={winners[mode]['pass_rate']:.3f}, "
+                    f"avg={winners[mode]['avg_overall']:.3f})"
+                )
+            else:
+                winners[mode] = {
+                    "mode": mode,
+                    "status": "failed",
+                    "reason": "no successful finalists",
+                    "apply_eligible": False,
+                }
+                _print(f"[WARN] {mode}: no successful finalists")
 
     for mode, reason in skipped_modes.items():
         winners[mode] = {
             "mode": mode,
             "status": "skipped",
             "reason": reason,
+            "apply_eligible": False,
         }
 
     ranked_all = rank_rows(
@@ -913,8 +1126,14 @@ def main() -> int:
         min_unanswerable_proxy=args.min_unanswerable_proxy,
         min_injection_proxy=args.min_injection_proxy,
     )
-    _write_leaderboard_csv(run_dir / "leaderboard.csv", ranked_all)
+    bundle_summary = build_bundle_summary_rows(ranked_all)
+    winner_set = build_winner_set(ranked_all)
+    write_leaderboard_csv(run_dir / "leaderboard.csv", ranked_all)
     _write_json(run_dir / "leaderboard.json", ranked_all)
+    _write_json(run_dir / "bundle_summary.json", bundle_summary)
+    write_bundle_summary_csv(run_dir / "bundle_summary.csv", bundle_summary)
+    _write_json(run_dir / "winner_set.json", winner_set)
+    write_winner_set_csv(run_dir / "winner_set.csv", winner_set["rows"])
     _write_json(run_dir / "winners.json", winners)
 
     if args.apply_winner:
@@ -931,6 +1150,7 @@ def main() -> int:
     _print("")
     _print(f"Run folder: {run_dir}")
     _print(f"Leaderboard: {run_dir / 'leaderboard.csv'}")
+    _print(f"Winner set: {run_dir / 'winner_set.json'}")
     _print(f"Winners: {run_dir / 'winners.json'}")
     if args.apply_winner:
         _print(f"Applied defaults: {run_dir / 'applied_defaults.json'}")

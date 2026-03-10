@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from src.gui.helpers.mode_switch import _commit_router_and_mode, _finish_switch
+from src.gui.panels.query_panel_query_flow_runtime import _resolve_query_engine
 
 
 def test_finish_switch_refreshes_active_tuning_panel():
@@ -56,3 +57,63 @@ def test_commit_router_and_mode_purges_query_state_and_refreshes_runtime():
     mock_persist.assert_called_once_with(app, "online")
     mock_refresh.assert_called_once_with(app.query_engine, clear_caches=True)
     app.query_panel._purge_mode_state.assert_called_once()
+
+
+def test_commit_router_and_mode_repeated_churn_clears_stale_router_state():
+    config = SimpleNamespace(mode="offline")
+    retriever = SimpleNamespace(config=None)
+    query_engine = SimpleNamespace(
+        config=config,
+        llm_router=SimpleNamespace(last_error="old"),
+        retriever=retriever,
+    )
+    app = SimpleNamespace(
+        config=config,
+        query_engine=query_engine,
+        query_panel=MagicMock(),
+        status_bar=MagicMock(),
+    )
+
+    with patch("src.gui.helpers.mode_tuning.apply_mode_settings_to_config") as mock_apply, \
+         patch("src.gui.helpers.mode_switch.persist_mode") as mock_persist:
+        for mode in ("online", "offline", "online", "offline"):
+            router = SimpleNamespace(
+                config=config,
+                last_error="stale",
+                ollama=SimpleNamespace(last_error="ollama stale"),
+                api=SimpleNamespace(last_error="api stale"),
+                vllm=SimpleNamespace(last_error="vllm stale"),
+            )
+            _commit_router_and_mode(app, router, mode)
+
+            assert app.router is router
+            assert app.query_engine.llm_router is router
+            assert app.query_engine.config is config
+            assert app.status_bar.router is router
+            assert app.config.mode == mode
+            assert retriever.config is config
+            assert router.last_error == ""
+            assert router.ollama.last_error == ""
+            assert router.api.last_error == ""
+            assert router.vllm.last_error == ""
+            assert app.query_panel.query_engine is query_engine
+
+    assert mock_apply.call_count == 4
+    assert mock_persist.call_count == 4
+    assert app.query_panel._purge_mode_state.call_count == 4
+
+
+def test_resolve_query_engine_heals_stale_panel_reference_after_mode_churn():
+    current_engine = SimpleNamespace(name="engine1")
+    app = SimpleNamespace(query_engine=current_engine)
+    panel = SimpleNamespace(query_engine=None, winfo_toplevel=lambda: app)
+
+    assert _resolve_query_engine(panel) is current_engine
+    assert panel.query_engine is current_engine
+
+    next_engine = SimpleNamespace(name="engine2")
+    app.query_engine = next_engine
+    panel.query_engine = None
+
+    assert _resolve_query_engine(panel) is next_engine
+    assert panel.query_engine is next_engine

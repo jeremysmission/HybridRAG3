@@ -28,11 +28,14 @@ Checks:
 
 Usage:
   python tools/test_mode_switch_headless.py
+  python tools/test_mode_switch_headless.py --require-embedder
 """
 from __future__ import annotations
 
+import argparse
 import io
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -50,17 +53,222 @@ os.chdir(str(PROJECT_ROOT))
 results = []
 
 
-def check(name, condition, detail=""):
-    tag = "PASS" if condition else "FAIL"
-    results.append((name, condition, detail))
-    msg = "[{}] {}".format(tag, name)
+def _record_result(name: str, status: str, detail: str = "") -> bool:
+    results.append((name, status, detail))
+    msg = "[{}] {}".format(status, name)
     if detail:
         msg += " -- {}".format(detail)
     print(msg)
-    return condition
+    return status != "FAIL"
+
+
+def check(name, condition, detail=""):
+    return _record_result(name, "PASS" if condition else "FAIL", detail)
+
+
+def skip(name, detail=""):
+    return _record_result(name, "SKIP", detail)
+
+
+def _is_embedder_backend_unavailable(error: Exception) -> bool:
+    detail = str(error or "").lower()
+    return any(
+        marker in detail
+        for marker in (
+            "winerror 10061",
+            "connection refused",
+            "actively refused",
+            "failed to establish a new connection",
+            "max retries exceeded",
+            "could not connect to ollama",
+            "ollama service not available",
+        )
+    )
+
+
+def _probe_embedder_query(
+    name: str,
+    *,
+    embedder,
+    prompt: str,
+    require_embedder: bool,
+) -> tuple[str, str]:
+    try:
+        vec = embedder.embed_query(prompt)
+        check(
+            name,
+            vec is not None and len(vec) > 0,
+            "dim={}".format(len(vec) if vec is not None else 0),
+        )
+        return "ok", ""
+    except Exception as e:
+        detail = str(e)
+        if not require_embedder and _is_embedder_backend_unavailable(e):
+            skip(name, detail)
+            return "skip", detail
+        check(name, False, detail)
+        return "fail", detail
+
+
+def _clear_child_router_errors(router) -> None:
+    if router is None:
+        return
+    if hasattr(router, "last_error"):
+        router.last_error = "stale"
+    for attr in ("ollama", "api", "vllm"):
+        child = getattr(router, attr, None)
+        if child is not None and hasattr(child, "last_error"):
+            child.last_error = "stale"
+
+
+def _check_runtime_integrity(
+    label: str,
+    *,
+    config,
+    bundle,
+    qe,
+    expected_mode: str,
+    embedder_id_before: int,
+    retriever_id_before: int,
+    store_id_before: int,
+    embedder_probe_state: str,
+    embedder_probe_detail: str,
+    require_embedder: bool,
+) -> None:
+    from src.core.network_gate import get_gate
+
+    gate = get_gate()
+    router = getattr(qe, "llm_router", None)
+
+    check(f"{label}/config.mode", getattr(config, "mode", "") == expected_mode)
+    check(f"{label}/gate mode", gate.mode_name == expected_mode, gate.mode_name)
+    check(f"{label}/bundle router linked", getattr(bundle, "router", None) is router)
+    check(f"{label}/router exists", router is not None)
+    check(f"{label}/router config linked", getattr(router, "config", None) is config)
+    check(f"{label}/query_engine config linked", getattr(qe, "config", None) is config)
+    check(
+        f"{label}/retriever config linked",
+        getattr(getattr(qe, "retriever", None), "config", None) is config,
+    )
+
+    if router is not None and hasattr(router, "last_error"):
+        check(f"{label}/router last_error cleared", router.last_error == "", router.last_error)
+        for attr in ("ollama", "api", "vllm"):
+            child = getattr(router, attr, None)
+            if child is not None and hasattr(child, "last_error"):
+                check(
+                    f"{label}/{attr} last_error cleared",
+                    child.last_error == "",
+                    child.last_error,
+                )
+
+    check(
+        f"{label}/embedder survived",
+        qe.retriever.embedder is not None and id(qe.retriever.embedder) == embedder_id_before,
+        "same_object={}".format(id(qe.retriever.embedder) == embedder_id_before),
+    )
+    check(
+        f"{label}/retriever survived",
+        qe.retriever is not None and id(qe.retriever) == retriever_id_before,
+    )
+    check(
+        f"{label}/store survived",
+        bundle.store is not None and id(bundle.store) == store_id_before,
+    )
+
+    try:
+        stats = bundle.store.get_stats()
+        check(
+            f"{label}/VectorStore.get_stats()",
+            True,
+            "chunks={}".format(stats.get("chunk_count", "?")),
+        )
+    except Exception as e:
+        check(f"{label}/VectorStore.get_stats()", False, str(e))
+
+    probe_name = f"{label}/embed_query works"
+    if embedder_probe_state == "skip":
+        skip(probe_name, "initial embedder probe unavailable: {}".format(embedder_probe_detail))
+    elif embedder_probe_state == "fail":
+        skip(probe_name, "initial embedder probe already failed: {}".format(embedder_probe_detail))
+    else:
+        _probe_embedder_query(
+            probe_name,
+            embedder=qe.retriever.embedder,
+            prompt=f"{label} mode churn probe",
+            require_embedder=require_embedder,
+        )
+
+
+def _switch_mode(bundle, qe, config, creds, new_mode: str, cycle: int):
+    from src.core.llm_router import LLMRouter, invalidate_deployment_cache
+    from src.core.query_engine import refresh_query_engine_runtime
+    from src.core.network_gate import configure_gate
+    from src.gui.helpers.mode_tuning import apply_mode_settings_to_config
+    import src.core.llm_router as llm_router_mod
+
+    current_router = getattr(qe, "llm_router", None)
+    _clear_child_router_errors(current_router)
+    llm_router_mod._deployment_cache = ["stale-model-{}".format(cycle)]
+    invalidate_deployment_cache()
+    check(
+        "Cycle {} cache cleared before {}".format(cycle, new_mode.upper()),
+        llm_router_mod._deployment_cache is None,
+    )
+
+    if new_mode == "online":
+        configure_gate(
+            mode="online",
+            api_endpoint=getattr(creds, "endpoint", "") or "",
+            allowed_prefixes=getattr(
+                getattr(config, "api", None),
+                "allowed_endpoint_prefixes",
+                [],
+            ) if config else [],
+        )
+    else:
+        configure_gate(mode="offline")
+
+    config.mode = new_mode
+    new_router = LLMRouter(config, credentials=creds)
+    qe.config = config
+    qe.llm_router = new_router
+    bundle.router = new_router
+    apply_mode_settings_to_config(config, new_mode)
+    refresh_query_engine_runtime(qe, clear_caches=True)
+    return new_router
+
+
+def _parse_args():
+    ap = argparse.ArgumentParser(description="Headless offline/online churn integrity test.")
+    ap.add_argument(
+        "--cycles",
+        type=int,
+        default=3,
+        help="Number of offline->online->offline churn cycles to run.",
+    )
+    ap.add_argument(
+        "--require-embedder",
+        action="store_true",
+        help="Fail instead of skipping embed_query checks when the local embedder backend is unavailable.",
+    )
+    return ap.parse_args()
+
+
+def _prepare_temp_mode_store_root() -> Path:
+    temp_root = PROJECT_ROOT / "output" / "mode_switch_headless_root"
+    if temp_root.exists():
+        shutil.rmtree(temp_root, ignore_errors=True)
+    (temp_root / "config").mkdir(parents=True, exist_ok=True)
+    for name in ("config.yaml", "user_modes.yaml"):
+        src = PROJECT_ROOT / "config" / name
+        if src.exists():
+            shutil.copy2(src, temp_root / "config" / name)
+    return temp_root
 
 
 def main():
+    args = _parse_args()
     print()
     print("=" * 65)
     print("  MODE-SWITCH EDGE CASE TEST (headless, no GUI)")
@@ -141,165 +349,138 @@ def main():
         check("Initial/VectorStore.get_stats()", False, str(e))
 
     # Verify embedder is functional
-    try:
-        vec = qe.retriever.embedder.embed_query("test")
-        check("Initial/embed_query('test')", vec is not None and len(vec) > 0,
-              "dim={}".format(len(vec) if vec is not None else 0))
-    except Exception as e:
-        check("Initial/embed_query('test')", False, str(e))
+    embedder_probe_state, embedder_probe_detail = _probe_embedder_query(
+        "Initial/embed_query('test')",
+        embedder=qe.retriever.embedder,
+        prompt="test",
+        require_embedder=args.require_embedder,
+    )
+
+    temp_mode_root = _prepare_temp_mode_store_root()
+    prior_project_root = os.environ.get("HYBRIDRAG_PROJECT_ROOT")
+    os.environ["HYBRIDRAG_PROJECT_ROOT"] = str(temp_mode_root)
+    check("ModeChurn/temp config root ready", (temp_mode_root / "config" / "config.yaml").exists())
 
     # ==================================================================
-    # PHASE 3: Switch to ONLINE mode
+    # PHASE 3+: Repeated OFFLINE <-> ONLINE churn
     # ==================================================================
-    print()
-    print("--- PHASE 3: Switch OFFLINE -> ONLINE ---")
-    t_switch1 = time.perf_counter()
+    from src.security.credentials import resolve_credentials
 
-    try:
-        from src.security.credentials import resolve_credentials
-        from src.core.network_gate import configure_gate
-        from src.core.llm_router import LLMRouter, invalidate_deployment_cache
+    creds = resolve_credentials(use_cache=True)
+    check(
+        "ModeChurn/resolve_credentials",
+        True,
+        "has_key={} has_endpoint={}".format(creds.has_key, creds.has_endpoint),
+    )
 
-        creds = resolve_credentials(use_cache=True)
-        check("Online/resolve_credentials", True,
-              "has_key={} has_endpoint={}".format(creds.has_key, creds.has_endpoint))
-
-        config.mode = "online"
-        check("Online/config.mode set", config.mode == "online")
-
-        configure_gate(
-            mode="online",
-            api_endpoint=creds.endpoint or "",
-            allowed_prefixes=getattr(
-                getattr(config, "api", None),
-                "allowed_endpoint_prefixes", [],
-            ) if config else [],
+    for cycle in range(1, max(1, int(args.cycles)) + 1):
+        print()
+        print("--- PHASE 3.{}: Cycle {} OFFLINE -> ONLINE ---".format(cycle, cycle))
+        t_online = time.perf_counter()
+        try:
+            online_router = _switch_mode(bundle, qe, config, creds, "online", cycle)
+            check("Cycle {}/online router swapped".format(cycle), qe.llm_router is online_router)
+        except Exception as e:
+            check("Cycle {}/online switch".format(cycle), False, str(e))
+            import traceback
+            traceback.print_exc()
+        print("  (online switch took {:.0f}ms)".format((time.perf_counter() - t_online) * 1000))
+        _check_runtime_integrity(
+            "Cycle {}/online".format(cycle),
+            config=config,
+            bundle=bundle,
+            qe=qe,
+            expected_mode="online",
+            embedder_id_before=embedder_id_before,
+            retriever_id_before=retriever_id_before,
+            store_id_before=store_id_before,
+            embedder_probe_state=embedder_probe_state,
+            embedder_probe_detail=embedder_probe_detail,
+            require_embedder=args.require_embedder,
         )
-        check("Online/configure_gate", True)
 
-        invalidate_deployment_cache()
-        online_router = LLMRouter(config, credentials=creds)
-        check("Online/LLMRouter created", online_router is not None)
-
-        # Swap the router in the query engine (same as mode_switch.py does)
-        qe.llm_router = online_router
-        bundle.router = online_router
-        check("Online/router swapped", qe.llm_router is online_router)
-
-    except Exception as e:
-        check("Online/switch", False, str(e))
-        import traceback
-        traceback.print_exc()
-
-    switch1_ms = (time.perf_counter() - t_switch1) * 1000
-    print("  (online switch took {:.0f}ms)".format(switch1_ms))
-
-    # Verify embedder and store survived the online switch
-    check("Online/embedder survived",
-          qe.retriever.embedder is not None and id(qe.retriever.embedder) == embedder_id_before,
-          "same_object={}".format(id(qe.retriever.embedder) == embedder_id_before))
-    check("Online/retriever survived",
-          qe.retriever is not None and id(qe.retriever) == retriever_id_before)
-    check("Online/store survived",
-          bundle.store is not None and id(bundle.store) == store_id_before)
+        print()
+        print("--- PHASE 4.{}: Cycle {} ONLINE -> OFFLINE ---".format(cycle, cycle))
+        t_offline = time.perf_counter()
+        try:
+            offline_router = _switch_mode(bundle, qe, config, creds, "offline", cycle)
+            check("Cycle {}/offline router swapped".format(cycle), qe.llm_router is offline_router)
+        except Exception as e:
+            check("Cycle {}/offline switch".format(cycle), False, str(e))
+            import traceback
+            traceback.print_exc()
+        print("  (offline switch took {:.0f}ms)".format((time.perf_counter() - t_offline) * 1000))
+        _check_runtime_integrity(
+            "Cycle {}/offline".format(cycle),
+            config=config,
+            bundle=bundle,
+            qe=qe,
+            expected_mode="offline",
+            embedder_id_before=embedder_id_before,
+            retriever_id_before=retriever_id_before,
+            store_id_before=store_id_before,
+            embedder_probe_state=embedder_probe_state,
+            embedder_probe_detail=embedder_probe_detail,
+            require_embedder=args.require_embedder,
+        )
 
     # ==================================================================
-    # PHASE 4: Switch back to OFFLINE mode
+    # FINAL: Post-churn integrity snapshot
     # ==================================================================
     print()
-    print("--- PHASE 4: Switch ONLINE -> OFFLINE ---")
-    t_switch2 = time.perf_counter()
-
-    try:
-        config.mode = "offline"
-        check("Offline/config.mode set", config.mode == "offline")
-
-        configure_gate(mode="offline")
-        check("Offline/configure_gate", True)
-
-        invalidate_deployment_cache()
-        offline_router = LLMRouter(config, credentials=creds)
-        check("Offline/LLMRouter created", offline_router is not None)
-
-        qe.llm_router = offline_router
-        bundle.router = offline_router
-        check("Offline/router swapped", qe.llm_router is offline_router)
-
-    except Exception as e:
-        check("Offline/switch", False, str(e))
-        import traceback
-        traceback.print_exc()
-
-    switch2_ms = (time.perf_counter() - t_switch2) * 1000
-    print("  (offline switch took {:.0f}ms)".format(switch2_ms))
-
-    # ==================================================================
-    # PHASE 5: Post-round-trip integrity checks
-    # ==================================================================
-    print()
-    print("--- PHASE 5: Post-Round-Trip Integrity ---")
-
-    # Core objects not None
+    print("--- FINAL: Post-Churn Integrity ---")
     check("Final/query_engine is not None", qe is not None)
-    check("Final/llm_router is not None",
-          qe is not None and qe.llm_router is not None)
-    check("Final/retriever is not None",
-          qe is not None and qe.retriever is not None)
-    check("Final/retriever.embedder is not None",
-          qe is not None and qe.retriever is not None and qe.retriever.embedder is not None)
-
-    # VectorStore connection still open
-    try:
-        stats_after = bundle.store.get_stats()
-        check("Final/VectorStore.get_stats() works", True,
-              "chunks={}".format(stats_after.get("chunk_count", "?")))
-    except Exception as e:
-        check("Final/VectorStore.get_stats() works", False, str(e))
-
-    # Embedder can still embed
-    try:
-        vec_after = qe.retriever.embedder.embed_query("mode switch test")
-        check("Final/embed_query works", vec_after is not None and len(vec_after) > 0,
-              "dim={}".format(len(vec_after) if vec_after is not None else 0))
-    except Exception as e:
-        check("Final/embed_query works", False, str(e))
-
-    # Object identity preserved
-    embedder_id_after = id(qe.retriever.embedder)
-    retriever_id_after = id(qe.retriever)
-    store_id_after = id(bundle.store)
-
-    check("Final/embedder SAME object",
-          embedder_id_after == embedder_id_before,
-          "before={} after={}".format(embedder_id_before, embedder_id_after))
-    check("Final/retriever SAME object",
-          retriever_id_after == retriever_id_before,
-          "before={} after={}".format(retriever_id_before, retriever_id_after))
-    check("Final/store SAME object",
-          store_id_after == store_id_before,
-          "before={} after={}".format(store_id_before, store_id_after))
-
-    # Mode should be offline after round-trip
-    check("Final/config.mode == 'offline'", config.mode == "offline")
+    check("Final/llm_router is not None", qe is not None and qe.llm_router is not None)
+    check("Final/retriever is not None", qe is not None and qe.retriever is not None)
+    check(
+        "Final/retriever.embedder is not None",
+        qe is not None and qe.retriever is not None and qe.retriever.embedder is not None,
+    )
+    _check_runtime_integrity(
+        "Final",
+        config=config,
+        bundle=bundle,
+        qe=qe,
+        expected_mode="offline",
+        embedder_id_before=embedder_id_before,
+        retriever_id_before=retriever_id_before,
+        store_id_before=store_id_before,
+        embedder_probe_state=embedder_probe_state,
+        embedder_probe_detail=embedder_probe_detail,
+        require_embedder=args.require_embedder,
+    )
 
     # ==================================================================
     # SUMMARY
     # ==================================================================
     print()
     print("=" * 65)
-    passed = sum(1 for _, ok, _ in results if ok)
-    failed = sum(1 for _, ok, _ in results if not ok)
-    print("  SUMMARY: {} passed, {} failed, {} total".format(
-        passed, failed, len(results)))
+    passed = sum(1 for _, status, _ in results if status == "PASS")
+    failed = sum(1 for _, status, _ in results if status == "FAIL")
+    skipped = sum(1 for _, status, _ in results if status == "SKIP")
+    print("  SUMMARY: {} passed, {} failed, {} skipped, {} total".format(
+        passed, failed, skipped, len(results)))
     print("=" * 65)
 
     if failed:
         print()
         print("  FAILURES:")
-        for name, ok, detail in results:
-            if not ok:
+        for name, status, detail in results:
+            if status == "FAIL":
                 print("    [FAIL] {} -- {}".format(name, detail))
         print()
+    elif skipped:
+        print()
+        print("  SKIPPED:")
+        for name, status, detail in results:
+            if status == "SKIP":
+                print("    [SKIP] {} -- {}".format(name, detail))
+        print()
+
+    if prior_project_root is None:
+        os.environ.pop("HYBRIDRAG_PROJECT_ROOT", None)
+    else:
+        os.environ["HYBRIDRAG_PROJECT_ROOT"] = prior_project_root
 
     return 0 if failed == 0 else 1
 

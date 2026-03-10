@@ -17,13 +17,14 @@ def canonicalize_model_name(name: str) -> str:
     n = str(name or "").strip()
     if not n:
         return n
-    if n in ("phi4-mini", "phi4-mini:latest", "phi4-mini:3.8b"):
+    lowered = n.lower()
+    if lowered == "phi4-mini" or lowered.startswith("phi4-mini:"):
         return "phi4-mini"
     # Keep the full approved 14B tag as the canonical identity so
     # config/UI/manifest checks use one consistent string.
-    if n in ("phi4", "phi4:latest", "phi4:14b"):
+    if lowered in ("phi4", "phi4:latest", "phi4:14b"):
         return "phi4:14b-q4_K_M"
-    if n.startswith("phi4:14b"):
+    if lowered.startswith("phi4:14b"):
         return "phi4:14b-q4_K_M"
     return n
 
