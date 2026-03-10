@@ -15,11 +15,15 @@
 # HOW:  Three-phase launch:
 #       Phase 1 - Eager preload: starts connecting to Ollama embedding
 #                 API at module import time (before boot/config/GUI).
-#       Phase 2 - Boot + config + optional setup wizard (2-3s).
+#       Phase 2 - Boot + config.
 #       Phase 3 - Open GUI window, load remaining backends in a thread.
 #       The preload runs in parallel with Phase 2.
 # USAGE: python src/gui/launch_gui.py
 #        or: .\tools\launch_gui.ps1 (PowerShell wrapper)
+#
+# STARTUP POLICY: The main HybridRAG window must always boot first. The
+# first-run setup wizard is available as a helper, but it is never allowed
+# to block or terminate core GUI startup.
 #
 # PERFORMANCE: Three tricks to minimize perceived wait:
 #   1. Eager preload -- start connecting to Ollama embedder at t=0,
@@ -515,6 +519,112 @@ def _step(msg):
     print("[STARTUP {}] {}".format(ts, msg), flush=True)
 
 
+def _sync_path_widgets_from_config(app, config):
+    """Push path values from a freshly loaded config into visible path widgets."""
+    paths = getattr(config, "paths", None)
+    source = getattr(paths, "source_folder", "") if paths is not None else ""
+    database = getattr(paths, "database", "") if paths is not None else ""
+    index_dir = os.path.dirname(database) if database else "(not set)"
+
+    index_panel = getattr(app, "index_panel", None)
+    if index_panel is not None:
+        try:
+            index_panel.config = config
+            index_panel.folder_var.set(source or "")
+            index_panel.index_var.set(index_dir)
+        except Exception:
+            pass
+
+    admin_panel = getattr(app, "_admin_panel", None)
+    paths_panel = getattr(admin_panel, "_paths_panel", None) if admin_panel is not None else None
+    if paths_panel is not None:
+        try:
+            paths_panel.source_var.set(source or "")
+            paths_panel.index_var.set(os.path.dirname(database) if database else "")
+            if hasattr(paths_panel, "_refresh_info"):
+                paths_panel._refresh_info()
+        except Exception:
+            pass
+
+
+def _apply_wizard_config_reload(app, logger):
+    """Reload config after setup wizard completion and propagate it into the app."""
+    try:
+        from src.core.config import load_config
+
+        new_config = load_config(_project_root)
+        app.reload_config(new_config)
+        _sync_path_widgets_from_config(app, new_config)
+        _step("Step 3.5: config reloaded after setup wizard")
+    except Exception as exc:
+        logger.warning("[LAUNCH:WIZARD] Config reload after setup failed: %s", exc)
+        _step("Step 3.5: config reload after wizard FAILED: {}".format(exc))
+
+
+def _start_backend_thread(app, logger):
+    """Start background backend loading once the startup path is ready."""
+    if getattr(app, "_backend_reload_thread", None) is not None:
+        if app._backend_reload_thread.is_alive():
+            logger.info("[LAUNCH] Backend thread already running")
+            return
+
+    _step("Step 4: starting backend thread...")
+    backend_thread = threading.Thread(
+        target=_load_backends, args=(app, logger), daemon=True,
+    )
+    backend_thread.start()
+    app._backend_reload_thread = backend_thread
+    _step("Step 4 done: backend thread running")
+
+
+def _launch_setup_wizard_after_boot(app, logger):
+    """Launch the setup wizard manually after the main window exists.
+
+    The GUI must remain alive even if the wizard is cancelled or crashes.
+    Startup never calls this helper automatically.
+    """
+    try:
+        from src.gui.panels.setup_wizard import SetupWizard, needs_setup
+
+        if not needs_setup(_project_root):
+            _step("Step 3.5: setup wizard no longer needed; continuing startup")
+            _start_backend_thread(app, logger)
+            return
+
+        _step("Step 3.5: launching setup wizard after GUI boot...")
+        from src.gui.tk_utils import force_foreground
+
+        wiz = SetupWizard(app, _project_root)
+        force_foreground(wiz, parent=app)
+        wiz.grab_set()
+        app.wait_window(wiz)
+
+        if getattr(wiz, "completed", False):
+            _step("Step 3.5: setup wizard completed")
+            _apply_wizard_config_reload(app, logger)
+        else:
+            logger.info("[LAUNCH:WIZARD] Setup wizard dismissed; app remains open")
+            _step("Step 3.5: setup wizard dismissed; continuing with main app")
+    except Exception as exc:
+        logger.warning("[LAUNCH:WIZARD] Setup wizard failed post-launch: %s", exc)
+        _step("Step 3.5 FAILED: setup wizard crashed after boot: {}".format(exc))
+        try:
+            from tkinter import messagebox
+
+            messagebox.showwarning(
+                "Setup Wizard Failed",
+                "HybridRAG booted, but the setup wizard failed to open cleanly.\n\n"
+                "The main app will stay open. Configure Source and Index paths "
+                "from Settings > Admin if needed.\n\n"
+                "Error: {}".format(str(exc)[:200]),
+                parent=app,
+            )
+        except Exception:
+            pass
+    finally:
+        _start_backend_thread(app, logger)
+
+
 def _sanitize_tk_env():
     """Auto-heal common Tk startup failures caused by bad environment vars.
 
@@ -602,49 +712,11 @@ def main():
         from src.core.config import Config
         config = Config()
 
-    # -- Step 2.5: First-run setup wizard --
+    # -- Step 2.5: First-run setup status (informational only) --
     _step("Step 2.5: checking needs_setup()...")
     from src.gui.panels.setup_wizard import needs_setup
     wizard_needed = needs_setup(_project_root)
     _step("Step 2.5: needs_setup = {}".format(wizard_needed))
-    if wizard_needed:
-        _step("Step 2.5: launching setup wizard...")
-        import tkinter as _tk
-        from src.gui.theme import apply_ttk_styles, current_theme
-        _tmp_root = _tk.Tk()
-        # DO NOT withdraw() -- a withdrawn parent makes transient
-        # Toplevels invisible on corporate Windows builds.
-        # Instead: make the host window tiny + transparent.
-        _tmp_root.title("HybridRAG (Setup Host)")
-        _tmp_root.geometry("1x1+0+0")
-        try:
-            _tmp_root.attributes("-alpha", 0.0)
-        except Exception:
-            pass
-        _tmp_root.deiconify()
-        _tmp_root.update_idletasks()
-        apply_ttk_styles(current_theme())
-
-        from src.gui.panels.setup_wizard import SetupWizard
-        from src.gui.tk_utils import force_foreground
-        wiz = SetupWizard(_tmp_root, _project_root)
-        force_foreground(wiz, parent=_tmp_root)
-        wiz.grab_set()
-        _step("Step 2.5: wizard open -- WAITING FOR USER TO CLOSE IT")
-        _tmp_root.wait_window(wiz)
-        _tmp_root.destroy()
-
-        if not wiz.completed:
-            _step("Step 2.5: wizard cancelled -- exiting")
-            sys.exit(0)
-
-        # Reload config with wizard-written values
-        _step("Step 2.5: reloading config after wizard...")
-        try:
-            config = load_config(_project_root)
-            _step("Step 2.5: config reloaded (mode={})".format(config.mode))
-        except Exception as e:
-            _step("Step 2.5: config reload FAILED: {}".format(e))
 
     # -- Step 3: Open GUI immediately --
     _step("Step 3: creating HybridRAGApp...")
@@ -656,13 +728,14 @@ def main():
     )
     _step("Step 3 done: GUI window created")
 
-    # -- Step 4: Load backends in background thread --
-    _step("Step 4: starting backend thread...")
-    backend_thread = threading.Thread(
-        target=_load_backends, args=(app, logger), daemon=True,
-    )
-    backend_thread.start()
-    _step("Step 4 done: backend thread running")
+    # -- Step 3.5/4: Always boot the GUI; never auto-launch the wizard --
+    if wizard_needed:
+        logger.warning(
+            "[LAUNCH:WIZARD] Setup appears incomplete, but automatic wizard "
+            "launch is disabled during startup so the main GUI can boot."
+        )
+        _step("Step 3.5: setup needed but startup wizard is skipped")
+    _start_backend_thread(app, logger)
 
     # -- Step 5: Run the GUI event loop --
     _step("Step 5: entering mainloop() -- GUI should be visible now")
