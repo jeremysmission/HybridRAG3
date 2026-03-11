@@ -219,8 +219,8 @@ class TransferConfig:
     follow_symlinks: bool = False       # Follow symlinks/junctions?
     long_path_warn: int = 250           # Warn on paths near MAX_PATH (260)
 
-    # --- VPN / corporate network resilience ---
-    # These settings handle the reality of SMB paths over VPN/corporate
+    # --- VPN / remote-network resilience ---
+    # These settings handle the reality of SMB paths over VPN/remote
     # networks where connections drop, stall, or throttle unpredictably.
     network_health_interval: float = 60.0    # Seconds between source reachability checks
     stall_timeout: float = 120.0             # Seconds before declaring a copy stalled
