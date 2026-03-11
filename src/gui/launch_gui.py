@@ -296,6 +296,54 @@ def _probe_ollama_runtime(router, config, logger):
     return errors
 
 
+def _partition_backend_startup_issues(issues):
+    """Split modal-worthy init failures from non-blocking startup warnings."""
+    warning_prefixes = (
+        "Ollama embed probe failed",
+        "Ollama generate probe failed",
+        "Ollama model probe failed",
+    )
+    blocking = []
+    warnings = []
+    for issue in issues or []:
+        text = str(issue or "")
+        if text.startswith(warning_prefixes):
+            warnings.append(text)
+        else:
+            blocking.append(text)
+    return blocking, warnings
+
+
+def _present_backend_startup_issues(app, logger, init_issues):
+    """Surface startup issues without blocking boot on non-fatal probes."""
+    blocking_errors, startup_warnings = _partition_backend_startup_issues(init_issues)
+
+    if hasattr(app, "status_bar"):
+        app.status_bar.router = getattr(app, "router", None)
+        first_issue = (blocking_errors or startup_warnings or [None])[0]
+        if first_issue:
+            app.status_bar.set_init_error(first_issue)
+        app.status_bar.force_refresh()
+
+    if startup_warnings:
+        logger.warning(
+            "[LAUNCH:WARN] Non-blocking backend startup warnings: %s",
+            " | ".join(startup_warnings),
+        )
+
+    if blocking_errors:
+        from tkinter import messagebox
+
+        messagebox.showwarning(
+            "Backend Init Errors",
+            "Some components failed to initialize:\n\n"
+            + "\n".join("  - {}".format(e) for e in blocking_errors)
+            + "\n\nThe system may have limited functionality."
+            "\nCheck that Ollama is running and the database"
+            " path exists.",
+        )
+
+
 def _load_backends(app, logger):
     """Load heavy backends in a background thread, then attach to the GUI."""
     config = app.config
@@ -412,24 +460,8 @@ def _load_backends(app, logger):
         if hasattr(app, "index_panel"):
             app.index_panel.indexer = indexer
             app.index_panel.set_ready(indexer is not None)
-        if hasattr(app, "status_bar"):
-            app.status_bar.router = router
-            if init_errors:
-                app.status_bar.set_init_error(init_errors[0])
-            app.status_bar.force_refresh()
         logger.info("[OK] Backends attached to GUI")
-
-        # Show init errors to user so they know what failed
-        if init_errors:
-            from tkinter import messagebox
-            messagebox.showwarning(
-                "Backend Init Errors",
-                "Some components failed to initialize:\n\n"
-                + "\n".join("  - {}".format(e) for e in init_errors)
-                + "\n\nThe system may have limited functionality."
-                "\nCheck that Ollama is running and the database"
-                " path exists.",
-            )
+        _present_backend_startup_issues(app, logger, init_errors)
 
         # -- IBIT: stepped verification display then final badge --
         _run_ibit_sequence(app, config, query_engine, indexer, router, logger)

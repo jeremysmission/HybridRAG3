@@ -56,3 +56,80 @@ def test_main_boots_gui_without_auto_launching_setup_wizard(monkeypatch):
     assert events["backend_started"] == 1
     assert events["wizard_launches"] == 0
     assert events["mainloop_entered"] == 1
+
+
+def test_probe_warnings_do_not_show_startup_popup(monkeypatch):
+    import src.gui.launch_gui as launch_gui
+
+    popup_calls = []
+    status = {}
+
+    class DummyStatusBar:
+        router = None
+
+        def set_init_error(self, error_text):
+            status["init_error"] = error_text
+
+        def force_refresh(self):
+            status["refreshed"] = True
+
+    class DummyApp:
+        def __init__(self):
+            self.router = object()
+            self.status_bar = DummyStatusBar()
+
+    monkeypatch.setattr(
+        "tkinter.messagebox.showwarning",
+        lambda title, message: popup_calls.append((title, message)),
+    )
+
+    app = DummyApp()
+    launch_gui._present_backend_startup_issues(
+        app,
+        SimpleNamespace(warning=lambda *_args, **_kwargs: None),
+        ["Ollama generate probe failed (model 'phi4-mini'): HTTP 500"],
+    )
+
+    assert popup_calls == []
+    assert status["init_error"].startswith("Ollama generate probe failed")
+    assert status["refreshed"] is True
+
+
+def test_blocking_startup_errors_still_show_popup(monkeypatch):
+    import src.gui.launch_gui as launch_gui
+
+    popup_calls = []
+    status = {}
+
+    class DummyStatusBar:
+        router = None
+
+        def set_init_error(self, error_text):
+            status["init_error"] = error_text
+
+        def force_refresh(self):
+            status["refreshed"] = True
+
+    class DummyApp:
+        def __init__(self):
+            self.router = None
+            self.status_bar = DummyStatusBar()
+
+    monkeypatch.setattr(
+        "tkinter.messagebox.showwarning",
+        lambda title, message: popup_calls.append((title, message)),
+    )
+
+    app = DummyApp()
+    launch_gui._present_backend_startup_issues(
+        app,
+        SimpleNamespace(warning=lambda *_args, **_kwargs: None),
+        ["Database: missing path", "Ollama generate probe failed (model 'phi4-mini'): HTTP 500"],
+    )
+
+    assert len(popup_calls) == 1
+    assert popup_calls[0][0] == "Backend Init Errors"
+    assert "Database: missing path" in popup_calls[0][1]
+    assert "Ollama generate probe failed" not in popup_calls[0][1]
+    assert status["init_error"] == "Database: missing path"
+    assert status["refreshed"] is True
