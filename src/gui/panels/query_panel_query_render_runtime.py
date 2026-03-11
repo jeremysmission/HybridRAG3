@@ -12,6 +12,28 @@ from src.gui.theme import current_theme
 logger = logging.getLogger(__name__)
 
 
+def _looks_like_offline_memory_pressure(error_msg):
+    """Return True only for errors that actually resemble offline memory pressure."""
+    low = str(error_msg or "").lower().strip()
+    if not low:
+        return False
+
+    pressure_terms = (
+        "out of memory",
+        "not enough memory",
+        "insufficient memory",
+        "memory pressure",
+        "cuda out of memory",
+        "cuda error",
+        "cublas",
+        "kv cache",
+        "failed to allocate",
+        "allocation failed",
+        "requested more memory",
+    )
+    return any(term in low for term in pressure_terms)
+
+
 def _publish_debug_trace(self, result):
     """Push the latest query trace to the app/admin shell when available."""
     trace = getattr(result, "debug_trace", None)
@@ -276,21 +298,10 @@ def _purge_mode_state(self, reason: str = ""):
     self.set_ready(self.query_engine is not None)
 
 def _maybe_show_memory_tuning_popup(self, error_msg):
-    """Show targeted guidance for common offline 500/timeout memory failures."""
+    """Show targeted guidance only for likely offline memory-pressure failures."""
     try:
         msg = (error_msg or "").strip()
-        low = msg.lower()
-        if not low:
-            return
-
-        hit_500 = ("500" in low) or ("internal server error" in low)
-        hit_timeout = ("timed out" in low) or ("timeout" in low) or ("readtimeout" in low)
-        hit_runner = (
-            ("llama runner" in low)
-            or ("error calling llm" in low)
-            or ("llm call failed" in low)
-        )
-        if not (hit_500 or hit_timeout or hit_runner):
+        if not _looks_like_offline_memory_pressure(msg):
             return
 
         mode = str(getattr(self.config, "mode", "") or "").lower().strip()
