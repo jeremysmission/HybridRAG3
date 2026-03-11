@@ -425,6 +425,32 @@ class TransferManifest:
             rows = self.conn.execute(sql, params).fetchall()
             return [(r[0], float(r[1] or 0.0), int(r[2] or 0)) for r in rows]
 
+    def get_successful_transfer_mtimes(self) -> Dict[str, float]:
+        """
+        Return the latest successful mtime seen for each source path.
+
+        This lets discovery preload a resume skip map once per run instead of
+        issuing a SQLite JOIN for every discovered file.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT sm.source_path, sm.file_mtime "
+                "FROM source_manifest sm "
+                "JOIN ("
+                "  SELECT source_path, MAX(run_id) AS run_id "
+                "  FROM transfer_log "
+                "  WHERE result='success' "
+                "  GROUP BY source_path"
+                ") latest ON "
+                "  latest.source_path = sm.source_path "
+                " AND latest.run_id = sm.run_id "
+                "ORDER BY sm.source_path"
+            ).fetchall()
+            latest: Dict[str, float] = {}
+            for source_path, file_mtime in rows:
+                latest[str(source_path)] = float(file_mtime or 0.0)
+            return latest
+
     def is_already_transferred(
         self, source_path: str, current_mtime: float = 0,
     ) -> bool:
@@ -467,6 +493,15 @@ class TransferManifest:
     def get_verification_report(self, run_id: str) -> str:
         """Zero-gap verification report -- delegates to module-level builder."""
         return _build_verification_report(self.conn, self._lock, run_id)
+
+    def count_source_manifest_rows(self, run_id: str) -> int:
+        """Return the current-run source_manifest row count."""
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT COUNT(*) FROM source_manifest WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+            return int(row[0] or 0) if row else 0
 
     # ------------------------------------------------------------------
     # Internals

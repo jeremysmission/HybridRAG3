@@ -153,6 +153,11 @@ def _resolve_rag_extensions() -> Set[str]:
     return _RAG_EXTENSIONS_FALLBACK.copy()
 
 
+def _resume_lookup_key(path: str) -> str:
+    """Normalize source paths for stable in-memory resume lookups."""
+    return os.path.normcase(os.path.normpath(str(path)))
+
+
 # Default file extensions HybridRAG can parse.
 # Dynamically loaded from parser registry to avoid allowlist drift.
 _RAG_EXTENSIONS: Set[str] = _resolve_rag_extensions()
@@ -593,11 +598,44 @@ class SourceDiscovery:
         # Symlink loop guard: tracks real directory paths already
         # visited so circular junctions don't cause infinite walks.
         self._visited_dirs: Set[str] = set()
+        self._resume_skip_map_ready = False
+        self._resume_skip_mtimes: Dict[str, float] = {}
+        if self.config.resume:
+            try:
+                self._resume_skip_mtimes = {
+                    _resume_lookup_key(source_path): float(file_mtime or 0.0)
+                    for source_path, file_mtime
+                    in self.manifest.get_successful_transfer_mtimes().items()
+                }
+                self._resume_skip_map_ready = True
+            except Exception as e:
+                logger.warning(
+                    "[WARN] Could not preload transfer resume skip map: %s",
+                    e,
+                )
 
     def _log(self, msg: str) -> None:
         """Thread-safe print."""
         with self._log_lock:
             print(f"\n{msg}", flush=True)
+
+    def _was_transferred_unchanged(
+        self, source_path: str, file_mtime: float,
+    ) -> bool:
+        """Check unchanged-transfer status using the preloaded skip map when available."""
+        if not self.config.resume:
+            return False
+        if self._resume_skip_map_ready:
+            stored_mtime = self._resume_skip_mtimes.get(
+                _resume_lookup_key(source_path)
+            )
+            return (
+                stored_mtime is not None
+                and abs(stored_mtime - float(file_mtime or 0.0)) < 2.0
+            )
+        return self.manifest.is_already_transferred(
+            source_path, current_mtime=file_mtime,
+        )
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -711,15 +749,45 @@ class SourceDiscovery:
                 continue
 
             # If a previous run already completed this exact mtime, skip.
-            if cfg.resume and self.manifest.is_already_transferred(
-                source, current_mtime=st.st_mtime,
-            ):
+            if self._was_transferred_unchanged(source, st.st_mtime):
                 continue
 
             try:
                 rel = os.path.relpath(source, source_root)
             except ValueError:
                 rel = os.path.basename(source)
+
+            if cfg.skip_full_discovery:
+                # In seeded-only mode there is no later live discovery pass
+                # to populate the current-run manifest, so seed candidates
+                # must enter source_manifest before any transfer outcome.
+                attrs = getattr(st, "st_file_attributes", 0)
+                self.manifest.record_source_file(
+                    self.run_id,
+                    source,
+                    file_size=file_size,
+                    file_mtime=st.st_mtime,
+                    file_ctime=getattr(st, "st_ctime", 0.0),
+                    extension=ext,
+                    is_hidden=(
+                        bool(attrs & stat.FILE_ATTRIBUTE_HIDDEN)
+                        if hasattr(stat, "FILE_ATTRIBUTE_HIDDEN") else False
+                    ),
+                    is_system=(
+                        bool(attrs & stat.FILE_ATTRIBUTE_SYSTEM)
+                        if hasattr(stat, "FILE_ATTRIBUTE_SYSTEM") else False
+                    ),
+                    is_readonly=(
+                        bool(attrs & stat.FILE_ATTRIBUTE_READONLY)
+                        if hasattr(stat, "FILE_ATTRIBUTE_READONLY") else False
+                    ),
+                    is_symlink=os.path.islink(source),
+                    is_accessible=True,
+                    path_length=len(source),
+                )
+                self.stats.files_manifest += 1
+                self.stats.bytes_source_total += file_size
+
             yield (source, source_root, rel, file_size)
 
     def _match_source_root(self, source_path: str) -> str:
@@ -871,6 +939,61 @@ class SourceDiscovery:
         cfg = self.config
         ext = os.path.splitext(full)[1].lower()
         path_len = len(full)
+        safe_path = full
+
+        # SQLite cannot store surrogate characters, so normalize the path
+        # before any manifest/log write that could touch the database.
+        encoding_issue = False
+        try:
+            full.encode("utf-8")
+        except UnicodeEncodeError:
+            encoding_issue = True
+            safe_path = full.encode(
+                "utf-8", errors="replace",
+            ).decode("utf-8")
+
+        if encoding_issue:
+            self.stats.files_skipped_encoding += 1
+            self.manifest.record_source_file(
+                self.run_id, safe_path, extension=ext,
+                is_accessible=True, path_length=path_len,
+                encoding_issue=True,
+            )
+            self.manifest.record_skip(
+                self.run_id, safe_path, 0, ext,
+                "encoding_issue",
+                "Filename contains non-UTF-8 characters",
+            )
+            return
+
+        # Unsupported and always-skip extensions can be rejected from the
+        # filename alone, which avoids a costly stat() on files we would
+        # never enqueue anyway while preserving manifest ground truth.
+        if ext in _ALWAYS_SKIP:
+            self.stats.files_skipped_ext += 1
+            self.manifest.record_source_file(
+                self.run_id, safe_path, extension=ext,
+                is_accessible=True, path_length=path_len,
+            )
+            self.manifest.record_skip(
+                self.run_id, safe_path, 0, ext,
+                "always_skip",
+                f"Extension {ext} is in the always-skip blocklist",
+            )
+            return
+
+        if ext not in cfg.extensions:
+            self.stats.files_skipped_ext += 1
+            self.manifest.record_source_file(
+                self.run_id, safe_path, extension=ext,
+                is_accessible=True, path_length=path_len,
+            )
+            self.manifest.record_skip(
+                self.run_id, safe_path, 0, ext,
+                "unsupported_extension",
+                f"Extension {ext} not in RAG parser registry",
+            )
+            return
 
         # Step 1: Read file attributes
         try:
@@ -907,20 +1030,6 @@ class SourceDiscovery:
         )
         is_symlink = os.path.islink(full)
 
-        # Encoding check (must happen before record_source_file
-        # because SQLite cannot store surrogate characters)
-        encoding_issue = False
-        try:
-            full.encode("utf-8")
-        except UnicodeEncodeError:
-            encoding_issue = True
-
-        safe_path = full
-        if encoding_issue:
-            safe_path = full.encode(
-                "utf-8", errors="replace",
-            ).decode("utf-8")
-
         # Record in manifest (every file, even skipped ones)
         self.manifest.record_source_file(
             self.run_id, safe_path, file_size=file_size,
@@ -951,35 +1060,8 @@ class SourceDiscovery:
             )
             return
 
-        if encoding_issue:
-            self.stats.files_skipped_encoding += 1
-            self.manifest.record_skip(
-                self.run_id, safe_path, file_size, ext,
-                "encoding_issue",
-                "Filename contains non-UTF-8 characters",
-            )
-            return
-
         # Do not hard-skip long paths. We preserve full folder/file names
         # and rely on Windows long-path-aware IO helpers during transfer.
-
-        if ext in _ALWAYS_SKIP:
-            self.stats.files_skipped_ext += 1
-            self.manifest.record_skip(
-                self.run_id, full, file_size, ext,
-                "always_skip",
-                f"Extension {ext} is in the always-skip blocklist",
-            )
-            return
-
-        if ext not in cfg.extensions:
-            self.stats.files_skipped_ext += 1
-            self.manifest.record_skip(
-                self.run_id, full, file_size, ext,
-                "unsupported_extension",
-                f"Extension {ext} not in RAG parser registry",
-            )
-            return
 
         if file_size < cfg.min_file_size:
             self.stats.files_skipped_size += 1
@@ -1007,9 +1089,7 @@ class SourceDiscovery:
             rel = os.path.basename(full)
 
         # Resume check
-        if cfg.resume and self.manifest.is_already_transferred(
-            full, current_mtime=file_mtime,
-        ):
+        if self._was_transferred_unchanged(full, file_mtime):
             self.stats.files_skipped_unchanged += 1
             self.manifest.record_skip(
                 self.run_id, full, file_size, ext,
@@ -1597,9 +1677,11 @@ class BulkTransferV2:
                     yield item
 
             worker.transfer(_stream_candidates())
-            self.stats.files_manifest = self.stats.files_discovered
+            self.stats.files_manifest = self.manifest.count_source_manifest_rows(
+                self.run_id
+            )
             print(
-                f"  Manifest: {self.stats.files_discovered:,} files, "
+                f"  Manifest: {self.stats.files_manifest:,} files, "
                 f"{_fmt_size(self.stats.bytes_source_total)}"
             )
             self._log_event(

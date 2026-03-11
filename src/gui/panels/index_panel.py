@@ -92,7 +92,7 @@ class IndexPanel(tk.LabelFrame):
         self._change_source_btn.pack(side=tk.RIGHT, padx=(8, 0))
         bind_hover(self._change_source_btn)
 
-        # -- Row 0b: Index folder (read-only display) --
+        # -- Row 0b: Index folder (changeable from the main panel) --
         row0b = tk.Frame(self, bg=t["panel_bg"])
         row0b.pack(fill=tk.X, pady=(0, 8))
 
@@ -113,6 +113,16 @@ class IndexPanel(tk.LabelFrame):
         )
         self.index_display.pack(side=tk.LEFT, fill=tk.X, expand=True,
                                 padx=(8, 0))
+
+        self._change_index_btn = tk.Button(
+            row0b, text="Change...", command=self._on_change_index, width=10,
+            bg=t["accent"], fg=t["accent_fg"], font=FONT,
+            relief=tk.FLAT, bd=0, padx=12, pady=4,
+            activebackground=t.get("accent_hover", t["accent"]),
+            activeforeground=t["accent_fg"],
+        )
+        self._change_index_btn.pack(side=tk.RIGHT, padx=(8, 0))
+        bind_hover(self._change_index_btn)
 
         self.paths_hint = tk.Label(
             row0b, text="",
@@ -306,6 +316,34 @@ class IndexPanel(tk.LabelFrame):
             except Exception as e:
                 logger.warning("Could not persist source path: %s", e)
 
+    def _on_change_index(self):
+        """Open folder picker to change the index-data folder."""
+        current = self.index_var.get().strip()
+        initial = current if current and os.path.isdir(current) else ""
+        folder = filedialog.askdirectory(
+            title="Select Index Data Folder",
+            initialdir=initial,
+        )
+        if not folder:
+            return
+
+        norm = os.path.normpath(folder)
+        db_path = os.path.join(norm, "hybridrag.sqlite3")
+        embeddings_cache = os.path.join(norm, "_embeddings")
+
+        self.index_var.set(norm)
+
+        paths = getattr(self.config, "paths", None)
+        if paths:
+            paths.database = db_path
+            paths.embeddings_cache = embeddings_cache
+
+        try:
+            save_config_field("paths.database", db_path)
+            save_config_field("paths.embeddings_cache", embeddings_cache)
+        except Exception as e:
+            logger.warning("Could not persist index path: %s", e)
+
     def _diagnose_disabled_reason(self):
         """Return a human-readable reason why indexing is disabled."""
         if self.indexer is None:
@@ -314,17 +352,30 @@ class IndexPanel(tk.LabelFrame):
             getattr(self.config, "paths", None), "source_folder", ""
         )
         if not source:
-            return "Source folder not set (configure in Admin tab)"
+            return "Source folder not set (configure in Index Panel or Admin tab)"
         if not os.path.isdir(source):
             return "Source folder not found: {}".format(source)
         db = getattr(getattr(self.config, "paths", None), "database", "")
         if not db:
-            return "Database path not set (configure in Admin tab)"
+            return "Database path not set (configure in Index Panel or Admin tab)"
         return "Unknown reason -- check logs"
 
     def _on_start(self):
         """Start indexing in a background thread."""
         t = current_theme()
+        if self._index_thread is not None and not self._index_thread.is_alive():
+            self._index_thread = None
+            self.is_indexing = False
+
+        if self.is_indexing or (
+            self._index_thread is not None and self._index_thread.is_alive()
+        ):
+            self.progress_file_label.config(
+                text="Indexing already running. Stop it first.",
+                fg=t["orange"],
+            )
+            return
+
         folder = self.folder_var.get().strip()
         if not folder:
             self.progress_file_label.config(
