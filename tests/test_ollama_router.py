@@ -295,6 +295,67 @@ class TestOllamaRouter:
             "stream should be False -- we want the full response at once"
         )
 
+    def test_query_uses_extended_read_timeout_for_large_grounded_prompt(self):
+        """
+        WHAT: Large grounded prompts should get extra read-time headroom.
+        WHY:  Local Phi-4 prompt-eval can take minutes before first token.
+        """
+        import httpx as real_httpx
+
+        router = self._make_router()
+        fake_response = {
+            "response": "Grounded answer",
+            "prompt_eval_count": 50,
+            "eval_count": 10,
+            "done": True,
+        }
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = fake_response
+        mock_response.raise_for_status = MagicMock()
+
+        router._client = MagicMock()
+        router._client.post.return_value = mock_response
+        router.config.ollama.timeout_seconds = 240
+
+        grounded_prompt = "GROUNDING RULES:\n" + ("x" * 3500)
+        router.query(grounded_prompt)
+
+        timeout_arg = router._client.post.call_args.kwargs["timeout"]
+        assert isinstance(timeout_arg, real_httpx.Timeout)
+        assert timeout_arg.read == 600.0
+        assert timeout_arg.connect == 30.0
+
+    def test_query_stream_keeps_configured_timeout_for_short_prompt(self):
+        """
+        WHAT: Short prompts should keep the configured read timeout.
+        WHY:  The extra headroom is only for grounded RAG prompts.
+        """
+        import httpx as real_httpx
+
+        router = self._make_router()
+        router.config.ollama.timeout_seconds = 240
+        router._client = MagicMock()
+
+        ok_cm = MagicMock()
+        ok_response = MagicMock()
+        ok_response.raise_for_status = MagicMock()
+        ok_response.iter_lines.return_value = iter(
+            ['{"response":"OK","done":false}', '{"done":true,"prompt_eval_count":5,"eval_count":1}']
+        )
+        ok_cm.__enter__.return_value = ok_response
+        ok_cm.__exit__.return_value = False
+        router._client.stream.return_value = ok_cm
+
+        events = list(router.query_stream("Short prompt"))
+
+        timeout_arg = router._client.stream.call_args.kwargs["timeout"]
+        assert isinstance(timeout_arg, real_httpx.Timeout)
+        assert timeout_arg.read == 240.0
+        assert events[0] == {"token": "OK"}
+        assert events[1]["done"] is True
+
     def test_query_fast_path_skips_model_tag_lookup_when_cache_empty(self):
         """
         WHAT: Normal offline queries should not block on /api/tags.

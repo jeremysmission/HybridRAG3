@@ -41,6 +41,7 @@ from .file_validator import FileValidator
 from .indexing.cancel import IndexCancelled
 from .index_report import FileRecord, populate_from_parse_details, write_report
 from .ocr_cleanup import clean_ocr_text, score_text_quality
+from .source_quality import assess_source_quality, upsert_source_quality_records
 import gc
 
 
@@ -454,6 +455,12 @@ class Indexer:
 
         if chunks_added == 0:
             return 0, "no chunks produced", was_reindex, parse_details
+
+        if getattr(self.vector_store, "conn", None) is not None:
+            upsert_source_quality_records(
+                self.vector_store.conn,
+                [assess_source_quality(str(file_path), text[:8000])],
+            )
 
         if self.gc_between_files:
             gc.collect()

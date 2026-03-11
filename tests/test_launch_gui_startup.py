@@ -1,4 +1,16 @@
 from types import SimpleNamespace
+import tkinter as tk
+
+import pytest
+
+
+def _make_root():
+    try:
+        root = tk.Tk()
+        root.withdraw()
+    except tk.TclError:
+        pytest.skip("Tk runtime unavailable (Tcl interpreter state)")
+    return root
 
 
 def test_main_boots_gui_without_auto_launching_setup_wizard(monkeypatch):
@@ -95,6 +107,50 @@ def test_probe_warnings_do_not_show_startup_popup(monkeypatch):
     assert status["refreshed"] is True
 
 
+def test_probe_warnings_render_degraded_status_with_real_status_bar(monkeypatch):
+    import src.gui.launch_gui as launch_gui
+    from src.gui.panels.status_bar import StatusBar
+
+    popup_calls = []
+    monkeypatch.setattr(
+        "tkinter.messagebox.showwarning",
+        lambda title, message: popup_calls.append((title, message)),
+    )
+
+    root = _make_root()
+    config = SimpleNamespace(
+        mode="offline",
+        ollama=SimpleNamespace(model="phi4:14b-q4_K_M"),
+    )
+    router = SimpleNamespace(
+        api=None,
+        get_status=lambda: {
+            "mode": "offline",
+            "ollama_available": True,
+        },
+    )
+    bar = StatusBar(root, config=config, router=router)
+    bar.pack()
+
+    app = SimpleNamespace(router=router, status_bar=bar)
+    launch_gui._present_backend_startup_issues(
+        app,
+        SimpleNamespace(warning=lambda *_args, **_kwargs: None),
+        ["Ollama generate probe failed (model 'phi4:14b-q4_K_M'): HTTP 500"],
+    )
+    root.update_idletasks()
+    root.update()
+
+    assert popup_calls == []
+    assert bar.llm_label.cget("text") == "Mode/Selection: OFFLINE | AUTO"
+    assert "Backend Health: Warning |" in bar.ollama_label.cget("text")
+    assert "phi4:14b-q4_K_M" in bar.ollama_label.cget("text")
+    assert "Ollama Ready" not in bar.ollama_label.cget("text")
+
+    bar.stop()
+    root.destroy()
+
+
 def test_blocking_startup_errors_still_show_popup(monkeypatch):
     import src.gui.launch_gui as launch_gui
 
@@ -133,3 +189,48 @@ def test_blocking_startup_errors_still_show_popup(monkeypatch):
     assert "Ollama generate probe failed" not in popup_calls[0][1]
     assert status["init_error"] == "Database: missing path"
     assert status["refreshed"] is True
+
+
+def test_probe_does_not_mutate_phi4_14b_to_phi4_mini():
+    import src.gui.launch_gui as launch_gui
+
+    class DummyResponse:
+        def raise_for_status(self):
+            raise RuntimeError("HTTP 500")
+
+    class DummyClient:
+        def __init__(self):
+            self.calls = []
+
+        def post(self, url, json=None, timeout=None):
+            self.calls.append({"url": url, "json": json, "timeout": timeout})
+            if url.endswith("/api/embed"):
+                return SimpleNamespace(raise_for_status=lambda: None)
+            return DummyResponse()
+
+    client = DummyClient()
+    config = SimpleNamespace(
+        embedding=SimpleNamespace(model_name="nomic-embed-text"),
+        ollama=SimpleNamespace(
+            model="phi4:14b-q4_K_M",
+            timeout_seconds=180,
+            keep_alive=-1,
+            context_window=4096,
+        ),
+    )
+    router = SimpleNamespace(
+        ollama=SimpleNamespace(
+            is_available=lambda: True,
+            base_url="http://127.0.0.1:11434",
+            _client=client,
+        )
+    )
+
+    errors = launch_gui._probe_ollama_runtime(
+        router,
+        config,
+        SimpleNamespace(debug=lambda *_args, **_kwargs: None),
+    )
+
+    assert config.ollama.model == "phi4:14b-q4_K_M"
+    assert any("Ollama generate probe failed" in error for error in errors)

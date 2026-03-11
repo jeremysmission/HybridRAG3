@@ -23,6 +23,7 @@ def _looks_like_offline_memory_pressure(error_msg):
         "not enough memory",
         "insufficient memory",
         "memory pressure",
+        "requires more system memory",
         "cuda out of memory",
         "cuda error",
         "cublas",

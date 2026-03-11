@@ -178,7 +178,7 @@ def _set_stage(app, stage_text):
 
     Uses safe_after() because this is called from background threads.
     Direct app.after() from a non-main thread raises RuntimeError
-    on some Tk builds (especially corporate Windows).
+    on some Tk builds (especially managed Windows installs).
     """
     try:
         from src.gui.helpers.safe_after import safe_after
@@ -191,7 +191,7 @@ def _set_stage(app, stage_text):
 
 
 def _probe_ollama_runtime(router, config, logger):
-    """Run lightweight embed/generate probes and auto-fallback on overload."""
+    """Run lightweight embed/generate probes without mutating offline model choice."""
     errors = []
     try:
         if not router or not getattr(router, "ollama", None):
@@ -255,37 +255,6 @@ def _probe_ollama_runtime(router, config, logger):
             except Exception as e:
                 gen_error = e
 
-        # Auto-fallback for known heavy default when runtime is overloaded.
-        if gen_error is not None:
-            from src.core.model_identity import canonicalize_model_name
-            cfg_canon = canonicalize_model_name(gen_model)
-            if cfg_canon.startswith("phi4:14b"):
-                available = router.ollama._available_models() or []
-                available_canon = {
-                    canonicalize_model_name(m): m for m in available
-                }
-                fallback = (
-                    available_canon.get("phi4-mini")
-                    or available_canon.get("phi4-mini:latest")
-                )
-                if fallback:
-                    try:
-                        config.ollama.model = fallback
-                        _probe_generate(fallback)
-                        logger.warning(
-                            "[WARN] Ollama startup fallback applied: %s -> %s",
-                            gen_model, fallback,
-                        )
-                        errors.append(
-                            "Ollama model probe failed for '{}' ({}). "
-                            "Auto-fallback switched to '{}'."
-                            .format(gen_model, str(gen_error), fallback)
-                        )
-                        gen_error = None
-                    except Exception:
-                        # Keep original error report if fallback also fails.
-                        pass
-
         if gen_error is not None:
             errors.append(
                 "Ollama generate probe failed (model '{}'): {}"
@@ -321,8 +290,7 @@ def _present_backend_startup_issues(app, logger, init_issues):
     if hasattr(app, "status_bar"):
         app.status_bar.router = getattr(app, "router", None)
         first_issue = (blocking_errors or startup_warnings or [None])[0]
-        if first_issue:
-            app.status_bar.set_init_error(first_issue)
+        app.status_bar.set_init_error(first_issue)
         app.status_bar.force_refresh()
 
     if startup_warnings:
@@ -660,7 +628,7 @@ def _launch_setup_wizard_after_boot(app, logger):
 def _sanitize_tk_env():
     """Auto-heal common Tk startup failures caused by bad environment vars.
 
-    Corporate images and shell profiles sometimes leave stale TCL/TK/PYTHONHOME
+    Managed-machine images and shell profiles sometimes leave stale TCL/TK/PYTHONHOME
     values that point at removed Python installs. When that happens, tkinter
     crashes with "can't find a usable tk.tcl/init.tcl". We defensively clear
     invalid paths and set known-good defaults from sys.base_prefix if present.

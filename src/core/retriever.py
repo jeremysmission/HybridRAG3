@@ -79,6 +79,7 @@ from typing import List, Dict, Any, Optional
 from .vector_store import VectorStore
 from .embedder import Embedder
 from .query_trace import build_retrieval_trace, hit_to_debug_dict
+from .source_quality import ensure_source_quality_map
 
 logger = logging.getLogger(__name__)
 RERANKER_AVAILABLE = False
@@ -303,6 +304,7 @@ class Retriever:
             rerank_started = time.perf_counter()
             hits = self._rerank(query, hits)
             rerank_ms = (time.perf_counter() - rerank_started) * 1000
+        hits = _apply_source_quality_bias(self, hits)
         post_rerank_hits = list(hits)
 
         # --- Step 3: Filter by minimum score ---
@@ -724,6 +726,70 @@ def _warn_aggressive_settings(top_k, reranker_top_n):
             "hardware (24GB+ VRAM, 64GB+ RAM) should use values above 30.",
             reranker_top_n,
         )
+
+
+def _apply_source_quality_bias(retriever: Retriever, hits: List[SearchHit]) -> List[SearchHit]:
+    """Down-rank suspect sources without deleting archive content."""
+    if not hits:
+        return hits
+
+    conn = getattr(getattr(retriever, "vector_store", None), "conn", None)
+    if conn is None:
+        return hits
+
+    source_samples: Dict[str, str] = {}
+    for hit in hits:
+        key = str(getattr(hit, "source_path", "") or "").strip()
+        if key not in source_samples:
+            source_samples[key] = str(getattr(hit, "text", "") or "")[:8000]
+
+    try:
+        quality_map = ensure_source_quality_map(conn, source_samples)
+    except Exception:
+        return hits
+
+    adjusted_hits: List[SearchHit] = []
+    for hit in hits:
+        key = str(getattr(hit, "source_path", "") or "").strip()
+        adjusted_hits.append(
+            SearchHit(
+                score=_apply_source_quality_score(hit.score, quality_map.get(key)),
+                source_path=hit.source_path,
+                chunk_index=hit.chunk_index,
+                text=hit.text,
+            )
+        )
+
+    adjusted_hits.sort(key=lambda item: item.score, reverse=True)
+    return adjusted_hits
+
+
+def _apply_source_quality_score(base_score: float, record: Optional[Dict[str, Any]]) -> float:
+    """Apply a light serving bias toward cleaner, citation-ready sources."""
+    if not record:
+        return float(base_score)
+
+    penalty = 0.0
+    tier = str(record.get("retrieval_tier", "serve") or "serve")
+    if tier == "suspect":
+        penalty += 0.35
+    elif tier == "archive":
+        penalty += 0.08
+
+    if int(record.get("is_saved_resource", 0) or 0):
+        penalty += 0.25
+    if int(record.get("has_missing_path", 0) or 0):
+        penalty += 0.20
+    if int(record.get("has_encoded_blob", 0) or 0):
+        penalty += 0.20
+    if int(record.get("is_boilerplate", 0) or 0):
+        penalty += 0.10
+
+    bonus = 0.0
+    if tier == "serve" and float(record.get("quality_score", 0.0) or 0.0) >= 0.90:
+        bonus = 0.03
+
+    return max(0.0, float(base_score) - penalty + bonus)
 
 
 def _query_terms(query):

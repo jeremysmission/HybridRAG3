@@ -21,6 +21,12 @@ def test_real_memory_pressure_message_is_detected():
     )
 
 
+def test_ollama_system_memory_message_is_detected():
+    assert _looks_like_offline_memory_pressure(
+        "Error: model requires more system memory (10.8 GiB) than is available (7.4 GiB)"
+    )
+
+
 def test_context_overflow_is_not_memory_pressure():
     assert not _looks_like_offline_memory_pressure(
         "requested context window exceeds context length supported by the model"

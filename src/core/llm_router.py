@@ -53,6 +53,7 @@ import json
 import os
 import time
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, Generator
 
@@ -78,7 +79,7 @@ _DEFAULT_API_VERSION = "2024-02-02"
 # WHY A FACTORY:
 #   Different environments need different HTTP settings:
 #     - Home PC:     direct internet, default CA bundle, no proxy
-#     - Work laptop: corporate proxy, custom CA bundle, HTTPS_PROXY env var
+#     - Work laptop: enterprise proxy, custom CA bundle, HTTPS_PROXY env var
 #     - Localhost:   Ollama/vLLM -- must NEVER use a proxy
 #
 #   Instead of sprinkling proxy/CA logic into each router class, this
@@ -91,7 +92,7 @@ _DEFAULT_API_VERSION = "2024-02-02"
 #   - If neither is set, uses httpx defaults (system CA, no proxy)
 #
 # LOCALHOST SAFETY:
-#   Ollama and vLLM talk to localhost. Corporate proxies break localhost
+#   Ollama and vLLM talk to localhost. Enterprise proxies break localhost
 #   connections. Pass localhost_only=True to force proxy=None.
 # ============================================================================
 
@@ -118,8 +119,8 @@ def _build_httpx_client(
     }
 
     # -- CA bundle detection --
-    # Corporate environments often set one of these to point at a custom
-    # CA bundle that includes the corporate root CA. Without it, SSL
+    # Enterprise environments often set one of these to point at a custom
+    # CA bundle that includes the local root CA. Without it, SSL
     # handshakes to Azure Government endpoints fail with CERTIFICATE_VERIFY_FAILED.
     if verify:
         ca_bundle = (
@@ -135,7 +136,7 @@ def _build_httpx_client(
         kwargs["verify"] = False
 
     # -- Proxy detection --
-    # Localhost traffic must NEVER go through a proxy. Corporate proxies
+    # Localhost traffic must NEVER go through a proxy. Enterprise proxies
     # intercept localhost connections and return garbage (301/502, HTML).
     # trust_env=False is REQUIRED in addition to proxy=None because
     # httpx still reads HTTP_PROXY env vars when trust_env=True (default).
@@ -146,7 +147,7 @@ def _build_httpx_client(
         # Let httpx handle proxy via trust_env=True (default).
         # httpx natively reads HTTP_PROXY/HTTPS_PROXY AND respects
         # NO_PROXY.  Setting an explicit proxy= bypasses NO_PROXY
-        # semantics, which breaks corporate environments where
+        # semantics, which breaks enterprise environments where
         # NO_PROXY is used to exempt internal/local targets.
         kwargs["trust_env"] = True
 
@@ -160,6 +161,16 @@ def _openai_sdk_available():
         return True
     except ImportError:
         return False
+
+
+def _call_stream_with_optional_cancel(method, prompt: str, cancel_event):
+    """Call a stream method with cancel_event when supported."""
+    try:
+        return method(prompt, cancel_event=cancel_event)
+    except TypeError as exc:
+        if "cancel_event" not in str(exc):
+            raise
+        return method(prompt)
 
 # -- Import HybridRAG internals ---------------------------------------------
 from .config import Config
@@ -236,6 +247,38 @@ def _http_error_message(error: Exception) -> str:
     if detail:
         return f"{message} | {detail}"
     return message
+
+
+def _safe_timeout_seconds(raw_timeout: Any, default: float = 120.0) -> float:
+    """Parse configured timeout values defensively."""
+    try:
+        timeout = float(raw_timeout)
+    except (TypeError, ValueError):
+        timeout = default
+    return max(timeout, 0.01)
+
+
+def _build_ollama_request_timeout(config: Config, prompt: str) -> Any:
+    """Give large grounded prompts more read headroom before first token."""
+    import httpx
+
+    base_timeout = _safe_timeout_seconds(
+        getattr(getattr(config, "ollama", None), "timeout_seconds", 120.0),
+        default=120.0,
+    )
+    prompt_text = str(prompt or "")
+    read_timeout = base_timeout
+    if prompt_text.startswith("GROUNDING RULES:") and len(prompt_text) >= 3000:
+        read_timeout = max(base_timeout, 600.0)
+
+    connect_timeout = min(max(base_timeout, 5.0), 30.0)
+    pool_timeout = min(max(base_timeout, 5.0), 30.0)
+    return httpx.Timeout(
+        connect=connect_timeout,
+        read=read_timeout,
+        write=base_timeout,
+        pool=pool_timeout,
+    )
 
 
 # --- SECTION 2: OLLAMA ROUTER (OFFLINE, LOCALHOST) -------------------------
@@ -398,7 +441,7 @@ class OllamaRouter:
             response = self._client.post(
                 f"{self.base_url}/api/generate",
                 json=payload,
-                timeout=self.config.ollama.timeout_seconds,
+                timeout=_build_ollama_request_timeout(self.config, prompt),
             )
             response.raise_for_status()
             return response
@@ -446,7 +489,11 @@ class OllamaRouter:
             self.logger.error("ollama_error", error=str(e))
             return None
 
-    def query_stream(self, prompt: str) -> Generator[Dict[str, Any], None, None]:
+    def query_stream(
+        self,
+        prompt: str,
+        cancel_event=None,
+    ) -> Generator[Dict[str, Any], None, None]:
         """
         Stream tokens from the local Ollama server.
 
@@ -474,6 +521,8 @@ class OllamaRouter:
         model_name = self._resolve_model_name(self.config.ollama.model)
 
         try:
+            if cancel_event is not None and cancel_event.is_set():
+                return
             refreshed = False
             while True:
                 payload = {
@@ -488,22 +537,47 @@ class OllamaRouter:
                         "POST",
                         f"{self.base_url}/api/generate",
                         json=payload,
-                        timeout=self.config.ollama.timeout_seconds,
+                        timeout=_build_ollama_request_timeout(self.config, prompt),
                     ) as response:
                         response.raise_for_status()
                         tokens_in = 0
                         tokens_out = 0
-                        for line in response.iter_lines():
-                            if not line:
-                                continue
-                            chunk = json.loads(line)
-                            token_text = chunk.get("response", "")
-                            if token_text:
-                                yield {"token": token_text}
-                            if chunk.get("done", False):
-                                tokens_in = chunk.get("prompt_eval_count", 0)
-                                tokens_out = chunk.get("eval_count", 0)
-                                break
+                        watcher_stop = threading.Event()
+                        watcher = None
+                        if cancel_event is not None:
+                            def _close_on_cancel():
+                                while not watcher_stop.wait(0.05):
+                                    if cancel_event.is_set():
+                                        try:
+                                            response.close()
+                                        except Exception:
+                                            pass
+                                        return
+
+                            watcher = threading.Thread(
+                                target=_close_on_cancel,
+                                daemon=True,
+                                name="hybridrag-ollama-stream-cancel",
+                            )
+                            watcher.start()
+                        try:
+                            for line in response.iter_lines():
+                                if cancel_event is not None and cancel_event.is_set():
+                                    return
+                                if not line:
+                                    continue
+                                chunk = json.loads(line)
+                                token_text = chunk.get("response", "")
+                                if token_text:
+                                    yield {"token": token_text}
+                                if chunk.get("done", False):
+                                    tokens_in = chunk.get("prompt_eval_count", 0)
+                                    tokens_out = chunk.get("eval_count", 0)
+                                    break
+                        finally:
+                            watcher_stop.set()
+                            if watcher is not None:
+                                watcher.join(timeout=0.2)
                     break
                 except httpx.HTTPStatusError as e:
                     retry_model = ""
@@ -531,10 +605,14 @@ class OllamaRouter:
             }
 
         except httpx.HTTPError as e:
+            if cancel_event is not None and cancel_event.is_set():
+                return
             self.last_error = _http_error_message(e)
             self.logger.error("ollama_stream_http_error", error=str(e))
             yield {"error": self.last_error, "backend": "ollama"}
         except Exception as e:
+            if cancel_event is not None and cancel_event.is_set():
+                return
             self.last_error = f"{type(e).__name__}: {e}"
             self.logger.error("ollama_stream_error", error=str(e))
             yield {"error": self.last_error, "backend": "ollama"}
@@ -688,7 +766,11 @@ class VLLMRouter:
             self.logger.error("vllm_error", error=str(e))
             return None
 
-    def query_stream(self, prompt: str) -> Generator[Dict[str, Any], None, None]:
+    def query_stream(
+        self,
+        prompt: str,
+        cancel_event=None,
+    ) -> Generator[Dict[str, Any], None, None]:
         """
         Stream tokens from the local vLLM server via SSE.
 
@@ -718,6 +800,8 @@ class VLLMRouter:
         }
 
         try:
+            if cancel_event is not None and cancel_event.is_set():
+                return
             tokens_in = 0
             tokens_out = 0
             with self._client.stream(
@@ -727,21 +811,46 @@ class VLLMRouter:
                 timeout=self.timeout,
             ) as response:
                 response.raise_for_status()
-                for line in response.iter_lines():
-                    if not line or not line.startswith("data: "):
-                        continue
-                    data_str = line[len("data: "):]
-                    if data_str.strip() == "[DONE]":
-                        break
-                    chunk = json.loads(data_str)
-                    delta = chunk.get("choices", [{}])[0].get("delta", {})
-                    token_text = delta.get("content", "")
-                    if token_text:
-                        yield {"token": token_text}
-                    usage = chunk.get("usage")
-                    if usage:
-                        tokens_in = usage.get("prompt_tokens", 0)
-                        tokens_out = usage.get("completion_tokens", 0)
+                watcher_stop = threading.Event()
+                watcher = None
+                if cancel_event is not None:
+                    def _close_on_cancel():
+                        while not watcher_stop.wait(0.05):
+                            if cancel_event.is_set():
+                                try:
+                                    response.close()
+                                except Exception:
+                                    pass
+                                return
+
+                    watcher = threading.Thread(
+                        target=_close_on_cancel,
+                        daemon=True,
+                        name="hybridrag-vllm-stream-cancel",
+                    )
+                    watcher.start()
+                try:
+                    for line in response.iter_lines():
+                        if cancel_event is not None and cancel_event.is_set():
+                            return
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data_str = line[len("data: "):]
+                        if data_str.strip() == "[DONE]":
+                            break
+                        chunk = json.loads(data_str)
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        token_text = delta.get("content", "")
+                        if token_text:
+                            yield {"token": token_text}
+                        usage = chunk.get("usage")
+                        if usage:
+                            tokens_in = usage.get("prompt_tokens", 0)
+                            tokens_out = usage.get("completion_tokens", 0)
+                finally:
+                    watcher_stop.set()
+                    if watcher is not None:
+                        watcher.join(timeout=0.2)
 
             latency_ms = (time.time() - start_time) * 1000
             self.logger.info(
@@ -760,10 +869,14 @@ class VLLMRouter:
             }
 
         except httpx.HTTPError as e:
+            if cancel_event is not None and cancel_event.is_set():
+                return
             self.last_error = f"{type(e).__name__}: {e}"
             self.logger.error("vllm_stream_http_error", error=str(e))
             yield {"error": self.last_error, "backend": "vllm"}
         except Exception as e:
+            if cancel_event is not None and cancel_event.is_set():
+                return
             self.last_error = f"{type(e).__name__}: {e}"
             self.logger.error("vllm_stream_error", error=str(e))
             yield {"error": self.last_error, "backend": "vllm"}
@@ -1529,7 +1642,7 @@ def _is_azure_endpoint(endpoint):
     return "azure" in lower or "aoai" in lower
 
 
-# Banned model families (NDAA / ITAR policy).
+# Banned model families (repo security policy).
 # These model families are disqualified for use in this environment.
 # See docs/05_security/ for the full audit and reasoning.
 _BANNED_PREFIXES = ["qwen", "deepseek", "llama", "baidu", "bge"]
@@ -1944,7 +2057,11 @@ class LLMRouter:
                 )
             return result
 
-    def query_stream(self, prompt: str) -> Generator[Dict[str, Any], None, None]:
+    def query_stream(
+        self,
+        prompt: str,
+        cancel_event=None,
+    ) -> Generator[Dict[str, Any], None, None]:
         """
         Stream tokens from the appropriate backend.
 
@@ -1959,18 +2076,30 @@ class LLMRouter:
         if mode == "offline":
             # Priority: vLLM > Ollama
             if self.vllm and self.vllm.is_available():
-                for chunk in self.vllm.query_stream(prompt):
+                for chunk in _call_stream_with_optional_cancel(
+                    self.vllm.query_stream,
+                    prompt,
+                    cancel_event,
+                ):
                     if "error" in chunk:
                         self.last_error = str(chunk.get("error", ""))
                     yield chunk
             else:
-                for chunk in self.ollama.query_stream(prompt):
+                for chunk in _call_stream_with_optional_cancel(
+                    self.ollama.query_stream,
+                    prompt,
+                    cancel_event,
+                ):
                     if "error" in chunk:
                         self.last_error = str(chunk.get("error", ""))
                     yield chunk
         else:
+            if cancel_event is not None and cancel_event.is_set():
+                return
             # Online mode: no streaming support, yield full response as one chunk
             result = self.query(prompt)
+            if cancel_event is not None and cancel_event.is_set():
+                return
             if result:
                 yield {"token": result.text}
                 yield {

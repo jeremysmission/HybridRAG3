@@ -68,6 +68,8 @@ from typing import Optional, List, Dict, Any, Tuple
 
 import numpy as np
 
+from .source_quality import ensure_source_quality_schema
+
 
 logger = logging.getLogger(__name__)
 
@@ -350,6 +352,7 @@ class VectorStore:
                 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts
                 USING fts5(text, content='chunks', content_rowid='chunk_pk');
             """)
+            ensure_source_quality_schema(self.conn)
             self.conn.commit()
 
     # ------------------------------------------------------------------
