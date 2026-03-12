@@ -259,9 +259,9 @@
 
 ---
 
-### Q34. "What about ITAR-controlled documents?"
+### Q34. "What about strictly controlled documents?"
 **Who asks**: CAD, compliance, engineers in regulated environments
-**Your answer**: "The system is entirely local. No data leaves the machine. ITAR-controlled documents stay on controlled hardware. You'd follow your existing ITAR handling procedures for which machines can host that data. The air-gapped architecture is the strongest possible posture for controlled data."
+**Your answer**: "The system is entirely local. No data leaves the machine. Strictly controlled documents stay on approved hardware. You'd follow your existing controlled-data handling procedures for which machines can host that data. The local-only architecture is the strongest possible posture for controlled data."
 
 ---
 
@@ -381,7 +381,7 @@
 1. **Open with pain**: "How long does it take to find [specific spec] across 1,345 documents?"
 2. **Show success**: Query that returns a perfect answer with sources
 3. **Show refusal**: Query outside the corpus -- "I don't have sufficient information"
-4. **Show injection defense**: Let Cyber try to break it
+4. **Show injection resistance**: Let Cyber try to break it
 5. **Show cross-reference**: Query that pulls from multiple documents
 6. **Show the numbers**: 1,345 files, 39,602 chunks, 98% accuracy, 400-question eval, zero cloud, zero cost
 7. **Hand them the keyboard**: Let anyone ask anything
