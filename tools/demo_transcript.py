@@ -25,6 +25,7 @@ Usage:
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
@@ -35,7 +36,17 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-DEMO_QUESTION = "What leadership styles are discussed and how do they differ?"
+from src.tools.demo_rehearsal_pack import (
+    build_demo_validation_report,
+    default_demo_validation_report_dir,
+    format_expected_evidence,
+    load_demo_rehearsal_pack,
+    select_demo_question,
+    summarize_mode_sequence,
+    write_demo_validation_report,
+)
+
+TRANSCRIPT_OUT_PATH = PROJECT_ROOT / "demo_transcript.json"
 
 
 def log(msg):
@@ -43,9 +54,131 @@ def log(msg):
     print("[{}] {}".format(ts, msg))
 
 
-def main():
+def _parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Run the HybridRAG demo transcript with a repo-tracked rehearsal question.",
+    )
+    parser.add_argument(
+        "--pack",
+        default="",
+        help="Optional path to a demo rehearsal pack JSON file.",
+    )
+    parser.add_argument(
+        "--question-id",
+        default="",
+        help="Optional rehearsal question id override for the transcript run.",
+    )
+    parser.add_argument(
+        "--describe-question",
+        action="store_true",
+        help="Print the selected rehearsal question and expected evidence, then exit.",
+    )
+    return parser.parse_args(argv)
+
+
+def _load_transcript_question(pack_path: str = "", question_id: str = ""):
+    pack = load_demo_rehearsal_pack(pack_path or None)
+    question = select_demo_question(
+        pack,
+        default_key="transcript_question_id",
+        question_id=question_id,
+    )
+    return pack, question
+
+
+def _build_operator_notes(transcript, errors):
+    notes = []
+    for entry in transcript:
+        prefix = "PASS" if entry.get("ok") else "FAIL"
+        notes.append(
+            "{}: {} -- {}".format(
+                prefix,
+                entry.get("step", ""),
+                entry.get("detail", ""),
+            ).rstrip()
+        )
+    for error in errors:
+        notes.append("WARN: {}".format(error))
+    if not notes:
+        notes.append("WARN: No transcript steps were recorded.")
+    return notes
+
+
+def _write_outputs(
+    pack,
+    selected_question,
+    transcript,
+    errors,
+    *,
+    mode_sequence,
+    path_taken,
+):
+    validation_report = build_demo_validation_report(
+        pack,
+        selected_question,
+        tool_name="demo_transcript",
+        actual_mode=summarize_mode_sequence(mode_sequence),
+        actual_path=path_taken,
+        operator_notes=_build_operator_notes(transcript, errors),
+        passed=bool(transcript) and all(entry.get("ok") for entry in transcript),
+        status="passed" if transcript and all(entry.get("ok") for entry in transcript) else "failed",
+        primary_artifact=str(TRANSCRIPT_OUT_PATH),
+        mode_sequence=mode_sequence,
+        details={
+            "step_results": transcript,
+            "errors": errors,
+        },
+    )
+    validation_path = write_demo_validation_report(
+        validation_report,
+        project_root=PROJECT_ROOT,
+    )
+    TRANSCRIPT_OUT_PATH.write_text(json.dumps({
+        "timestamp": datetime.now().isoformat(),
+        "pack": {
+            "path": pack["_path"],
+            "pack_id": pack["pack_id"],
+            "policy_note": pack["policy_note"],
+        },
+        "question": selected_question,
+        "transcript": transcript,
+        "errors": errors,
+        "validation_report_path": str(validation_path),
+    }, indent=2), encoding="utf-8")
+    print("  Saved transcript: {}".format(TRANSCRIPT_OUT_PATH))
+    print("  Saved validation: {}".format(validation_path))
+    return validation_path
+
+
+def main(argv=None):
+    args = _parse_args(argv)
+    pack, selected_question = _load_transcript_question(
+        pack_path=args.pack,
+        question_id=args.question_id,
+    )
+
+    if args.describe_question:
+        print("Pack: {}".format(pack["_path"]))
+        print("Policy: {}".format(pack["policy_note"]))
+        print("Question ID: {}".format(selected_question["id"]))
+        print("Title: {}".format(selected_question["title"]))
+        print("Profile: {} | Track: {} | Preferred mode: {}".format(
+            selected_question["profile"],
+            selected_question["track"],
+            selected_question["preferred_mode"],
+        ))
+        print("Prompt: {}".format(selected_question["prompt"]))
+        print("Expected evidence:")
+        for item in format_expected_evidence(selected_question):
+            print("  - {}".format(item))
+        print("Operator note: {}".format(selected_question["operator_note"]))
+        return 0
+
+    demo_question = selected_question["prompt"]
     transcript = []
     errors = []
+    mode_sequence = []
+    path_taken = []
 
     def record(step, elapsed_ms, detail="", ok=True):
         entry = {
@@ -64,10 +197,25 @@ def main():
     print("  {}".format(datetime.now().isoformat()))
     print("=" * 60)
     print()
+    log("Rehearsal pack: {}".format(pack["_path"]))
+    log("Policy: {}".format(pack["policy_note"]))
+    log(
+        "Selected question [{}] {} | profile={} | track={} | preferred_mode={}".format(
+            selected_question["id"],
+            selected_question["title"],
+            selected_question["profile"],
+            selected_question["track"],
+            selected_question["preferred_mode"],
+        )
+    )
+    for item in format_expected_evidence(selected_question):
+        log("  Evidence target: {}".format(item))
+    print()
 
     # ================================================================
     # STEP 1: Boot (BootCoordinator + BackendLoader)
     # ================================================================
+    path_taken.append("boot")
     log("STEP 1: Booting application...")
     t_boot = time.perf_counter()
 
@@ -76,10 +224,19 @@ def main():
         bc = BootCoordinator(str(PROJECT_ROOT))
         boot_report = bc.run()
         config = boot_report.config
+        mode_sequence.append(str(getattr(config, "mode", "") or "unknown"))
     except Exception as e:
         record("Boot/Coordinator", (time.perf_counter() - t_boot) * 1000, str(e), ok=False)
         errors.append("BootCoordinator: {}".format(e))
         print("FATAL: Cannot continue without config")
+        _write_outputs(
+            pack,
+            selected_question,
+            transcript,
+            errors,
+            mode_sequence=mode_sequence,
+            path_taken=path_taken,
+        )
         return 1
 
     record("Boot/Coordinator", (time.perf_counter() - t_boot) * 1000,
@@ -87,6 +244,7 @@ def main():
 
     t_backend = time.perf_counter()
     bundle = None
+    creds = None
     try:
         from src.core.bootstrap.backend_loader import BackendLoader
         loader = BackendLoader(
@@ -110,6 +268,7 @@ def main():
     # ================================================================
     # STEP 2: IBIT badge
     # ================================================================
+    path_taken.append("ibit")
     log("STEP 2: Running IBIT...")
     t_ibit = time.perf_counter()
     try:
@@ -135,11 +294,12 @@ def main():
     # ================================================================
     # STEP 3: Offline query (warm-up)
     # ================================================================
+    path_taken.append("offline_query_warmup")
     log("STEP 3: Offline query (warm-up)...")
     t_q1 = time.perf_counter()
     if bundle and bundle.query_engine:
         try:
-            result = bundle.query_engine.query(DEMO_QUESTION)
+            result = bundle.query_engine.query(demo_question)
             q1_ms = (time.perf_counter() - t_q1) * 1000
             answer_preview = (result.answer or "")[:120].replace("\n", " ")
             record("Query/Offline1", q1_ms,
@@ -154,6 +314,7 @@ def main():
     # ================================================================
     # STEP 4: Switch to online
     # ================================================================
+    path_taken.append("switch_to_online")
     log("STEP 4: Switch OFFLINE -> ONLINE...")
     t_switch1 = time.perf_counter()
     try:
@@ -170,6 +331,7 @@ def main():
         if bundle and bundle.query_engine:
             bundle.query_engine.llm_router = online_router
             bundle.router = online_router
+        mode_sequence.append(str(getattr(config, "mode", "") or "online"))
         switch1_ms = (time.perf_counter() - t_switch1) * 1000
         record("Switch/ToOnline", switch1_ms,
                "creds={} endpoint={}".format(
@@ -182,11 +344,12 @@ def main():
     # ================================================================
     # STEP 5: Online query
     # ================================================================
+    path_taken.append("online_query")
     log("STEP 5: Online query...")
     t_q2 = time.perf_counter()
     if bundle and bundle.query_engine and config.mode == "online":
         try:
-            result2 = bundle.query_engine.query(DEMO_QUESTION)
+            result2 = bundle.query_engine.query(demo_question)
             q2_ms = (time.perf_counter() - t_q2) * 1000
             answer_preview = (result2.answer or "")[:120].replace("\n", " ")
             record("Query/Online", q2_ms,
@@ -201,6 +364,7 @@ def main():
     # ================================================================
     # STEP 6: Switch back to offline
     # ================================================================
+    path_taken.append("switch_to_offline")
     log("STEP 6: Switch ONLINE -> OFFLINE...")
     t_switch2 = time.perf_counter()
     try:
@@ -211,6 +375,7 @@ def main():
         if bundle and bundle.query_engine:
             bundle.query_engine.llm_router = offline_router
             bundle.router = offline_router
+        mode_sequence.append(str(getattr(config, "mode", "") or "offline"))
         switch2_ms = (time.perf_counter() - t_switch2) * 1000
         record("Switch/ToOffline", switch2_ms)
     except Exception as e:
@@ -221,11 +386,12 @@ def main():
     # ================================================================
     # STEP 7: Offline query again
     # ================================================================
+    path_taken.append("offline_query_post_switch")
     log("STEP 7: Offline query (post-switch)...")
     t_q3 = time.perf_counter()
     if bundle and bundle.query_engine:
         try:
-            result3 = bundle.query_engine.query(DEMO_QUESTION)
+            result3 = bundle.query_engine.query(demo_question)
             q3_ms = (time.perf_counter() - t_q3) * 1000
             answer_preview = (result3.answer or "")[:120].replace("\n", " ")
             record("Query/Offline2", q3_ms,
@@ -260,14 +426,15 @@ def main():
     print("  Total demo time: {:.1f}s".format(total_demo_ms / 1000))
     print()
 
-    # Save JSON
-    out_path = PROJECT_ROOT / "demo_transcript.json"
-    out_path.write_text(json.dumps({
-        "timestamp": datetime.now().isoformat(),
-        "transcript": transcript,
-        "errors": errors,
-    }, indent=2), encoding="utf-8")
-    print("  Saved: {}".format(out_path))
+    _write_outputs(
+        pack,
+        selected_question,
+        transcript,
+        errors,
+        mode_sequence=mode_sequence,
+        path_taken=path_taken,
+    )
+    print("  Validation directory: {}".format(default_demo_validation_report_dir(PROJECT_ROOT)))
     print()
 
     return 0

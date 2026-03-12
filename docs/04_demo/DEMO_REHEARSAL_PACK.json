@@ -1,0 +1,117 @@
+{
+  "pack_id": "sprint5_rehearsal_pack_foundation",
+  "title": "Sprint 5 Demo Rehearsal Pack",
+  "updated_at": "2026-03-10",
+  "policy_note": "Live demo transcript defaults are online-first. Offline questions in this pack are support-path or harness references for Admin rehearsal only.",
+  "defaults": {
+    "transcript_question_id": "pm_leadership_styles_compare",
+    "gui_smoke_question_id": "ops_calibration_review_cadence"
+  },
+  "questions": [
+    {
+      "id": "pm_leadership_styles_compare",
+      "title": "Leadership styles comparison",
+      "profile": "program_management",
+      "track": "quick_win",
+      "preferred_mode": "online",
+      "prompt": "What leadership styles are discussed and how do they differ?",
+      "expected_evidence": [
+        {
+          "kind": "path",
+          "target": "Leadership_Playbook.pdf",
+          "why": "Primary narrative source for the leadership models used in the demo corpus."
+        },
+        {
+          "kind": "citation_target",
+          "target": "leadership comparison table covering transformational, transactional, and servant leadership",
+          "why": "The strongest answer should cite the contrast table instead of paraphrasing from memory."
+        }
+      ],
+      "operator_note": "Default transcript question. Use early in the live run to show multi-source synthesis with clear citations."
+    },
+    {
+      "id": "eng_operating_frequency_range",
+      "title": "Operating frequency range",
+      "profile": "engineering_stem",
+      "track": "quick_win",
+      "preferred_mode": "online",
+      "prompt": "What is the operating frequency range?",
+      "expected_evidence": [
+        {
+          "kind": "path",
+          "target": "RF_System_Spec.pdf",
+          "why": "Expected primary source for the exact band numbers."
+        },
+        {
+          "kind": "citation_target",
+          "target": "operating band table or RF range section",
+          "why": "Answer quality is highest when the citation lands on the numeric table rather than a prose summary."
+        }
+      ],
+      "operator_note": "Good first-pass engineering question when you want an answer with exact numbers and a tight citation."
+    },
+    {
+      "id": "ops_calibration_review_cadence",
+      "title": "Calibration interval and review cadence",
+      "profile": "field_operations",
+      "track": "citation_confidence",
+      "preferred_mode": "offline",
+      "prompt": "calibration intervals quarterly review",
+      "expected_evidence": [
+        {
+          "kind": "path",
+          "target": "Maintenance_Procedure_Guide.docx",
+          "why": "Expected maintenance source for the interval wording."
+        },
+        {
+          "kind": "citation_target",
+          "target": "section 7.3 calibration interval plus quarterly review cadence",
+          "why": "GUI smoke and offline/Admin rehearsal should land on the interval language, not only the general maintenance prose."
+        }
+      ],
+      "operator_note": "Offline/Admin support-path question. gui_demo_smoke uses this because it can be reproduced safely with a tiny synthetic corpus."
+    },
+    {
+      "id": "security_offline_data_egress",
+      "title": "Offline data egress posture",
+      "profile": "security",
+      "track": "citation_confidence",
+      "preferred_mode": "online",
+      "prompt": "Does any data leave the machine in offline mode?",
+      "expected_evidence": [
+        {
+          "kind": "path",
+          "target": "Security_Posture_Overview.pdf",
+          "why": "Expected summary source for the network boundary claims."
+        },
+        {
+          "kind": "citation_target",
+          "target": "localhost-only network boundary or zero-egress guarantee section",
+          "why": "Security reviewers will look for the exact wording behind the offline claim."
+        }
+      ],
+      "operator_note": "Use when the audience leans security-heavy and you need the answer to stay factual and source-bounded."
+    },
+    {
+      "id": "ops_preventive_maintenance_impact",
+      "title": "Preventive maintenance impact",
+      "profile": "field_operations",
+      "track": "stress",
+      "preferred_mode": "online",
+      "prompt": "What maintenance actions reduce downtime and how often are they reviewed?",
+      "expected_evidence": [
+        {
+          "kind": "path",
+          "target": "Reliability_Improvement_Summary.pdf",
+          "why": "Expected cross-document source for the downtime reduction claim."
+        },
+        {
+          "kind": "citation_target",
+          "target": "quarterly review cycle tied to preventive maintenance program",
+          "why": "Strong answers should connect the action list with the review cadence rather than answer only one half."
+        }
+      ],
+      "operator_note": "Cross-document stress question. Best used after the quick wins when you want to show synthesis over multiple maintenance sources."
+    }
+  ]
+}

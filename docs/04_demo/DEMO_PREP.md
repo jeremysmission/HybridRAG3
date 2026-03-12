@@ -1,6 +1,6 @@
 # HybridRAG3 Demo Preparation
 
-Last Updated: 2026-02-24
+Last Updated: 2026-03-10
 
 ---
 
@@ -39,6 +39,22 @@ using only open-source, US/EU-origin AI models with no restrictive licenses.
    visible on a second monitor or positioned beside the main window so the
    audience can watch it update live during queries)
 7. Close all other apps to avoid RAM pressure on 8GB laptop
+
+### Rehearsal Pack Anchors
+
+- Source of truth: `docs/04_demo/DEMO_REHEARSAL_PACK.json`
+- Default live transcript question: `pm_leadership_styles_compare`
+- GUI smoke support question: `ops_calibration_review_cadence`
+- Preview the live transcript question without booting the stack:
+  `python tools/demo_transcript.py --describe-question`
+- Preview the GUI smoke reference question:
+  `python tools/gui_demo_smoke.py --describe-question`
+- Transcript and GUI smoke runs now each write a structured validation artifact
+  under `output/rehearsal_validation/` with the selected question metadata,
+  expected evidence, actual mode/path taken, and operator-facing pass/fail
+  notes for that run.
+- Policy: live demo transcript defaults stay online-first; the GUI smoke
+  question is an offline/Admin support-path reference only.
 
 ### Demo Flow (5 minutes)
 

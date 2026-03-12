@@ -4,6 +4,22 @@
 >
 > **Research basis**: 89 distinct findings synthesized from Reddit (r/LocalLLaMA, r/sysadmin, r/cybersecurity, r/MachineLearning), Hacker News, GitHub discussions (LangChain, LlamaIndex, Haystack), enterprise deployment reports (Squirro, Pryon, Glean, Harvey.ai), security research (OWASP, Lakera, IronCore Labs, Lasso Security), analyst reports (McKinsey, Gartner, VentureBeat), HBR studies (2025-2026), arXiv papers, production experience reports from 100+ RAG teams, and industry blogs (Towards Data Science, kapa.ai, Pinecone, Evidently AI).
 
+## Rehearsal Pack Anchor
+
+- Source of truth: `docs/04_demo/DEMO_REHEARSAL_PACK.json`
+- Use the pack's `expected_evidence` targets as the citation/path anchors for
+  transcript review, operator rehearsal, and QA sign-off.
+- Preview the transcript default question with
+  `python tools/demo_transcript.py --describe-question`
+- Preview the GUI smoke support-path question with
+  `python tools/gui_demo_smoke.py --describe-question`
+- After a transcript or GUI smoke run, inspect the matching
+  `output/rehearsal_validation/*.json` artifact to confirm the selected
+  question, expected evidence, actual mode/path, and operator notes are
+  truthful for that run.
+- Policy: live demo transcript questions stay online-first; offline/Admin
+  questions in the pack are support-path or harness references only.
+
 ---
 
 ## TIER 1: NEAR-CERTAIN (Asked at virtually every demo)

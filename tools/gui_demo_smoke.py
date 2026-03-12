@@ -39,6 +39,7 @@ EXIT CODES:
 """
 from __future__ import annotations
 
+import argparse
 import io
 import json
 import os
@@ -54,6 +55,16 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 os.chdir(str(PROJECT_ROOT))
+
+from src.tools.demo_rehearsal_pack import (
+    build_demo_validation_report,
+    default_demo_validation_report_dir,
+    format_expected_evidence,
+    load_demo_rehearsal_pack,
+    select_demo_question,
+    summarize_mode_sequence,
+    write_demo_validation_report,
+)
 
 REPORT_DIR = PROJECT_ROOT / "output"
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
@@ -111,6 +122,45 @@ def _wait_until(app, predicate, timeout_s=30.0, poll_s=0.1):
             pass
         _pump(app, seconds=poll_s)
     return False
+
+
+def _parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Run the GUI demo smoke harness with the repo-tracked rehearsal reference.",
+    )
+    parser.add_argument(
+        "--pack",
+        default="",
+        help="Optional path to a demo rehearsal pack JSON file.",
+    )
+    parser.add_argument(
+        "--describe-question",
+        action="store_true",
+        help="Print the selected GUI smoke rehearsal question and expected evidence, then exit.",
+    )
+    return parser.parse_args(argv)
+
+
+def _load_gui_smoke_question(pack_path: str = ""):
+    pack = load_demo_rehearsal_pack(pack_path or None)
+    question = select_demo_question(pack, default_key="gui_smoke_question_id")
+    return pack, question
+
+
+def _build_operator_notes():
+    notes = []
+    for entry in steps:
+        prefix = "PASS" if entry.get("ok") else "FAIL"
+        notes.append(
+            "{}: {} -- {}".format(
+                prefix,
+                entry.get("step", ""),
+                entry.get("detail", ""),
+            ).rstrip()
+        )
+    if not notes:
+        notes.append("WARN: No GUI smoke checks were recorded.")
+    return notes
 
 
 # ===================================================================
@@ -279,7 +329,7 @@ def step_index(app):
 # Step 5: Query the indexed document
 # ===================================================================
 
-def step_query(app):
+def step_query(app, rehearsal_question):
     print()
     print("--- Step 5: Query Demo Document ---")
 
@@ -307,10 +357,10 @@ def step_query(app):
 
         # Clear placeholder and enter question
         panel.question_entry.delete(0, "end")
-        panel.question_entry.insert(0, "calibration intervals quarterly review")
+        panel.question_entry.insert(0, rehearsal_question["prompt"])
         _pump(app, 0.1)
         check("Question entered",
-              panel.question_entry.get() == "calibration intervals quarterly review")
+              panel.question_entry.get() == rehearsal_question["prompt"])
 
         # Invoke Ask -- overlay is headless-safe (no monkeypatching needed)
         panel.ask_btn.invoke()
@@ -427,40 +477,85 @@ def step_shutdown(app):
 # Main
 # ===================================================================
 
-def main():
+def main(argv=None):
     global PASS, FAIL, steps
+    PASS = 0
+    FAIL = 0
+    steps = []
+    args = _parse_args(argv)
+    pack, rehearsal_question = _load_gui_smoke_question(args.pack)
+
+    if args.describe_question:
+        print("Pack: {}".format(pack["_path"]))
+        print("Policy: {}".format(pack["policy_note"]))
+        print("Question ID: {}".format(rehearsal_question["id"]))
+        print("Title: {}".format(rehearsal_question["title"]))
+        print("Profile: {} | Track: {} | Preferred mode: {}".format(
+            rehearsal_question["profile"],
+            rehearsal_question["track"],
+            rehearsal_question["preferred_mode"],
+        ))
+        print("Prompt: {}".format(rehearsal_question["prompt"]))
+        print("Expected evidence:")
+        for item in format_expected_evidence(rehearsal_question):
+            print("  - {}".format(item))
+        print("Operator note: {}".format(rehearsal_question["operator_note"]))
+        return 0
 
     print()
     print("=" * 65)
     print("  GUI DEMO SMOKE HARNESS (headless, button.invoke())")
     print("=" * 65)
+    print("  Rehearsal pack: {}".format(pack["_path"]))
+    print("  Selected question [{}] {}".format(
+        rehearsal_question["id"], rehearsal_question["title"]
+    ))
+    for item in format_expected_evidence(rehearsal_question):
+        print("    - {}".format(item))
 
     t0 = time.time()
+    path_taken = []
+    mode_sequence = []
 
     # Step 1: Boot
+    path_taken.append("boot_gui")
     app = step_boot()
     if app is None:
         print()
         print("[SKIP] Cannot continue without Tk")
-        _write_report(t0)
+        _write_report(
+            t0,
+            pack,
+            rehearsal_question,
+            exit_code=2,
+            path_taken=path_taken,
+            mode_sequence=mode_sequence,
+        )
         return 2
 
     # Step 2: Attach backends
+    path_taken.append("attach_backends")
     step_attach_backends(app)
 
     # Step 3: Mode switch
+    path_taken.append("mode_switch_offline")
     step_mode_switch(app)
+    mode_sequence.append(str(getattr(app.config, "mode", "") or "unknown"))
 
     # Step 4: Index
+    path_taken.append("index_demo_file")
     demo_dir = step_index(app)
 
     # Step 5: Query
-    step_query(app)
+    path_taken.append("query_demo_document")
+    step_query(app, rehearsal_question)
 
     # Step 6: Tuning
+    path_taken.append("tuning_view")
     step_tuning(app)
 
     # Step 7: Shutdown
+    path_taken.append("shutdown")
     step_shutdown(app)
 
     # Cleanup temp data
@@ -468,7 +563,14 @@ def main():
         shutil.rmtree(demo_dir, ignore_errors=True)
 
     # Report
-    _write_report(t0)
+    _write_report(
+        t0,
+        pack,
+        rehearsal_question,
+        exit_code=1 if FAIL else 0,
+        path_taken=path_taken,
+        mode_sequence=mode_sequence,
+    )
 
     print()
     print("=" * 65)
@@ -484,7 +586,15 @@ def main():
     return 1 if FAIL else 0
 
 
-def _write_report(t0):
+def _write_report(
+    t0,
+    pack=None,
+    rehearsal_question=None,
+    *,
+    exit_code=0,
+    path_taken=None,
+    mode_sequence=None,
+):
     report = {
         "ok": FAIL == 0,
         "passed": PASS,
@@ -492,6 +602,37 @@ def _write_report(t0):
         "elapsed_s": round(time.time() - t0, 2),
         "steps": steps,
     }
+    if pack and rehearsal_question:
+        report["pack"] = {
+            "path": pack["_path"],
+            "pack_id": pack["pack_id"],
+            "policy_note": pack["policy_note"],
+        }
+        report["question"] = rehearsal_question
+        validation_report = build_demo_validation_report(
+            pack,
+            rehearsal_question,
+            tool_name="gui_demo_smoke",
+            actual_mode=summarize_mode_sequence(mode_sequence),
+            actual_path=list(path_taken or []),
+            operator_notes=_build_operator_notes(),
+            passed=(exit_code == 0),
+            status="skipped" if exit_code == 2 else ("passed" if exit_code == 0 else "failed"),
+            primary_artifact=str(REPORT_PATH),
+            mode_sequence=list(mode_sequence or []),
+            details={
+                "steps": steps,
+                "counts": {
+                    "passed": PASS,
+                    "failed": FAIL,
+                },
+            },
+        )
+        validation_path = write_demo_validation_report(
+            validation_report,
+            project_root=PROJECT_ROOT,
+        )
+        report["validation_report_path"] = str(validation_path)
     try:
         REPORT_PATH.write_text(
             json.dumps(report, indent=2), encoding="utf-8")

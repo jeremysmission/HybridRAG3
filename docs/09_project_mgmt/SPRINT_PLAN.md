@@ -1,7 +1,7 @@
 # HybridRAG3 Sprint Plan
 
 **Created:** 2026-03-08  
-**Last updated:** 2026-03-09  
+**Last updated:** 2026-03-11  
 **Purpose:** one active tracker for demo-critical work, deployment prep, and longer-term backlog.
 
 ## Status Key
@@ -20,7 +20,8 @@
   - implicit runtime fallback to `default_config.yaml` / `user_overrides.yaml` is removed
 - Offline/online mode separation is materially improved and recent QA passes did not find fresh contamination bugs.
 - The main remaining environment gap is a real online end-to-end query against the Azure Government endpoint.
-- The next highest-value engineering work is query-side autotune, using the new split tuning surface as the control authority.
+- Query-side autotune is now landed and locally re-verified.
+- The next highest-value engineering work is demo hardening, starting with the rehearsal-pack validation and reporting path.
 
 ## Active Sprint Board
 
@@ -29,8 +30,8 @@
 | Sprint 1 -- QA Closeout and Config Freeze | `DONE` | Finish the config-authority cleanup and freeze the new authority model. | QA signs off on config authority, GUI save/reload, YAML round-trip, mode isolation, and no stale guidance in active docs. |
 | Sprint 2 -- Retrieval and Query Debug View | `DONE` | Add Admin-only diagnostics so failures can be traced to retrieval, query policy, or contamination. | Admin debug panel shows retrieved chunks, similarity scores, source files, kept/dropped reasons, effective settings, and active mode/data paths for each query. |
 | Sprint 3 -- Tuning UI Redesign | `DONE` | Split tuning into a clean retrieval/query-generation layout and expose the missing mirrored controls. | Tuning screen is split cleanly, offline and online common controls are mirrored, backend-only advanced controls are capability-gated, and the GUI round-trips to YAML cleanly. |
-| Sprint 4 -- Query-Side Autotune | `IN PROGRESS` | Tune query-policy and generation bundles overnight instead of only retriever-side settings. | Autotune can run query/generation bundles, save effective settings with results, and produce a ranked winner set for online and offline. |
-| Sprint 5 -- Demo Hardening | `NEXT` | Make the demo path stable, explainable, and rehearsed. | Clean index, stable online-first demo config, rehearsal question bank, retrieval debug ready for troubleshooting, and offline demo path kept Admin-only. |
+| Sprint 4 -- Query-Side Autotune | `DONE` | Tune query-policy and generation bundles overnight instead of only retriever-side settings. | Autotune can run query/generation bundles, save effective settings with results, and produce a ranked winner set for online and offline. |
+| Sprint 5 -- Demo Hardening | `IN PROGRESS` | Make the demo path stable, explainable, and rehearsed. | Clean index, stable online-first demo config, rehearsal question bank, retrieval debug ready for troubleshooting, and offline demo path kept Admin-only. |
 | Sprint 6 -- Shared Online Deployment | `LATER` | Prepare the workstation-hosted intranet deployment for small-team use. | User-facing web GUI, login identity, visible queue/status, audit logging, and online-only shared path are working. |
 | Sprint 7 -- Admin Operations Console | `LATER` | Expand the Admin side into the operational control surface. | Admin can review logs, audits, queue state, retrieval traces, profiles, and indexing schedule from one place. |
 | Sprint 8 -- Offline/Admin Specialization | `LATER` | Keep offline mode isolated for PII/admin/demo/nightly use without contaminating shared online behavior. | Offline mode is admin-scoped, path-isolated, and validated not to leak settings or data into online mode. |
