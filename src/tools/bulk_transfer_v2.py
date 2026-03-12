@@ -1148,10 +1148,13 @@ class AtomicTransferWorker:
         self._stop = stop_event
         self._log_lock = log_lock
 
-        # Dedup guard: in-memory set of content hashes claimed by a
-        # worker thread to prevent race conditions in find_by_hash.
-        self._dedup_seen: Set[str] = set()
+        # Dedup claims coordinate same-content files discovered by
+        # multiple workers. A worker claims the hash after finishing its
+        # copy so other workers can wait for the first verified result
+        # instead of materializing duplicate verified files.
         self._dedup_lock = threading.Lock()
+        self._dedup_cond = threading.Condition(self._dedup_lock)
+        self._dedup_claims: Dict[str, Dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -1294,6 +1297,66 @@ class AtomicTransferWorker:
                     f"waiting {base_wait:.0f}s..."
                 )
 
+    def _discard_tmp(self, tmp_path: Path) -> None:
+        """Best-effort cleanup for a duplicate or abandoned temp file."""
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except TypeError:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            logger.debug("tmp cleanup failed for %s: %s", tmp_path, e)
+
+    def _claim_dedup_hash(
+        self, content_hash: str,
+    ) -> Tuple[str, Optional[object], str]:
+        """
+        Claim a content hash for verified promotion, or wait for the
+        worker already handling that hash to finish.
+        """
+        with self._dedup_cond:
+            while True:
+                existing = self.manifest.find_by_hash(content_hash)
+                if existing:
+                    return ("duplicate", None, existing)
+
+                claim = self._dedup_claims.get(content_hash)
+                if claim is None or claim.get("status") == "failed":
+                    token = object()
+                    self._dedup_claims[content_hash] = {
+                        "owner": token,
+                        "status": "pending",
+                        "dest_path": "",
+                    }
+                    return ("owner", token, "")
+
+                if claim.get("status") == "success":
+                    return (
+                        "duplicate",
+                        None,
+                        str(claim.get("dest_path", "")),
+                    )
+
+                if self._stop.is_set():
+                    return ("stopped", None, "")
+
+                self._dedup_cond.wait(timeout=0.5)
+
+    def _finish_dedup_claim(
+        self, content_hash: str, token: object,
+        *, success: bool, dest_path: str = "",
+    ) -> None:
+        """Resolve a hash claim and wake any waiting duplicate workers."""
+        with self._dedup_cond:
+            claim = self._dedup_claims.get(content_hash)
+            if not claim or claim.get("owner") is not token:
+                return
+            claim["status"] = "success" if success else "failed"
+            claim["dest_path"] = str(dest_path or "")
+            self._dedup_cond.notify_all()
+
     # ------------------------------------------------------------------
     # Single-file atomic copy
     # ------------------------------------------------------------------
@@ -1307,71 +1370,18 @@ class AtomicTransferWorker:
         ext = os.path.splitext(source)[1].lower()
         t_start = datetime.now(timezone.utc).isoformat()
         start_time = time.monotonic()
+        hash_src = ""
+        claim_token: Optional[object] = None
 
         try:
-            # Step 1: Hash source before transfer
+            # Step 1: Snapshot the source before transfer
             pre_stat = _stat_with_timeout(source)
-            hash_src = _hash_file(source)
-            if not hash_src:
-                self.stats.files_failed += 1
-                self.stats.consecutive_failures += 1
-                self.manifest.record_transfer(
-                    self.run_id, source, result="failed",
-                    error_message="Cannot read source for hashing",
-                    transfer_start=t_start,
-                )
-                return
 
-            # Mtime stability check
-            try:
-                post_stat = _stat_with_timeout(source)
-                if post_stat.st_mtime != pre_stat.st_mtime or \
-                   post_stat.st_size != pre_stat.st_size:
-                    self.stats.files_quarantined += 1
-                    self.manifest.record_transfer(
-                        self.run_id, source, result="failed",
-                        hash_source=hash_src,
-                        error_message=(
-                            "Source file modified during hashing "
-                            "(mtime or size changed)"
-                        ),
-                        transfer_start=t_start,
-                    )
-                    return
-            except (OSError, TimeoutError):
-                pass
-
-            # Step 2: Deduplication check (thread-safe)
-            if cfg.deduplicate:
-                with self._dedup_lock:
-                    if hash_src in self._dedup_seen:
-                        self.stats.files_deduplicated += 1
-                        self.manifest.record_transfer(
-                            self.run_id, source,
-                            hash_source=hash_src,
-                            result="skipped_duplicate",
-                            transfer_start=t_start,
-                        )
-                        return
-                    existing = self.manifest.find_by_hash(hash_src)
-                    if existing:
-                        self._dedup_seen.add(hash_src)
-                        self.stats.files_deduplicated += 1
-                        self.manifest.record_transfer(
-                            self.run_id, source, dest_path=existing,
-                            hash_source=hash_src,
-                            result="skipped_duplicate",
-                            transfer_start=t_start,
-                        )
-                        return
-                    self._dedup_seen.add(hash_src)
-
-            # Step 3: Locked file detection
+            # Step 2: Locked file detection
             if not _can_read_file(source):
                 self.stats.files_skipped_locked += 1
                 self.manifest.record_transfer(
                     self.run_id, source, result="locked",
-                    hash_source=hash_src,
                     error_message="File locked or in use",
                     transfer_start=t_start,
                 )
@@ -1382,7 +1392,8 @@ class AtomicTransferWorker:
                 )
                 return
 
-            # Step 4: Atomic copy (source -> incoming/.tmp)
+            # Step 3: Atomic copy (source -> incoming/.tmp) while
+            # streaming the source SHA-256 so the source is read only once.
             root_name = Path(source_root).name
             if len(cfg.source_paths) > 1:
                 root_key = hashlib.md5(
@@ -1400,13 +1411,20 @@ class AtomicTransferWorker:
             copy_timeout = 60.0
             for attempt in range(1, cfg.max_retries + 1):
                 try:
-                    _buffered_copy(
+                    hash_src = _buffered_copy(
                         source, str(tmp_path),
                         cfg.copy_buffer_size, cfg.bandwidth_limit,
                         timeout=copy_timeout,
                         stop_event=self._stop,
                         progress_cb=self.stats.note_stream_bytes,
+                        hash_source=True,
                     )
+                    # Backward-compatibility for older monkeypatched copy
+                    # helpers in tests that still return None.
+                    if not hash_src:
+                        hash_src = _hash_file(source)
+                    if not hash_src:
+                        raise OSError("Cannot read source while copying")
                     copied = True
                     break
                 except Exception as e:
@@ -1456,14 +1474,76 @@ class AtomicTransferWorker:
                 )
                 return
 
-            # Step 5: Hash destination after transfer
-            hash_dst = _hash_file(str(tmp_path))
+            # Source stability check: if the file changed while we were
+            # reading it, do not trust the copied snapshot.
+            try:
+                post_stat = _stat_with_timeout(source)
+                if post_stat.st_mtime != pre_stat.st_mtime or \
+                   post_stat.st_size != pre_stat.st_size:
+                    self.stats.files_quarantined += 1
+                    q_path = self.staging.quarantine_file(
+                        tmp_path, dest_rel,
+                        "Source file modified during copy "
+                        "(mtime or size changed)",
+                    )
+                    self.manifest.record_transfer(
+                        self.run_id, source, dest_path=str(q_path),
+                        file_size_source=file_size,
+                        file_size_dest=_stat_with_timeout(str(q_path)).st_size,
+                        hash_source=hash_src,
+                        transfer_start=t_start,
+                        transfer_end=datetime.now(timezone.utc).isoformat(),
+                        duration_sec=time.monotonic() - start_time,
+                        speed_mbps=(
+                            file_size / max(time.monotonic() - start_time, 0.001)
+                        ) / (1024 * 1024),
+                        result="failed", retry_count=retries,
+                        error_message=(
+                            "Source file modified during copy "
+                            "(mtime or size changed)"
+                        ),
+                    )
+                    return
+            except (OSError, TimeoutError):
+                pass
+
+            # Step 4: Deduplication check after copy. Waiting workers will
+            # discard duplicate temp files once the first verified result
+            # for this hash is known.
+            if cfg.deduplicate:
+                claim_state, claim_token, existing = self._claim_dedup_hash(
+                    hash_src
+                )
+                if claim_state == "stopped":
+                    self._discard_tmp(tmp_path)
+                    self.manifest.record_transfer(
+                        self.run_id, source, result="stopped",
+                        hash_source=hash_src, retry_count=retries,
+                        error_message="Stopped while waiting on dedup result",
+                        transfer_start=t_start,
+                    )
+                    return
+                if claim_state == "duplicate":
+                    self._discard_tmp(tmp_path)
+                    self.stats.files_deduplicated += 1
+                    self.manifest.record_transfer(
+                        self.run_id, source, dest_path=existing,
+                        hash_source=hash_src,
+                        result="skipped_duplicate",
+                        transfer_start=t_start,
+                    )
+                    return
+
+            # Step 5: Hash destination after transfer when verification is on
+            hash_dst = ""
+            if cfg.verify_copies:
+                hash_dst = _hash_file(str(tmp_path))
             dur = time.monotonic() - start_time
             speed = (file_size / max(dur, 0.001)) / (1024 * 1024)
             t_end = datetime.now(timezone.utc).isoformat()
 
             # Step 6: Compare hashes
-            if hash_src != hash_dst:
+            if cfg.verify_copies and hash_src != hash_dst:
                 self.stats.files_verify_failed += 1
                 self.stats.files_quarantined += 1
                 q_path = self.staging.quarantine_file(
@@ -1471,6 +1551,11 @@ class AtomicTransferWorker:
                     f"Hash mismatch: src={hash_src[:16]} "
                     f"dst={hash_dst[:16]}",
                 )
+                if claim_token is not None:
+                    self._finish_dedup_claim(
+                        hash_src, claim_token, success=False,
+                    )
+                    claim_token = None
                 self.manifest.record_transfer(
                     self.run_id, source, dest_path=str(q_path),
                     file_size_source=file_size,
@@ -1482,7 +1567,8 @@ class AtomicTransferWorker:
                 )
                 return
 
-            self.stats.files_verified += 1
+            if cfg.verify_copies:
+                self.stats.files_verified += 1
 
             # Step 7: Promote to verified/
             final = self.staging.promote_to_verified(
@@ -1521,11 +1607,21 @@ class AtomicTransferWorker:
                 file_ctime=getattr(pre_stat, "st_ctime", 0.0),
                 content_hash=hash_src, extension=ext,
             )
+            if claim_token is not None:
+                self._finish_dedup_claim(
+                    hash_src, claim_token, success=True,
+                    dest_path=str(final),
+                )
+                claim_token = None
 
             # Reset consecutive failure counter on success (network is OK)
             self.stats.consecutive_failures = 0
 
         except Exception as e:
+            if claim_token is not None and hash_src:
+                self._finish_dedup_claim(
+                    hash_src, claim_token, success=False,
+                )
             self.stats.files_failed += 1
             self.stats.consecutive_failures += 1
             self.stats.record_source_event(source_root, "failed")
@@ -2007,8 +2103,8 @@ def _can_read_file(path: str, timeout: float = 5.0) -> bool:
 def _buffered_copy(
     src: str, dst: str, buf_size: int = 1_048_576,
     bw_limit: int = 0, timeout: float = 0, stop_event: threading.Event = None,
-    progress_cb=None,
-) -> None:
+    progress_cb=None, hash_source: bool = False,
+) -> str:
     """
     Copy a file using buffered reads with optional bandwidth limiting.
 
@@ -2020,6 +2116,7 @@ def _buffered_copy(
     """
     if timeout > 0:
         error_holder = [None]
+        result_holder = [""]
         last_progress = [time.monotonic()]
 
         def _touch_progress():
@@ -2027,7 +2124,7 @@ def _buffered_copy(
 
         def _do_copy():
             try:
-                _buffered_copy_inner(
+                result_holder[0] = _buffered_copy_inner(
                     src,
                     dst,
                     buf_size,
@@ -2035,6 +2132,7 @@ def _buffered_copy(
                     stop_event=stop_event,
                     progress_touch=_touch_progress,
                     progress_cb=progress_cb,
+                    hash_source=hash_source,
                 )
             except Exception as e:
                 error_holder[0] = e
@@ -2051,18 +2149,21 @@ def _buffered_copy(
                 )
         if error_holder[0] is not None:
             raise error_holder[0]
+        return result_holder[0]
     else:
-        _buffered_copy_inner(
-            src, dst, buf_size, bw_limit, stop_event=stop_event, progress_cb=progress_cb
+        return _buffered_copy_inner(
+            src, dst, buf_size, bw_limit, stop_event=stop_event,
+            progress_cb=progress_cb, hash_source=hash_source,
         )
 
 
 def _buffered_copy_inner(
     src: str, dst: str, buf_size: int = 1_048_576,
     bw_limit: int = 0, stop_event: threading.Event = None,
-    progress_touch=None, progress_cb=None,
-) -> None:
+    progress_touch=None, progress_cb=None, hash_source: bool = False,
+) -> str:
     """Inner copy logic (no timeout wrapper)."""
+    hasher = hashlib.sha256() if hash_source else None
     with open(to_io_path(src), "rb") as fsrc, open(to_io_path(dst), "wb") as fdst:
         if progress_touch is not None:
             progress_touch()
@@ -2073,6 +2174,8 @@ def _buffered_copy_inner(
             data = fsrc.read(buf_size)
             if not data:
                 break
+            if hasher is not None:
+                hasher.update(data)
             fdst.write(data)
             if progress_touch is not None:
                 progress_touch()
@@ -2089,6 +2192,7 @@ def _buffered_copy_inner(
         # eliminates the window entirely.
         fdst.flush()
         os.fsync(fdst.fileno())
+    return hasher.hexdigest() if hasher is not None else ""
 
 
 def _fmt_size(b) -> str:

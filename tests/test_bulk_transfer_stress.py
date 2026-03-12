@@ -39,9 +39,11 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 from src.tools.bulk_transfer_v2 import (
+    AtomicTransferWorker,
     BulkTransferV2,
     SourceDiscovery,
     TransferConfig,
+    TransferStats,
     _hash_file,
     _can_read_file,
     _buffered_copy,
@@ -188,6 +190,81 @@ class TestDeduplication:
         stats = _run_transfer(src, dst)
         assert stats.files_copied == 2
 
+    def test_identical_files_deduped_with_parallel_workers(self, tmp_dirs):
+        """Parallel workers still collapse identical content to one copy."""
+        src, dst = tmp_dirs
+        content = os.urandom(2_000_000)
+        _make_file(src / "a.txt", content=content)
+        _make_file(src / "b.txt", content=content)
+        stats = _run_transfer(src, dst, workers=2)
+        assert stats.files_copied == 1
+        assert stats.files_deduplicated == 1
+
+    def test_hash_mismatch_releases_dedup_claim_for_later_duplicate(self, tmp_dirs):
+        """A failed first copy should not block a later identical file."""
+        src, dst = tmp_dirs
+        content = os.urandom(500)
+        file_a = _make_file(src / "a.txt", content=content)
+        file_b = _make_file(src / "b.txt", content=content)
+
+        cfg = TransferConfig(
+            source_paths=[str(src)],
+            dest_path=str(dst),
+            workers=1,
+            min_file_size=10,
+            resume=False,
+            deduplicate=True,
+        )
+        run_id = "run1"
+        manifest = TransferManifest(str(dst / "_transfer_manifest.db"))
+        staging = StagingManager(str(dst))
+        stats = TransferStats()
+        worker = AtomicTransferWorker(
+            cfg,
+            manifest,
+            staging,
+            stats,
+            run_id,
+            threading.Event(),
+            threading.Lock(),
+        )
+        manifest.start_run(run_id, [str(src)], str(dst))
+
+        real_hash = _hash_file
+        corrupted_once = {"done": False}
+
+        def corrupt_first_tmp_hash(path, timeout=120.0):
+            p = Path(path)
+            if (
+                not corrupted_once["done"]
+                and "incoming" in p.parts
+                and p.name == "a.txt.tmp"
+            ):
+                corrupted_once["done"] = True
+                return "0" * 64
+            return real_hash(path, timeout)
+
+        try:
+            with mock.patch(
+                "src.tools.bulk_transfer_v2._hash_file",
+                side_effect=corrupt_first_tmp_hash,
+            ):
+                worker._transfer_one(
+                    str(file_a), str(src), "a.txt", file_a.stat().st_size
+                )
+                worker._transfer_one(
+                    str(file_b), str(src), "b.txt", file_b.stat().st_size
+                )
+        finally:
+            manifest.close()
+
+        assert stats.files_verify_failed == 1
+        assert stats.files_copied == 1
+        assert stats.files_deduplicated == 0
+        verified_files = list((dst / "verified").rglob("*.txt"))
+        assert len(verified_files) == 1
+        assert verified_files[0].read_bytes() == content
+
 
 # ============================================================================
 # Test 3: Resume / restart
@@ -308,6 +385,23 @@ class TestHashVerification:
         # Either completes fast (small file) or returns empty
         assert isinstance(result, str)
 
+    def test_buffered_copy_returns_streamed_source_hash(self, tmp_dirs):
+        """_buffered_copy can return the source SHA-256 while copying."""
+        src, dst = tmp_dirs
+        content = os.urandom(4096)
+        source_file = _make_file(src / "streamed.txt", content=content)
+        dest_file = dst / "streamed.out"
+
+        digest = _buffered_copy(
+            str(source_file),
+            str(dest_file),
+            buf_size=512,
+            hash_source=True,
+        )
+
+        assert digest == hashlib.sha256(content).hexdigest()
+        assert dest_file.read_bytes() == content
+
     def test_corrupted_copy_detected(self, tmp_dirs):
         """Corrupted file during copy is caught by hash mismatch."""
         src, dst = tmp_dirs
@@ -332,6 +426,25 @@ class TestHashVerification:
         assert stats.files_verify_failed == 1
         assert stats.files_quarantined == 1
         assert stats.files_copied == 0
+
+    def test_transfer_hashes_source_during_copy_only(self, tmp_dirs):
+        """Successful transfer does not perform a separate source hash pass."""
+        src, dst = tmp_dirs
+        sample = _make_file(src / "doc.txt", size=50_000)
+        real_hash_file = _hash_file
+
+        def guard_hash(path, timeout=120.0):
+            assert path != str(sample), "source file was hashed separately"
+            return real_hash_file(path, timeout)
+
+        with mock.patch(
+            "src.tools.bulk_transfer_v2._hash_file",
+            side_effect=guard_hash,
+        ):
+            stats = _run_transfer(src, dst, deduplicate=False)
+
+        assert stats.files_copied == 1
+        assert stats.files_verify_failed == 0
 
 
 # ============================================================================
@@ -962,11 +1075,11 @@ class TestEndToEnd:
 
 
 # ============================================================================
-# Test 21: Connection dropout simulation (VPN/corporate network)
+# Test 21: Connection dropout simulation (VPN/office network)
 # ============================================================================
 # Simulates what happens when the network drops mid-transfer and
 # then recovers. This is the bread-and-butter failure mode for
-# corporate VPN transfers overnight.
+# office VPN transfers overnight.
 # ============================================================================
 
 class TestConnectionDropout:
@@ -1052,7 +1165,7 @@ class TestConnectionDropout:
     def test_permission_error_not_retried(self, tmp_dirs):
         """PermissionError causes immediate skip, not infinite retry.
 
-        Simulates: corporate ACL blocks access to certain folders.
+        Simulates: network ACL blocks access to certain folders.
         The engine should not waste retries on permission denials.
         """
         src, dst = tmp_dirs
@@ -1063,7 +1176,7 @@ class TestConnectionDropout:
 
         def perm_block(s, d, buf_size=1048576, bw_limit=0, **kw):
             if "blocked" in s:
-                raise PermissionError("Access denied by corporate ACL")
+                raise PermissionError("Access denied by network ACL")
             original_copy(s, d, buf_size, bw_limit, **kw)
 
         with mock.patch(
@@ -1088,7 +1201,7 @@ class TestConnectionDropout:
 # Test 22: Speed fluctuation simulation
 # ============================================================================
 # Simulates network bandwidth that varies wildly -- the reality of
-# corporate networks shared by 500+ users.
+# office networks shared by 500+ users.
 # ============================================================================
 
 class TestSpeedFluctuation:
@@ -1096,7 +1209,7 @@ class TestSpeedFluctuation:
     def test_variable_speed_completes(self, tmp_dirs):
         """Transfer completes with wildly varying copy speeds.
 
-        Simulates: corporate WAN link shared by hundreds of users.
+        Simulates: office WAN link shared by hundreds of users.
         Some copies finish instantly, others crawl.
         """
         src, dst = tmp_dirs
