@@ -1,7 +1,7 @@
 # HybridRAG3 Sprint Plan
 
 **Created:** 2026-03-08  
-**Last updated:** 2026-03-13 11:35 America/Denver  
+**Last updated:** 2026-03-13 12:17 America/Denver  
 **Purpose:** one active tracker for demo-critical work, deployment prep, and longer-term backlog.
 
 ## Status Key
@@ -49,7 +49,7 @@
   - `Sprint 5 -> Sprint 6 -> Sprint 7 -> Sprint 8 -> Sprint 9 -> Sprint 10 -> Sprint 11 -> Sprint 12 -> Sprint 13 -> Sprint 14`
   - remaining blockers on that chain are now explicit:
     - `Sprint 5`: missing live API credentials for the final online demo-hardening pass
-    - `Sprint 13`: current QA reject on shared-launch auth semantics plus the pending live authenticated-online soak rerun
+    - `Sprint 13`: current-token auth gating is now locally fixed and ready for QA; remaining blocked path after that QA pass is the authenticated-online soak rerun plus the load-ceiling refresh
 - Repo-wide QA evidence was pushed one step further after the GUI parity harness slice:
   - the authoritative repo-wide evidence for this checkout is the split `.venv` gate:
     - `.venv\Scripts\python.exe -m pytest tests/ --ignore=tests/test_fastapi_server.py`
@@ -140,6 +140,12 @@
     - the auth/mode drift found in `13.4` is now closable through shipped code and tooling instead of manual env-only setup
   - `13.5` is now back in rework after QA found a remaining auth-boundary defect:
     - previous-token-only shared auth is still incorrectly treated as launch-ready
+  - `13.5a -- Current Token Requirement Fix` is now locally landed and ready for QA:
+    - shared auth now requires a current token before the deployment is treated as configured or rotation-enabled
+    - previous-token-only preflight now fails closed
+    - previous-token-only production API startup now fails closed
+    - previous-token-only `/auth/context` requests now stay in the anonymous open posture instead of being treated as authenticated shared auth
+    - the same full-gate pass also hardened GUI seed persistence in `src/gui/panels/tuning_tab_runtime.py` so a lagging entry widget cannot overwrite a newer bound `IntVar` seed during large suite runs
   - remaining completion path is now normalized as:
     - `13.5a -- Current Token Requirement Fix`
     - `13.5b -- Auth Boundary Reverify`
@@ -147,7 +153,7 @@
     - `13.7 -- Load Ceiling Decision And Operating Limit`
     - `13.8 -- Launch Verdict Refresh`
     - `Sprint 14 -- Shared Launch Acceptance And Project Closeout`
-  - next forward move is `13.5a -- Current Token Requirement Fix`
+  - next forward move after QA is `13.5b -- Auth Boundary Reverify`
 - Repo-level health blocker cleared again in this checkout:
   - class-size enforcement now follows the actual repo rule that comments, blank lines, and docstrings do not count
   - `QueryEngine` and `GroundedQueryEngine` helper surfaces were split so the effective class sizes are back under the standing 500-line rule
@@ -1252,7 +1258,7 @@ Without a trace view, tuning remains guesswork.
 4. `13.3 -- Launch Checklist and Operator Runbook` -- `DONE`
 5. `13.4 -- Cutover Readiness Review` -- `DONE`
 6. `13.5 -- Shared Launch Auth And Preflight` -- `IN PROGRESS (QA reject / rework)`
-7. `13.5a -- Current Token Requirement Fix` -- `NEXT`
+7. `13.5a -- Current Token Requirement Fix` -- `IN PROGRESS (READY FOR QA)`
 8. `13.5b -- Auth Boundary Reverify` -- `NEXT`
 9. `13.6 -- Live Authenticated-Online Soak Refresh` -- `NEXT`
 10. `13.7 -- Load Ceiling Decision And Operating Limit` -- `NEXT`
@@ -1492,17 +1498,36 @@ Without a trace view, tuning remains guesswork.
   - Sprint 13 remains blocked at the PM level until the live workstation reruns the new preflight path and a fresh soak artifact confirms authenticated online posture
   - the live concurrency ceiling is still only validated at `concurrency=1`
 
-### 13.5a Current Token Requirement Fix -- NEXT
+### 13.5a Current Token Requirement Fix -- IN PROGRESS (READY FOR QA)
 
-- Tighten shared auth readiness semantics so a previous token can extend a rotation window but cannot become the only configured shared launch secret.
-- Required coder changes:
-  - previous-token-only preflight must fail
-  - previous-token-only production startup must fail
-  - previous-token-only request auth must not be treated as launch-ready shared auth
-- Required verification:
-  - focused shared-auth tests
-  - FastAPI auth-context tests
-  - full `.venv` repo gate after the fix
+- Tightened shared auth readiness semantics so a previous token can extend a rotation window but cannot become the only configured shared launch secret.
+- Landed implementation:
+  - `src/security/shared_deployment_auth.py`
+    - `configured` now requires the current token instead of any non-empty token ring
+    - `rotation_enabled` now requires both current and previous tokens
+    - accepted request-auth tokens now collapse to `()` when the current token is missing, so previous-token-only posture is no longer treated as valid shared auth
+  - `tests/test_shared_deployment_auth.py`
+    - added direct regression for previous-token-only shared launch readiness
+    - added direct regression for previous-token-only shared launch preflight in `mode=online` plus `deployment_mode=production`
+  - `tests/test_fastapi_server.py`
+    - added `/auth/context` regression proving previous-token-only requests stay anonymous/open
+    - added production startup guard regression proving the API server fails closed when only the previous token exists
+  - `src/gui/panels/tuning_tab_runtime.py`
+    - hardened seed resolution against stale entry text during large suite runs
+  - `tests/test_gui_integration_w4.py`
+    - added regression proving programmatic seed updates survive lagging entry text
+- Verification:
+  - `python -m pytest tests/test_shared_deployment_auth.py tests/test_gui_integration_w4.py -q`
+    - result: `44 passed`
+  - `.venv\Scripts\python.exe -m pytest tests/test_fastapi_server.py -q`
+    - result: `82 passed, 1 warning`
+  - `python -m pytest tests/ --ignore=tests/test_fastapi_server.py`
+    - result: `699 passed, 7 skipped, 7 warnings`
+  - `.venv\Scripts\python.exe -m pytest tests/`
+    - result: `823 passed, 4 skipped, 7 warnings`
+  - required virtual suites rerun:
+    - `phase1`, `phase2`, `phase4`, `view_switching`, `setup_wizard`, `setup_scripts`, `guard_part1`, `guard_part2`, `setup_group_policy`, `ibit_reference`, `offline_isolation`
+    - result: green
 
 ### 13.5b Auth Boundary Reverify -- NEXT
 
