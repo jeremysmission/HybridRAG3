@@ -421,6 +421,7 @@ class TestAuthContext:
         from src.security import shared_deployment_auth as shared_auth
 
         monkeypatch.delenv("HYBRIDRAG_API_AUTH_TOKEN", raising=False)
+        monkeypatch.setenv("HYBRIDRAG_DEPLOYMENT_MODE", "production")
         monkeypatch.setenv("HYBRIDRAG_API_AUTH_TOKEN_PREVIOUS", "previous-token")
         monkeypatch.setattr(shared_auth, "_read_keyring", lambda _name: None)
         monkeypatch.setattr(
@@ -432,6 +433,8 @@ class TestAuthContext:
             ),
         )
         monkeypatch.setattr(api_server, "set_runtime_active_mode", lambda _mode: None)
+        original_config = api_server.state.config
+        original_deployment_mode = api_server.state.deployment_mode
         shared_auth.invalidate_shared_auth_cache()
 
         try:
@@ -439,6 +442,8 @@ class TestAuthContext:
                 with TestClient(app):
                     pass
         finally:
+            api_server.state.config = original_config
+            api_server.state.deployment_mode = original_deployment_mode
             shared_auth.invalidate_shared_auth_cache()
 
     def test_auth_context_ignores_proxy_identity_headers_when_not_trusted(self, client):
