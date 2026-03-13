@@ -96,6 +96,7 @@ SKIP_PATTERNS = [
     ".tmp_pytest",                 # pytest basetemp dirs left by test runners
     ".tmp_pytest_full",            # pytest basetemp dirs left by test runners
     ".tmp_stream_test",            # test runner temp dirs
+    "_jcoder_worktree/",           # local nested worktree must never sync
 
     # [GIT] Git internals
     ".git",
