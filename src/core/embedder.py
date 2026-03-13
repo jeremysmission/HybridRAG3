@@ -36,7 +36,7 @@
 #
 # SECURITY MODEL:
 #   Ollama runs on 127.0.0.1:11434 only. No data leaves the machine.
-#   Uses 127.0.0.1 (not "localhost") to prevent corporate proxy/DNS
+#   Uses 127.0.0.1 (not "localhost") to prevent managed-network proxy/DNS
 #   interception that can redirect embedding traffic to remote hosts.
 #   The OLLAMA_HOST env var can override the base URL if needed.
 #
@@ -95,12 +95,12 @@ class Embedder:
 
         self._validate_host()
 
-        # Corporate proxy bypass for localhost Ollama connections.
+        # Managed-network proxy bypass for localhost Ollama connections.
         # proxy=None: do not configure an explicit proxy.
         # trust_env=False: ignore HTTP_PROXY / HTTPS_PROXY env vars
         #   entirely. proxy=None alone is NOT enough -- httpx still
         #   reads proxy env vars when trust_env=True (the default).
-        #   On work machines with corporate proxy, HTTP_PROXY causes
+        #   On managed-network machines, HTTP_PROXY can cause
         #   httpx to route 127.0.0.1 traffic through the proxy, which
         #   returns HTTP 301 Moved Permanently instead of reaching Ollama.
         # follow_redirects=False: fail-fast if a proxy does intercept.
@@ -153,18 +153,18 @@ class Embedder:
         """
         Reject HTTP redirect responses (3xx).
 
-        WHY: Corporate proxies can intercept localhost requests and return
+        WHY: Managed-network proxies can intercept localhost requests and return
         a 301/302 pointing to a remote proxy IP (e.g. 10.x.x.x). If we
         followed the redirect, embedding text would be sent off-machine.
         This was observed on work networks where "localhost" DNS resolved
-        through a corporate interceptor.
+        through a managed-network interceptor.
         """
         if 300 <= resp.status_code < 400:
             location = resp.headers.get("location", "(unknown)")
             raise OllamaNotRunningError(
                 f"Ollama at {self.base_url} returned redirect "
                 f"{resp.status_code} -> {location}. "
-                f"A corporate proxy may be intercepting localhost traffic. "
+                f"A managed-network proxy may be intercepting localhost traffic. "
                 f"Verify Ollama is running: ollama serve"
             )
 

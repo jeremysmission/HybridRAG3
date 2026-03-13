@@ -204,7 +204,7 @@ class TestIndexer:
     def test_skips_unchanged_files(self):
         """
         WHAT: If a file was already indexed and hasn't changed, skip it.
-        WHY:  Your 100GB corporate drive has thousands of files. Most don't
+        WHY:  A large shared drive can have thousands of files. Most don't
               change. Without skip logic, every re-index takes days.
               With it, a re-index takes minutes.
         """

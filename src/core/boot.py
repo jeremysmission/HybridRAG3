@@ -348,7 +348,7 @@ def boot_hybridrag(config_path=None) -> BootResult:
             # Use the lightweight root health endpoint here instead of
             # /api/tags. The tags route can exceed the 2s boot join window
             # on cold local workstations even when Ollama is healthy.
-            # ProxyHandler({}) bypasses corporate proxy for loopback.
+            # ProxyHandler({}) bypasses managed-network proxy for loopback.
             # Without this, transparent proxy intercepts 127.0.0.1.
             opener = urllib.request.build_opener(
                 urllib.request.ProxyHandler({})
@@ -401,7 +401,7 @@ def boot_hybridrag(config_path=None) -> BootResult:
             get_gate().check_allowed(
                 f"{vllm_url}/health", "vllm_boot_check", "boot",
             )
-            # ProxyHandler({}) bypasses corporate proxy for loopback,
+            # ProxyHandler({}) bypasses managed-network proxy for loopback,
             # matching the Ollama boot check pattern above.
             opener = urllib.request.build_opener(
                 urllib.request.ProxyHandler({})
