@@ -98,6 +98,29 @@ def test_build_shared_launch_snapshot_ready_with_keyring_token(monkeypatch):
     assert snapshot.browser_session_secret_source == "api_auth_token_fallback"
 
 
+def test_previous_token_only_does_not_count_as_shared_launch_ready(monkeypatch):
+    _clear_shared_env(monkeypatch)
+    monkeypatch.setenv(shared_auth.SHARED_API_AUTH_TOKEN_PREVIOUS_ENV, "previous-only")
+    monkeypatch.setattr(shared_auth, "_read_keyring", lambda _name: None)
+    config = SimpleNamespace(
+        mode="online",
+        security=SimpleNamespace(deployment_mode="production"),
+    )
+
+    status = shared_auth.resolve_shared_api_auth_status(use_cache=False)
+    snapshot = shared_auth.build_shared_launch_snapshot(config, project_root="D:/HybridRAG3")
+
+    assert status.current_token == ""
+    assert status.previous_token == "previous-only"
+    assert status.tokens == ()
+    assert status.configured is False
+    assert status.rotation_enabled is False
+    assert snapshot.ready_for_shared_launch is False
+    assert snapshot.api_auth_required is False
+    assert snapshot.browser_session_secret_source == "disabled"
+    assert "Shared API auth token is not configured." in snapshot.blockers
+
+
 def test_apply_shared_launch_profile_persists_online_and_production(tmp_path, monkeypatch):
     _clear_shared_env(monkeypatch)
     config_dir = tmp_path / "config"
@@ -145,6 +168,34 @@ def test_shared_launch_preflight_main_emits_json_and_fail_code(tmp_path, monkeyp
     payload = json.loads(capsys.readouterr().out)
     assert payload["ready_for_shared_launch"] is False
     assert "Runtime mode is not online." in payload["blockers"]
+
+
+def test_shared_launch_preflight_previous_token_only_fails_in_production_online_mode(
+    tmp_path, monkeypatch, capsys
+):
+    _clear_shared_env(monkeypatch)
+    monkeypatch.setenv(shared_auth.SHARED_API_AUTH_TOKEN_PREVIOUS_ENV, "previous-only")
+    monkeypatch.setattr(shared_auth, "_read_keyring", lambda _name: None)
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "config.yaml").write_text(
+        yaml.safe_dump({"mode": "online", "security": {"deployment_mode": "production"}}, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    code = shared_launch_preflight.main(
+        ["--project-root", str(tmp_path), "--json", "--fail-if-blocked"]
+    )
+
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["mode"] == "online"
+    assert payload["deployment_mode"] == "production"
+    assert payload["shared_online_ready"] is True
+    assert payload["api_auth_required"] is False
+    assert payload["api_auth_rotation_enabled"] is False
+    assert payload["ready_for_shared_launch"] is False
+    assert payload["blockers"] == ["Shared API auth token is not configured."]
 
 
 def test_store_shared_api_auth_token_uses_keyring_and_invalidates_cache(monkeypatch):

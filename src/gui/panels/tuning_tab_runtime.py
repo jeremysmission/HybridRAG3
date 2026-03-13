@@ -465,6 +465,12 @@ def _current_seed_value(self):
 
 
 def _seed_value_or_current(self):
+    current_value = self._current_seed_value()
+    var_value = None
+    try:
+        var_value = int(self.seed_var.get())
+    except (AttributeError, tk.TclError, TypeError, ValueError):
+        pass
     seed_entry = getattr(self, "_scales", {}).get("seed")
     if seed_entry is not None and hasattr(seed_entry, "get"):
         try:
@@ -473,15 +479,22 @@ def _seed_value_or_current(self):
             raw = ""
         if raw:
             try:
-                return int(raw)
+                parsed = int(raw)
             except ValueError:
-                return self._current_seed_value()
-        return self._current_seed_value()
-    try:
-        return int(self.seed_var.get())
-    except (AttributeError, tk.TclError, TypeError, ValueError):
-        pass
-    return self._current_seed_value()
+                return current_value
+            # Tk entry text can lag behind a programmatic IntVar update during
+            # larger suite runs. If the entry still shows the last committed
+            # seed but the bound variable holds a newer valid value, trust the
+            # newer value instead of snapping back to the stale seed.
+            if var_value is not None and var_value != current_value and parsed == current_value:
+                return var_value
+            return parsed
+        if var_value is not None and var_value != current_value:
+            return var_value
+        return current_value
+    if var_value is not None:
+        return var_value
+    return current_value
 
 
 def _var_value(self, key, var):

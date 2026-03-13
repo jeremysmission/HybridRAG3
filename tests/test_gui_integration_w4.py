@@ -999,6 +999,28 @@ def test_12c_seed_entry_tolerates_temporary_invalid_text(tmp_path):
     root.destroy()
 
 
+def test_12c_seed_var_update_survives_stale_entry_text(tmp_path):
+    """Programmatic seed updates should not snap back when the entry lags."""
+    root = _make_root()
+    config = FakeGUIConfig()
+    config.ollama.seed = 42
+
+    from src.gui.panels.settings_view import SettingsView
+
+    with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": str(tmp_path)}):
+        app_ref = MagicMock()
+        view = SettingsView(root, config=config, app_ref=app_ref)
+        seed_entry = view._tuning_tab._scales["seed"]
+
+        view.seed_var.set(99)
+        with patch.object(seed_entry, "get", return_value="42"):
+            view._on_llm_change()
+        assert config.ollama.seed == 99
+
+    view.destroy()
+    root.destroy()
+
+
 def test_12c_settings_view_mode_store_persists_min_max_without_snapback(tmp_path):
     """Mode-store backed controls must keep user-selected extremes after resync."""
     root = _make_root()

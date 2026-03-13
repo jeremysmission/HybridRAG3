@@ -31,11 +31,11 @@ class SharedApiAuthStatus:
 
     @property
     def configured(self) -> bool:
-        return bool(self.tokens)
+        return bool(self.current_token)
 
     @property
     def rotation_enabled(self) -> bool:
-        return bool(self.previous_token)
+        return bool(self.current_token and self.previous_token)
 
     @property
     def primary_source(self) -> str:
@@ -87,7 +87,7 @@ def resolve_shared_api_auth_status(*, use_cache: bool = True) -> SharedApiAuthSt
         SHARED_API_AUTH_TOKEN_PREVIOUS_ENV,
         SHARED_API_AUTH_TOKEN_PREVIOUS_KEYRING_NAME,
     )
-    tokens = _dedupe_non_empty(current_token, previous_token)
+    tokens = _dedupe_non_empty(current_token, previous_token) if current_token else ()
     status = SharedApiAuthStatus(
         current_token=current_token,
         current_source=current_source,

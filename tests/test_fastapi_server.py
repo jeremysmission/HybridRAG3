@@ -366,6 +366,25 @@ class TestAuthContext:
         assert data["auth_mode"] == "api_token"
         assert data["actor"] == "ops-dashboard"
 
+    def test_auth_context_does_not_treat_previous_token_without_current_primary_as_authenticated(
+        self, client, monkeypatch
+    ):
+        monkeypatch.delenv("HYBRIDRAG_API_AUTH_TOKEN", raising=False)
+        monkeypatch.setenv("HYBRIDRAG_API_AUTH_TOKEN_PREVIOUS", "previous-token")
+        monkeypatch.setenv("HYBRIDRAG_API_AUTH_LABEL", "ops-dashboard")
+
+        response = client.get(
+            "/auth/context",
+            headers={"Authorization": "Bearer previous-token"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["auth_required"] is False
+        assert data["auth_mode"] == "open"
+        assert data["actor"] == "anonymous"
+        assert data["actor_source"] == "anonymous"
+
     def test_auth_context_accepts_keyring_backed_shared_api_token(self, client, monkeypatch):
         from src.security import shared_deployment_auth as shared_auth
 
@@ -393,6 +412,32 @@ class TestAuthContext:
             assert data["auth_required"] is True
             assert data["auth_mode"] == "api_token"
             assert data["actor"] == "ops-dashboard"
+        finally:
+            shared_auth.invalidate_shared_auth_cache()
+
+    def test_production_startup_rejects_previous_token_without_current_primary(self, monkeypatch):
+        from types import SimpleNamespace
+        from src.api import server as api_server
+        from src.security import shared_deployment_auth as shared_auth
+
+        monkeypatch.delenv("HYBRIDRAG_API_AUTH_TOKEN", raising=False)
+        monkeypatch.setenv("HYBRIDRAG_API_AUTH_TOKEN_PREVIOUS", "previous-token")
+        monkeypatch.setattr(shared_auth, "_read_keyring", lambda _name: None)
+        monkeypatch.setattr(
+            api_server,
+            "load_config",
+            lambda _root: SimpleNamespace(
+                mode="online",
+                security=SimpleNamespace(deployment_mode="production"),
+            ),
+        )
+        monkeypatch.setattr(api_server, "set_runtime_active_mode", lambda _mode: None)
+        shared_auth.invalidate_shared_auth_cache()
+
+        try:
+            with pytest.raises(RuntimeError, match="no shared API token is configured"):
+                with TestClient(app):
+                    pass
         finally:
             shared_auth.invalidate_shared_auth_cache()
 
