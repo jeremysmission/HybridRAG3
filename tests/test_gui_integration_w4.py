@@ -468,6 +468,31 @@ def test_05c_use_case_change_preserves_higher_context_window():
     root.destroy()
 
 
+def test_05c_online_use_case_change_skips_deployment_discovery_without_endpoint():
+    """Online use-case changes should not probe deployments when no endpoint exists."""
+    root = _make_root()
+    config = FakeGUIConfig(mode="online")
+    config.api.endpoint = ""
+    config.api.deployment = ""
+
+    from src.gui.panels.query_panel import QueryPanel
+
+    with patch(
+        "src.gui.panels.query_panel_use_case_runtime.get_available_deployments",
+    ) as mock_discovery:
+        panel = QueryPanel(root, config=config)
+        panel.pack()
+        _pump_events(root, 50)
+        panel._on_use_case_change()
+        _pump_events(root, 100)
+
+        assert mock_discovery.call_count == 0
+
+        panel.destroy()
+
+    root.destroy()
+
+
 def test_05d_grounding_control_no_longer_overrides_retrieval_min_score():
     """Grounding strictness must tune the guard without rewriting min_score."""
     root = _make_root()
@@ -1069,13 +1094,19 @@ def test_12c_settings_view_mode_store_persists_min_max_without_snapback(tmp_path
 # ============================================================================
 
 def test_13_profile_dropdown_calls_switch():
-    """Profile dropdown triggers subprocess call to _profile_switch.py."""
+    """Profile dropdown completes subprocess, config reload, and backend reset."""
     root = _make_root()
     config = FakeGUIConfig()
 
     from src.gui.panels.settings_view import SettingsView
+    from src.gui.helpers.safe_after import drain_ui_queue
 
-    with patch("src.gui.panels.tuning_tab.subprocess.run") as mock_run:
+    new_config = FakeGUIConfig()
+    new_config.ollama.model = "phi4:14b-q4_K_M"
+
+    with patch("src.gui.panels.tuning_tab_runtime.subprocess.run") as mock_run, \
+         patch("src.core.config.load_config", return_value=new_config), \
+         patch("src.gui.panels.tuning_tab_runtime.messagebox.showwarning"):
         mock_run.return_value = MagicMock(returncode=0, stdout="Applied", stderr="")
         app_ref = MagicMock()
         view = SettingsView(root, config=config, app_ref=app_ref)
@@ -1084,12 +1115,18 @@ def test_13_profile_dropdown_calls_switch():
         view.profile_var.set("desktop_power")
         view._on_profile_change()
 
-        _wait_and_pump(root, 300)
+        deadline = time.time() + 2.0
+        while time.time() < deadline and not app_ref.reload_config.called:
+            drain_ui_queue()
+            _wait_and_pump(root, 100)
 
         # Verify subprocess was called with the profile name
         calls = mock_run.call_args_list
         switch_calls = [c for c in calls if "_profile_switch" in str(c)]
         assert len(switch_calls) > 0, "Expected _profile_switch.py to be called"
+        app_ref.reload_config.assert_called_once_with(new_config)
+        app_ref.reset_backends.assert_called_once_with()
+        assert view.profile_status_label.cget("text").startswith("[OK] Switched to desktop_power")
 
     view.destroy()
     root.destroy()

@@ -42,6 +42,7 @@ from src.gui.panels.index_panel import IndexPanel
 from src.gui.panels.status_bar import StatusBar
 from src.gui.panels.nav_bar import NavBar
 from src.gui.panels.reference_panel import ReferencePanel  # noqa: F401 - static guard marker for legacy validators
+from src.gui.panels.command_center_panel import CommandCenterPanel  # noqa: F401 - static guard marker for legacy validators
 from src.gui.panels.settings_view import SettingsView  # noqa: F401 - static guard marker for legacy validators
 from src.gui.panels.panel_registry import get_panels, _import_attr
 from src.core.cost_tracker import get_cost_tracker

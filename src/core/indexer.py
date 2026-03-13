@@ -33,6 +33,7 @@ from datetime import datetime, timezone
 logger = logging.getLogger(__name__)
 
 from .config import Config
+from .access_tags import resolve_document_access_tags
 from .vector_store import VectorStore, ChunkMetadata
 from .chunker import Chunker, ChunkerConfig
 from .embedder import Embedder
@@ -407,6 +408,7 @@ class Indexer:
             file_mtime_ns = file_path.stat().st_mtime_ns
         except Exception:
             file_mtime_ns = 0
+        document_tags = resolve_document_access_tags(str(file_path))
 
         chunks_added = 0
         char_offset = 0
@@ -441,6 +443,8 @@ class Indexer:
                         chunk_index=chunks_added + i,
                         text_length=len(chunk_text),
                         created_at=datetime.now(timezone.utc).isoformat(),
+                        access_tags=document_tags.access_tags,
+                        access_tag_source=document_tags.access_tag_source,
                     )
                 )
             self.vector_store.add_embeddings(

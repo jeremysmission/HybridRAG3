@@ -68,6 +68,7 @@ from typing import Optional, List, Dict, Any, Tuple
 
 import numpy as np
 
+from .access_tags import normalize_access_tags, serialize_access_tags
 from .source_quality import ensure_source_quality_schema
 
 
@@ -86,6 +87,8 @@ class ChunkMetadata:
     chunk_index: int      # Position of this chunk within the file (0, 1, 2...)
     text_length: int      # Number of characters in the chunk text
     created_at: str       # ISO timestamp when this chunk was indexed
+    access_tags: tuple[str, ...] = ("shared",)
+    access_tag_source: str = "default_document_tags"
 
 
 # --- MEMMAP EMBEDDING STORE ------------------------------------------------
@@ -327,7 +330,9 @@ class VectorStore:
                     text_length   INTEGER,
                     created_at    TEXT,
                     embedding_row INTEGER,
-                    file_hash     TEXT DEFAULT ''
+                    file_hash     TEXT DEFAULT '',
+                    access_tags   TEXT DEFAULT 'shared',
+                    access_tag_source TEXT DEFAULT 'default_document_tags'
                 );
             """)
 
@@ -340,7 +345,15 @@ class VectorStore:
                 self.conn.execute(
                     "ALTER TABLE chunks ADD COLUMN file_hash TEXT DEFAULT '';"
                 )
-                self.conn.commit()
+            if "access_tags" not in cols:
+                self.conn.execute(
+                    "ALTER TABLE chunks ADD COLUMN access_tags TEXT DEFAULT 'shared';"
+                )
+            if "access_tag_source" not in cols:
+                self.conn.execute(
+                    "ALTER TABLE chunks ADD COLUMN access_tag_source TEXT DEFAULT 'default_document_tags';"
+                )
+            self.conn.commit()
 
             self.conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_path);"
@@ -415,14 +428,16 @@ class VectorStore:
                     md.created_at,
                     int(start_row + i),
                     str(file_hash),       # NEW: file fingerprint
+                    serialize_access_tags(getattr(md, "access_tags", ()) or ()),
+                    str(getattr(md, "access_tag_source", "") or "default_document_tags"),
                 ))
 
             # Step 3: INSERT OR IGNORE (idempotent for crash restarts)
             self.conn.executemany("""
                 INSERT OR IGNORE INTO chunks
                     (chunk_id, source_path, chunk_index, text, text_length,
-                     created_at, embedding_row, file_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                     created_at, embedding_row, file_hash, access_tags, access_tag_source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """, rows)
 
             # Step 4: Populate FTS5 keyword search index in one set-based
@@ -603,26 +618,34 @@ class VectorStore:
         placeholders = ",".join(["?"] * len(best_rows))
         with self._db_lock:
             fetched = self.conn.execute(
-                f"SELECT embedding_row, source_path, chunk_index, text "
+                f"SELECT embedding_row, source_path, chunk_index, text, access_tags, access_tag_source "
                 f"FROM chunks WHERE embedding_row IN ({placeholders})",
                 [int(r) for r in best_rows],
             ).fetchall()
 
-        by_row: Dict[int, Tuple[str, int, str]] = {}
+        by_row: Dict[int, Tuple[str, int, str, tuple[str, ...], str]] = {}
         for row in fetched:
-            by_row[int(row[0])] = (str(row[1]), int(row[2]), str(row[3] or ""))
+            by_row[int(row[0])] = (
+                str(row[1]),
+                int(row[2]),
+                str(row[3] or ""),
+                normalize_access_tags(row[4]) or ("shared",),
+                str(row[5] or "default_document_tags"),
+            )
 
         hits: List[Dict[str, Any]] = []
         for score, row_idx in zip(best_scores.tolist(), best_rows.tolist()):
             meta = by_row.get(int(row_idx))
             if not meta:
                 continue
-            source_path, chunk_index, text = meta
+            source_path, chunk_index, text, access_tags, access_tag_source = meta
             hits.append({
                 "score": float(score),
                 "source_path": source_path,
                 "chunk_index": int(chunk_index),
                 "text": text,
+                "access_tags": list(access_tags),
+                "access_tag_source": access_tag_source,
             })
 
         hits.sort(key=lambda x: x["score"], reverse=True)
@@ -653,7 +676,8 @@ class VectorStore:
         with self._db_lock:
             try:
                 rows = self.conn.execute(
-                    "SELECT c.source_path, c.chunk_index, c.text, rank "
+                    "SELECT c.source_path, c.chunk_index, c.text, c.access_tags, "
+                    "c.access_tag_source, rank "
                     "FROM chunks_fts "
                     "JOIN chunks c ON chunks_fts.rowid = c.chunk_pk "
                     "WHERE chunks_fts MATCH ? "
@@ -663,7 +687,7 @@ class VectorStore:
             except Exception:
                 return []
         hits = []
-        for source_path, chunk_index, text, rank_score in rows:
+        for source_path, chunk_index, text, access_tags, access_tag_source, rank_score in rows:
             # FTS5 rank is negative (lower = better match). We negate it
             # then normalize to 0.0-1.0 using x/(x+1) so it blends well
             # with semantic similarity scores in hybrid search.
@@ -674,6 +698,8 @@ class VectorStore:
                 "source_path": str(source_path),
                 "chunk_index": int(chunk_index),
                 "text": str(text or ""),
+                "access_tags": list(normalize_access_tags(access_tags) or ("shared",)),
+                "access_tag_source": str(access_tag_source or "default_document_tags"),
             })
         return hits
 

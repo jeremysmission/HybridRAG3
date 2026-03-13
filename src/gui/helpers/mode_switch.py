@@ -58,6 +58,7 @@ def _rebuild_router(app, credentials=None):
 def _commit_router_and_mode(app, new_router, new_mode):
     """Apply router/mode mutation on GUI thread to avoid cross-thread writes."""
     from src.gui.helpers.mode_tuning import apply_mode_settings_to_config
+    from src.core.config_authority import set_runtime_active_mode
     from src.core.query_engine import refresh_query_engine_runtime
 
     if new_router is not None:
@@ -70,6 +71,7 @@ def _commit_router_and_mode(app, new_router, new_mode):
     if app.config:
         app.config.mode = new_mode
         apply_mode_settings_to_config(app.config, new_mode)
+        set_runtime_active_mode(new_mode)
         persist_mode(app, new_mode)
     if hasattr(app, "query_engine") and app.query_engine:
         try:
@@ -265,8 +267,19 @@ def _do_switch_to_online(app):
     logger.info("Switched to ONLINE mode")
 
 
+def _shared_deployment_boundary_active(app) -> bool:
+    """Mirror the shared-deployment boundary used by the API surface."""
+    from src.security.shared_deployment_auth import shared_online_enforced
+
+    return shared_online_enforced(getattr(app, "config", None))
+
+
 def persist_mode(app, new_mode):
     """Write mode change to YAML so it survives restart."""
+    normalized_mode = str(new_mode or "").strip().lower()
+    if normalized_mode == "offline" and _shared_deployment_boundary_active(app):
+        logger.info("Skipping persisted offline mode while shared deployment boundary is active.")
+        return
     try:
         from src.core.config import save_config_field
         save_config_field("mode", new_mode)

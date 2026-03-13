@@ -728,24 +728,30 @@ def _():
         "Wizard should normalize paths with os.path.normpath"
 
 
-@test("launch_gui.py Step 2.5 reloads config after wizard completes")
+@test("launch_gui.py exposes post-wizard config reload after setup check")
 def _():
     content = LAUNCH_PATH.read_text(encoding="utf-8")
     # Must reload config after wizard writes YAML
     assert "load_config" in content, "launch_gui.py must call load_config"
-    # Should have the reload after wizard block
-    idx_wizard = content.find("needs_setup")
-    idx_reload = content.lower().find("reloading config after wizard")
+    # The manual post-boot wizard helper should still reload config after the
+    # setup check path decides the wizard is needed.
+    helper_start = content.find("def _launch_setup_wizard_after_boot")
+    helper_end = content.find("def _sanitize_tk_env", helper_start)
+    helper_block = content[helper_start:helper_end]
+    idx_wizard = helper_block.find("needs_setup")
+    idx_reload = helper_block.find("_apply_wizard_config_reload")
     assert idx_wizard > 0, "needs_setup call not found in launch_gui.py"
     assert idx_reload > idx_wizard, \
-        "Config reload should come AFTER wizard check"
+        "Config reload helper should come AFTER the setup check"
 
 
-@test("launch_gui.py exits cleanly on wizard cancel (sys.exit)")
+@test("launch_gui.py keeps the main app alive on wizard cancel")
 def _():
     content = LAUNCH_PATH.read_text(encoding="utf-8")
-    assert "sys.exit(0)" in content, \
-        "launch_gui.py should call sys.exit(0) when wizard is cancelled"
+    assert "Setup wizard dismissed; app remains open" in content, \
+        "launch_gui.py should keep the main app alive when the wizard is cancelled"
+    assert "setup wizard dismissed; continuing with main app" in content, \
+        "launch_gui.py should log that startup continues after wizard dismissal"
 
 
 @test("Wizard sets grab_set for modal behavior")
@@ -755,13 +761,15 @@ def _():
         "Wizard should be modal (grab_set) so user can't interact with parent"
 
 
-@test("Wizard window is destroyed before proceeding")
+@test("Manual wizard helper waits for closure without a temp-root shell")
 def _():
     content = LAUNCH_PATH.read_text(encoding="utf-8")
     assert "wait_window" in content, \
         "launch_gui.py should use wait_window to block until wizard closes"
-    assert "_tmp_root.destroy()" in content, \
-        "Temp root must be destroyed after wizard to avoid ghost windows"
+    assert "SetupWizard(app, _project_root)" in content, \
+        "Wizard should attach to the main app once the GUI is already live"
+    assert "_tmp_root.destroy()" not in content, \
+        "launch_gui.py should not use a hidden temp-root shell in the current boot path"
 
 
 @test("Simulated quote garbling: paths with special chars survive YAML")

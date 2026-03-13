@@ -76,6 +76,8 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 
+from .access_tags import normalize_access_tags
+from .request_access import get_request_access_context
 from .vector_store import VectorStore
 from .embedder import Embedder
 from .query_trace import build_retrieval_trace, hit_to_debug_dict
@@ -179,6 +181,8 @@ class SearchHit:
     source_path: str
     chunk_index: int
     text: str
+    access_tags: tuple[str, ...] = ()
+    access_tag_source: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -314,11 +318,12 @@ class Retriever:
             for idx, hit in enumerate(hits)
             if hit.score < min_score
         ]
+        authorized_hits, denied_hits, access_control = _apply_document_access_control(filtered_hits)
 
         if structured_query:
-            hits = self._augment_with_adjacent_chunks(filtered_hits)
+            hits = self._augment_with_adjacent_chunks(authorized_hits)
         else:
-            hits = list(filtered_hits)
+            hits = list(authorized_hits)
         post_augment_hits = list(hits)
 
         # --- Step 4: Trim to final top_k ---
@@ -352,6 +357,7 @@ class Retriever:
             post_augment_hits=post_augment_hits,
             final_hits=final_hits,
             dropped_hits=dropped_hits,
+            denied_hits=denied_hits,
             structured_query=structured_query,
             fts_query=fts_query,
             candidate_k=candidate_k,
@@ -361,6 +367,7 @@ class Retriever:
                 "rerank": rerank_ms,
             },
             expected_source_root=expected_source_root,
+            access_control=access_control,
         )
 
         return hits
@@ -434,6 +441,8 @@ class Retriever:
                     "source_path": hit["source_path"],
                     "chunk_index": hit["chunk_index"],
                     "text": hit["text"],
+                    "access_tags": normalize_access_tags(hit.get("access_tags", ())),
+                    "access_tag_source": str(hit.get("access_tag_source", "") or ""),
                 }
             combined[key]["rrf_score"] += rrf_score
 
@@ -450,7 +459,12 @@ class Retriever:
                     "source_path": hit["source_path"],
                     "chunk_index": hit["chunk_index"],
                     "text": hit["text"],
+                    "access_tags": normalize_access_tags(hit.get("access_tags", ())),
+                    "access_tag_source": str(hit.get("access_tag_source", "") or ""),
                 }
+            elif not combined[key].get("access_tags"):
+                combined[key]["access_tags"] = normalize_access_tags(hit.get("access_tags", ()))
+                combined[key]["access_tag_source"] = str(hit.get("access_tag_source", "") or "")
             combined[key]["rrf_score"] += rrf_score
 
         # Sort by combined RRF score (highest first)
@@ -483,6 +497,8 @@ class Retriever:
                 source_path=item["source_path"],
                 chunk_index=item["chunk_index"],
                 text=item["text"],
+                access_tags=tuple(item.get("access_tags", ()) or ()),
+                access_tag_source=str(item.get("access_tag_source", "") or ""),
             ))
         return hits
 
@@ -519,6 +535,8 @@ class Retriever:
                 source_path=str(h.get("source_path", "")),
                 chunk_index=int(h.get("chunk_index", 0)),
                 text=text,
+                access_tags=normalize_access_tags(h.get("access_tags", ())),
+                access_tag_source=str(h.get("access_tag_source", "") or ""),
             ))
         hits.sort(key=lambda x: x.score, reverse=True)
         return hits
@@ -597,6 +615,8 @@ class Retriever:
           path          -- file path
           chunks        -- how many chunks came from this file
           avg_relevance -- average score of those chunks
+          access_tags   -- normalized access tags carried by that source
+          access_tag_source -- rule/default source that produced the tags
 
         Useful for showing "Sources used" in the UI.
         """
@@ -605,14 +625,34 @@ class Retriever:
         # Group hits by file path
         by_path = {}
         for h in hits:
-            by_path.setdefault(h.source_path, []).append(h.score)
+            entry = by_path.setdefault(
+                h.source_path,
+                {
+                    "scores": [],
+                    "access_tags": [],
+                    "access_tag_sources": [],
+                },
+            )
+            entry["scores"].append(h.score)
+            for tag in normalize_access_tags(
+                getattr(h, "access_tags", ()) or ()
+            ) or ("shared",):
+                if tag not in entry["access_tags"]:
+                    entry["access_tags"].append(tag)
+            source = str(getattr(h, "access_tag_source", "") or "").strip()
+            if source and source not in entry["access_tag_sources"]:
+                entry["access_tag_sources"].append(source)
         # Build summary for each file
         out = []
-        for path, scores in by_path.items():
+        for path, info in by_path.items():
+            scores = info["scores"]
+            source_value = "|".join(info["access_tag_sources"]) or "default_document_tags"
             out.append({
                 "path": path,
                 "chunks": len(scores),
                 "avg_relevance": sum(scores) / max(1, len(scores)),
+                "access_tags": list(info["access_tags"] or ["shared"]),
+                "access_tag_source": source_value,
             })
         return out
 
@@ -660,13 +700,13 @@ class Retriever:
                     lo = max(0, int(seed.chunk_index) - 1)
                     hi = int(seed.chunk_index) + 1
                     rows = conn.execute(
-                        "SELECT source_path, chunk_index, text "
+                        "SELECT source_path, chunk_index, text, access_tags, access_tag_source "
                         "FROM chunks WHERE source_path = ? "
                         "AND chunk_index BETWEEN ? AND ? "
                         "ORDER BY chunk_index",
                         (seed.source_path, lo, hi),
                     ).fetchall()
-                    for source_path, chunk_index, text in rows:
+                    for source_path, chunk_index, text, access_tags, access_tag_source in rows:
                         key = (str(source_path), int(chunk_index))
                         if key in by_key:
                             continue
@@ -676,6 +716,8 @@ class Retriever:
                             source_path=str(source_path),
                             chunk_index=int(chunk_index),
                             text=str(text or ""),
+                            access_tags=normalize_access_tags(access_tags),
+                            access_tag_source=str(access_tag_source or ""),
                         )
         except Exception:
             return hits
@@ -757,11 +799,80 @@ def _apply_source_quality_bias(retriever: Retriever, hits: List[SearchHit]) -> L
                 source_path=hit.source_path,
                 chunk_index=hit.chunk_index,
                 text=hit.text,
+                access_tags=tuple(getattr(hit, "access_tags", ()) or ()),
+                access_tag_source=str(getattr(hit, "access_tag_source", "") or ""),
             )
         )
 
     adjusted_hits.sort(key=lambda item: item.score, reverse=True)
     return adjusted_hits
+
+
+def _apply_document_access_control(
+    hits: List[SearchHit],
+) -> tuple[List[SearchHit], list[dict[str, Any]], dict[str, Any]]:
+    """Filter hits against the active per-request access context."""
+    access_context = get_request_access_context()
+    if not access_context:
+        return list(hits), [], {
+            "enabled": False,
+            "actor": "",
+            "actor_source": "",
+            "actor_role": "",
+            "allowed_doc_tags": [],
+            "document_policy_source": "",
+            "authorized_hits": len(hits),
+            "denied_hits": 0,
+        }
+
+    actor = str(access_context.get("actor", "") or "")
+    actor_source = str(access_context.get("actor_source", "") or "")
+    actor_role = str(access_context.get("actor_role", "") or "")
+    allowed_doc_tags = normalize_access_tags(access_context.get("allowed_doc_tags", ()))
+    document_policy_source = str(
+        access_context.get("document_policy_source", "") or ""
+    )
+    if not allowed_doc_tags or "*" in allowed_doc_tags:
+        return list(hits), [], {
+            "enabled": True,
+            "actor": actor,
+            "actor_source": actor_source,
+            "actor_role": actor_role,
+            "allowed_doc_tags": list(allowed_doc_tags or ("*",)),
+            "document_policy_source": document_policy_source,
+            "authorized_hits": len(hits),
+            "denied_hits": 0,
+        }
+
+    allowed_set = set(allowed_doc_tags)
+    authorized_hits: List[SearchHit] = []
+    denied_hits: list[dict[str, Any]] = []
+
+    for rank, hit in enumerate(hits, start=1):
+        required_tags = normalize_access_tags(getattr(hit, "access_tags", ())) or ("shared",)
+        if "*" in required_tags or set(required_tags).issubset(allowed_set):
+            authorized_hits.append(hit)
+            continue
+        missing_tags = [tag for tag in required_tags if tag not in allowed_set]
+        denied_hits.append(
+            hit_to_debug_dict(
+                hit,
+                rank,
+                stage="access_control",
+                reason="access_denied_missing_tags:" + ",".join(missing_tags),
+            )
+        )
+
+    return authorized_hits, denied_hits, {
+        "enabled": True,
+        "actor": actor,
+        "actor_source": actor_source,
+        "actor_role": actor_role,
+        "allowed_doc_tags": list(allowed_doc_tags),
+        "document_policy_source": document_policy_source,
+        "authorized_hits": len(authorized_hits),
+        "denied_hits": len(denied_hits),
+    }
 
 
 def _apply_source_quality_score(base_score: float, record: Optional[Dict[str, Any]]) -> float:

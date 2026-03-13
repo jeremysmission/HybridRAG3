@@ -1,6 +1,6 @@
 # HybridRAG3 Demo Preparation
 
-Last Updated: 2026-03-10
+Last Updated: 2026-03-12
 
 ---
 
@@ -49,12 +49,39 @@ using only open-source, US/EU-origin AI models with no restrictive licenses.
   `python tools/demo_transcript.py --describe-question`
 - Preview the GUI smoke reference question:
   `python tools/gui_demo_smoke.py --describe-question`
+- Before a rehearsal or demo day, run
+  `python tools/demo_rehearsal_audit.py`
+  so the pack is validated against the current indexed corpus rather than a
+  stale historical source set.
 - Transcript and GUI smoke runs now each write a structured validation artifact
   under `output/rehearsal_validation/` with the selected question metadata,
   expected evidence, actual mode/path taken, and operator-facing pass/fail
   notes for that run.
 - Policy: live demo transcript defaults stay online-first; the GUI smoke
   question is an offline/Admin support-path reference only.
+
+### Shared Deployment Offline/Admin Playbook
+
+Use this whenever the workstation normally serves shared browser/API traffic
+but you need temporary local offline/admin work.
+
+1. Save the current admin baseline from the desktop GUI:
+   `Admin > Admin Settings > Save Defaults`
+2. Switch locally, not through the shared browser/API surface:
+   - use the desktop GUI mode toggle for offline/demo/admin work
+   - shared `PUT /mode` offline downgrades are intentionally blocked now
+3. Expect shared user traffic to reject while the workstation is offline:
+   - shared dashboard and query surfaces now fail closed in offline mode
+   - `/admin` runtime safety is the operator view that shows whether the
+     shared online boundary is currently enforced and ready
+4. Finish the local/admin task, then restore the shared baseline:
+   - `Admin > Admin Settings > Restore Defaults`
+   - switch back to `ONLINE` locally
+   - verify `/admin` shows runtime safety with shared-online ready before
+     treating the workstation as back in shared service
+5. If the machine has no API endpoint configured, online use-case changes now
+   skip model discovery instead of spawning background probe noise; that is
+   expected during offline/local-only rehearsal paths.
 
 ### Demo Flow (5 minutes)
 
@@ -369,8 +396,13 @@ response times and larger models.
 
 **A:** API credentials are encrypted using Windows DPAPI (the same system
 that protects saved browser passwords), tied to the user's Windows login.
-The document index is a standard SQLite file -- access is controlled by
-OS-level file permissions. SQLCipher encryption at rest is on the roadmap.
+For the shared deployment path, saved conversation history can also be
+encrypted at rest when `HYBRIDRAG_HISTORY_ENCRYPTION_KEY` is configured.
+That history store supports key rotation and forced session invalidation
+without exposing the raw thread text in the SQLite rows. The main document
+index is still a standard SQLite file -- access is controlled by OS-level
+file permissions, and full document-index encryption remains a separate
+future item.
 In offline mode, there's nothing to encrypt in transit because there is no
 transit -- everything stays on the local disk.
 

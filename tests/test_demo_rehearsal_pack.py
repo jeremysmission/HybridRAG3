@@ -26,9 +26,13 @@ def test_transcript_default_question_is_online_first_with_expected_evidence():
     assert question["id"] == "pm_leadership_styles_compare"
     assert question["preferred_mode"] == "online"
     assert question["profile"] == "program_management"
-    assert question["prompt"] == "What leadership styles are discussed and how do they differ?"
+    assert question["prompt"] == "How do leaders and managers differ?"
     assert any(item["kind"] == "path" for item in question["expected_evidence"])
     assert any(item["kind"] == "citation_target" for item in question["expected_evidence"])
+    assert any(
+        item["target"] == "Leadership vs. Management.pdf"
+        for item in question["expected_evidence"]
+    )
 
 
 def test_gui_smoke_default_question_stays_support_path_with_expected_evidence():
@@ -40,7 +44,7 @@ def test_gui_smoke_default_question_stays_support_path_with_expected_evidence():
     assert question["prompt"] == "calibration intervals quarterly review"
     assert "gui_demo_smoke" in question["operator_note"]
     assert any(
-        item["target"] == "Maintenance_Procedure_Guide.docx"
+        item["target"] == "demo_doc.txt"
         for item in question["expected_evidence"]
     )
 
@@ -51,10 +55,10 @@ def test_select_demo_question_allows_explicit_question_override():
     question = select_demo_question(
         pack,
         default_key="transcript_question_id",
-        question_id="security_offline_data_egress",
+        question_id="security_application_server_tls",
     )
 
-    assert question["id"] == "security_offline_data_egress"
+    assert question["id"] == "security_application_server_tls"
     assert question["profile"] == "security"
     assert question["preferred_mode"] == "online"
 
@@ -66,5 +70,5 @@ def test_format_expected_evidence_returns_readable_lines():
     lines = format_expected_evidence(question)
 
     assert lines
-    assert any("Path: Leadership_Playbook.pdf" in line for line in lines)
+    assert any("Path: Leadership vs. Management.pdf" in line for line in lines)
     assert any("Citation Target:" in line for line in lines)

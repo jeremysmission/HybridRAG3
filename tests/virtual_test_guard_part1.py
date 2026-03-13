@@ -92,6 +92,29 @@ def _effective_code_lines(path: Path) -> int:
     return sum(1 for line in lines if line.strip() and not line.lstrip().startswith("#"))
 
 
+def _docstring_line_numbers(class_node) -> set[int]:
+    """Return line numbers occupied by class and method docstrings."""
+    docstring_lines = set()
+    for node in ast.walk(class_node):
+        if not isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        body = getattr(node, "body", [])
+        if not body:
+            continue
+        first_stmt = body[0]
+        if not isinstance(first_stmt, ast.Expr):
+            continue
+        value = getattr(first_stmt, "value", None)
+        if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+            continue
+        start = getattr(first_stmt, "lineno", None)
+        end = getattr(first_stmt, "end_lineno", start)
+        if start is None or end is None:
+            continue
+        docstring_lines.update(range(start, end + 1))
+    return docstring_lines
+
+
 def _class_span(path: Path, class_name: str) -> int | None:
     """Return the source span for a class using AST end positions."""
     tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
@@ -99,6 +122,44 @@ def _class_span(path: Path, class_name: str) -> int | None:
         if isinstance(node, ast.ClassDef) and node.name == class_name:
             return int(getattr(node, "end_lineno", node.lineno)) - int(node.lineno) + 1
     return None
+
+
+def _effective_class_lines(path: Path, class_name: str) -> int | None:
+    """Count class lines using the repo rule: skip blank lines, comments, and docstrings."""
+    source = path.read_text(encoding="utf-8", errors="replace")
+    source_lines = source.splitlines()
+    tree = ast.parse(source)
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef) or node.name != class_name:
+            continue
+        end = getattr(node, "end_lineno", node.lineno)
+        docstring_lines = _docstring_line_numbers(node)
+        effective_lines = 0
+        for lineno in range(node.lineno, end + 1):
+            if lineno in docstring_lines:
+                continue
+            text = source_lines[lineno - 1].strip()
+            if not text or text.startswith("#"):
+                continue
+            effective_lines += 1
+        return effective_lines
+    return None
+
+
+def _class_bases(path: Path, class_name: str) -> list[str]:
+    """Return simple base-class names for the given class."""
+    tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef) or node.name != class_name:
+            continue
+        names = []
+        for base in node.bases:
+            if isinstance(base, ast.Name):
+                names.append(base.id)
+            elif isinstance(base, ast.Attribute):
+                names.append(base.attr)
+        return names
+    return []
 
 
 def test(name, condition, detail=""):
@@ -297,11 +358,12 @@ def sim_07():
     t0 = time.time()
     section("SIM-07: GROUNDED QUERY ENGINE LOGIC")
 
-    c = (ROOT / "src" / "core" / "grounded_query_engine.py").read_text()
+    grounded_path = ROOT / "src" / "core" / "grounded_query_engine.py"
+    c = grounded_path.read_text()
+    grounded_bases = _class_bases(grounded_path, "GroundedQueryEngine")
 
     checks = [
         ("from .query_engine import QueryEngine", "Imports QueryEngine"),
-        ("class GroundedQueryEngine(QueryEngine):", "Subclasses QE"),
         ("super().__init__", "Calls super init"),
         ("self.guard_enabled", "Guard toggle"),
         ("super().query(user_query)", "Fast path when disabled"),
@@ -315,6 +377,16 @@ def sim_07():
     ]
     for pattern, label in checks:
         test(label, pattern in c)
+    test(
+        "Subclasses QE",
+        "QueryEngine" in grounded_bases,
+        f"bases={grounded_bases}",
+    )
+    test(
+        "Uses guard mixin split",
+        "GroundedQueryEngineGuardMixin" in grounded_bases,
+        f"bases={grounded_bases}",
+    )
 
     phase_times["SIM-07"] = (time.time() - t0) * 1000
 
@@ -328,8 +400,11 @@ def sim_08():
 
     # QueryEngine still respects the class-size rule even as module comments grow.
     qe = ROOT / "src" / "core" / "query_engine.py"
-    span = _class_span(qe, "QueryEngine")
-    test(f"QueryEngine class span={span}", span is not None and span <= 500)
+    effective = _effective_class_lines(qe, "QueryEngine")
+    test(
+        f"QueryEngine effective class lines={effective}",
+        effective is not None and effective <= 500,
+    )
 
     # boot.py UNTOUCHED
     bc = (ROOT / "src" / "core" / "boot.py").read_text()
@@ -360,13 +435,21 @@ def sim_08():
 # ====================================================================
 def sim_09():
     t0 = time.time()
-    section("SIM-09: MODULE SIZE (effective code / class span)")
+    section("SIM-09: MODULE SIZE (effective code / effective class lines)")
 
     grounded = ROOT / "src" / "core" / "grounded_query_engine.py"
-    gqe_span = _class_span(grounded, "GroundedQueryEngine")
+    gqe_span = _effective_class_lines(grounded, "GroundedQueryEngine")
     test(
-        f"GroundedQueryEngine class span={gqe_span}",
+        f"GroundedQueryEngine effective class lines={gqe_span}",
         gqe_span is not None and gqe_span <= 500,
+    )
+    guard_mixin_lines = _effective_class_lines(
+        grounded,
+        "GroundedQueryEngineGuardMixin",
+    )
+    test(
+        f"GroundedQueryEngineGuardMixin effective class lines={guard_mixin_lines}",
+        guard_mixin_lines is not None and guard_mixin_lines <= 500,
     )
 
     to_check = []

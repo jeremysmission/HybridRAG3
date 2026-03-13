@@ -209,7 +209,7 @@ are visible to any process running as the same user.
 
 | Control | Requirement | HybridRAG3 Implementation | Status | Evidence | Auditor Notes |
 |---------|------------|--------------------------|--------|----------|--------------|
-| 3.2.1 | Security awareness | README.md documents security features. Config comments explain network implications. llm_router.py has INTERNET ACCESS comments. | PARTIAL | Code comments, this audit document | Create formal user security guide. |
+| 3.2.1 | Security awareness | README.md documents security features. Config comments explain network implications. llm_router.py has INTERNET ACCESS comments. Shared deployment now has an operator-facing security and recovery guide. | PASS | Code comments, this audit document, SHARED_DEPLOYMENT_SECURITY_AND_RECOVERY_GUIDE_2026-03-13_051214.md | Keep the shared deployment guide current as auth/storage controls evolve. |
 | 3.2.2 | Information security training | Developer (Jeremy) trained via hands-on security implementation. This audit document serves as training reference. | PARTIAL | This document, code comments | Formal training record needed for compliance. |
 
 ### 4.3 Audit and Accountability (3.3.x)
@@ -245,7 +245,7 @@ are visible to any process running as the same user.
 
 | Control | Requirement | HybridRAG3 Implementation | Status | Evidence | Auditor Notes |
 |---------|------------|--------------------------|--------|----------|--------------|
-| 3.6.1 | Establish incident handling capability | fault_analysis.py provides: severity classification (SEV-1 to SEV-4), 11-class error taxonomy, automated troubleshooting playbooks, fault event logging. | PASS | fault_analysis.py, FaultAnalysisEngine | Document escalation procedures for SEV-1/SEV-2. |
+| 3.6.1 | Establish incident handling capability | fault_analysis.py provides: severity classification (SEV-1 to SEV-4), 11-class error taxonomy, automated troubleshooting playbooks, fault event logging. Shared deployment recovery steps are now documented for auth rotation, history-key recovery, and Admin access probes. | PASS | fault_analysis.py, FaultAnalysisEngine, SHARED_DEPLOYMENT_SECURITY_AND_RECOVERY_GUIDE_2026-03-13_051214.md | Keep escalation ownership current if the operator set changes. |
 | 3.6.2 | Track, document, report incidents | Fault log (JSONL) records all incidents with timestamps, severity, classification, and resolution status. get_summary() provides trend reporting. | PASS | logs/fault_analysis.jsonl, FaultAnalysisEngine.get_summary() | Export fault reports for compliance review. |
 | 3.6.3 | Test incident response capability | Golden probes (GoldenProbes.run_all()) provide automated testing. Can be scheduled or run on-demand. | PASS | GoldenProbes class, probe test suite | Schedule regular probe runs (daily recommended). |
 
@@ -434,7 +434,7 @@ are visible to any process running as the same user.
 | REM-08 | FIPS mode validation | - | 3.13.11 | 1 day | Enable Windows FIPS mode on work laptop. Verify OpenSSL FIPS module in Python. Test all crypto operations still work. |
 | REM-09 | Pre-download model for air-gap deployment | R-06 | 3.13.1 | 0.5 day | Document procedure to run `ollama pull nomic-embed-text` on connected machine and transfer Ollama model cache to air-gapped system. |
 | REM-10 | Query rate anomaly detection | - | 3.14.7 | 1-2 days | Track queries per hour. Alert if rate exceeds 3x normal baseline (potential unauthorized automated use). |
-| REM-11 | Formal user security guide | - | 3.2.1 | 1 day | Create SECURITY_GUIDE.md covering: safe usage practices, what data is safe to query, when to use offline mode, credential management procedures. |
+| REM-11 | Formal user security guide | CLOSED 2026-03-13 | 3.2.1 | 1 day | Delivered `SHARED_DEPLOYMENT_SECURITY_AND_RECOVERY_GUIDE_2026-03-13_051214.md` covering safe shared-use practices, auth/session boundaries, role gating, history encryption, and recovery procedures. |
 
 ### Priority 4: Low (address within 180 days)
 

@@ -61,7 +61,8 @@ import time
 from typing import Optional, Dict, Any, Generator
 from dataclasses import dataclass
 
-from .query_engine import QueryEngine, QueryResult
+from .query_engine import QueryEngine, QueryResult, _retrieval_access_denied
+from .query_mode import apply_query_mode_to_engine
 from .config import Config
 from .vector_store import VectorStore
 from .embedder import Embedder
@@ -100,7 +101,81 @@ class GroundedQueryResult(QueryResult):
 # GroundedQueryEngine -- QueryEngine + hallucination guard
 # ---------------------------------------------------------------------------
 
-class GroundedQueryEngine(QueryEngine):
+class GroundedQueryEngineGuardMixin:
+    """Guard helper methods split out to keep GroundedQueryEngine reviewable."""
+
+    def _apply_guard_action(self, raw_answer, score, details):
+        """Apply block/strip/flag action based on grounding score.
+
+        Returns (answer, blocked) tuple.
+        """
+        return _gqe_apply_guard_action(self, raw_answer, score, details)
+
+    def _make_error_result(self, start_time, error_msg, sources=None, chunks=0):
+        """Build a GroundedQueryResult for error/empty-LLM cases."""
+        return _gqe_make_error_result(
+            self,
+            start_time,
+            error_msg,
+            sources=sources,
+            chunks=chunks,
+        )
+
+    def _access_denied_result(self, *, start_time: float, latency_ms: float | None = None):
+        """Build a grounded result for retrieval access denial."""
+        return _gqe_access_denied_result(self, start_time, latency_ms=latency_ms)
+
+    def _retrieval_gate(self, user_query, search_results, start_time):
+        """Check retrieval quality before generation."""
+        return _gqe_retrieval_gate(
+            self,
+            user_query,
+            search_results,
+            start_time,
+        )
+
+    def _log_grounded_result(self, event_name, result, blocked, elapsed_ms):
+        """Log a grounded query result."""
+        _gqe_log_grounded_result(
+            self,
+            event_name,
+            result,
+            blocked,
+            elapsed_ms,
+        )
+
+    def _build_grounded_prompt(
+        self, user_query: str, context: str, hits: list
+    ) -> str:
+        """
+        Build a prompt with grounding rules that instruct the LLM
+        to stick to source material and cite chunks.
+        """
+        return _gqe_build_grounded_prompt(self, user_query, context, hits)
+
+    def _verify_response(
+        self, response_text: str, hits: list
+    ) -> tuple:
+        """NLI verification with batch early-exit. Returns (score, details)."""
+        return _gqe_verify_response(self, response_text, hits)
+
+    @staticmethod
+    def _fallback_score(claims, source_texts, threshold):
+        """Plain-English: Produces a backup confidence score when full grounding metrics are unavailable."""
+        return _gqe_fallback_score(claims, source_texts, threshold)
+
+    def _no_evidence_result(self, start_time: float) -> GroundedQueryResult:
+        """Return result when no search results found."""
+        return _gqe_no_evidence_result(self, start_time)
+
+    def _insufficient_evidence_result(
+        self, start_time: float, hits: list
+    ) -> GroundedQueryResult:
+        """Return result when evidence is too weak to proceed."""
+        return _gqe_insufficient_evidence_result(self, start_time, hits)
+
+
+class GroundedQueryEngine(GroundedQueryEngineGuardMixin, QueryEngine):
     """
     QueryEngine subclass that verifies LLM responses against sources.
 
@@ -140,6 +215,7 @@ class GroundedQueryEngine(QueryEngine):
             config.retrieval, "min_chunks", 1
         )
         self.guard_min_score = config.retrieval.min_score
+        apply_query_mode_to_engine(self, sync_guard_policy=True)
 
         self._guard_available = False
         self._nli_verifier = None
@@ -180,44 +256,6 @@ class GroundedQueryEngine(QueryEngine):
             )
             return False
 
-    def _apply_guard_action(self, raw_answer, score, details):
-        """Apply block/strip/flag action based on grounding score.
-
-        Returns (answer, blocked) tuple.
-        """
-        return _gqe_apply_guard_action(self, raw_answer, score, details)
-
-    def _make_error_result(self, start_time, error_msg, sources=None,
-                           chunks=0):
-        """Build a GroundedQueryResult for error/empty-LLM cases."""
-        return _gqe_make_error_result(
-            self,
-            start_time,
-            error_msg,
-            sources=sources,
-            chunks=chunks,
-        )
-
-    def _retrieval_gate(self, user_query, search_results, start_time):
-        """Check retrieval quality. Returns GroundedQueryResult if blocked,
-        None if evidence is sufficient to proceed."""
-        return _gqe_retrieval_gate(
-            self,
-            user_query,
-            search_results,
-            start_time,
-        )
-
-    def _log_grounded_result(self, event_name, result, blocked, elapsed_ms):
-        """Log a grounded query result."""
-        _gqe_log_grounded_result(
-            self,
-            event_name,
-            result,
-            blocked,
-            elapsed_ms,
-        )
-
     # ------------------------------------------------------------------
     # query() -- synchronous guarded path
     # ------------------------------------------------------------------
@@ -252,6 +290,22 @@ class GroundedQueryEngine(QueryEngine):
         try:
             search_results = self.retriever.search(user_query)
             retrieval_trace = getattr(self.retriever, "last_search_trace", None) or minimal_retrieval_trace(search_results)
+            if not search_results and _retrieval_access_denied(retrieval_trace):
+                result = self._access_denied_result(start_time=start_time)
+                attach_result_trace(
+                    self,
+                    result,
+                    trace,
+                    decision_path="access_denied_no_results",
+                    retrieval_trace=retrieval_trace,
+                    grounding={
+                        "score": result.grounding_score,
+                        "safe": result.grounding_safe,
+                        "blocked": result.grounding_blocked,
+                        "details": copy.deepcopy(result.grounding_details),
+                    },
+                )
+                return result
             gate_result = self._retrieval_gate(
                 user_query, search_results, start_time)
             if gate_result is not None:
@@ -441,217 +495,41 @@ class GroundedQueryEngine(QueryEngine):
             verifies grounding, then emits only the post-guard answer.
             This prevents unverified tokens from being shown in real time.
         """
-        self._sync_runtime_components()
-        if self.guard_enabled and not self._guard_available:
-            self._ensure_guard_backend_loaded()
-        if not self.guard_enabled or not self._guard_available:
-            yield from super().query_stream(user_query)
-            return
+        yield from _gqe_query_stream(self, user_query)
 
-        start_time = time.time()
-        trace = new_query_trace(self, user_query, stream=True, engine_kind="grounded")
-        retrieval_trace = minimal_retrieval_trace([])
-        context_before_trim = ""
-        context_after_trim = ""
-        prompt_preview = ""
-        try:
-            yield {"phase": "searching"}
-            search_results = self.retriever.search(user_query)
-            retrieval_ms = (time.time() - start_time) * 1000
-            retrieval_trace = getattr(self.retriever, "last_search_trace", None) or minimal_retrieval_trace(search_results)
 
-            # Retrieval gate
-            gate_result = self._retrieval_gate(
-                user_query, search_results, start_time)
-            if gate_result is not None:
-                if bool(getattr(self, "allow_open_knowledge", False)):
-                    fallback = super().query(user_query)
-                    yield {"done": True, "result": fallback}
-                    return
-                attach_result_trace(
-                    self,
-                    gate_result,
-                    trace,
-                    decision_path="retrieval_gate_blocked",
-                    retrieval_trace=retrieval_trace,
-                    grounding={
-                        "score": getattr(gate_result, "grounding_score", -1.0),
-                        "safe": getattr(gate_result, "grounding_safe", False),
-                        "blocked": getattr(gate_result, "grounding_blocked", True),
-                        "details": copy.deepcopy(getattr(gate_result, "grounding_details", None)),
-                    },
-                )
-                yield {"done": True, "result": gate_result}
-                return
+def _gqe_query_stream(
+    engine: GroundedQueryEngine, user_query: str
+) -> Generator[Dict[str, Any], None, None]:
+    engine._sync_runtime_components()
+    if engine.guard_enabled and not engine._guard_available:
+        engine._ensure_guard_backend_loaded()
+    if not engine.guard_enabled or not engine._guard_available:
+        yield from super(GroundedQueryEngine, engine).query_stream(user_query)
+        return
 
-            context = self.retriever.build_context(search_results)
-            sources = self.retriever.get_sources(search_results)
-            context_before_trim = context
-            if not context.strip():
-                if bool(getattr(self, "allow_open_knowledge", False)):
-                    fallback = super().query(user_query)
-                    yield {"done": True, "result": fallback}
-                    return
-                result = self._make_error_result(
-                    start_time, "empty_context", sources,
-                    len(search_results))
-                attach_result_trace(
-                    self,
-                    result,
-                    trace,
-                    decision_path="empty_context",
-                    retrieval_trace=retrieval_trace,
-                    context_before_trim=context_before_trim,
-                    sources=sources,
-                    grounding={
-                        "score": result.grounding_score,
-                        "safe": result.grounding_safe,
-                        "blocked": result.grounding_blocked,
-                        "details": copy.deepcopy(result.grounding_details),
-                    },
-                )
-                yield {"done": True, "result": result}
-                return
-
-            context_after_trim = self._trim_context_to_fit(context, user_query)
-            prompt = self._build_grounded_prompt(
-                user_query, context_after_trim, search_results)
-            prompt_preview = prompt
-
-            yield {"phase": "generating", "chunks": len(search_results),
-                   "retrieval_ms": retrieval_ms}
-
-            # Buffer raw stream (tokens must not reach UI before guard)
-            full_text = []
-            tokens_in = tokens_out = 0
-            model = ""
-            llm_latency_ms = 0.0
-            saw_done = False
-            stream_error = ""
-            for chunk in self.llm_router.query_stream(prompt):
-                if "token" in chunk:
-                    full_text.append(chunk["token"])
-                elif "error" in chunk:
-                    stream_error = str(chunk.get("error", "")).strip()
-                elif chunk.get("done"):
-                    saw_done = True
-                    tokens_in = chunk.get("tokens_in", 0)
-                    tokens_out = chunk.get("tokens_out", 0)
-                    model = chunk.get("model", "")
-                    llm_latency_ms = chunk.get("latency_ms", 0.0)
-
-            raw_answer = "".join(full_text)
-            if not saw_done and not raw_answer.strip() and not stream_error:
-                fallback = self.llm_router.query(prompt)
-                if fallback and (fallback.text or "").strip():
-                    raw_answer = fallback.text
-                    tokens_in = fallback.tokens_in
-                    tokens_out = fallback.tokens_out
-                    model = fallback.model
-                    llm_latency_ms = fallback.latency_ms
-            if not raw_answer:
-                reason = stream_error
-                if not reason:
-                    _le = getattr(self.llm_router, "last_error", None)
-                    reason = _le.strip() if isinstance(_le, str) else ""
-                msg = (
-                    f"LLM stream failed: {reason}" if reason
-                    else "LLM stream empty"
-                )
-                result = self._make_error_result(
-                    start_time, msg, sources,
-                    len(search_results))
-                attach_result_trace(
-                    self,
-                    result,
-                    trace,
-                    decision_path="stream_llm_error",
-                    retrieval_trace=retrieval_trace,
-                    context_before_trim=context_before_trim,
-                    context_after_trim=context_after_trim,
-                    prompt_builder="grounded",
-                    prompt_preview=prompt_preview,
-                    llm_stream_error=reason,
-                    sources=sources,
-                    grounding={
-                        "score": result.grounding_score,
-                        "safe": result.grounding_safe,
-                        "blocked": result.grounding_blocked,
-                        "details": copy.deepcopy(result.grounding_details),
-                    },
-                )
-                yield {"done": True, "result": result}
-                return
-
-            # Verify and apply guard action
-            score, details = self._verify_response(
-                raw_answer, search_results)
-            answer, blocked = self._apply_guard_action(
-                raw_answer, score, details)
-
-            # Emit only post-guard answer text
-            if answer:
-                words = answer.split()
-                for i, w in enumerate(words):
-                    yield {"token": w + (" " if i < len(words) - 1 else "")}
-
-            from .llm_router import LLMResponse
-            llm_resp = LLMResponse(
-                text=raw_answer, tokens_in=tokens_in,
-                tokens_out=tokens_out, model=model,
-                latency_ms=llm_latency_ms)
-            elapsed_ms = (time.time() - start_time) * 1000
-
-            result = GroundedQueryResult(
-                answer=answer, sources=sources,
-                chunks_used=len(search_results),
-                tokens_in=tokens_in, tokens_out=tokens_out,
-                cost_usd=self._calculate_cost(llm_resp),
-                latency_ms=elapsed_ms, mode=self.config.mode,
-                grounding_score=score,
-                grounding_safe=score >= self.guard_threshold,
-                grounding_blocked=blocked,
-                grounding_details=details,
+    start_time = time.time()
+    trace = new_query_trace(engine, user_query, stream=True, engine_kind="grounded")
+    retrieval_trace = minimal_retrieval_trace([])
+    context_before_trim = ""
+    context_after_trim = ""
+    prompt_preview = ""
+    try:
+        yield {"phase": "searching"}
+        search_results = engine.retriever.search(user_query)
+        retrieval_ms = (time.time() - start_time) * 1000
+        retrieval_trace = getattr(engine.retriever, "last_search_trace", None) or minimal_retrieval_trace(search_results)
+        if not search_results and _retrieval_access_denied(retrieval_trace):
+            result = engine._access_denied_result(
+                start_time=start_time,
+                latency_ms=retrieval_ms,
             )
             attach_result_trace(
-                self,
+                engine,
                 result,
                 trace,
-                decision_path="guarded_stream_answer_blocked" if blocked else "guarded_stream_answer",
+                decision_path="access_denied_no_results",
                 retrieval_trace=retrieval_trace,
-                context_before_trim=context_before_trim,
-                context_after_trim=context_after_trim,
-                prompt_builder="grounded",
-                prompt_preview=prompt_preview,
-                llm_response=llm_resp,
-                llm_stream_error=stream_error,
-                sources=sources,
-                grounding={
-                    "score": score,
-                    "safe": score >= self.guard_threshold,
-                    "blocked": blocked,
-                    "details": copy.deepcopy(details),
-                },
-            )
-            self._log_grounded_result(
-                "query_stream_grounded", result, blocked, elapsed_ms)
-            yield {"done": True, "result": result}
-
-        except Exception as e:
-            error_msg = "{}: {}".format(type(e).__name__, e)
-            self.guard_logger.error(
-                "guard_query_stream_error", error=error_msg)
-            result = self._make_error_result(start_time, error_msg)
-            attach_result_trace(
-                self,
-                result,
-                trace,
-                decision_path="guarded_stream_engine_error",
-                retrieval_trace=retrieval_trace,
-                context_before_trim=context_before_trim,
-                context_after_trim=context_after_trim,
-                prompt_builder="grounded",
-                prompt_preview=prompt_preview,
                 grounding={
                     "score": result.grounding_score,
                     "safe": result.grounding_safe,
@@ -660,37 +538,209 @@ class GroundedQueryEngine(QueryEngine):
                 },
             )
             yield {"done": True, "result": result}
+            return
 
-    def _build_grounded_prompt(
-        self, user_query: str, context: str, hits: list
-    ) -> str:
-        """
-        Build a prompt with grounding rules that instruct the LLM
-        to stick to source material and cite chunks.
-        """
-        return _gqe_build_grounded_prompt(self, user_query, context, hits)
+        gate_result = engine._retrieval_gate(user_query, search_results, start_time)
+        if gate_result is not None:
+            if bool(getattr(engine, "allow_open_knowledge", False)):
+                fallback = super(GroundedQueryEngine, engine).query(user_query)
+                yield {"done": True, "result": fallback}
+                return
+            attach_result_trace(
+                engine,
+                gate_result,
+                trace,
+                decision_path="retrieval_gate_blocked",
+                retrieval_trace=retrieval_trace,
+                grounding={
+                    "score": getattr(gate_result, "grounding_score", -1.0),
+                    "safe": getattr(gate_result, "grounding_safe", False),
+                    "blocked": getattr(gate_result, "grounding_blocked", True),
+                    "details": copy.deepcopy(getattr(gate_result, "grounding_details", None)),
+                },
+            )
+            yield {"done": True, "result": gate_result}
+            return
 
-    def _verify_response(
-        self, response_text: str, hits: list
-    ) -> tuple:
-        """NLI verification with batch early-exit. Returns (score, details)."""
-        return _gqe_verify_response(self, response_text, hits)
+        context = engine.retriever.build_context(search_results)
+        sources = engine.retriever.get_sources(search_results)
+        context_before_trim = context
+        if not context.strip():
+            if bool(getattr(engine, "allow_open_knowledge", False)):
+                fallback = super(GroundedQueryEngine, engine).query(user_query)
+                yield {"done": True, "result": fallback}
+                return
+            result = engine._make_error_result(
+                start_time, "empty_context", sources, len(search_results)
+            )
+            attach_result_trace(
+                engine,
+                result,
+                trace,
+                decision_path="empty_context",
+                retrieval_trace=retrieval_trace,
+                context_before_trim=context_before_trim,
+                sources=sources,
+                grounding={
+                    "score": result.grounding_score,
+                    "safe": result.grounding_safe,
+                    "blocked": result.grounding_blocked,
+                    "details": copy.deepcopy(result.grounding_details),
+                },
+            )
+            yield {"done": True, "result": result}
+            return
 
-    @staticmethod
-    def _fallback_score(claims, source_texts, threshold):
-        """Plain-English: Produces a backup confidence score when full grounding metrics are unavailable."""
-        return _gqe_fallback_score(claims, source_texts, threshold)
+        context_after_trim = engine._trim_context_to_fit(context, user_query)
+        prompt = engine._build_grounded_prompt(
+            user_query, context_after_trim, search_results
+        )
+        prompt_preview = prompt
 
-    def _no_evidence_result(self, start_time: float) -> GroundedQueryResult:
-        """Return result when no search results found."""
-        return _gqe_no_evidence_result(self, start_time)
+        yield {
+            "phase": "generating",
+            "chunks": len(search_results),
+            "retrieval_ms": retrieval_ms,
+        }
 
-    def _insufficient_evidence_result(
-        self, start_time: float, hits: list
-    ) -> GroundedQueryResult:
-        """Return result when evidence is too weak to proceed."""
-        return _gqe_insufficient_evidence_result(self, start_time, hits)
+        full_text = []
+        tokens_in = tokens_out = 0
+        model = ""
+        llm_latency_ms = 0.0
+        saw_done = False
+        stream_error = ""
+        for chunk in engine.llm_router.query_stream(prompt):
+            if "token" in chunk:
+                full_text.append(chunk["token"])
+            elif "error" in chunk:
+                stream_error = str(chunk.get("error", "")).strip()
+            elif chunk.get("done"):
+                saw_done = True
+                tokens_in = chunk.get("tokens_in", 0)
+                tokens_out = chunk.get("tokens_out", 0)
+                model = chunk.get("model", "")
+                llm_latency_ms = chunk.get("latency_ms", 0.0)
 
+        raw_answer = "".join(full_text)
+        if not saw_done and not raw_answer.strip() and not stream_error:
+            fallback = engine.llm_router.query(prompt)
+            if fallback and (fallback.text or "").strip():
+                raw_answer = fallback.text
+                tokens_in = fallback.tokens_in
+                tokens_out = fallback.tokens_out
+                model = fallback.model
+                llm_latency_ms = fallback.latency_ms
+        if not raw_answer:
+            reason = stream_error
+            if not reason:
+                last_error = getattr(engine.llm_router, "last_error", None)
+                reason = last_error.strip() if isinstance(last_error, str) else ""
+            msg = f"LLM stream failed: {reason}" if reason else "LLM stream empty"
+            result = engine._make_error_result(
+                start_time, msg, sources, len(search_results)
+            )
+            attach_result_trace(
+                engine,
+                result,
+                trace,
+                decision_path="stream_llm_error",
+                retrieval_trace=retrieval_trace,
+                context_before_trim=context_before_trim,
+                context_after_trim=context_after_trim,
+                prompt_builder="grounded",
+                prompt_preview=prompt_preview,
+                llm_stream_error=reason,
+                sources=sources,
+                grounding={
+                    "score": result.grounding_score,
+                    "safe": result.grounding_safe,
+                    "blocked": result.grounding_blocked,
+                    "details": copy.deepcopy(result.grounding_details),
+                },
+            )
+            yield {"done": True, "result": result}
+            return
+
+        score, details = engine._verify_response(raw_answer, search_results)
+        answer, blocked = engine._apply_guard_action(raw_answer, score, details)
+
+        if answer:
+            words = answer.split()
+            for i, word in enumerate(words):
+                yield {"token": word + (" " if i < len(words) - 1 else "")}
+
+        from .llm_router import LLMResponse
+
+        llm_resp = LLMResponse(
+            text=raw_answer,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            model=model,
+            latency_ms=llm_latency_ms,
+        )
+        elapsed_ms = (time.time() - start_time) * 1000
+
+        result = GroundedQueryResult(
+            answer=answer,
+            sources=sources,
+            chunks_used=len(search_results),
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost_usd=engine._calculate_cost(llm_resp),
+            latency_ms=elapsed_ms,
+            mode=engine.config.mode,
+            grounding_score=score,
+            grounding_safe=score >= engine.guard_threshold,
+            grounding_blocked=blocked,
+            grounding_details=details,
+        )
+        attach_result_trace(
+            engine,
+            result,
+            trace,
+            decision_path="guarded_stream_answer_blocked" if blocked else "guarded_stream_answer",
+            retrieval_trace=retrieval_trace,
+            context_before_trim=context_before_trim,
+            context_after_trim=context_after_trim,
+            prompt_builder="grounded",
+            prompt_preview=prompt_preview,
+            llm_response=llm_resp,
+            llm_stream_error=stream_error,
+            sources=sources,
+            grounding={
+                "score": score,
+                "safe": score >= engine.guard_threshold,
+                "blocked": blocked,
+                "details": copy.deepcopy(details),
+            },
+        )
+        engine._log_grounded_result(
+            "query_stream_grounded", result, blocked, elapsed_ms
+        )
+        yield {"done": True, "result": result}
+
+    except Exception as e:
+        error_msg = "{}: {}".format(type(e).__name__, e)
+        engine.guard_logger.error("guard_query_stream_error", error=error_msg)
+        result = engine._make_error_result(start_time, error_msg)
+        attach_result_trace(
+            engine,
+            result,
+            trace,
+            decision_path="guarded_stream_engine_error",
+            retrieval_trace=retrieval_trace,
+            context_before_trim=context_before_trim,
+            context_after_trim=context_after_trim,
+            prompt_builder="grounded",
+            prompt_preview=prompt_preview,
+            grounding={
+                "score": result.grounding_score,
+                "safe": result.grounding_safe,
+                "blocked": result.grounding_blocked,
+                "details": copy.deepcopy(result.grounding_details),
+            },
+        )
+        yield {"done": True, "result": result}
 
 def _gqe_fallback_score(claims, source_texts, threshold):
     """Lightweight claim-vs-source scoring when NLI model is not loaded."""
@@ -760,6 +810,31 @@ def _gqe_make_error_result(
         error=error_msg,
         grounding_blocked=True,
         grounding_details={"reason": "error"},
+    )
+
+
+def _gqe_access_denied_result(
+    engine,
+    start_time: float,
+    *,
+    latency_ms: float | None = None,
+) -> GroundedQueryResult:
+    effective_latency = latency_ms
+    if effective_latency is None:
+        effective_latency = (time.time() - start_time) * 1000
+    return GroundedQueryResult(
+        answer="No authorized information found in knowledge base.",
+        sources=[],
+        chunks_used=0,
+        tokens_in=0,
+        tokens_out=0,
+        cost_usd=0.0,
+        latency_ms=effective_latency,
+        mode=engine.config.mode,
+        error="access_denied",
+        grounding_blocked=True,
+        grounding_safe=False,
+        grounding_details={"reason": "access_denied"},
     )
 
 

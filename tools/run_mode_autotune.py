@@ -414,17 +414,22 @@ def _build_candidate_config(
     mode: str,
     candidate_values: Dict[str, Any],
 ) -> Dict[str, Any]:
+    mode = _normalize_mode(mode)
     data = copy.deepcopy(base_config)
     data["mode"] = mode
 
     sections = _candidate_sections(mode, candidate_values)
     for key, value in sections["retrieval"].items():
-        data = set_canonical_config_value(data, f"retrieval.{key}", value)
+        data = set_canonical_config_value(data, f"modes.{mode}.retrieval.{key}", value)
     for key, value in sections["query"].items():
-        data = set_canonical_config_value(data, f"query.{key}", value)
+        data = set_canonical_config_value(data, f"modes.{mode}.query.{key}", value)
     backend_section = "api" if mode == "online" else "ollama"
     for key, value in sections[backend_section].items():
-        data = set_canonical_config_value(data, f"{backend_section}.{key}", value)
+        data = set_canonical_config_value(
+            data,
+            f"modes.{mode}.{backend_section}.{key}",
+            value,
+        )
     return data
 
 

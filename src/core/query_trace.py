@@ -4,9 +4,12 @@ import copy
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
+from .access_tags import normalize_access_tags
 from .generation_params import snapshot_backend_generation_settings
 from .query_mode import resolve_query_mode_settings
+from .request_access import get_request_access_context
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -107,9 +110,24 @@ def hit_to_debug_dict(
         "source_file": _basename(source_path),
         "source_path": source_path,
         "chunk_index": _safe_int(_hit_value(hit, "chunk_index", -1), -1),
+        "access_tags": list(normalize_access_tags(_hit_value(hit, "access_tags", ()))),
+        "access_tag_source": str(_hit_value(hit, "access_tag_source", "") or ""),
         "text": text,
         "text_chars": len(str(_hit_value(hit, "text", "") or "")),
         "text_truncated": truncated,
+    }
+
+
+def _empty_access_control_trace() -> dict[str, Any]:
+    return {
+        "enabled": False,
+        "actor": "",
+        "actor_source": "",
+        "actor_role": "",
+        "allowed_doc_tags": [],
+        "document_policy_source": "",
+        "authorized_hits": 0,
+        "denied_hits": 0,
     }
 
 
@@ -122,6 +140,7 @@ def minimal_retrieval_trace(hits: list[Any]) -> dict[str, Any]:
             "post_augment_hits": len(hits),
             "final_hits": len(hits),
             "dropped_hits": 0,
+            "denied_hits": 0,
         },
         "hits": {
             "raw": [hit_to_debug_dict(hit, idx + 1, stage="raw") for idx, hit in enumerate(hits)],
@@ -130,8 +149,10 @@ def minimal_retrieval_trace(hits: list[Any]) -> dict[str, Any]:
             "post_augment": [hit_to_debug_dict(hit, idx + 1, stage="post_augment") for idx, hit in enumerate(hits)],
             "final": [hit_to_debug_dict(hit, idx + 1, stage="final") for idx, hit in enumerate(hits)],
             "dropped": [],
+            "denied": [],
         },
         "source_path_flags": {"expected_source_root": "", "suspicious_count": 0, "suspicious_sources": []},
+        "access_control": _empty_access_control_trace(),
     }
 
 
@@ -145,12 +166,14 @@ def build_retrieval_trace(
     post_augment_hits: list[Any],
     final_hits: list[Any],
     dropped_hits: list[dict[str, Any]],
+    denied_hits: list[dict[str, Any]],
     structured_query: bool,
     fts_query: str,
     candidate_k: int,
     min_score_applied: float,
     timings_ms: dict[str, float],
     expected_source_root: str,
+    access_control: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "query": str(query or ""),
@@ -175,6 +198,7 @@ def build_retrieval_trace(
             "post_augment_hits": len(post_augment_hits),
             "final_hits": len(final_hits),
             "dropped_hits": len(dropped_hits),
+            "denied_hits": len(denied_hits),
         },
         "timings_ms": {
             key: round(_safe_float(value), 2)
@@ -197,8 +221,33 @@ def build_retrieval_trace(
             ],
             "final": [hit_to_debug_dict(hit, idx + 1, stage="final") for idx, hit in enumerate(final_hits)],
             "dropped": copy.deepcopy(dropped_hits),
+            "denied": copy.deepcopy(denied_hits),
         },
+        "access_control": copy.deepcopy(access_control or _empty_access_control_trace()),
     }
+
+
+def _query_trace_history_limit(engine: Any) -> int:
+    limit = _safe_int(getattr(engine, "query_trace_history_limit", 20), 20)
+    return max(1, limit)
+
+
+def record_query_trace(engine, payload: dict[str, Any]) -> dict[str, Any]:
+    snapshot = copy.deepcopy(payload or {})
+    engine.last_query_trace = snapshot
+
+    history = getattr(engine, "recent_query_traces", None)
+    if history is None:
+        history = []
+    elif not isinstance(history, list):
+        history = list(history)
+
+    history.append(copy.deepcopy(snapshot))
+    limit = _query_trace_history_limit(engine)
+    if len(history) > limit:
+        history = history[-limit:]
+    engine.recent_query_traces = history
+    return snapshot
 
 
 def new_query_trace(engine, user_query: str, *, stream: bool, engine_kind: str) -> dict[str, Any]:
@@ -208,8 +257,10 @@ def new_query_trace(engine, user_query: str, *, stream: bool, engine_kind: str) 
     backend_cfg = getattr(cfg, backend_name, None)
     retrieval_cfg = getattr(cfg, "retrieval", None)
     paths_cfg = getattr(cfg, "paths", None)
+    access_context = get_request_access_context()
 
     return {
+        "trace_id": uuid4().hex,
         "captured_at": datetime.now().isoformat(timespec="seconds"),
         "query": str(user_query or ""),
         "mode": mode,
@@ -243,6 +294,16 @@ def new_query_trace(engine, user_query: str, *, stream: bool, engine_kind: str) 
                 "api_version": str(getattr(backend_cfg, "api_version", "") or ""),
                 **snapshot_backend_generation_settings(backend_cfg),
             },
+        },
+        "access": {
+            "enabled": bool(access_context),
+            "actor": str(access_context.get("actor", "") or ""),
+            "actor_source": str(access_context.get("actor_source", "") or ""),
+            "actor_role": str(access_context.get("actor_role", "") or ""),
+            "allowed_doc_tags": list(access_context.get("allowed_doc_tags", ()) or ()),
+            "document_policy_source": str(
+                access_context.get("document_policy_source", "") or ""
+            ),
         },
         "retrieval": {},
         "context": {},
@@ -310,9 +371,9 @@ def attach_result_trace(
     }
     payload["grounding"] = copy.deepcopy(grounding or {})
 
-    engine.last_query_trace = copy.deepcopy(payload)
-    result.debug_trace = payload
-    return payload
+    recorded = record_query_trace(engine, payload)
+    result.debug_trace = copy.deepcopy(recorded)
+    return recorded
 
 
 def format_query_trace_text(trace: dict[str, Any] | None) -> str:
@@ -325,6 +386,8 @@ def format_query_trace_text(trace: dict[str, Any] | None) -> str:
     backend = settings.get("backend", {})
     query_settings = settings.get("query", {})
     decision = trace.get("decision", {})
+    access = trace.get("access", {})
+    access_control = retrieval.get("access_control", {})
     lines = [
         "Latest Query Trace",
         "==================",
@@ -376,15 +439,33 @@ def format_query_trace_text(trace: dict[str, Any] | None) -> str:
             query_settings.get("guard_action", ""),
         ),
         "",
+        "Access",
+        "------",
+        "Enabled: {} | Actor: {} | Source: {} | Role: {}".format(
+            access.get("enabled", False),
+            access.get("actor", ""),
+            access.get("actor_source", ""),
+            access.get("actor_role", ""),
+        ),
+        "Allowed tags: {}".format(", ".join(access.get("allowed_doc_tags", []) or []) or "(unrestricted)"),
+        "Policy source: {}".format(access.get("document_policy_source", "") or "(none)"),
+        "",
         "Retrieval Counts",
         "----------------",
-        "raw={} rerank={} filter={} augment={} final={} dropped={}".format(
+        "raw={} rerank={} filter={} augment={} final={} dropped={} denied={}".format(
             counts.get("raw_hits", 0),
             counts.get("post_rerank_hits", 0),
             counts.get("post_filter_hits", 0),
             counts.get("post_augment_hits", 0),
             counts.get("final_hits", 0),
             counts.get("dropped_hits", 0),
+            counts.get("denied_hits", 0),
+        ),
+        "Access filter: enabled={} policy={} authorized={} denied={}".format(
+            access_control.get("enabled", False),
+            access_control.get("document_policy_source", "") or "(none)",
+            access_control.get("authorized_hits", 0),
+            access_control.get("denied_hits", 0),
         ),
     ]
 
@@ -421,6 +502,22 @@ def format_query_trace_text(trace: dict[str, Any] | None) -> str:
             )
         if len(dropped_hits) > 12:
             lines.append("... {} more dropped hits".format(len(dropped_hits) - 12))
+
+    denied_hits = retrieval.get("hits", {}).get("denied", [])
+    if denied_hits:
+        lines.extend(["Denied Hits", "-----------"])
+        for hit in denied_hits[:12]:
+            lines.append(
+                "[{stage}] {reason} | score={score} | {file} | chunk {chunk}".format(
+                    stage=hit.get("stage", "deny"),
+                    reason=hit.get("reason", ""),
+                    score=hit.get("score", 0.0),
+                    file=hit.get("source_file", "(unknown)"),
+                    chunk=hit.get("chunk_index", -1),
+                )
+            )
+        if len(denied_hits) > 12:
+            lines.append("... {} more denied hits".format(len(denied_hits) - 12))
 
     context = trace.get("context", {})
     lines.extend(

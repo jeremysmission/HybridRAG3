@@ -20,6 +20,30 @@ def clamp_grounding_bias(value) -> int:
         return 7
 
 
+def _resolve_guard_policy(bias: int) -> dict:
+    """Map the 0..10 grounding dial onto explicit runtime guard semantics."""
+    if bias <= 1:
+        return {
+            "guard_enabled": False,
+            "guard_threshold": 0.0,
+            "guard_min_chunks": 0,
+            "guard_min_score": 0.0,
+            "guard_action": "off",
+        }
+
+    threshold = 0.38 + (bias / 10.0) * 0.52
+    min_chunks = 1 if bias <= 4 else 2 if bias <= 7 else 3
+    min_score = 0.00 if bias <= 3 else 0.03 if bias <= 5 else 0.06 if bias <= 7 else 0.10
+    action = "flag" if bias <= 6 else "block"
+    return {
+        "guard_enabled": True,
+        "guard_threshold": float(round(threshold, 2)),
+        "guard_min_chunks": int(min_chunks),
+        "guard_min_score": float(min_score),
+        "guard_action": action,
+    }
+
+
 def resolve_query_mode_settings(config) -> dict:
     """Resolve active query-mode controls into runtime guard settings."""
     query_cfg = getattr(config, "query", None)
@@ -27,19 +51,11 @@ def resolve_query_mode_settings(config) -> dict:
     allow_open_knowledge = bool(
         getattr(query_cfg, "allow_open_knowledge", True)
     )
-    guard_enabled = bias > 0
-    threshold = 0.35 + (max(1, bias) / 10.0) * 0.55
-    min_chunks = 1 if bias <= 4 else 2 if bias <= 7 else 3
-    min_score = 0.00 if bias <= 2 else 0.03 if bias <= 4 else 0.06 if bias <= 7 else 0.10
-    action = "flag" if bias <= 5 else "block"
+    guard_policy = _resolve_guard_policy(bias)
     return {
         "grounding_bias": bias,
         "allow_open_knowledge": allow_open_knowledge,
-        "guard_enabled": bool(guard_enabled),
-        "guard_threshold": float(round(threshold, 2)),
-        "guard_min_chunks": int(min_chunks),
-        "guard_min_score": float(min_score),
-        "guard_action": action,
+        **guard_policy,
     }
 
 

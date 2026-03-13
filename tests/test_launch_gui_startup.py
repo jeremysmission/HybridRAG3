@@ -151,6 +151,52 @@ def test_probe_warnings_render_degraded_status_with_real_status_bar(monkeypatch)
     root.destroy()
 
 
+def test_probe_warning_clears_after_ready_refresh(monkeypatch):
+    import src.gui.launch_gui as launch_gui
+    from src.gui.panels.status_bar import StatusBar
+
+    monkeypatch.setattr(
+        "tkinter.messagebox.showwarning",
+        lambda *_args, **_kwargs: None,
+    )
+
+    root = _make_root()
+    config = SimpleNamespace(
+        mode="offline",
+        ollama=SimpleNamespace(model="phi4:14b-q4_K_M"),
+    )
+    router = SimpleNamespace(
+        api=None,
+        get_status=lambda: {
+            "mode": "offline",
+            "ollama_available": True,
+        },
+    )
+    bar = StatusBar(root, config=config, router=router)
+    bar.pack()
+
+    app = SimpleNamespace(router=router, status_bar=bar)
+    launch_gui._present_backend_startup_issues(
+        app,
+        SimpleNamespace(warning=lambda *_args, **_kwargs: None),
+        ["Ollama generate probe failed (model 'phi4:14b-q4_K_M'): HTTP 500"],
+    )
+    root.update_idletasks()
+    root.update()
+    assert "Backend Health: Warning |" in bar.ollama_label.cget("text")
+
+    bar.set_ready()
+    bar.force_refresh()
+    root.update_idletasks()
+    root.update()
+
+    assert bar._init_error is None
+    assert bar.ollama_label.cget("text") == "Backend Health: Ollama Ready"
+
+    bar.stop()
+    root.destroy()
+
+
 def test_blocking_startup_errors_still_show_popup(monkeypatch):
     import src.gui.launch_gui as launch_gui
 

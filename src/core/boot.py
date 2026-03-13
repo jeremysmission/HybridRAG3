@@ -65,6 +65,24 @@ from typing import Optional, Dict, Any, List
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_boot_ollama_base_url(config: dict | None) -> str:
+    """Normalize boot-time Ollama base URLs before any localhost probe."""
+    from src.core.ollama_endpoint_resolver import sanitize_ollama_base_url
+
+    base_url = "http://127.0.0.1:11434"
+    if not isinstance(config, dict):
+        return base_url
+
+    ollama_cfg = config.setdefault("ollama", {})
+    if not isinstance(ollama_cfg, dict):
+        ollama_cfg = {}
+        config["ollama"] = ollama_cfg
+
+    base_url = sanitize_ollama_base_url(ollama_cfg.get("base_url", base_url))
+    ollama_cfg["base_url"] = base_url
+    return base_url
+
+
 @dataclass
 class BootResult:
     """
@@ -199,6 +217,7 @@ def boot_hybridrag(config_path=None) -> BootResult:
     _boot_step("Step 1: loading config...")
     try:
         config = load_config(config_path)
+        _sanitize_boot_ollama_base_url(config)
         result.config = config
         _boot_step("Step 1 done")
     except Exception as e:
@@ -322,9 +341,7 @@ def boot_hybridrag(config_path=None) -> BootResult:
             import urllib.request
             import urllib.error
             from src.core.network_gate import get_gate
-            ollama_host = config.get("ollama", {}).get(
-                "base_url", "http://127.0.0.1:11434",
-            )
+            ollama_host = _sanitize_boot_ollama_base_url(config)
             get_gate().check_allowed(
                 ollama_host, "ollama_boot_check", "boot",
             )

@@ -52,6 +52,7 @@ from urllib.parse import urlparse
 
 from ..monitoring.logger import get_app_logger
 from .exceptions import OllamaNotRunningError, OllamaModelNotFoundError
+from .ollama_endpoint_resolver import sanitize_ollama_base_url
 
 
 class Embedder:
@@ -88,9 +89,9 @@ class Embedder:
         self.model_name = model_name or self.DEFAULT_MODEL
         self.logger = get_app_logger("embedder")
 
-        self.base_url = os.getenv(
-            "OLLAMA_HOST", "http://127.0.0.1:11434"
-        ).rstrip("/")
+        self.base_url = sanitize_ollama_base_url(
+            os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
+        )
 
         self._validate_host()
 

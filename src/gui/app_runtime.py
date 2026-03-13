@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import tkinter as tk
 from tkinter import messagebox
 import traceback
@@ -25,7 +26,7 @@ from src.gui.theme import (
 from src.gui.helpers import mode_switch
 from src.gui.helpers.safe_after import drain_ui_queue
 from src.gui.panels.panel_registry import get_panels, _import_attr
-from src.gui.panels.panel_keys import VIEW_REFERENCE, normalize_view_key
+from src.gui.panels.panel_keys import VIEW_COMMANDS, VIEW_REFERENCE, normalize_view_key
 from src.gui.panels.query_panel import QueryPanel
 from src.gui.panels.index_panel import IndexPanel
 from src.gui.panels.status_bar import StatusBar
@@ -345,6 +346,15 @@ def _build_view(self, name):
             self._views["admin"] = wrapper
             return
 
+        if name == VIEW_COMMANDS:
+            from src.gui.panels.command_center_panel import CommandCenterPanel
+            wrapper = ScrollableFrame(self._content, bg=self._theme["bg"])
+            view = CommandCenterPanel(wrapper.inner, config=self.config, app_ref=self)
+            view.pack(fill=tk.BOTH, expand=True)
+            self._command_center_panel = view
+            self._views[VIEW_COMMANDS] = wrapper
+            return
+
         if name == VIEW_REFERENCE:
             from src.gui.panels.reference_panel import ReferencePanel
             view = ReferencePanel(self._content)
@@ -492,6 +502,8 @@ def _apply_theme_to_all(self):
         self._admin_panel.apply_theme(t)
     if hasattr(self, "_settings_panel"):
         self._settings_panel.apply_theme(t)
+    if hasattr(self, "_command_center_panel"):
+        self._command_center_panel.apply_theme(t)
 
     # Propagate to all cached views
     for view in self._views.values():
@@ -616,6 +628,10 @@ def reload_config(self, new_config):
         if hasattr(tuning, "_sync_sliders_to_config"):
             tuning._sync_sliders_to_config()
 
+    commands = getattr(self, "_command_center_panel", None)
+    if commands is not None:
+        commands.config = new_config
+
     self._update_mode_buttons()
     logger.info("Config reloaded and propagated to all panels")
 
@@ -695,6 +711,9 @@ def _on_close(self):
     cost_view = self._views.get("cost") if hasattr(self, "_views") else None
     if cost_view is not None and hasattr(cost_view, "cleanup"):
         cost_view.cleanup()
+    commands = getattr(self, "_command_center_panel", None)
+    if commands is not None and hasattr(commands, "cleanup"):
+        commands.cleanup()
     if hasattr(self, "cost_tracker") and self.cost_tracker:
         self.cost_tracker.shutdown()
     self.destroy()

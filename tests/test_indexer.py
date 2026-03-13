@@ -264,6 +264,39 @@ class TestIndexer:
         # Old chunks should have been deleted before re-indexing
         assert mocks["vector_store"].delete_chunks_by_source.call_count > 0
 
+    def test_indexer_applies_document_access_tags_from_rules(self, monkeypatch):
+        indexer, mocks = self._make_indexer()
+        monkeypatch.setenv(
+            "HYBRIDRAG_DOCUMENT_TAG_RULES",
+            "notes.md=shared,review;deep_doc.txt=shared,engineering",
+        )
+
+        indexer.index_folder(str(self.test_dir))
+
+        tagged_metadata = {}
+        for call in mocks["vector_store"].add_embeddings.call_args_list:
+            metadata_list = call.args[1]
+            for metadata in metadata_list:
+                path = str(metadata.source_path)
+                if path.endswith("notes.md") and "notes" not in tagged_metadata:
+                    tagged_metadata["notes"] = metadata
+                if path.endswith("deep_doc.txt") and "deep_doc" not in tagged_metadata:
+                    tagged_metadata["deep_doc"] = metadata
+
+        assert tagged_metadata["notes"].access_tags == ("shared", "review")
+        assert (
+            tagged_metadata["notes"].access_tag_source
+            == "document_tag_rules:notes.md"
+        )
+        assert tagged_metadata["deep_doc"].access_tags == (
+            "shared",
+            "engineering",
+        )
+        assert (
+            tagged_metadata["deep_doc"].access_tag_source
+            == "document_tag_rules:deep_doc.txt"
+        )
+
     # ------------------------------------------------------------------
     # Test 5.5: Text validation catches binary garbage
     # ------------------------------------------------------------------

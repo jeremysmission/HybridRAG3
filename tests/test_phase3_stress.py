@@ -603,17 +603,72 @@ class TestPipelineIntegration:
 class TestModuleSizeEnforcement:
     """Verify no class exceeds 500 lines (standing rule)."""
 
+    def _docstring_line_numbers(self, class_node):
+        """Return line numbers occupied by class/method docstrings."""
+        import ast
+
+        docstring_lines = set()
+        for node in ast.walk(class_node):
+            if not isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            body = getattr(node, "body", [])
+            if not body:
+                continue
+            first_stmt = body[0]
+            if not isinstance(first_stmt, ast.Expr):
+                continue
+            value = getattr(first_stmt, "value", None)
+            if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+                continue
+            start = getattr(first_stmt, "lineno", None)
+            end = getattr(first_stmt, "end_lineno", start)
+            if start is None or end is None:
+                continue
+            docstring_lines.update(range(start, end + 1))
+        return docstring_lines
+
     def _count_class_lines(self, filepath):
         """Return dict of {class_name: line_count}."""
         import ast
         source = Path(filepath).read_text(encoding="utf-8")
+        source_lines = source.splitlines()
         tree = ast.parse(source)
         results = {}
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
                 end = getattr(node, "end_lineno", node.lineno)
-                results[node.name] = end - node.lineno + 1
+                docstring_lines = self._docstring_line_numbers(node)
+                effective_lines = 0
+                for lineno in range(node.lineno, end + 1):
+                    if lineno in docstring_lines:
+                        continue
+                    text = source_lines[lineno - 1].strip()
+                    if not text or text.startswith("#"):
+                        continue
+                    effective_lines += 1
+                results[node.name] = effective_lines
         return results
+
+    def test_count_class_lines_excludes_comments_blank_lines_and_docstrings(self, tmp_path):
+        sample = tmp_path / "sample_size_rule.py"
+        sample.write_text(
+            "\n".join(
+                [
+                    "class Sample:",
+                    '    """Class docstring."""',
+                    "    # Class comment",
+                    "",
+                    "    def run(self):",
+                    '        """Method docstring."""',
+                    "        # Method comment",
+                    "        return 1",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        assert self._count_class_lines(sample)["Sample"] == 3
 
     def test_core_classes_under_500_lines(self):
         core_dir = PROJECT_ROOT / "src" / "core"

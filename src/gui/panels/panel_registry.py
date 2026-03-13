@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional, Any, List, Dict
 from src.gui.panels.panel_keys import (
     VIEW_QUERY, VIEW_DATA, VIEW_INDEX, VIEW_TUNING, VIEW_COST,
-    VIEW_ADMIN, VIEW_REFERENCE, VIEW_SETTINGS,
+    VIEW_ADMIN, VIEW_REFERENCE, VIEW_SETTINGS, VIEW_COMMANDS,
 )
 
 logger = logging.getLogger(__name__)
@@ -71,6 +71,7 @@ _PANEL_DEFS: List[Dict[str, Any]] = [
     {"key": VIEW_INDEX,   "label": "Index",     "module": "src.gui.panels.index_panel",       "cls": "IndexPanel"},
     {"key": VIEW_COST,    "label": "Cost",      "module": "src.gui.panels.cost_dashboard",    "cls": "CostDashboard"},
     {"key": VIEW_ADMIN,   "label": "Admin",     "module": "src.gui.panels.api_admin_tab",     "cls": "ApiAdminTab"},
+    {"key": VIEW_COMMANDS, "label": "Command Center", "module": "src.gui.panels.command_center_panel", "cls": "CommandCenterPanel"},
     {"key": VIEW_REFERENCE, "label": "Reference", "module": "src.gui.panels.reference_panel",   "cls": "ReferencePanel"},
     {"key": VIEW_SETTINGS,"label": "Settings",  "module": "src.gui.panels.settings_panel",    "cls": "SettingsPanel"},
 ]

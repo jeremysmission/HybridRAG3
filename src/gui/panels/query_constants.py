@@ -56,7 +56,7 @@ PROFILE_DIAL_DEFAULTS = {
     },
 }
 
-# Development grounding-bias scale (1..10).
+# Development grounding-bias scale (0..10).
 # 1 = max synthesis freedom, 10 = strict source lock.
 GROUNDING_BIAS_HINTS = {
     0: "Grounding 0/10 - OFF",

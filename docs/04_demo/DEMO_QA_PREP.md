@@ -13,6 +13,9 @@
   `python tools/demo_transcript.py --describe-question`
 - Preview the GUI smoke support-path question with
   `python tools/gui_demo_smoke.py --describe-question`
+- Before treating the pack as rehearsal-ready for the current checkout, run
+  `python tools/demo_rehearsal_audit.py` to verify the pack's
+  `expected_evidence` targets still exist in the indexed corpus.
 - After a transcript or GUI smoke run, inspect the matching
   `output/rehearsal_validation/*.json` artifact to confirm the selected
   question, expected evidence, actual mode/path, and operator notes are

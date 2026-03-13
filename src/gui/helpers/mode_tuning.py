@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import copy
 import os
+import tempfile
 import threading
+import time
 from datetime import datetime
 from typing import Any
 
@@ -12,6 +14,7 @@ from src.core.config_authority import canonicalize_config_dict
 from src.core.config_files import PRIMARY_CONFIG_NAME
 from src.core.mode_config import (
     MODE_BACKEND_SECTION,
+    MODE_PATH_DEFAULTS,
     MODE_LEGACY_KEY_ALIASES,
     MODE_RUNTIME_DEFAULTS,
     MODE_TUNED_DEFAULTS,
@@ -25,6 +28,8 @@ from src.core.mode_config import (
 
 _STORE_LOCK = threading.Lock()
 _STORE_VERSION = 2
+_SAVE_RETRIES = 5
+_SAVE_RETRY_DELAY_SECONDS = 0.05
 
 
 def _project_root() -> str:
@@ -49,10 +54,43 @@ def _load_yaml(path: str) -> dict[str, Any]:
 def _save_yaml(path: str, data: dict[str, Any]) -> None:
     cfg_dir = os.path.dirname(path)
     os.makedirs(cfg_dir, exist_ok=True)
-    tmp_path = path + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
-    os.replace(tmp_path, path)
+    payload = yaml.safe_dump(data, default_flow_style=False, sort_keys=False)
+    base_name = os.path.basename(path)
+
+    for attempt in range(_SAVE_RETRIES):
+        tmp_fd = None
+        tmp_path = None
+        try:
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                prefix="{}.".format(base_name),
+                suffix=".tmp",
+                dir=cfg_dir,
+            )
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                tmp_fd = None
+                f.write(payload)
+            os.replace(tmp_path, path)
+            return
+        except PermissionError:
+            if tmp_fd is not None:
+                os.close(tmp_fd)
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            if attempt >= (_SAVE_RETRIES - 1):
+                raise
+            time.sleep(_SAVE_RETRY_DELAY_SECONDS * (attempt + 1))
+        except Exception:
+            if tmp_fd is not None:
+                os.close(tmp_fd)
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            raise
 
 
 def _legacy_reasoning_to_open_knowledge(value: Any) -> bool:
@@ -163,6 +201,11 @@ class ModeTuningStore:
             entry[backend_name] = copy.deepcopy(MODE_RUNTIME_DEFAULTS[mode][backend_name])
         if "query" not in entry or not isinstance(entry["query"], dict):
             entry["query"] = copy.deepcopy(MODE_RUNTIME_DEFAULTS[mode]["query"])
+        if "paths" not in entry or not isinstance(entry["paths"], dict):
+            root_paths = root_data.get("paths", {})
+            entry["paths"] = copy.deepcopy(root_paths) if isinstance(root_paths, dict) else {}
+        for key, default_value in MODE_PATH_DEFAULTS.items():
+            entry["paths"].setdefault(key, copy.deepcopy(default_value))
 
         return entry
 
@@ -213,6 +256,14 @@ class ModeTuningStore:
         active = self.get_active_values(config, mode)
         for key, value in active.items():
             self._write_config_value(config, mode, key, value)
+        root_data = self._load_root()
+        entry = self._ensure_mode_entry(root_data, config, mode)
+        paths = getattr(config, "paths", None)
+        if paths is not None:
+            for key, default_value in MODE_PATH_DEFAULTS.items():
+                value = copy.deepcopy(entry.get("paths", {}).get(key, default_value))
+                if hasattr(paths, key):
+                    setattr(paths, key, value)
         return active
 
     def update_value(self, config, mode: str, key: str, value: Any) -> None:

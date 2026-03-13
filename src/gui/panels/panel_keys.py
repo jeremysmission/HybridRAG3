@@ -10,9 +10,14 @@ VIEW_COST = "cost"
 VIEW_ADMIN = "admin"
 VIEW_REFERENCE = "reference"
 VIEW_SETTINGS = "settings"
+VIEW_COMMANDS = "commands"
 
 _ALIASES = {
+    "tuning": VIEW_ADMIN,
     "ref": VIEW_REFERENCE,
+    "command-center": VIEW_COMMANDS,
+    "cli": VIEW_COMMANDS,
+    "toolbox": VIEW_COMMANDS,
 }
 
 
@@ -22,4 +27,3 @@ def normalize_view_key(name: str) -> str:
     if not key:
         return key
     return _ALIASES.get(key, key)
-

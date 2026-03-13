@@ -171,6 +171,53 @@ class TestQueryEngine:
         assert result.sources == []
         assert result.error is None
 
+    def test_access_filtered_no_results_skip_open_knowledge_fallback(self):
+        config = FakeConfig(mode="online")
+        engine, mocks = self._make_engine(config=config, search_results=[])
+        engine.config.query.allow_open_knowledge = True
+        mocks["retriever"].last_search_trace = {
+            "counts": {
+                "raw_hits": 2,
+                "post_rerank_hits": 2,
+                "post_filter_hits": 0,
+                "post_augment_hits": 0,
+                "final_hits": 0,
+                "dropped_hits": 0,
+                "denied_hits": 2,
+            },
+            "hits": {
+                "raw": [],
+                "post_rerank": [],
+                "post_filter": [],
+                "post_augment": [],
+                "final": [],
+                "dropped": [],
+                "denied": [],
+            },
+            "source_path_flags": {
+                "expected_source_root": "",
+                "suspicious_count": 0,
+                "suspicious_sources": [],
+            },
+            "access_control": {
+                "enabled": True,
+                "actor": "alice",
+                "actor_source": "api_token",
+                "actor_role": "viewer",
+                "allowed_doc_tags": ["shared"],
+                "document_policy_source": "role_tags:viewer",
+                "authorized_hits": 0,
+                "denied_hits": 2,
+            },
+        }
+
+        result = engine.query("What is in the restricted plan?")
+
+        assert result.answer == "No authorized information found in knowledge base."
+        assert result.error == "access_denied"
+        assert mocks["llm_router"].query.call_count == 0
+        assert result.debug_trace["decision"]["path"] == "access_denied_no_results"
+
     # ------------------------------------------------------------------
     # Test 4.3: Empty context edge case
     # ------------------------------------------------------------------

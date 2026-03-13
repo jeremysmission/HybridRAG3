@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import copy
+import os
 from typing import Any
 
 from .config_files import deep_merge_dict
-from .mode_config import MODE_RUNTIME_DEFAULTS, normalize_mode
+from .mode_config import MODE_PATH_DEFAULTS, MODE_RUNTIME_DEFAULTS, normalize_mode
 from .user_modes import apply_active_profile_overlay
 
 
@@ -22,6 +23,7 @@ _MODE_RETRIEVAL_KEYS = {
     "reranker_enabled",
     "reranker_top_n",
 }
+_ACTIVE_MODE_ENV_NAME = "HYBRIDRAG_ACTIVE_MODE"
 
 
 def _dict_or_empty(value: Any) -> dict[str, Any]:
@@ -34,6 +36,26 @@ def _ensure_dict(parent: dict[str, Any], key: str) -> dict[str, Any]:
         value = {}
         parent[key] = value
     return value
+
+
+def set_runtime_active_mode(mode: str) -> str:
+    """Track the live runtime mode without forcing an on-disk mode write."""
+    normalized = normalize_mode(mode)
+    os.environ[_ACTIVE_MODE_ENV_NAME] = normalized
+    return normalized
+
+
+def resolve_runtime_active_mode(
+    persisted_data: dict[str, Any] | None = None,
+    *,
+    default: str = "offline",
+) -> str:
+    raw_env = str(os.environ.get(_ACTIVE_MODE_ENV_NAME, "") or "").strip().lower()
+    if raw_env in ("offline", "online"):
+        return raw_env
+    if isinstance(persisted_data, dict):
+        return normalize_mode(persisted_data.get("mode", default))
+    return normalize_mode(default)
 
 
 def _merge_mode_section(
@@ -86,6 +108,9 @@ def canonicalize_config_dict(yaml_data: dict | None) -> dict[str, Any]:
     root_query = _dict_or_empty(data.get("query"))
     root_ollama = _dict_or_empty(data.get("ollama"))
     root_api = _dict_or_empty(data.get("api"))
+    root_paths = _dict_or_empty(data.get("paths"))
+    offline_paths_legacy = _dict_or_empty(offline.get("paths")) or copy.deepcopy(root_paths)
+    online_paths_legacy = _dict_or_empty(online.get("paths")) or copy.deepcopy(root_paths)
 
     offline_retrieval_legacy = mode_retrieval if active_mode == "offline" else {}
     online_retrieval_legacy = root_online_retrieval
@@ -94,8 +119,20 @@ def canonicalize_config_dict(yaml_data: dict | None) -> dict[str, Any]:
     offline_query_legacy = root_query if active_mode == "offline" else {}
     online_query_legacy = root_query if active_mode == "online" else {}
 
-    needs_offline = bool(offline) or bool(root_ollama) or bool(offline_retrieval_legacy) or bool(offline_query_legacy)
-    needs_online = bool(online) or bool(root_api) or bool(online_retrieval_legacy) or bool(online_query_legacy)
+    needs_offline = (
+        bool(offline)
+        or bool(root_ollama)
+        or bool(offline_retrieval_legacy)
+        or bool(offline_query_legacy)
+        or bool(offline_paths_legacy)
+    )
+    needs_online = (
+        bool(online)
+        or bool(root_api)
+        or bool(online_retrieval_legacy)
+        or bool(online_query_legacy)
+        or bool(online_paths_legacy)
+    )
 
     if needs_offline:
         _merge_mode_section(
@@ -115,6 +152,12 @@ def canonicalize_config_dict(yaml_data: dict | None) -> dict[str, Any]:
             "query",
             MODE_RUNTIME_DEFAULTS["offline"]["query"],
             offline_query_legacy,
+        )
+        _merge_mode_section(
+            offline,
+            "paths",
+            MODE_PATH_DEFAULTS,
+            offline_paths_legacy,
         )
         modes["offline"] = offline
     else:
@@ -139,6 +182,12 @@ def canonicalize_config_dict(yaml_data: dict | None) -> dict[str, Any]:
             MODE_RUNTIME_DEFAULTS["online"]["query"],
             online_query_legacy,
         )
+        _merge_mode_section(
+            online,
+            "paths",
+            MODE_PATH_DEFAULTS,
+            online_paths_legacy,
+        )
         modes["online"] = online
     else:
         modes.pop("online", None)
@@ -147,6 +196,13 @@ def canonicalize_config_dict(yaml_data: dict | None) -> dict[str, Any]:
         data["retrieval"] = shared_retrieval
     else:
         data.pop("retrieval", None)
+
+    active_entry = _dict_or_empty(modes.get(active_mode))
+    active_paths = deep_merge_dict(root_paths, _dict_or_empty(active_entry.get("paths")))
+    if active_paths:
+        data["paths"] = active_paths
+    else:
+        data.pop("paths", None)
 
     for mirror in _ROOT_RUNTIME_MIRRORS:
         data.pop(mirror, None)
@@ -191,25 +247,30 @@ def build_runtime_config_dict(
         copy.deepcopy(MODE_RUNTIME_DEFAULTS[active_mode]["query"]),
         _dict_or_empty(active_entry.get("query")),
     )
+    runtime["paths"] = deep_merge_dict(
+        _dict_or_empty(runtime.get("paths")),
+        _dict_or_empty(active_entry.get("paths")),
+    )
     runtime.pop("retrieval_online", None)
     return runtime
 
 
 def _resolve_canonical_key(data: dict[str, Any], key: str) -> str:
+    active_mode = resolve_runtime_active_mode(data)
     if key.startswith("api."):
         return "modes.online.api." + key.split(".", 1)[1]
     if key.startswith("ollama."):
         return "modes.offline.ollama." + key.split(".", 1)[1]
+    if key.startswith("paths."):
+        return f"modes.{active_mode}.paths." + key.split(".", 1)[1]
     if key.startswith("retrieval_online."):
         return "modes.online.retrieval." + key.split(".", 1)[1]
     if key.startswith("retrieval."):
         suffix = key.split(".", 1)[1]
         if suffix.split(".", 1)[0] not in _MODE_RETRIEVAL_KEYS:
             return key
-        active_mode = normalize_mode(data.get("mode", "offline"))
         return f"modes.{active_mode}.retrieval.{suffix}"
     if key.startswith("query."):
-        active_mode = normalize_mode(data.get("mode", "offline"))
         return f"modes.{active_mode}.query." + key.split(".", 1)[1]
     return key
 

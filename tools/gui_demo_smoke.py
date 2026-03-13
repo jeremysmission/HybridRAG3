@@ -49,8 +49,6 @@ import shutil
 import tempfile
 from pathlib import Path
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -77,6 +75,7 @@ REPORT_PATH = REPORT_DIR / "gui_demo_smoke_report.json"
 
 PASS = 0
 FAIL = 0
+SKIP = 0
 steps = []
 
 
@@ -92,8 +91,57 @@ def check(label, condition, detail=""):
         if detail:
             msg += " -- {}".format(detail)
         print(msg)
-    steps.append({"step": label, "ok": ok, "detail": detail})
+    steps.append({"step": label, "ok": ok, "status": "ok" if ok else "fail", "detail": detail})
     return ok
+
+
+def skip(label, detail=""):
+    global SKIP
+    SKIP += 1
+    msg = "[SKIP] {}".format(label)
+    if detail:
+        msg += " -- {}".format(detail)
+    print(msg)
+    steps.append({"step": label, "ok": None, "status": "skip", "detail": detail})
+
+
+def _configure_stdout():
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is None:
+        return
+    sys.stdout = io.TextIOWrapper(buffer, encoding="utf-8")
+
+
+def _local_temp_dir(prefix):
+    base = Path(".tmp_gui_demo_smoke").resolve()
+    base.mkdir(parents=True, exist_ok=True)
+    return tempfile.mkdtemp(prefix=prefix, dir=str(base))
+
+
+def _answer_backend_available(app) -> bool:
+    boot_result = getattr(app, "boot_result", None)
+    if boot_result is None:
+        return bool(getattr(app, "query_engine", None) is not None)
+    return bool(
+        getattr(boot_result, "offline_available", False)
+        or getattr(boot_result, "online_available", False)
+    )
+
+
+def _backend_limit_detail(app) -> str:
+    boot_result = getattr(app, "boot_result", None)
+    if boot_result is None:
+        return "no boot result available"
+
+    details = []
+    if not getattr(boot_result, "offline_available", False):
+        details.append("offline generate backend unavailable")
+    if not getattr(boot_result, "online_available", False):
+        details.append("online answer backend unavailable")
+    warnings = getattr(boot_result, "warnings", None) or []
+    if warnings:
+        details.append(str(warnings[-1]))
+    return "; ".join(details) if details else "live answer backend available"
 
 
 def _pump(app, seconds=0.1):
@@ -150,7 +198,10 @@ def _load_gui_smoke_question(pack_path: str = ""):
 def _build_operator_notes():
     notes = []
     for entry in steps:
-        prefix = "PASS" if entry.get("ok") else "FAIL"
+        if entry.get("status") == "skip":
+            prefix = "SKIP"
+        else:
+            prefix = "PASS" if entry.get("ok") else "FAIL"
         notes.append(
             "{}: {} -- {}".format(
                 prefix,
@@ -253,7 +304,7 @@ def step_index(app):
     print()
     print("--- Step 4: Index Demo File ---")
 
-    demo_dir = tempfile.mkdtemp(prefix="hrag_demo_")
+    demo_dir = _local_temp_dir("hrag_demo_")
     demo_file = os.path.join(demo_dir, "demo_doc.txt")
     with open(demo_file, "w", encoding="utf-8") as f:
         f.write(
@@ -361,6 +412,13 @@ def step_query(app, rehearsal_question):
         _pump(app, 0.1)
         check("Question entered",
               panel.question_entry.get() == rehearsal_question["prompt"])
+
+        if not _answer_backend_available(app):
+            skip(
+                "Query execution requires live answer backend",
+                _backend_limit_detail(app),
+            )
+            return
 
         # Invoke Ask -- overlay is headless-safe (no monkeypatching needed)
         panel.ask_btn.invoke()
@@ -478,9 +536,11 @@ def step_shutdown(app):
 # ===================================================================
 
 def main(argv=None):
-    global PASS, FAIL, steps
+    global PASS, FAIL, SKIP, steps
+    _configure_stdout()
     PASS = 0
     FAIL = 0
+    SKIP = 0
     steps = []
     args = _parse_args(argv)
     pack, rehearsal_question = _load_gui_smoke_question(args.pack)
@@ -576,6 +636,8 @@ def main(argv=None):
     print("=" * 65)
     total = PASS + FAIL
     print("  SUMMARY: {}/{} checks passed".format(PASS, total))
+    if SKIP:
+        print("  [SKIP] {} checks skipped".format(SKIP))
     if FAIL:
         print("  [FAIL] {} checks failed".format(FAIL))
     else:
@@ -599,6 +661,7 @@ def _write_report(
         "ok": FAIL == 0,
         "passed": PASS,
         "failed": FAIL,
+        "skipped": SKIP,
         "elapsed_s": round(time.time() - t0, 2),
         "steps": steps,
     }
@@ -625,6 +688,7 @@ def _write_report(
                 "counts": {
                     "passed": PASS,
                     "failed": FAIL,
+                    "skipped": SKIP,
                 },
             },
         )

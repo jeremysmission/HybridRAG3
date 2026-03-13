@@ -5,3 +5,7 @@
 # Outputs: Returned values, written files, logs, or UI updates produced by this module.
 # Safety notes: Update small sections at a time and run relevant tests after edits.
 # ============================
+
+from .gui_cli_parity_harness import DEFAULT_CLI_CHECKS, GuiCliParityHarness
+
+__all__ = ["DEFAULT_CLI_CHECKS", "GuiCliParityHarness"]

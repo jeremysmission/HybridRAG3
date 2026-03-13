@@ -7,6 +7,8 @@
 # ============================
 from types import SimpleNamespace
 
+import pytest
+
 from src.core.retriever import Retriever, SearchHit
 
 
@@ -88,3 +90,48 @@ def test_structured_lookup_detection_variants():
     assert _is_structured_lookup_query("show serial number")
     assert _is_structured_lookup_query("give BOM breakdown")
     assert not _is_structured_lookup_query("what is boot time")
+
+
+def test_get_sources_includes_access_tags_per_source():
+    retriever = Retriever(_DummyStore(), _DummyEmbedder(), _make_config(top_k=4, min_score=0.2))
+
+    sources = retriever.get_sources(
+        [
+            SearchHit(
+                0.93,
+                "/docs/spec.md",
+                0,
+                "spec text",
+                access_tags=("shared", "review"),
+                access_tag_source="document_tag_rules:spec.md",
+            ),
+            SearchHit(
+                0.81,
+                "/docs/spec.md",
+                1,
+                "more spec text",
+                access_tags=("review", "shared"),
+                access_tag_source="document_tag_rules:spec.md",
+            ),
+            SearchHit(
+                0.77,
+                "/docs/public.md",
+                0,
+                "public text",
+                access_tags=(),
+                access_tag_source="",
+            ),
+        ]
+    )
+
+    assert sources[0]["path"] == "/docs/spec.md"
+    assert sources[0]["chunks"] == 2
+    assert sources[0]["avg_relevance"] == pytest.approx(0.87)
+    assert sources[0]["access_tags"] == ["shared", "review"]
+    assert sources[0]["access_tag_source"] == "document_tag_rules:spec.md"
+
+    assert sources[1]["path"] == "/docs/public.md"
+    assert sources[1]["chunks"] == 1
+    assert sources[1]["avg_relevance"] == pytest.approx(0.77)
+    assert sources[1]["access_tags"] == ["shared"]
+    assert sources[1]["access_tag_source"] == "default_document_tags"

@@ -1,4 +1,4 @@
-active_profile: ""
+active_profile: laptop_safe
 profiles:
   laptop_safe:
     label: Laptop Safe
@@ -65,7 +65,6 @@ profiles:
             max_tokens: true
           retrieval:
             reranker_top_n: true
-
   desktop_power:
     label: Desktop Power
     notes: Balanced desktop/workstation profile
@@ -131,7 +130,6 @@ profiles:
             max_tokens: true
           retrieval:
             reranker_top_n: true
-
   server_max:
     label: Server Max
     notes: High-end workstation/server profile

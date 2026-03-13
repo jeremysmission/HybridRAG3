@@ -228,6 +228,9 @@ class StatusBar(tk.Frame):
             fg=t["fg"],
         )
 
+        if self._render_init_issue(label="Warning", color=t["orange"]):
+            return
+
         # Backend health line (mode-aware)
         if mode == "online":
             if not status.get("api_configured") and getattr(self.router, "api", None):
@@ -271,6 +274,17 @@ class StatusBar(tk.Frame):
         else:
             self.ollama_label.config(text="Backend Health: Unknown Mode", fg=t["orange"])
 
+    def _render_init_issue(self, *, label: str, color: str) -> bool:
+        """Render a startup issue without losing the live mode summary."""
+        issue = str(self._init_error or "").strip()
+        if not issue:
+            return False
+        self.ollama_label.config(
+            text="Backend Health: {} | {}".format(label, issue),
+            fg=color,
+        )
+        return True
+
     def _read_selector_mode(self, mode):
         """Best-effort selector mode detection from query panel state."""
         try:
@@ -301,7 +315,7 @@ class StatusBar(tk.Frame):
                 text="Mode/Selection: Init Failed",
                 fg=t["red"],
             )
-            self.ollama_label.config(text="Backend Health: Unknown", fg=t["gray"])
+            self._render_init_issue(label="Init Failed", color=t["red"])
         else:
             self.llm_label.config(text="Mode/Selection: Not Initialized", fg=t["fg"])
             self.ollama_label.config(text="Backend Health: Unknown", fg=t["gray"])
@@ -363,6 +377,8 @@ class StatusBar(tk.Frame):
         """Mark loading as complete -- show green Ready text."""
         t = current_theme()
         self._loading = False
+        if self.router is not None:
+            self._init_error = None
         # Cancel dot animation
         if self._dot_timer_id is not None:
             self.after_cancel(self._dot_timer_id)

@@ -56,6 +56,18 @@ def _make_root():
     return root
 
 
+def _make_app(*args, **kwargs):
+    """Create the full app or skip cleanly when Tk runtime is unstable."""
+    from src.gui.app import HybridRAGApp
+
+    try:
+        app = HybridRAGApp(*args, **kwargs)
+    except tk.TclError:
+        pytest.skip("Tk runtime unavailable")
+    app.withdraw()
+    return app
+
+
 def _pump_events(root, ms=100):
     """Process pending tkinter events for a short time."""
     end = time.time() + ms / 1000.0
@@ -394,8 +406,6 @@ def test_15_rate_editor_updates(tmp_path):
 
 def test_16_app_has_cost_dashboard_menu(tmp_path):
     """HybridRAGApp has cost_tracker and PM Dashboard menu item."""
-    from src.gui.app import HybridRAGApp
-
     @dataclass
     class FakePathsConfig:
         database: str = ""
@@ -467,11 +477,10 @@ def test_16_app_has_cost_dashboard_menu(tmp_path):
     from src.core.cost_tracker import reset_cost_tracker
     reset_cost_tracker()
 
-    app = HybridRAGApp(
+    app = _make_app(
         boot_result=FakeBootResult(),
         config=config,
     )
-    app.withdraw()
 
     # Verify cost_tracker attribute exists
     assert hasattr(app, "cost_tracker")

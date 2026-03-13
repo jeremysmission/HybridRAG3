@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import os
 import sys
-import time
 import threading
 import argparse
 import logging
@@ -48,11 +47,25 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 from src.core.config import load_config, Config
+from src.core.config_authority import set_runtime_active_mode
 from src.core.vector_store import VectorStore
 from src.core.embedder import Embedder
 from src.core.llm_router import LLMRouter
-from src.core.query_engine import QueryEngine, QueryResult
-from src.core.indexer import Indexer, IndexingProgressCallback
+from src.core.grounded_query_engine import GroundedQueryEngine
+from src.api.index_schedule import IndexScheduleTracker, maybe_launch_scheduled_index
+from src.api.indexing_runtime import start_background_indexing
+from src.api.auth_audit import AuthAuditTracker
+from src.api.query_activity import QueryActivityTracker
+from src.api.query_queue import QueryQueueTracker
+from src.api.query_threads import ConversationThreadStore
+from src.security.shared_deployment_auth import (
+    resolve_deployment_mode,
+    shared_api_auth_required,
+)
+from src.api.storage_protection import (
+    enforce_storage_protection,
+    harden_configured_storage_paths,
+)
 
 
 # -------------------------------------------------------------------
@@ -70,7 +83,11 @@ class AppState:
     vector_store: Optional[VectorStore] = None
     embedder: Optional[Embedder] = None
     llm_router: Optional[LLMRouter] = None
-    query_engine: Optional[QueryEngine] = None
+    query_engine: Optional[GroundedQueryEngine] = None
+    query_activity: Optional[QueryActivityTracker] = None
+    auth_audit: Optional[AuthAuditTracker] = None
+    query_queue: Optional[QueryQueueTracker] = None
+    conversation_threads: Optional[ConversationThreadStore] = None
     deployment_mode: str = "development"
 
     # Indexing state (background thread)
@@ -78,6 +95,9 @@ class AppState:
     indexing_thread: Optional[threading.Thread] = None
     indexing_stop_event: threading.Event = threading.Event()
     indexing_lock: threading.Lock = threading.Lock()
+    index_schedule: Optional[IndexScheduleTracker] = None
+    index_schedule_thread: Optional[threading.Thread] = None
+    index_schedule_stop_event: threading.Event = threading.Event()
     index_progress: dict = {
         "files_processed": 0,
         "files_total": 0,
@@ -91,36 +111,18 @@ class AppState:
 state = AppState()
 
 
-# -------------------------------------------------------------------
-# Indexing progress callback
-# -------------------------------------------------------------------
-class APIProgressCallback(IndexingProgressCallback):
-    """Captures indexing progress for the /index/status endpoint.
-
-    All updates are protected by state.indexing_lock because the indexer
-    runs in a background thread while /index/status reads from the HTTP
-    handler thread. Without synchronization, multi-field dict updates
-    can produce inconsistent reads.
-    """
-
-    def on_file_start(
-        self, file_path: str, file_num: int, total_files: int
-    ) -> None:
-        with state.indexing_lock:
-            state.index_progress["current_file"] = os.path.basename(file_path)
-            state.index_progress["files_total"] = total_files
-
-    def on_file_complete(self, file_path: str, chunks_created: int) -> None:
-        with state.indexing_lock:
-            state.index_progress["files_processed"] += 1
-
-    def on_file_skipped(self, file_path: str, reason: str) -> None:
-        with state.indexing_lock:
-            state.index_progress["files_skipped"] += 1
-
-    def on_error(self, file_path: str, error: str) -> None:
-        with state.indexing_lock:
-            state.index_progress["files_errored"] += 1
+def _run_index_schedule_loop() -> None:
+    """Poll the env-backed schedule and launch due indexing runs."""
+    while not state.index_schedule_stop_event.wait(1.0):
+        maybe_launch_scheduled_index(
+            state,
+            lambda source_folder, on_complete=None, trigger="manual": start_background_indexing(
+                state,
+                source_folder,
+                on_complete=on_complete,
+                trigger=trigger,
+            ),
+        )
 
 
 # -------------------------------------------------------------------
@@ -132,28 +134,44 @@ async def lifespan(app: FastAPI):
     # -- Startup --
     logger.info("[OK] Loading configuration...")
     state.config = load_config(_project_root)
+    set_runtime_active_mode(state.config.mode)
 
     # Deployment mode guard for API auth token policy.
-    sec = getattr(state.config, "security", None)
-    cfg_mode = getattr(sec, "deployment_mode", "development") if sec else "development"
-    deployment_mode = (
-        os.environ.get("HYBRIDRAG_DEPLOYMENT_MODE", cfg_mode) or "development"
-    ).strip().lower()
-    if deployment_mode not in ("development", "production"):
-        logger.warning("[WARN] Invalid deployment mode '%s'. Using development.", deployment_mode)
-        deployment_mode = "development"
-    token = (os.environ.get("HYBRIDRAG_API_AUTH_TOKEN") or "").strip()
-    if deployment_mode == "production" and not token:
+    deployment_mode = resolve_deployment_mode(state.config)
+    if deployment_mode == "production" and not shared_api_auth_required():
         raise RuntimeError(
-            "Production API Auth Guard is enabled, but HYBRIDRAG_API_AUTH_TOKEN is empty. "
-            "Set a token before starting the API server."
+            "Production API Auth Guard is enabled, but no shared API token is configured. "
+            "Set HYBRIDRAG_API_AUTH_TOKEN or store the shared token in Credential Manager before starting the API server."
         )
-    if deployment_mode == "development" and not token:
+    if deployment_mode == "development" and not shared_api_auth_required():
         logger.warning(
-            "[WARN] API auth token is not set (development mode). "
+            "[WARN] Shared API auth token is not set (development mode). "
             "Protected endpoints are open."
         )
     state.deployment_mode = deployment_mode
+    enforce_storage_protection(state.config.paths.database)
+    state.query_activity = QueryActivityTracker.from_env()
+    state.query_activity.reset()
+    state.auth_audit = AuthAuditTracker.from_env()
+    state.auth_audit.reset()
+    state.query_queue = QueryQueueTracker.from_env()
+    state.query_queue.reset()
+    state.conversation_threads = ConversationThreadStore.from_database_path(
+        state.config.paths.database
+    )
+    state.index_schedule = IndexScheduleTracker.from_env(state.config.paths.source_folder)
+    state.index_schedule_stop_event.clear()
+    if state.index_schedule.enabled:
+        logger.info(
+            "[OK] Scheduled indexing enabled every %ss for %s",
+            state.index_schedule.interval_seconds,
+            state.index_schedule.source_folder,
+        )
+        schedule_thread = threading.Thread(target=_run_index_schedule_loop, daemon=True)
+        state.index_schedule_thread = schedule_thread
+        schedule_thread.start()
+    else:
+        state.index_schedule_thread = None
 
     logger.info("[OK] Connecting to vector store...")
     state.vector_store = VectorStore(
@@ -161,6 +179,7 @@ async def lifespan(app: FastAPI):
         state.config.embedding.dimension,
     )
     state.vector_store.connect()
+    harden_configured_storage_paths(state.config.paths.database)
 
     logger.info("[OK] Loading embedding model...")
     state.embedder = Embedder(
@@ -172,7 +191,7 @@ async def lifespan(app: FastAPI):
     state.llm_router = LLMRouter(state.config)
 
     logger.info("[OK] Building query engine...")
-    state.query_engine = QueryEngine(
+    state.query_engine = GroundedQueryEngine(
         state.config,
         state.vector_store,
         state.embedder,
@@ -184,6 +203,11 @@ async def lifespan(app: FastAPI):
 
     # -- Shutdown --
     logger.info("[OK] Shutting down...")
+    schedule_thread = state.index_schedule_thread
+    if schedule_thread and schedule_thread.is_alive():
+        logger.info("[OK] Stopping scheduled index loop...")
+        state.index_schedule_stop_event.set()
+        schedule_thread.join(timeout=5.0)
     thread = state.indexing_thread
     if thread and thread.is_alive():
         logger.info("[OK] Signaling indexing thread to stop...")
@@ -222,8 +246,10 @@ app = FastAPI(
 # Register routes
 # -------------------------------------------------------------------
 from src.api.routes import router  # noqa: E402
+from src.api.web_dashboard import router as web_dashboard_router  # noqa: E402
 
 app.include_router(router)
+app.include_router(web_dashboard_router)
 
 
 # -------------------------------------------------------------------

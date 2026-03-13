@@ -13,12 +13,21 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import yaml
+
 from src.gui.helpers.mode_tuning import ModeTuningStore
 
 
 def _make_config():
     return SimpleNamespace(
         mode="offline",
+        paths=SimpleNamespace(
+            source_folder="D:/offline/source",
+            database="D:/offline/index/hybridrag.sqlite3",
+            embeddings_cache="D:/offline/index",
+            download_folder="D:/offline/source",
+            transfer_source_folder="D:/offline/source",
+        ),
         retrieval=SimpleNamespace(
             top_k=5,
             min_score=0.10,
@@ -225,3 +234,114 @@ def test_snapshot_config_captures_query_values_from_live_config():
 
     assert snapshot["grounding_bias"] == 3
     assert snapshot["allow_open_knowledge"] is False
+
+
+def test_mode_store_retries_tempfile_create_after_transient_permission_error():
+    cfg = _make_config()
+    temp_root = _make_local_temp_root()
+    attempts = {"count": 0}
+    real_mkstemp = tempfile.mkstemp
+
+    def flaky_mkstemp(*args, **kwargs):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise PermissionError("config temp busy")
+        return real_mkstemp(*args, **kwargs)
+
+    try:
+        with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": temp_root}):
+            with patch("src.gui.helpers.mode_tuning.tempfile.mkstemp", side_effect=flaky_mkstemp), \
+                 patch("src.gui.helpers.mode_tuning.time.sleep", return_value=None):
+                store = ModeTuningStore()
+                store.update_value(cfg, "offline", "top_k", 9)
+                state = store.get_mode_state(cfg, "offline")
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+    assert attempts["count"] >= 2
+    assert state["values"]["top_k"] == 9
+
+
+def test_mode_store_retries_replace_after_transient_permission_error():
+    cfg = _make_config()
+    temp_root = _make_local_temp_root()
+    attempts = {"count": 0}
+    real_replace = os.replace
+
+    def flaky_replace(src, dst):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise PermissionError("config locked")
+        return real_replace(src, dst)
+
+    try:
+        with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": temp_root}):
+            with patch("src.gui.helpers.mode_tuning.os.replace", side_effect=flaky_replace), \
+                 patch("src.gui.helpers.mode_tuning.time.sleep", return_value=None):
+                store = ModeTuningStore()
+                store.update_value(cfg, "online", "top_k", 11)
+                state = store.get_mode_state(cfg, "online")
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+    assert attempts["count"] >= 2
+    assert state["values"]["top_k"] == 11
+
+
+def test_apply_to_config_restores_mode_specific_paths():
+    cfg = _make_config()
+    temp_root = _make_local_temp_root()
+    cfg_dir = Path(temp_root) / "config"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "config.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "mode": "offline",
+                "modes": {
+                    "offline": {
+                        "retrieval": {"top_k": 4, "min_score": 0.1},
+                        "ollama": {"model": "phi4-mini"},
+                        "query": {"grounding_bias": 8, "allow_open_knowledge": True},
+                        "paths": {
+                            "source_folder": "D:/offline/source",
+                            "database": "D:/offline/index/hybridrag.sqlite3",
+                            "embeddings_cache": "D:/offline/index",
+                            "download_folder": "D:/offline/source",
+                            "transfer_source_folder": "D:/offline/source",
+                        },
+                    },
+                    "online": {
+                        "retrieval": {"top_k": 6, "min_score": 0.08},
+                        "api": {"model": "gpt-4o", "deployment": "gpt-4o"},
+                        "query": {"grounding_bias": 7, "allow_open_knowledge": True},
+                        "paths": {
+                            "source_folder": "D:/shared/source",
+                            "database": "D:/shared/index/hybridrag.sqlite3",
+                            "embeddings_cache": "D:/shared/index",
+                            "download_folder": "D:/shared/source",
+                            "transfer_source_folder": "",
+                        },
+                    },
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": temp_root}):
+            store = ModeTuningStore()
+            store.apply_to_config(cfg, "online")
+            assert cfg.paths.source_folder == "D:/shared/source"
+            assert cfg.paths.database == "D:/shared/index/hybridrag.sqlite3"
+            assert cfg.paths.embeddings_cache == "D:/shared/index"
+            assert cfg.paths.transfer_source_folder == ""
+
+            store.apply_to_config(cfg, "offline")
+            assert cfg.paths.source_folder == "D:/offline/source"
+            assert cfg.paths.database == "D:/offline/index/hybridrag.sqlite3"
+            assert cfg.paths.embeddings_cache == "D:/offline/index"
+            assert cfg.paths.transfer_source_folder == "D:/offline/source"
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)

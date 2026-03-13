@@ -10,24 +10,24 @@
   "questions": [
     {
       "id": "pm_leadership_styles_compare",
-      "title": "Leadership styles comparison",
+      "title": "Leadership vs. management comparison",
       "profile": "program_management",
       "track": "quick_win",
       "preferred_mode": "online",
-      "prompt": "What leadership styles are discussed and how do they differ?",
+      "prompt": "How do leaders and managers differ?",
       "expected_evidence": [
         {
           "kind": "path",
-          "target": "Leadership_Playbook.pdf",
-          "why": "Primary narrative source for the leadership models used in the demo corpus."
+          "target": "Leadership vs. Management.pdf",
+          "why": "Current indexed leadership comparison source for the default transcript question in this checkout."
         },
         {
           "kind": "citation_target",
-          "target": "leadership comparison table covering transformational, transactional, and servant leadership",
-          "why": "The strongest answer should cite the contrast table instead of paraphrasing from memory."
+          "target": "Subject Leader Manager Essence Change Stability",
+          "why": "The compact comparison table is the strongest citation anchor for a crisp leadership-vs-management answer."
         }
       ],
-      "operator_note": "Default transcript question. Use early in the live run to show multi-source synthesis with clear citations."
+      "operator_note": "Default transcript question for this checkout. Use early in the live run to show a clean cited distinction between leading people and managing work."
     },
     {
       "id": "eng_operating_frequency_range",
@@ -35,20 +35,20 @@
       "profile": "engineering_stem",
       "track": "quick_win",
       "preferred_mode": "online",
-      "prompt": "What is the operating frequency range?",
+      "prompt": "What is the Digisonde-4D operating frequency range?",
       "expected_evidence": [
         {
           "kind": "path",
-          "target": "RF_System_Spec.pdf",
-          "why": "Expected primary source for the exact band numbers."
+          "target": "Digisonde4DManual_LDI-web (1).pdf",
+          "why": "Current indexed technical manual that contains the Digisonde-4D specifications table."
         },
         {
           "kind": "citation_target",
-          "target": "operating band table or RF range section",
-          "why": "Answer quality is highest when the citation lands on the numeric table rather than a prose summary."
+          "target": "Frequency Range 0.5 - 30 MHz (all modes of operation)",
+          "why": "The answer should anchor to the specifications table instead of a loose prose mention."
         }
       ],
-      "operator_note": "Good first-pass engineering question when you want an answer with exact numbers and a tight citation."
+      "operator_note": "Good engineering quick win when you want an answer with exact numbers and a direct citation into the specifications table."
     },
     {
       "id": "ops_calibration_review_cadence",
@@ -60,58 +60,58 @@
       "expected_evidence": [
         {
           "kind": "path",
-          "target": "Maintenance_Procedure_Guide.docx",
-          "why": "Expected maintenance source for the interval wording."
+          "target": "demo_doc.txt",
+          "why": "Current indexed GUI smoke support document used for the offline/Admin rehearsal path."
         },
         {
           "kind": "citation_target",
-          "target": "section 7.3 calibration interval plus quarterly review cadence",
-          "why": "GUI smoke and offline/Admin rehearsal should land on the interval language, not only the general maintenance prose."
+          "target": "maintenance schedule follows quarterly review cycles",
+          "why": "GUI smoke and offline/Admin rehearsal should land on the exact interval plus cadence wording."
         }
       ],
-      "operator_note": "Offline/Admin support-path question. gui_demo_smoke uses this because it can be reproduced safely with a tiny synthetic corpus."
+      "operator_note": "Offline/Admin support-path question. gui_demo_smoke uses this because it is reproduced safely in the current indexed demo corpus."
     },
     {
-      "id": "security_offline_data_egress",
-      "title": "Offline data egress posture",
+      "id": "security_application_server_tls",
+      "title": "Application server network settings",
       "profile": "security",
       "track": "citation_confidence",
       "preferred_mode": "online",
-      "prompt": "Does any data leave the machine in offline mode?",
+      "prompt": "What port does the application server use and what encryption standard is listed?",
       "expected_evidence": [
         {
           "kind": "path",
-          "target": "Security_Posture_Overview.pdf",
-          "why": "Expected summary source for the network boundary claims."
+          "target": "SysAdmin_Network_Config.docx",
+          "why": "Current indexed network configuration note with the port and TLS settings."
         },
         {
           "kind": "citation_target",
-          "target": "localhost-only network boundary or zero-egress guarantee section",
-          "why": "Security reviewers will look for the exact wording behind the offline claim."
+          "target": "Encryption standard: TLS 1.3.",
+          "why": "Security-focused demos should cite the exact network and encryption wording, not a paraphrase."
         }
       ],
-      "operator_note": "Use when the audience leans security-heavy and you need the answer to stay factual and source-bounded."
+      "operator_note": "Use when the audience leans security-heavy and you want a short, source-bounded answer about server exposure and encryption."
     },
     {
-      "id": "ops_preventive_maintenance_impact",
-      "title": "Preventive maintenance impact",
-      "profile": "field_operations",
+      "id": "pm_matrix_authority_compare",
+      "title": "Matrix authority comparison",
+      "profile": "program_management",
       "track": "stress",
       "preferred_mode": "online",
-      "prompt": "What maintenance actions reduce downtime and how often are they reviewed?",
+      "prompt": "How does project-manager authority change between weak, balanced, and strong matrix structures?",
       "expected_evidence": [
         {
           "kind": "path",
-          "target": "Reliability_Improvement_Summary.pdf",
-          "why": "Expected cross-document source for the downtime reduction claim."
+          "target": "Functional and Project Manager_s Duel - PMStudent.pdf",
+          "why": "Current indexed project-management source that contrasts authority levels across matrix structures."
         },
         {
           "kind": "citation_target",
-          "target": "quarterly review cycle tied to preventive maintenance program",
-          "why": "Strong answers should connect the action list with the review cadence rather than answer only one half."
+          "target": "Full-time and at least as much formal authority as line manager if not more",
+          "why": "The strongest answer should distinguish the weak, balanced, and strong matrix authority levels using the document's role breakdown."
         }
       ],
-      "operator_note": "Cross-document stress question. Best used after the quick wins when you want to show synthesis over multiple maintenance sources."
+      "operator_note": "Use after the quick wins when you want to show a more nuanced program-management comparison with explicit authority language."
     }
   ]
 }

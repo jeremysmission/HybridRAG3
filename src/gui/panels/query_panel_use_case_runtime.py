@@ -247,9 +247,29 @@ def _update_profile_playbook(self, uc_key: str) -> None:
     )
     self.playbook_label.config(text=text)
 
+
+def _apply_configured_online_model_fallback(self, missing_message: str) -> None:
+    """Use configured online deployment metadata when live discovery is unavailable."""
+    configured = self._get_configured_online_deployment()
+    if configured:
+        self._online_models = [configured]
+        safe_after(self, 0, self.model_var.set, f"Online: {configured}")
+        safe_after(
+            self, 0, self._apply_online_selection, configured, True, "configured fallback",
+        )
+        safe_after(self, 0, self._set_model_combo_for_mode)
+        safe_after(self, 0, self._set_online_discovery_note, configured)
+        return
+    safe_after(self, 0, self.model_info_var.set, missing_message)
+
+
 def _resolve_online_model(self, uc_key):
     """Background thread: fetch deployments and update model label."""
     try:
+        endpoint = str(getattr(getattr(self.config, "api", None), "endpoint", "") or "").strip()
+        if not endpoint:
+            _apply_configured_online_model_fallback(self, "(no model)")
+            return
         deployments = get_available_deployments()
         best = select_best_model(uc_key, deployments)
         if best:
@@ -261,32 +281,12 @@ def _resolve_online_model(self, uc_key):
             safe_after(self, 0, self._set_model_combo_for_mode)
             safe_after(self, 0, self._set_auto_note, best, best, False, "online")
         else:
-            configured = self._get_configured_online_deployment()
-            if configured:
-                self._online_models = [configured]
-                safe_after(self, 0, self.model_var.set, f"Online: {configured}")
-                safe_after(
-                    self, 0, self._apply_online_selection, configured, True, "configured fallback",
-                )
-                safe_after(self, 0, self._set_model_combo_for_mode)
-                safe_after(self, 0, self._set_online_discovery_note, configured)
-            else:
-                safe_after(self, 0, self.model_info_var.set, "(no model)")
+            _apply_configured_online_model_fallback(self, "(no model)")
     except RuntimeError:
         pass  # Widget destroyed before thread finished -- safe to ignore
     except Exception:
         try:
-            configured = self._get_configured_online_deployment()
-            if configured:
-                self._online_models = [configured]
-                safe_after(self, 0, self.model_var.set, f"Online: {configured}")
-                safe_after(
-                    self, 0, self._apply_online_selection, configured, True, "configured fallback",
-                )
-                safe_after(self, 0, self._set_model_combo_for_mode)
-                safe_after(self, 0, self._set_online_discovery_note, configured)
-            else:
-                safe_after(self, 0, self.model_info_var.set, "(discovery failed)")
+            _apply_configured_online_model_fallback(self, "(discovery failed)")
         except RuntimeError:
             pass  # Widget destroyed
 

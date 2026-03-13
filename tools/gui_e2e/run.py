@@ -107,6 +107,40 @@ def _pump_events(root: tk.Tk, ms: int = 50) -> None:
         time.sleep(0.005)
 
 
+def _install_callback_error_trap(app: tk.Tk) -> None:
+    """Record Tk callback exceptions so late failures fail the action."""
+    errors = []
+    prior_handler = getattr(app, "report_callback_exception", None)
+
+    def _capture(exc, val, tb):
+        errors.append(
+            {
+                "error": str(val),
+                "traceback": "".join(traceback.format_exception(exc, val, tb)),
+            }
+        )
+        if callable(prior_handler):
+            try:
+                prior_handler(exc, val, tb)
+            except Exception:
+                pass
+
+    app._gui_e2e_callback_errors = errors
+    app.report_callback_exception = _capture
+
+
+def _raise_callback_error(app: tk.Tk, baseline_errors: int) -> None:
+    errors = getattr(app, "_gui_e2e_callback_errors", [])
+    if len(errors) <= baseline_errors:
+        return
+    first_error = errors[baseline_errors]
+    raise RuntimeError(
+        "Tk callback exception after action: {}".format(
+            first_error.get("error", "unknown"),
+        )
+    )
+
+
 def _safe_label_for_widget(w: tk.Widget) -> str:
     for key in ("text", "label"):
         try:
@@ -384,11 +418,14 @@ def _invoke_action(app: tk.Tk, a: Action, pump_ms: int) -> None:
     """
     Execute one action.
     """
+    baseline_errors = len(getattr(app, "_gui_e2e_callback_errors", []))
+
     if a.kind == "menu":
         m = app.nametowidget(a.widget_path)
         idx = int(a.details.get("index", 0))
         m.invoke(idx)
         _pump_events(app, pump_ms)
+        _raise_callback_error(app, baseline_errors)
         return
 
     w = app.nametowidget(a.widget_path)
@@ -401,6 +438,7 @@ def _invoke_action(app: tk.Tk, a: Action, pump_ms: int) -> None:
             w.event_generate("<Button-1>")
             w.event_generate("<ButtonRelease-1>")
         _pump_events(app, pump_ms)
+        _raise_callback_error(app, baseline_errors)
         return
 
     if a.kind == "combobox":
@@ -411,23 +449,28 @@ def _invoke_action(app: tk.Tk, a: Action, pump_ms: int) -> None:
             try:
                 w.set(v)
                 w.event_generate("<<ComboboxSelected>>")
-                _pump_events(app, pump_ms)
             except Exception:
                 pass
+                continue
+            _pump_events(app, pump_ms)
+            _raise_callback_error(app, baseline_errors)
         return
 
     if a.kind == "checkbutton":
         if hasattr(w, "invoke"):
             w.invoke()
             _pump_events(app, pump_ms)
+            _raise_callback_error(app, baseline_errors)
             w.invoke()
             _pump_events(app, pump_ms)
+            _raise_callback_error(app, baseline_errors)
         return
 
     if a.kind == "radiobutton":
         if hasattr(w, "invoke"):
             w.invoke()
             _pump_events(app, pump_ms)
+            _raise_callback_error(app, baseline_errors)
         return
 
 
@@ -439,6 +482,7 @@ def run_e2e(mode: str, show: bool, pump_ms: int, exclude: List[str]) -> Report:
     r.mode = mode
 
     app = _create_app(mode=mode, show_window=show)
+    _install_callback_error_trap(app)
     r.app_title = app.title()
 
     # Let initial after() handlers run

@@ -10,8 +10,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from src.core.grounded_query_engine import GroundedQueryEngine
-from src.core.query_engine import QueryEngine
-from src.core.query_mode import apply_query_mode_to_engine
+from src.core.query_engine import QueryEngine, refresh_query_engine_runtime
+from src.core.query_mode import apply_query_mode_to_engine, resolve_query_mode_settings
 from src.core.retriever import Retriever
 
 
@@ -324,6 +324,102 @@ def test_sync_runtime_components_reapplies_active_query_mode_settings():
     engine._sync_runtime_components()
 
     assert engine.allow_open_knowledge is True
+
+
+def test_grounding_bias_one_disables_guard_and_uses_base_query_path():
+    cfg = _make_config(mode="online")
+    cfg.query.grounding_bias = 1
+    cfg.query.allow_open_knowledge = False
+    router = SimpleNamespace(
+        config=cfg,
+        ollama=SimpleNamespace(config=cfg),
+        api=SimpleNamespace(config=cfg),
+        vllm=None,
+    )
+
+    with patch("src.core.grounded_query_engine.get_app_logger", return_value=MagicMock()), \
+            patch("src.core.query_engine.get_app_logger", return_value=MagicMock()), \
+            patch("src.core.query_engine.Retriever") as mock_retriever_cls:
+        retriever = MagicMock()
+        retriever.config = cfg
+        retriever.search.return_value = []
+        mock_retriever_cls.return_value = retriever
+        engine = GroundedQueryEngine(cfg, MagicMock(), MagicMock(), router)
+
+    result = engine.query("Does grounding 1 stay generative?")
+
+    assert engine.guard_enabled is False
+    assert result.answer == "No relevant information found in knowledge base."
+    assert result.grounding_blocked is False
+
+
+def test_grounding_scale_matches_ui_contract_from_1_through_10():
+    thresholds = []
+
+    for bias in range(1, 11):
+        cfg = SimpleNamespace(
+            query=SimpleNamespace(grounding_bias=bias, allow_open_knowledge=True)
+        )
+        settings = resolve_query_mode_settings(cfg)
+        thresholds.append(settings["guard_threshold"])
+
+        if bias == 1:
+            assert settings["guard_enabled"] is False
+            assert settings["guard_action"] == "off"
+            assert settings["guard_min_chunks"] == 0
+            assert abs(settings["guard_min_score"] - 0.0) < 1e-9
+        elif bias <= 6:
+            assert settings["guard_enabled"] is True
+            assert settings["guard_action"] == "flag"
+        else:
+            assert settings["guard_enabled"] is True
+            assert settings["guard_action"] == "block"
+
+    assert thresholds == sorted(thresholds)
+
+
+def test_refresh_query_engine_runtime_reapplies_guard_policy_after_mode_churn():
+    cfg_offline = _make_config(mode="offline")
+    cfg_offline.query.grounding_bias = 8
+    cfg_offline.query.allow_open_knowledge = False
+    router = SimpleNamespace(
+        config=cfg_offline,
+        ollama=SimpleNamespace(config=cfg_offline, last_error="ollama stale"),
+        api=SimpleNamespace(config=cfg_offline, last_error="api stale"),
+        vllm=SimpleNamespace(config=cfg_offline, last_error="vllm stale"),
+        last_error="router stale",
+    )
+
+    with patch("src.core.grounded_query_engine.get_app_logger", return_value=MagicMock()), \
+            patch("src.core.query_engine.get_app_logger", return_value=MagicMock()), \
+            patch.object(GroundedQueryEngine, "_ensure_guard_backend_loaded", return_value=False), \
+            patch("src.core.query_engine.Retriever") as mock_retriever_cls:
+        retriever = MagicMock()
+        retriever.config = cfg_offline
+        mock_retriever_cls.return_value = retriever
+        engine = GroundedQueryEngine(cfg_offline, MagicMock(), MagicMock(), router)
+
+    cfg_online = _make_config(mode="online")
+    cfg_online.query.grounding_bias = 4
+    cfg_online.query.allow_open_knowledge = True
+    expected = resolve_query_mode_settings(cfg_online)
+
+    engine.config = cfg_online
+    refresh_query_engine_runtime(engine, clear_caches=True)
+
+    assert engine.allow_open_knowledge is True
+    assert engine.guard_enabled == expected["guard_enabled"]
+    assert abs(engine.guard_threshold - expected["guard_threshold"]) < 1e-9
+    assert engine.guard_min_chunks == expected["guard_min_chunks"]
+    assert abs(engine.guard_min_score - expected["guard_min_score"]) < 1e-9
+    assert engine.guard_action == expected["guard_action"]
+    assert engine.llm_router.config is cfg_online
+    assert engine.llm_router.ollama.config is cfg_online
+    assert engine.llm_router.api.config is cfg_online
+    assert engine.llm_router.last_error == ""
+    assert engine.llm_router.ollama.last_error == ""
+    assert engine.llm_router.api.last_error == ""
+    assert engine.llm_router.vllm.last_error == ""
 
 
 def test_explicit_query_mode_sync_updates_guard_policy():

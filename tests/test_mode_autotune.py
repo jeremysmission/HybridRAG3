@@ -304,6 +304,54 @@ def test_build_candidate_config_updates_mode_scoped_runtime_sections():
     assert online_runtime["api"]["max_tokens"] == 1024
 
 
+def test_build_candidate_config_ignores_runtime_active_mode_env(monkeypatch):
+    autotune = _load_tool_module("mode_autotune_test_mod_env_guard", "tools/run_mode_autotune.py")
+    monkeypatch.setenv("HYBRIDRAG_ACTIVE_MODE", "offline")
+
+    base_config = {
+        "mode": "offline",
+        "modes": {
+            "offline": {
+                "retrieval": {"top_k": 5, "min_score": 0.10},
+                "query": {"grounding_bias": 8, "allow_open_knowledge": True},
+            },
+            "online": {
+                "retrieval": {"top_k": 10, "min_score": 0.12},
+                "query": {"grounding_bias": 3, "allow_open_knowledge": False},
+                "api": {"max_tokens": 2048},
+            },
+        },
+    }
+
+    candidate_cfg = autotune._build_candidate_config(
+        base_config,
+        "online",
+        {
+            "top_k": 8,
+            "min_score": 0.10,
+            "hybrid_search": True,
+            "reranker_enabled": False,
+            "reranker_top_n": 20,
+            "grounding_bias": 6,
+            "allow_open_knowledge": True,
+            "context_window": 128000,
+            "max_tokens": 1024,
+            "temperature": 0.15,
+            "top_p": 0.95,
+            "presence_penalty": 0.0,
+            "frequency_penalty": 0.0,
+            "seed": 0,
+            "timeout_seconds": 180,
+        },
+    )
+
+    assert candidate_cfg["modes"]["offline"]["retrieval"]["top_k"] == 5
+    assert candidate_cfg["modes"]["offline"]["query"]["grounding_bias"] == 8
+    assert candidate_cfg["modes"]["online"]["retrieval"]["top_k"] == 8
+    assert candidate_cfg["modes"]["online"]["query"]["grounding_bias"] == 6
+    assert candidate_cfg["modes"]["online"]["api"]["max_tokens"] == 1024
+
+
 def test_online_ready_normalizes_mode_scoped_config_credentials(tmp_path, monkeypatch):
     autotune = _load_tool_module("mode_autotune_test_mod_online_ready", "tools/run_mode_autotune.py")
     autotune.PROJECT_ROOT = tmp_path

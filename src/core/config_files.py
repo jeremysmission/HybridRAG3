@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import copy
+import os
+import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +19,8 @@ _PRIMARY_AUTHORITY_ALIASES = {
     LEGACY_DEFAULT_CONFIG_NAME,
     LEGACY_OVERRIDES_NAME,
 }
+_SAVE_RETRIES = 5
+_SAVE_RETRY_DELAY_SECONDS = 0.05
 
 
 def project_root_path(project_dir: str = ".") -> Path:
@@ -52,10 +57,46 @@ def read_yaml_dict(path: Path) -> dict[str, Any]:
 
 def write_yaml_dict(path: Path, data: dict[str, Any]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    with open(tmp_path, "w", encoding="utf-8") as stream:
-        yaml.safe_dump(data, stream, default_flow_style=False, sort_keys=False)
-    tmp_path.replace(path)
+    payload = yaml.safe_dump(data, default_flow_style=False, sort_keys=False)
+
+    for attempt in range(_SAVE_RETRIES):
+        tmp_fd = None
+        tmp_path: Path | None = None
+        try:
+            tmp_fd, tmp_name = tempfile.mkstemp(
+                prefix=f"{path.name}.",
+                suffix=".tmp",
+                dir=str(path.parent),
+            )
+            tmp_path = Path(tmp_name)
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as stream:
+                tmp_fd = None
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(tmp_path, path)
+            return path
+        except PermissionError:
+            if tmp_fd is not None:
+                os.close(tmp_fd)
+            if tmp_path is not None and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
+            if attempt >= (_SAVE_RETRIES - 1):
+                raise
+            time.sleep(_SAVE_RETRY_DELAY_SECONDS * (attempt + 1))
+        except Exception:
+            if tmp_fd is not None:
+                os.close(tmp_fd)
+            if tmp_path is not None and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
+            raise
+
     return path
 
 

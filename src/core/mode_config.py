@@ -102,6 +102,14 @@ MODE_TUNED_DEFAULTS = {
     },
 }
 
+MODE_PATH_DEFAULTS = {
+    "database": "",
+    "embeddings_cache": "",
+    "source_folder": "",
+    "download_folder": "",
+    "transfer_source_folder": "",
+}
+
 MODE_RUNTIME_DEFAULTS = {
     "offline": {
         "retrieval": {
@@ -218,6 +226,7 @@ def snapshot_mode_entry(config, mode: str) -> dict[str, Any]:
     retrieval = getattr(config, "retrieval", None)
     api = getattr(config, "api", None)
     ollama = getattr(config, "ollama", None)
+    paths = getattr(config, "paths", None)
     query = getattr(config, "query", None)
 
     if retrieval is not None:
@@ -255,6 +264,12 @@ def snapshot_mode_entry(config, mode: str) -> dict[str, Any]:
             ):
                 if hasattr(ollama, key):
                     entry["ollama"][key] = getattr(ollama, key)
+
+    if paths is not None:
+        entry["paths"] = copy.deepcopy(MODE_PATH_DEFAULTS)
+        for key in MODE_PATH_DEFAULTS:
+            if hasattr(paths, key):
+                entry["paths"][key] = getattr(paths, key)
 
     if query is not None:
         for key in ("grounding_bias", "allow_open_knowledge"):
@@ -320,6 +335,9 @@ def mode_runtime_overlay(mode: str, entry: dict[str, Any] | None) -> dict[str, A
     query = entry.get("query", {})
     if isinstance(query, dict) and query:
         overlay["query"] = copy.deepcopy(query)
+    paths = entry.get("paths", {})
+    if isinstance(paths, dict) and paths:
+        overlay["paths"] = copy.deepcopy(paths)
     return overlay
 
 

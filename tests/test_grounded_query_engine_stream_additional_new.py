@@ -53,6 +53,8 @@ def test_stream_empty_raw_answer_returns_error_result_done():
     engine, router, _ = _make_engine()
     engine.guard_enabled = True
     engine._guard_available = True
+    engine.guard_min_chunks = 1
+    engine.guard_min_score = 0.0
     engine._build_grounded_prompt = MagicMock(return_value="PROMPT")
 
     router.query_stream.return_value = iter([
@@ -93,6 +95,8 @@ def test_stream_guard_action_strip_emits_only_supported_claims():
     engine, router, _ = _make_engine()
     engine.guard_enabled = True
     engine._guard_available = True
+    engine.guard_min_chunks = 1
+    engine.guard_min_score = 0.0
     engine.guard_action = "strip"
     engine.guard_threshold = 0.80
     engine._build_grounded_prompt = MagicMock(return_value="PROMPT")
@@ -124,6 +128,8 @@ def test_stream_guard_action_flag_passes_through_with_low_score():
     engine, router, _ = _make_engine()
     engine.guard_enabled = True
     engine._guard_available = True
+    engine.guard_min_chunks = 1
+    engine.guard_min_score = 0.0
     engine.guard_action = "flag"
     engine.guard_threshold = 0.90
     engine._build_grounded_prompt = MagicMock(return_value="PROMPT")

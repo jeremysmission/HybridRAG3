@@ -163,6 +163,29 @@ def test_query_attaches_debug_trace_on_success():
     assert engine.last_query_trace["decision"]["path"] == "answer"
 
 
+def test_query_trace_includes_document_policy_source_from_request_context():
+    from src.core.request_access import reset_request_access_context, set_request_access_context
+
+    engine, _, _ = _make_query_engine()
+    token = set_request_access_context(
+        {
+            "actor": "alice",
+            "actor_source": "api_token",
+            "actor_role": "engineer",
+            "allowed_doc_tags": ("shared", "engineering"),
+            "document_policy_source": "role_tags:engineer",
+        }
+    )
+    try:
+        result = engine.query("What is nominal voltage?")
+    finally:
+        reset_request_access_context(token)
+
+    assert result.debug_trace["access"]["actor"] == "alice"
+    assert result.debug_trace["access"]["actor_role"] == "engineer"
+    assert result.debug_trace["access"]["document_policy_source"] == "role_tags:engineer"
+
+
 def test_query_stream_attaches_debug_trace_on_success():
     engine, _, router = _make_query_engine(FakeConfig(mode="online"))
     engine.config.api.top_p = 0.91
@@ -205,3 +228,21 @@ def test_grounded_retrieval_gate_block_attaches_trace():
     assert result.debug_trace["decision"]["path"] == "retrieval_gate_blocked"
     assert result.debug_trace["grounding"]["blocked"] is True
     assert result.debug_trace["retrieval"]["counts"]["final_hits"] == 0
+
+
+def test_query_trace_history_keeps_recent_entries():
+    engine, _, _ = _make_query_engine()
+    engine.query_trace_history_limit = 2
+
+    first = engine.query("First question?")
+    second = engine.query("Second question?")
+    third = engine.query("Third question?")
+
+    assert first.debug_trace["trace_id"]
+    assert second.debug_trace["trace_id"]
+    assert third.debug_trace["trace_id"]
+    assert engine.last_query_trace["trace_id"] == third.debug_trace["trace_id"]
+    assert [trace["query"] for trace in engine.recent_query_traces] == [
+        "Second question?",
+        "Third question?",
+    ]

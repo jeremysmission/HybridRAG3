@@ -6,10 +6,12 @@
 # Safety notes: No Tk mainloop or I/O required.
 # ============================
 
+import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from src.gui.helpers.mode_switch import _commit_router_and_mode, _finish_switch
+from src.gui.app_runtime import reset_backends
+from src.gui.helpers.mode_switch import _commit_router_and_mode, _finish_switch, persist_mode
 from src.gui.panels.query_panel_query_flow_runtime import _resolve_query_engine
 
 
@@ -103,6 +105,83 @@ def test_commit_router_and_mode_repeated_churn_clears_stale_router_state():
     assert app.query_panel._purge_mode_state.call_count == 4
 
 
+def test_commit_router_and_mode_sets_live_mode_env():
+    app = SimpleNamespace(
+        config=SimpleNamespace(mode="offline"),
+        query_engine=MagicMock(),
+        query_panel=MagicMock(),
+        status_bar=MagicMock(),
+    )
+
+    with patch.dict(os.environ, {}, clear=False), \
+         patch("src.gui.helpers.mode_tuning.apply_mode_settings_to_config"), \
+         patch("src.core.query_engine.refresh_query_engine_runtime"), \
+         patch("src.gui.helpers.mode_switch.persist_mode"):
+        _commit_router_and_mode(app, MagicMock(), "online")
+        assert os.environ["HYBRIDRAG_ACTIVE_MODE"] == "online"
+
+        _commit_router_and_mode(app, MagicMock(), "offline")
+        assert os.environ["HYBRIDRAG_ACTIVE_MODE"] == "offline"
+
+
+def test_persist_mode_skips_offline_write_when_shared_boundary_is_active():
+    app = SimpleNamespace(
+        config=SimpleNamespace(
+            security=SimpleNamespace(deployment_mode="production"),
+        ),
+    )
+
+    with patch.dict(os.environ, {"HYBRIDRAG_API_AUTH_TOKEN": "", "HYBRIDRAG_DEPLOYMENT_MODE": ""}, clear=False), \
+         patch("src.core.config.save_config_field") as mock_save:
+        persist_mode(app, "offline")
+
+    mock_save.assert_not_called()
+
+
+def test_persist_mode_still_saves_online_write_when_shared_boundary_is_active():
+    app = SimpleNamespace(
+        config=SimpleNamespace(
+            security=SimpleNamespace(deployment_mode="production"),
+        ),
+    )
+
+    with patch.dict(os.environ, {"HYBRIDRAG_API_AUTH_TOKEN": "test-token", "HYBRIDRAG_DEPLOYMENT_MODE": ""}, clear=False), \
+         patch("src.core.config.save_config_field") as mock_save:
+        persist_mode(app, "online")
+
+    mock_save.assert_called_once_with("mode", "online")
+
+
+def test_persist_mode_keeps_offline_write_in_open_local_mode():
+    app = SimpleNamespace(
+        config=SimpleNamespace(
+            security=SimpleNamespace(deployment_mode="development"),
+        ),
+    )
+
+    with patch.dict(os.environ, {"HYBRIDRAG_API_AUTH_TOKEN": "", "HYBRIDRAG_DEPLOYMENT_MODE": ""}, clear=False), \
+         patch("src.core.config.save_config_field") as mock_save:
+        persist_mode(app, "offline")
+
+    mock_save.assert_called_once_with("mode", "offline")
+
+
+def test_persist_mode_skips_offline_write_when_keyring_backed_boundary_is_active():
+    app = SimpleNamespace(
+        config=SimpleNamespace(
+            security=SimpleNamespace(deployment_mode="development"),
+        ),
+    )
+
+    with patch(
+        "src.security.shared_deployment_auth.shared_online_enforced",
+        return_value=True,
+    ), patch("src.core.config.save_config_field") as mock_save:
+        persist_mode(app, "offline")
+
+    mock_save.assert_not_called()
+
+
 def test_resolve_query_engine_heals_stale_panel_reference_after_mode_churn():
     current_engine = SimpleNamespace(name="engine1")
     app = SimpleNamespace(query_engine=current_engine)
@@ -117,3 +196,58 @@ def test_resolve_query_engine_heals_stale_panel_reference_after_mode_churn():
 
     assert _resolve_query_engine(panel) is next_engine
     assert panel.query_engine is next_engine
+
+
+def test_reset_backends_starts_reload_thread_and_clears_runtime_refs():
+    class ImmediateThread:
+        def __init__(self, target=None, args=(), daemon=None):
+            self._target = target
+            self._args = args
+            self.daemon = daemon
+            self.started = False
+
+        def start(self):
+            self.started = True
+            if self._target is not None:
+                self._target(*self._args)
+
+        def is_alive(self):
+            return False
+
+    query_panel = MagicMock()
+    index_panel = MagicMock()
+    status_bar = MagicMock()
+    status_bar._init_error = "old warning"
+    shutdown = MagicMock()
+    app = SimpleNamespace(
+        query_engine=MagicMock(),
+        indexer=MagicMock(),
+        router=MagicMock(),
+        query_panel=query_panel,
+        index_panel=index_panel,
+        status_bar=status_bar,
+        shutdown=shutdown,
+        _backend_reload_thread=None,
+    )
+
+    with patch("src.gui.app_runtime.threading.Thread", ImmediateThread), \
+         patch("src.gui.launch_gui._load_backends") as mock_load:
+        reset_backends(app)
+
+    assert app.query_engine is None
+    assert app.indexer is None
+    assert app.router is None
+    assert query_panel.query_engine is None
+    assert index_panel.indexer is None
+    assert status_bar.router is None
+    assert status_bar._init_error is None
+    assert app._backend_reload_thread.started is True
+    query_panel.set_ready.assert_called_once_with(False)
+    index_panel.set_ready.assert_called_once_with(False)
+    status_bar.set_loading_stage.assert_called_once_with("Restarting...")
+    status_bar.force_refresh.assert_called_once()
+    shutdown.register_thread.assert_called_once_with(
+        "backend_reload",
+        app._backend_reload_thread,
+    )
+    mock_load.assert_called_once()

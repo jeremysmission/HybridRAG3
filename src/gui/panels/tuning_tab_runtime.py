@@ -465,10 +465,23 @@ def _current_seed_value(self):
 
 
 def _seed_value_or_current(self):
+    seed_entry = getattr(self, "_scales", {}).get("seed")
+    if seed_entry is not None and hasattr(seed_entry, "get"):
+        try:
+            raw = str(seed_entry.get()).strip()
+        except tk.TclError:
+            raw = ""
+        if raw:
+            try:
+                return int(raw)
+            except ValueError:
+                return self._current_seed_value()
+        return self._current_seed_value()
     try:
         return int(self.seed_var.get())
-    except (tk.TclError, TypeError, ValueError):
-        return self._current_seed_value()
+    except (AttributeError, tk.TclError, TypeError, ValueError):
+        pass
+    return self._current_seed_value()
 
 
 def _var_value(self, key, var):

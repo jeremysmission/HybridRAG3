@@ -89,7 +89,11 @@ def _load_transcript_question(pack_path: str = "", question_id: str = ""):
 def _build_operator_notes(transcript, errors):
     notes = []
     for entry in transcript:
-        prefix = "PASS" if entry.get("ok") else "FAIL"
+        status = entry.get("status", "ok" if entry.get("ok") else "fail")
+        if status == "skip":
+            prefix = "SKIP"
+        else:
+            prefix = "PASS" if entry.get("ok") else "FAIL"
         notes.append(
             "{}: {} -- {}".format(
                 prefix,
@@ -104,6 +108,23 @@ def _build_operator_notes(transcript, errors):
     return notes
 
 
+def _online_query_ready(creds) -> bool:
+    return bool(
+        creds is not None
+        and getattr(creds, "has_key", False)
+        and bool(getattr(creds, "endpoint", ""))
+    )
+
+
+def _result_has_error(result) -> bool:
+    if result is None:
+        return True
+    if getattr(result, "error", None):
+        return True
+    answer = str(getattr(result, "answer", "") or "").strip().lower()
+    return answer.startswith("error processing query:") or answer.startswith("error calling llm")
+
+
 def _write_outputs(
     pack,
     selected_question,
@@ -113,6 +134,12 @@ def _write_outputs(
     mode_sequence,
     path_taken,
 ):
+    statuses = [
+        entry.get("status", "ok" if entry.get("ok") else "fail")
+        for entry in transcript
+    ]
+    has_fail = any(status == "fail" for status in statuses)
+    has_skip = any(status == "skip" for status in statuses)
     validation_report = build_demo_validation_report(
         pack,
         selected_question,
@@ -120,8 +147,8 @@ def _write_outputs(
         actual_mode=summarize_mode_sequence(mode_sequence),
         actual_path=path_taken,
         operator_notes=_build_operator_notes(transcript, errors),
-        passed=bool(transcript) and all(entry.get("ok") for entry in transcript),
-        status="passed" if transcript and all(entry.get("ok") for entry in transcript) else "failed",
+        passed=bool(transcript) and not has_fail,
+        status="failed" if has_fail else ("passed_with_skips" if has_skip else "passed"),
         primary_artifact=str(TRANSCRIPT_OUT_PATH),
         mode_sequence=mode_sequence,
         details={
@@ -180,15 +207,20 @@ def main(argv=None):
     mode_sequence = []
     path_taken = []
 
-    def record(step, elapsed_ms, detail="", ok=True):
+    def record(step, elapsed_ms, detail="", ok=True, status=""):
+        entry_status = status or ("ok" if ok else "fail")
         entry = {
             "step": step,
             "elapsed_ms": round(elapsed_ms, 1),
             "detail": detail,
-            "ok": ok,
+            "ok": ok if entry_status != "skip" else None,
+            "status": entry_status,
         }
         transcript.append(entry)
-        tag = "[OK]" if ok else "[FAIL]"
+        if entry_status == "skip":
+            tag = "[SKIP]"
+        else:
+            tag = "[OK]" if ok else "[FAIL]"
         log("{} {} -- {:.0f}ms {}".format(tag, step, elapsed_ms, detail))
 
     print()
@@ -348,16 +380,30 @@ def main(argv=None):
     log("STEP 5: Online query...")
     t_q2 = time.perf_counter()
     if bundle and bundle.query_engine and config.mode == "online":
-        try:
-            result2 = bundle.query_engine.query(demo_question)
-            q2_ms = (time.perf_counter() - t_q2) * 1000
-            answer_preview = (result2.answer or "")[:120].replace("\n", " ")
-            record("Query/Online", q2_ms,
-                   "chunks={} answer='{}'...".format(result2.chunks_used, answer_preview))
-        except Exception as e:
-            record("Query/Online", (time.perf_counter() - t_q2) * 1000,
-                   str(e), ok=False)
-            errors.append("Online query: {}".format(e))
+        if not _online_query_ready(creds):
+            record(
+                "Query/Online",
+                0,
+                "online credentials not configured",
+                status="skip",
+            )
+        else:
+            try:
+                result2 = bundle.query_engine.query(demo_question)
+                q2_ms = (time.perf_counter() - t_q2) * 1000
+                answer_preview = (result2.answer or "")[:120].replace("\n", " ")
+                record(
+                    "Query/Online",
+                    q2_ms,
+                    "chunks={} answer='{}'...".format(result2.chunks_used, answer_preview),
+                    ok=not _result_has_error(result2),
+                )
+                if _result_has_error(result2):
+                    errors.append("Online query returned an error result")
+            except Exception as e:
+                record("Query/Online", (time.perf_counter() - t_q2) * 1000,
+                       str(e), ok=False)
+                errors.append("Online query: {}".format(e))
     else:
         record("Query/Online", 0, "not in online mode or no engine", ok=False)
 
@@ -411,7 +457,11 @@ def main(argv=None):
     print("  DEMO TRANSCRIPT SUMMARY")
     print("=" * 60)
     for t in transcript:
-        tag = "[OK]" if t["ok"] else "[FAIL]"
+        status = t.get("status", "ok" if t.get("ok") else "fail")
+        if status == "skip":
+            tag = "[SKIP]"
+        else:
+            tag = "[OK]" if t["ok"] else "[FAIL]"
         print("  {} {:25s} {:>8.0f}ms  {}".format(
             tag, t["step"], t["elapsed_ms"], t["detail"][:60]))
 
