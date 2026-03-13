@@ -80,9 +80,9 @@ Invoke-Step "Read private HEAD + changed files" {
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to read private HEAD"
     }
-    $privateFiles = Get-LastCommitFiles -RepoPath $PrivateRepo
+    $privateFiles = @(Get-LastCommitFiles -RepoPath $PrivateRepo)
     Write-Info "Private HEAD: $privateHead"
-    Write-Info "Files in last private commit: $($privateFiles.Count)"
+    Write-Info "Files in last private commit: $(($privateFiles | Measure-Object).Count)"
 }
 
 if (-not $SkipSync) {
