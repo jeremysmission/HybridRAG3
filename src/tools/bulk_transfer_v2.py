@@ -1686,6 +1686,7 @@ class BulkTransferV2:
         self.manifest: Optional[TransferManifest] = None
         self.staging: Optional[StagingManager] = None
         self._stop = threading.Event()
+        self._checkpoint_thread: Optional[threading.Thread] = None
         self._log_lock = threading.Lock()
         self._json_log: Optional[Any] = None
 
@@ -1738,10 +1739,7 @@ class BulkTransferV2:
         print()
 
         # Start checkpoint thread for multi-day monitoring
-        checkpoint_thread = threading.Thread(
-            target=self._checkpoint_loop, daemon=True,
-        )
-        checkpoint_thread.start()
+        self._start_checkpoint_thread()
 
         try:
             # Phase 1+2: Stream discovery directly into transfer workers
@@ -1818,6 +1816,8 @@ class BulkTransferV2:
             self._stop.set()
             self._log_event("interrupted", detail="KeyboardInterrupt")
         finally:
+            self._stop_checkpoint_thread()
+
             # Emit final stats and complete event BEFORE closing log
             self._emit_progress()
             self._log_event("complete", **self._stats_snapshot())
@@ -1944,6 +1944,23 @@ class BulkTransferV2:
                 cb(self._stats_snapshot())
             except Exception:
                 pass
+
+    def _start_checkpoint_thread(self) -> None:
+        """Start the periodic checkpoint logger for this run."""
+        self._stop.clear()
+        self._checkpoint_thread = threading.Thread(
+            target=self._checkpoint_loop,
+            daemon=True,
+        )
+        self._checkpoint_thread.start()
+
+    def _stop_checkpoint_thread(self) -> None:
+        """Stop and join the checkpoint thread before teardown."""
+        self._stop.set()
+        thread = self._checkpoint_thread
+        if thread and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=10.0)
+        self._checkpoint_thread = None
 
     # ------------------------------------------------------------------
     # Checkpoint loop (periodic summary during multi-day runs)

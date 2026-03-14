@@ -327,6 +327,18 @@ def test_12_singleton_pattern(tmp_path):
     reset_cost_tracker()
 
 
+def test_12b_shutdown_prevents_flush_timer_reschedule(tmp_path):
+    """A late timer callback must not resurrect auto-flush after shutdown."""
+    tracker = _make_tracker(tmp_path)
+    tracker._schedule_flush = MagicMock()
+
+    tracker.shutdown()
+    tracker._auto_flush()
+
+    tracker._schedule_flush.assert_not_called()
+    assert tracker._flush_timer is None
+
+
 # ============================================================================
 # TEST 13: Dashboard window opens without crashing
 # ============================================================================

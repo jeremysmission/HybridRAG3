@@ -1637,6 +1637,27 @@ class TestProgressCallback:
         assert "bytes_copied" in last_cb
         assert "speed_bps" in last_cb
 
+    def test_checkpoint_thread_stops_after_normal_completion(self, tmp_dirs):
+        """Normal completion must not leave the checkpoint thread alive."""
+        src, dst = tmp_dirs
+        for i in range(3):
+            _make_file(src / f"doc_{i}.txt", size=200)
+
+        cfg = TransferConfig(
+            source_paths=[str(src)],
+            dest_path=str(dst),
+            workers=1,
+            min_file_size=10,
+            resume=False,
+            checkpoint_interval=0.1,
+        )
+        engine = BulkTransferV2(cfg)
+        stats = engine.run()
+
+        assert stats.files_copied == 3
+        assert engine._checkpoint_thread is None
+        assert engine._stop.is_set()
+
 
 # ============================================================================
 # Test 30: Modified file detection on resume

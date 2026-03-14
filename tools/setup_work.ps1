@@ -52,10 +52,97 @@ $TOTAL_STEPS = 13
 function Write-Step {
     param([int]$num, [string]$msg)
     Write-Host "`n=== Step $num of $TOTAL_STEPS : $msg ===" -ForegroundColor Cyan
+    if ($script:SETUP_RUN_ID) {
+        Write-SetupCheckpoint -Status "in_progress" -StepNum $num -StepName $msg -Detail "Step started."
+    }
 }
 function Write-Ok   { param([string]$msg) Write-Host "  [OK] $msg" -ForegroundColor Green }
 function Write-Fail { param([string]$msg) Write-Host "  [FAIL] $msg" -ForegroundColor Red }
 function Write-Warn { param([string]$msg) Write-Host "  [WARN] $msg" -ForegroundColor Yellow }
+
+$script:SETUP_RUN_ID = $null
+$script:SETUP_TRACE_FILE = $null
+$script:SETUP_CHECKPOINT_FILE = $null
+$script:SETUP_CHECKPOINT_HISTORY_FILE = $null
+$script:SETUP_TRANSCRIPT_STARTED = $false
+$script:UTF8_NO_BOM = New-Object System.Text.UTF8Encoding($false)
+
+function Write-Utf8NoBomFile {
+    param([string]$Path, [string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Path)) { return }
+    $parent = Split-Path -Parent $Path
+    if ($parent -and -not (Test-Path $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+    [System.IO.File]::WriteAllText($Path, $Text, $script:UTF8_NO_BOM)
+}
+
+function Write-SetupCheckpoint {
+    param(
+        [string]$Status,
+        [int]$StepNum,
+        [string]$StepName,
+        [string]$Detail = ""
+    )
+    if ([string]::IsNullOrWhiteSpace($script:SETUP_CHECKPOINT_FILE)) { return }
+
+    $payload = [ordered]@{
+        run_id                   = $script:SETUP_RUN_ID
+        updated_at               = (Get-Date).ToString("o")
+        status                   = $Status
+        current_step             = $StepNum
+        total_steps              = $TOTAL_STEPS
+        step_name                = $StepName
+        detail                   = $Detail
+        project_root             = $PROJECT_ROOT
+        checkpoint_file          = $script:SETUP_CHECKPOINT_FILE
+        checkpoint_history_file  = $script:SETUP_CHECKPOINT_HISTORY_FILE
+        transcript_file          = $script:SETUP_TRACE_FILE
+        install_log_file         = $LOG_FILE
+    }
+    $json = ($payload | ConvertTo-Json -Depth 4) + "`n"
+    Write-Utf8NoBomFile -Path $script:SETUP_CHECKPOINT_FILE -Text $json
+    if (-not [string]::IsNullOrWhiteSpace($script:SETUP_CHECKPOINT_HISTORY_FILE)) {
+        Write-Utf8NoBomFile -Path $script:SETUP_CHECKPOINT_HISTORY_FILE -Text $json
+    }
+}
+
+function Stop-SetupTracing {
+    if (-not $script:SETUP_TRANSCRIPT_STARTED) { return }
+    try {
+        Stop-Transcript | Out-Null
+    } catch {
+        # Ignore transcript shutdown noise on restricted shells.
+    } finally {
+        $script:SETUP_TRANSCRIPT_STARTED = $false
+    }
+}
+
+function Initialize-SetupArtifacts {
+    param([string]$ProjectRoot)
+    if ([string]::IsNullOrWhiteSpace($ProjectRoot)) { return }
+    if ($script:SETUP_RUN_ID) { return }
+
+    $logsDir = Join-Path $ProjectRoot "logs"
+    if (-not (Test-Path $logsDir)) {
+        New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+    }
+
+    $runStamp = Get-Date -Format "yyyy-MM-dd_HHmmss"
+    $script:SETUP_RUN_ID = "setup_work_$runStamp"
+    $script:SETUP_TRACE_FILE = Join-Path $logsDir "setup_trace_${runStamp}.log"
+    $script:SETUP_CHECKPOINT_FILE = Join-Path $logsDir "setup_checkpoint_latest.json"
+    $script:SETUP_CHECKPOINT_HISTORY_FILE = Join-Path $logsDir "setup_checkpoint_${runStamp}.json"
+
+    try {
+        Start-Transcript -LiteralPath $script:SETUP_TRACE_FILE -Force -ErrorAction Stop | Out-Null
+        $script:SETUP_TRANSCRIPT_STARTED = $true
+    } catch {
+        Write-Warn "Could not start transcript tracing: $($_.Exception.Message)"
+    }
+
+    Write-SetupCheckpoint -Status "initialized" -StepNum 1 -StepName "Choose install location" -Detail "Project root confirmed. Setup tracing and checkpoints are active."
+}
 
 # Format elapsed time from a Stopwatch into a readable string
 function Format-Elapsed {
@@ -91,6 +178,9 @@ function Request-Recovery {
 
 function Write-ManualResume {
     param([int]$FailedStep, [int]$TotalSteps)
+    if ($script:SETUP_RUN_ID) {
+        Write-SetupCheckpoint -Status "paused" -StepNum $FailedStep -StepName "Manual recovery requested" -Detail "Operator chose to save progress and exit."
+    }
     Write-Host ""
     Write-Host "  ============================================================" -ForegroundColor Cyan
     Write-Host "  SETUP PAUSED -- Progress saved" -ForegroundColor Cyan
@@ -100,10 +190,20 @@ function Write-ManualResume {
     Write-Host "  Failed on step:  $FailedStep"
     Write-Host ""
     Write-Host "  Your .venv and config changes are saved on disk."
+    if ($script:SETUP_CHECKPOINT_FILE) {
+        Write-Host "  Checkpoint file: $script:SETUP_CHECKPOINT_FILE"
+    }
+    if ($script:SETUP_TRACE_FILE) {
+        Write-Host "  Transcript log:  $script:SETUP_TRACE_FILE"
+    }
+    if ($LOG_FILE) {
+        Write-Host "  Install log:     $LOG_FILE"
+    }
     Write-Host "  To troubleshoot and finish manually:" -ForegroundColor White
     Write-Host ""
     Write-Host "    1. Activate the venv:"
-    Write-Host "       .venv\Scripts\Activate.ps1"
+    Write-Host "       PowerShell: .venv\Scripts\Activate.ps1"
+    Write-Host "       cmd.exe   : .venv\Scripts\activate.bat"
     Write-Host ""
     Write-Host "    2. Retry the failed package install:"
     Write-Host "       .venv\Scripts\pip.exe install -r requirements_approved.txt --trusted-host pypi.org --trusted-host files.pythonhosted.org"
@@ -112,6 +212,7 @@ function Write-ManualResume {
     Write-Host "       (it detects existing .venv and skips completed steps)"
     Write-Host ""
     Write-Host "  ============================================================" -ForegroundColor Cyan
+    Stop-SetupTracing
 }
 
 # Configure Ollama for enterprise/offline defaults.
@@ -165,6 +266,12 @@ Write-Host "  ============================================" -ForegroundColor Cya
 Write-Host ""
 Write-Host "  This script will set up HybridRAG3 on your work computer."
 Write-Host "  It handles corporate proxy and security restrictions automatically."
+Write-Host ""
+Write-Host "  Corporate PowerShell policy note:" -ForegroundColor White
+Write-Host "    - tools\setup_work.bat launches powershell.exe with -ExecutionPolicy Bypass"
+Write-Host "    - this script also uses Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass"
+Write-Host "    - both are session-only exceptions and do not change machine policy"
+Write-Host "    - activate the venv with Activate.ps1 in PowerShell or activate.bat in cmd.exe"
 Write-Host ""
 Write-Host "  PHASE 1: We ask a few questions (type B to go back anytime)"
 Write-Host "  PHASE 2: Everything else is automatic with real-time progress"
@@ -222,6 +329,11 @@ while ($wizStep -le 3) {
             Write-Fail "Cannot find requirements_approved.txt in $PROJECT_ROOT"
             continue
         }
+
+        Initialize-SetupArtifacts -ProjectRoot $PROJECT_ROOT
+        Write-Host "  Setup checkpoint: $script:SETUP_CHECKPOINT_FILE" -ForegroundColor DarkGray
+        Write-Host "  Setup transcript: $script:SETUP_TRACE_FILE" -ForegroundColor DarkGray
+        Write-Host ""
 
         # Already installed? Offer resume or purge
         if ((Test-Path "$PROJECT_ROOT\.venv")) {
@@ -1367,6 +1479,11 @@ $stepTimer.Stop()
 # ==================================================================
 # Done!
 # ==================================================================
+if ($diagFail -eq 0) {
+    Write-SetupCheckpoint -Status "completed" -StepNum 13 -StepName "Diagnostics complete" -Detail "Setup completed cleanly."
+} else {
+    Write-SetupCheckpoint -Status "completed_with_warnings" -StepNum 13 -StepName "Diagnostics complete" -Detail "Setup completed with warnings. Review transcript and install logs."
+}
 Write-Host ""
 if ($diagFail -eq 0) {
     Write-Host "  ============================================" -ForegroundColor Green
@@ -1377,6 +1494,14 @@ if ($diagFail -eq 0) {
     Write-Host "    Setup Complete (with $diagFail warnings)." -ForegroundColor Yellow
     Write-Host "    The app will work -- some features may need Ollama." -ForegroundColor Yellow
     Write-Host "  ============================================" -ForegroundColor Yellow
+}
+Write-Host ""
+Write-Host "  INSTALL ARTIFACTS:"
+Write-Host "    Latest checkpoint : $script:SETUP_CHECKPOINT_FILE"
+Write-Host "    Run checkpoint    : $script:SETUP_CHECKPOINT_HISTORY_FILE"
+Write-Host "    Transcript trace  : $script:SETUP_TRACE_FILE"
+if ($LOG_FILE) {
+    Write-Host "    Package install log: $LOG_FILE"
 }
 Write-Host ""
 Write-Host "  HOW TO START HybridRAG3:"
@@ -1399,3 +1524,4 @@ Write-Host "  TO CHANGE SETTINGS:" -ForegroundColor Yellow
 Write-Host "    Run this script again -- you can redo any choice."
 Write-Host "    API credentials: use Admin tab in the app, or re-run setup."
 Write-Host ""
+Stop-SetupTracing

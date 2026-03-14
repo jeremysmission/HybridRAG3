@@ -150,6 +150,8 @@ class CostTracker:
         # from different threads.
         self._events: List[CostEvent] = []
         self._lock = threading.Lock()
+        self._timer_lock = threading.Lock()
+        self._shutdown_event = threading.Event()
 
         # Listener callbacks: GUI panels register here to get notified
         # instantly when a new cost event is recorded. This avoids the
@@ -434,9 +436,15 @@ class CostTracker:
 
     def shutdown(self) -> None:
         """Flush remaining events and cancel timer."""
-        if self._flush_timer:
-            self._flush_timer.cancel()
+        self._shutdown_event.set()
+        timer = None
+        with self._timer_lock:
+            timer = self._flush_timer
             self._flush_timer = None
+        if timer:
+            timer.cancel()
+            if timer.is_alive() and timer is not threading.current_thread():
+                timer.join(timeout=2.0)
         self.flush()
 
     # ----------------------------------------------------------------
@@ -523,13 +531,26 @@ class CostTracker:
             Long enough that SQLite writes are batched (not one per query).
             Daemon thread ensures the timer dies when the app exits.
         """
-        self._flush_timer = threading.Timer(30.0, self._auto_flush)
-        self._flush_timer.daemon = True
-        self._flush_timer.start()
+        if self._shutdown_event.is_set():
+            return
+        timer = threading.Timer(30.0, self._auto_flush)
+        timer.daemon = True
+        with self._timer_lock:
+            if self._shutdown_event.is_set():
+                return
+            self._flush_timer = timer
+        timer.start()
 
     def _auto_flush(self) -> None:
         """Timer callback: flush and reschedule."""
+        with self._timer_lock:
+            if self._flush_timer is threading.current_thread():
+                self._flush_timer = None
+        if self._shutdown_event.is_set():
+            return
         self.flush()
+        if self._shutdown_event.is_set():
+            return
         self._schedule_flush()
 
 

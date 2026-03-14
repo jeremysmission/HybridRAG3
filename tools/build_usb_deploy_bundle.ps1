@@ -38,6 +38,15 @@ param(
     [switch]$IncludeVenvSnapshot
 )
 
+# ------------------------------------------------------------------
+# Process-scope execution policy bypass
+# ------------------------------------------------------------------
+try {
+    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction SilentlyContinue
+} catch {
+    # Direct callers can still use powershell -ExecutionPolicy Bypass -File ...
+}
+
 $ErrorActionPreference = "Stop"
 
 function Write-Info([string]$m) { Write-Host "[INFO] $m" -ForegroundColor Cyan }
@@ -71,8 +80,9 @@ function Copy-Tree([string]$Source, [string]$Dest, [string[]]$ExcludeDirs, [stri
     $global:LASTEXITCODE = 0
 }
 
-function Find-Python {
-    if (Test-Path ".\.venv\Scripts\python.exe") { return (Resolve-Path ".\.venv\Scripts\python.exe").Path }
+function Find-Python([string]$ProjectRoot) {
+    $venvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+    if (Test-Path $venvPython) { return (Resolve-Path $venvPython).Path }
     try {
         $cmd = Get-Command py -ErrorAction Stop
         if ($cmd) { return "py -3.12" }
@@ -166,7 +176,7 @@ foreach ($cand in $localWheelCandidates) {
 }
 
 if ($DownloadWheels) {
-    $py = Find-Python
+    $py = Find-Python $projectRoot
     if (-not $py) {
         Write-Warn "Python launcher not found. Skipping wheel download."
     } else {

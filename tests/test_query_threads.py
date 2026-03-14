@@ -1,7 +1,7 @@
 import sqlite3
 
 from src.api.query_threads import ConversationThreadStore
-from src.security.protected_data import HISTORY_PROTECTED_PREFIX
+from src.security.protected_data import HISTORY_PROTECTED_PREFIX, restore_history_text
 
 
 class _Result:
@@ -162,8 +162,10 @@ def test_store_encrypts_history_fields_when_key_configured(monkeypatch, tmp_path
     assert str(turn_row[1]).startswith(HISTORY_PROTECTED_PREFIX)
     assert str(turn_row[2]).startswith(HISTORY_PROTECTED_PREFIX)
     assert str(turn_row[3]).startswith(HISTORY_PROTECTED_PREFIX)
-    assert "first" not in str(turn_row[0])
-    assert "a1" not in str(turn_row[1])
+    assert str(turn_row[0]) != "first"
+    assert str(turn_row[1]) != "a1"
+    assert restore_history_text(str(turn_row[0])) == "first"
+    assert restore_history_text(str(turn_row[1])) == "a1"
     con = store._connect()
     try:
         secure_delete = con.execute("PRAGMA secure_delete").fetchone()[0]

@@ -5,7 +5,7 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.security.credentials import KEYRING_SERVICE, _read_keyring
+from src.security.credentials import KEYRING_SERVICE, _read_keyring, resolve_credentials
 
 
 SHARED_API_AUTH_TOKEN_ENV = "HYBRIDRAG_API_AUTH_TOKEN"
@@ -52,11 +52,18 @@ class SharedLaunchSnapshot:
     api_auth_required: bool
     api_auth_source: str
     api_auth_rotation_enabled: bool
+    shared_api_previous_source: str
+    shared_api_previous_configured: bool
     shared_online_enforced: bool
     shared_online_ready: bool
+    online_api_ready: bool
+    online_api_key_source: str
+    online_api_endpoint_source: str
+    online_api_deployment_source: str
     browser_session_secret_source: str
     ready_for_shared_launch: bool
     blockers: tuple[str, ...]
+    next_steps: tuple[str, ...]
 
 
 def invalidate_shared_auth_cache() -> None:
@@ -137,10 +144,10 @@ def browser_session_fallback_source() -> str:
 
 def resolve_deployment_mode(config=None) -> str:
     """Resolve deployment mode from env override plus config security section."""
-    configured = "development"
-    security = getattr(config, "security", None) if config is not None else None
-    if security is not None:
-        configured = str(getattr(security, "deployment_mode", "development") or "development")
+    configured = str(
+        _config_lookup(config, "security", "deployment_mode", default="development")
+        or "development"
+    )
     raw = (os.environ.get(HYBRIDRAG_DEPLOYMENT_MODE_ENV) or configured or "development").strip().lower()
     if raw not in _VALID_DEPLOYMENT_MODES:
         return "development"
@@ -154,7 +161,7 @@ def shared_online_enforced(config=None) -> bool:
 
 def shared_online_ready(config=None) -> bool:
     """Return whether the runtime mode is online."""
-    raw = str(getattr(config, "mode", "offline") or "offline").strip().lower()
+    raw = str(_config_lookup(config, "mode", default="offline") or "offline").strip().lower()
     return raw == "online"
 
 
@@ -162,8 +169,11 @@ def build_shared_launch_snapshot(config, *, project_root: str | Path | None = No
     """Build the shared launch snapshot used by tools and runtime surfaces."""
     root = Path(project_root or os.environ.get("HYBRIDRAG_PROJECT_ROOT") or ".").resolve()
     status = resolve_shared_api_auth_status()
+    creds = resolve_credentials(config, use_cache=False)
     deployment_mode = resolve_deployment_mode(config)
+    mode = str(_config_lookup(config, "mode", default="offline") or "offline").strip().lower()
     online_ready = shared_online_ready(config)
+    online_api_ready, online_api_blocker = _validate_online_api_launch(config, creds)
     enforced = deployment_mode == "production" or status.configured
     blockers: list[str] = []
     if not status.configured:
@@ -172,19 +182,118 @@ def build_shared_launch_snapshot(config, *, project_root: str | Path | None = No
         blockers.append("Deployment mode is not production.")
     if not online_ready:
         blockers.append("Runtime mode is not online.")
+    if not online_api_ready:
+        blockers.append(online_api_blocker)
+    next_steps = _build_next_steps(
+        auth_configured=status.configured,
+        deployment_mode=deployment_mode,
+        runtime_online=online_ready,
+        online_api_ready=online_api_ready,
+    )
     return SharedLaunchSnapshot(
         project_root=str(root),
-        mode=str(getattr(config, "mode", "offline") or "offline").strip().lower(),
+        mode=mode,
         deployment_mode=deployment_mode,
         api_auth_required=status.configured,
         api_auth_source=status.primary_source,
         api_auth_rotation_enabled=status.rotation_enabled,
+        shared_api_previous_source=status.previous_source or "disabled",
+        shared_api_previous_configured=bool(status.previous_token),
         shared_online_enforced=enforced,
         shared_online_ready=online_ready,
+        online_api_ready=online_api_ready,
+        online_api_key_source=str(getattr(creds, "source_key", "") or "disabled"),
+        online_api_endpoint_source=str(getattr(creds, "source_endpoint", "") or "disabled"),
+        online_api_deployment_source=str(getattr(creds, "source_deployment", "") or "disabled"),
         browser_session_secret_source=browser_session_fallback_source(),
         ready_for_shared_launch=not blockers,
         blockers=tuple(blockers),
+        next_steps=next_steps,
     )
+
+
+def _config_lookup(config, *keys, default=None):
+    current = config
+    for key in keys:
+        if isinstance(current, dict):
+            current = current.get(key)
+        else:
+            current = getattr(current, key, None)
+        if current is None:
+            return default
+    if isinstance(current, str):
+        current = current.strip()
+    return current if current is not None and current != "" else default
+
+
+def _config_to_dict(value):
+    if isinstance(value, dict):
+        return {k: _config_to_dict(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_config_to_dict(v) for v in value]
+
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        converted = to_dict()
+        if isinstance(converted, dict):
+            return _config_to_dict(converted)
+
+    if hasattr(value, "__dict__"):
+        items = {
+            key: val for key, val in vars(value).items()
+            if not key.startswith("_")
+        }
+        if items:
+            return {k: _config_to_dict(v) for k, v in items.items()}
+
+    return value
+
+
+def _supports_factory_validation(creds) -> bool:
+    required = (
+        "api_key",
+        "endpoint",
+        "deployment",
+        "api_version",
+        "has_key",
+        "has_endpoint",
+    )
+    return all(hasattr(creds, name) for name in required)
+
+
+def _online_api_blocker(exc: Exception) -> str:
+    from src.core.exceptions import (
+        ApiKeyNotConfiguredError,
+        DeploymentNotConfiguredError,
+        EndpointNotConfiguredError,
+    )
+
+    if isinstance(exc, (ApiKeyNotConfiguredError, EndpointNotConfiguredError)):
+        return "Online API credentials are not configured."
+    if isinstance(exc, DeploymentNotConfiguredError):
+        return "Online API deployment is not configured."
+
+    message = str(exc).strip()
+    if message:
+        return "Online API runtime is not launch-ready: {}".format(message)
+    return "Online API runtime is not launch-ready."
+
+
+def _validate_online_api_launch(config, creds) -> tuple[bool, str]:
+    if not bool(getattr(creds, "is_online_ready", False)):
+        return False, "Online API credentials are not configured."
+
+    if not _supports_factory_validation(creds):
+        return True, ""
+
+    from src.core.api_client_factory import ApiClientFactory
+
+    try:
+        ApiClientFactory(_config_to_dict(config)).build(creds)
+    except Exception as exc:
+        return False, _online_api_blocker(exc)
+
+    return True, ""
 
 
 def format_shared_launch_snapshot(snapshot: SharedLaunchSnapshot) -> str:
@@ -201,6 +310,15 @@ def format_shared_launch_snapshot(snapshot: SharedLaunchSnapshot) -> str:
             else "disabled"
         ),
         "Auth rotation: {}".format("enabled" if snapshot.api_auth_rotation_enabled else "disabled"),
+        "Previous shared token: {}".format(
+            "configured ({})".format(snapshot.shared_api_previous_source)
+            if snapshot.shared_api_previous_configured
+            else "disabled"
+        ),
+        "Online API ready: {}".format(snapshot.online_api_ready),
+        "Online API key source: {}".format(snapshot.online_api_key_source),
+        "Online API endpoint source: {}".format(snapshot.online_api_endpoint_source),
+        "Online API deployment source: {}".format(snapshot.online_api_deployment_source),
         "Browser session secret: {}".format(snapshot.browser_session_secret_source),
         "Shared online enforced: {}".format(snapshot.shared_online_enforced),
         "Shared online ready: {}".format(snapshot.shared_online_ready),
@@ -209,6 +327,9 @@ def format_shared_launch_snapshot(snapshot: SharedLaunchSnapshot) -> str:
     if snapshot.blockers:
         lines.extend(["", "Blockers", "--------"])
         lines.extend("- {}".format(item) for item in snapshot.blockers)
+    if snapshot.next_steps:
+        lines.extend(["", "Next Steps", "----------"])
+        lines.extend("- {}".format(item) for item in snapshot.next_steps)
     return "\n".join(lines)
 
 
@@ -301,3 +422,30 @@ def _env_fingerprint() -> tuple[str, str]:
         str(os.environ.get(SHARED_API_AUTH_TOKEN_ENV) or "").strip(),
         str(os.environ.get(SHARED_API_AUTH_TOKEN_PREVIOUS_ENV) or "").strip(),
     )
+
+
+def _build_next_steps(
+    *,
+    auth_configured: bool,
+    deployment_mode: str,
+    runtime_online: bool,
+    online_api_ready: bool,
+) -> tuple[str, ...]:
+    steps: list[str] = []
+    if not auth_configured:
+        steps.append(
+            "Store the current shared API token with `python tools/shared_launch_preflight.py --prompt-shared-token` or `rag-store-shared-token`."
+        )
+    if not online_api_ready:
+        steps.append(
+            "Store the online API key and endpoint with `python tools/py/setup_online_api.py` or the Command Center credential actions."
+        )
+    if deployment_mode != "production":
+        steps.append(
+            "Persist `security.deployment_mode=production` with `python tools/shared_launch_preflight.py --apply-production`."
+        )
+    if not runtime_online:
+        steps.append(
+            "Persist `mode=online` with `python tools/shared_launch_preflight.py --apply-online`."
+        )
+    return tuple(steps)

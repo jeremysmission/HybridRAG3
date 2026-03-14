@@ -4,6 +4,7 @@
 # Designed to be read on your phone via the GitHub mobile app.
 # ============================================================================
 
+Use [USER_GUIDE.md](USER_GUIDE.md) as the front door and [STUDY_GUIDE.md](../08_learning/STUDY_GUIDE.md) for the full curriculum.
 
 ## 1. SETUP (First-Time Installation)
 
@@ -29,7 +30,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 
 # 4. Install dependencies (~800 MB download, includes PyTorch)
-pip install -r requirements.txt
+pip install -r requirements_approved.txt
 
 # 5. Edit machine-specific paths
 notepad start_hybridrag.ps1

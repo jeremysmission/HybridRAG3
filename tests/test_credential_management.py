@@ -21,6 +21,7 @@
 
 import sys
 import os
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 import pytest
 
@@ -280,4 +281,63 @@ class TestCredentialManagement:
         assert result.deployment is None or result.deployment == "", (
             "Empty deployment should be treated as missing"
         )
+        self._clear_env()
+
+    # ------------------------------------------------------------------
+    # TEST 11: object-style config fallback is honored
+    # ------------------------------------------------------------------
+    def test_11_resolve_credentials_supports_object_config(self):
+        """Config fallback works with attribute-based config objects too."""
+        self._clear_env()
+        config = SimpleNamespace(
+            api=SimpleNamespace(
+                key="config-key",
+                endpoint="https://config.example.com",
+                deployment="gpt-4o",
+                api_version="2024-06-01",
+                provider="azure",
+            )
+        )
+
+        with patch("src.security.credentials._read_keyring", return_value=None):
+            from src.security.credentials import resolve_credentials
+            result = resolve_credentials(config, use_cache=False)
+
+        assert result.api_key == "config-key"
+        assert result.endpoint == "https://config.example.com"
+        assert result.deployment == "gpt-4o"
+        assert result.api_version == "2024-06-01"
+        assert result.provider == "azure"
+        assert result.source_key == "config"
+        assert result.source_endpoint == "config"
+        assert result.source_deployment == "config"
+        assert result.source_api_version == "config"
+        assert result.source_provider == "config"
+        self._clear_env()
+
+    # ------------------------------------------------------------------
+    # TEST 12: config-backed resolution bypasses session cache
+    # ------------------------------------------------------------------
+    def test_12_resolve_credentials_ignores_cached_empty_result_when_config_supplied(self):
+        """Per-call config fallback must not be masked by a cached empty lookup."""
+        self._clear_env()
+        config = SimpleNamespace(
+            api=SimpleNamespace(
+                key="config-key",
+                endpoint="https://config.example.com",
+            )
+        )
+
+        with patch("src.security.credentials._read_keyring", return_value=None):
+            from src.security.credentials import resolve_credentials
+
+            cached = resolve_credentials(use_cache=True)
+            result = resolve_credentials(config, use_cache=True)
+
+        assert cached.api_key is None
+        assert cached.endpoint is None
+        assert result.api_key == "config-key"
+        assert result.endpoint == "https://config.example.com"
+        assert result.source_key == "config"
+        assert result.source_endpoint == "config"
         self._clear_env()

@@ -444,8 +444,12 @@ def resolve_credentials(config_dict=None, use_cache=True):
     """
     global _credential_cache
 
-    # Return cached credentials if available
-    if use_cache and _credential_cache is not None:
+    use_config_fallback = config_dict is not None
+
+    # Return cached credentials if available. Config-backed resolution is
+    # intentionally uncached so per-call config objects do not get masked
+    # by a previous env/keyring-only lookup.
+    if use_cache and not use_config_fallback and _credential_cache is not None:
         return _credential_cache
 
     creds = ApiCredentials()
@@ -464,7 +468,7 @@ def resolve_credentials(config_dict=None, use_cache=True):
             creds.api_key = key_from_keyring
             creds.source_key = "keyring"
             logger.debug("API key loaded from keyring")
-        elif config_dict:
+        elif use_config_fallback:
             # Priority 3: Config file
             cfg_key = _nested_get(config_dict, "api", "key")
             if cfg_key:
@@ -486,7 +490,7 @@ def resolve_credentials(config_dict=None, use_cache=True):
             creds.endpoint = endpoint_from_keyring
             creds.source_endpoint = "keyring"
             logger.debug("Endpoint loaded from keyring")
-        elif config_dict:
+        elif use_config_fallback:
             # Priority 3: Config file
             cfg_ep = _nested_get(config_dict, "api", "endpoint")
             if cfg_ep:
@@ -518,7 +522,7 @@ def resolve_credentials(config_dict=None, use_cache=True):
                     logger.debug("Deployment extracted from URL: %s", creds.deployment)
 
             # Priority 4: Config file
-            if not creds.deployment and config_dict:
+            if not creds.deployment and use_config_fallback:
                 cfg_dep = _nested_get(config_dict, "api", "deployment")
                 if cfg_dep:
                     creds.deployment = cfg_dep
@@ -546,7 +550,7 @@ def resolve_credentials(config_dict=None, use_cache=True):
                     creds.source_api_version = "extracted_from_url"
 
             # Priority 4: Config file
-            if not creds.api_version and config_dict:
+            if not creds.api_version and use_config_fallback:
                 cfg_ver = _nested_get(config_dict, "api", "api_version")
                 if cfg_ver:
                     creds.api_version = cfg_ver
@@ -566,7 +570,7 @@ def resolve_credentials(config_dict=None, use_cache=True):
             creds.provider = prov_from_keyring
             creds.source_provider = "keyring"
             logger.debug("Provider loaded from keyring")
-        elif config_dict:
+        elif use_config_fallback:
             # Priority 3: Config file
             cfg_prov = _nested_get(config_dict, "api", "provider")
             if cfg_prov:
@@ -583,9 +587,10 @@ def resolve_credentials(config_dict=None, use_cache=True):
             # Don't clear endpoint -- let the caller decide what to do
             # The factory will re-validate and raise if needed
 
-    # Cache for future calls
-    with _credential_cache_lock:
-        _credential_cache = creds
+    # Cache env/keyring-only lookups for future calls.
+    if not use_config_fallback:
+        with _credential_cache_lock:
+            _credential_cache = creds
 
     return creds
 
@@ -659,9 +664,13 @@ def _nested_get(d, *keys):
     for key in keys:
         if isinstance(d, dict):
             d = d.get(key)
+        elif hasattr(d, key):
+            d = getattr(d, key)
         else:
             return None
-    return d if d else None
+    if isinstance(d, str):
+        d = d.strip()
+    return d if d is not None and d != "" else None
 
 
 # ---------------------------------------------------------------------------

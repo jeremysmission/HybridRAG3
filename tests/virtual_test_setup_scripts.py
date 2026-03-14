@@ -88,6 +88,15 @@ else:
     check("Has Write-Ok function", "function Write-Ok" in home)
     check("Has Write-Fail function", "function Write-Fail" in home)
     check("Has Write-Warn function", "function Write-Warn" in home)
+    check("Has Group Policy bypass at top",
+          "Set-ExecutionPolicy" in home.split("$ErrorActionPreference")[0] if "$ErrorActionPreference" in home else False,
+          "must attempt process-scope bypass before the main setup flow")
+    check("Uses -Scope Process bypass",
+          "-Scope Process" in home,
+          "process-scope bypass is the safest approach")
+    check("Has SilentlyContinue for GP errors",
+          "SilentlyContinue" in home,
+          "must silently handle policy denial")
 
     # Python detection (scripts use foreach loop with @("3.12", "3.11", ...))
     check("Detects Python 3.12", '"3.12"' in home)
@@ -166,6 +175,15 @@ else:
     check("Has cmd.exe fallback instructions",
           "cmd" in work.lower() and "activate.bat" in work,
           "must provide cmd fallback for fully locked PowerShell")
+    check("Writes setup checkpoint artifact",
+          "setup_checkpoint_latest.json" in work,
+          "should persist a latest checkpoint file during setup")
+    check("Starts transcript trace logging",
+          "Start-Transcript" in work and "setup_trace_" in work,
+          "should capture a per-run transcript for troubleshooting")
+    check("Documents both venv activation paths",
+          "Activate.ps1" in work and "activate.bat" in work,
+          "must show both PowerShell and cmd activation commands")
 
     # Proxy handling (CRITICAL for work)
     check("Has --trusted-host pypi.org",
@@ -267,6 +285,8 @@ if home and work:
           "trusted-host" in work and "trusted-host" not in home)
     check("Work has pip-system-certs, home does not",
           "pip-system-certs" in work and "pip-system-certs" not in home)
+    check("Home has Group Policy bypass at top",
+          "Set-ExecutionPolicy" in home.split("$ErrorActionPreference")[0] if "$ErrorActionPreference" in home else False)
     check("Work has Group Policy bypass at top",
           "Set-ExecutionPolicy" in work.split("$ErrorActionPreference")[0] if "$ErrorActionPreference" in work else False)
 

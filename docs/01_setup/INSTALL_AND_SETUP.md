@@ -1,6 +1,6 @@
 # HybridRAG3 -- Installation and Setup Guide
 
-Last Updated: 2026-03-05
+Last Updated: 2026-03-13
 
 ---
 
@@ -15,6 +15,27 @@ If you are setting up Azure/OpenAI online mode on a new machine, use:
 It includes both:
 - one-command setup (`tools/py/setup_online_api.py`)
 - manual setup + verification flow
+
+---
+
+## Recommended Work Computer ZIP Install
+
+If you are pulling this repo down to a managed work computer as a ZIP, start
+with:
+
+- `docs/01_setup/WORK_COMPUTER_ZIP_INSTALL_AND_AUTOMATED_SETUP.md`
+- `tools/setup_work.bat`
+
+That path is the current recommended work-machine flow. It uses the approved
+dependency set, adds corporate PowerShell bypass handling, writes setup
+checkpoints under `logs\setup_checkpoint_latest.json`, captures a transcript
+trace, and shows both PowerShell and `cmd.exe` venv activation commands.
+
+Direct PowerShell entry point:
+
+```powershell
+powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\tools\setup_work.ps1
+```
 
 ---
 
@@ -115,7 +136,7 @@ If that command fails with "Access Denied" (Group Policy overrides user
 settings on some machines), use the per-process bypass instead:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\setup_step.ps1
+powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\tools\setup_work.ps1
 ```
 
 Or start every PowerShell session with:
@@ -841,13 +862,15 @@ tools\setup_work.bat
 
 Uses requirements_approved.txt (enterprise-approved only). Adds proxy
 handling, pip-system-certs, API credential configuration, and Group
-Policy bypass. See WORK_LAPTOP_VENV_SETUP.md for details.
+Policy bypass. It also writes setup checkpoints and transcript traces under
+`logs\`. See WORK_COMPUTER_ZIP_INSTALL_AND_AUTOMATED_SETUP.md for the exact
+ZIP-to-workstation flow.
 
 ### Running from PowerShell directly
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\tools\setup_home.ps1
+.\tools\setup_work.ps1
 ```
 
 ---
@@ -894,8 +917,10 @@ For a fresh start: delete `.venv`, then re-run `tools\setup_home.bat`.
 
 ## See Also
 
-- [USER_GUIDE.md](../03_guides/USER_GUIDE.md) -- Daily use, all commands, tuning, troubleshooting
+- [USER_GUIDE.md](../03_guides/USER_GUIDE.md) -- Landing guide for daily use across every interface
+- [CLI_GUIDE.md](../03_guides/CLI_GUIDE.md) -- PowerShell command workflow, diagnostics, and operator commands
+- [WORK_COMPUTER_ZIP_INSTALL_AND_AUTOMATED_SETUP.md](WORK_COMPUTER_ZIP_INSTALL_AND_AUTOMATED_SETUP.md) -- Recommended ZIP-to-workstation automated install flow
 - [OFFLINE_PRESTAGE_DVD_GUIDE.md](OFFLINE_PRESTAGE_DVD_GUIDE.md) -- Multi-disc prestage workflow for no-download installs
 - [SHORTCUT_SHEET.md](../03_guides/SHORTCUT_SHEET.md) -- Quick reference card
-- [GUI_GUIDE.md](../03_guides/GUI_GUIDE.md) -- Graphical interface walkthrough
+- [GUI_GUIDE.md](../03_guides/GUI_GUIDE.md) -- Desktop GUI and browser GUI walkthrough
 - [FORMAT_SUPPORT.md](../02_architecture/FORMAT_SUPPORT.md) -- All 49+ supported file formats

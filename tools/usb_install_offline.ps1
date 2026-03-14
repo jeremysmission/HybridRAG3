@@ -28,6 +28,15 @@ param(
     [switch]$SkipHashCheck
 )
 
+# ------------------------------------------------------------------
+# Process-scope execution policy bypass
+# ------------------------------------------------------------------
+try {
+    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction SilentlyContinue
+} catch {
+    # Direct callers can still use powershell -ExecutionPolicy Bypass -File ...
+}
+
 $ErrorActionPreference = "Stop"
 
 function Write-Info([string]$m) { Write-Host "[INFO] $m" -ForegroundColor Cyan }

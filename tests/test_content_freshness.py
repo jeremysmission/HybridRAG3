@@ -65,12 +65,13 @@ def test_content_freshness_detects_newer_files_than_last_index(tmp_path):
 
 def test_content_freshness_reports_fresh_when_sources_are_older_than_index(tmp_path):
     source_dir = tmp_path / "source"
-    _touch(source_dir / "doc.md", when=datetime(2026, 3, 13, 1, 0, tzinfo=timezone.utc))
+    base = datetime.now(timezone.utc)
+    _touch(source_dir / "doc.md", when=base - timedelta(hours=2))
 
     snapshot = build_content_freshness_snapshot(
         str(source_dir),
-        latest_index_started_at="2026-03-13T02:00:00Z",
-        latest_index_finished_at="2026-03-13T02:30:00Z",
+        latest_index_started_at=(base - timedelta(hours=1, minutes=30)).isoformat().replace("+00:00", "Z"),
+        latest_index_finished_at=(base - timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
         latest_index_status="completed",
         supported_extensions=[".md"],
         excluded_dirs=[],

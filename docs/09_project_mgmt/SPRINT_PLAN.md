@@ -1,7 +1,7 @@
 # HybridRAG3 Sprint Plan
 
 **Created:** 2026-03-08  
-**Last updated:** 2026-03-13 12:17 America/Denver  
+**Last updated:** 2026-03-14 14:05 America/Denver  
 **Purpose:** one active tracker for demo-critical work, deployment prep, and longer-term backlog.
 
 ## Status Key
@@ -49,7 +49,7 @@
   - `Sprint 5 -> Sprint 6 -> Sprint 7 -> Sprint 8 -> Sprint 9 -> Sprint 10 -> Sprint 11 -> Sprint 12 -> Sprint 13 -> Sprint 14`
   - remaining blockers on that chain are now explicit:
     - `Sprint 5`: missing live API credentials for the final online demo-hardening pass
-    - `Sprint 13`: current-token auth gating is now locally fixed and ready for QA; remaining blocked path after that QA pass is the authenticated-online soak rerun plus the load-ceiling refresh
+    - `Sprint 13`: shared-launch auth boundary reverify is now closed; the current live blocker is environmental because this workstation has no shared API auth token and no online API credentials configured for the authenticated-online soak rerun
 - Repo-wide QA evidence was pushed one step further after the GUI parity harness slice:
   - the authoritative repo-wide evidence for this checkout is the split `.venv` gate:
     - `.venv\Scripts\python.exe -m pytest tests/ --ignore=tests/test_fastapi_server.py`
@@ -107,6 +107,11 @@
     - the desktop `Command Center` now ships as a first-class GUI tab, reusing the existing HybridRAG dark-mode layout and exposing the 19 primary `rag-*` commands through native workflows or streamed subprocess execution
     - parity support tooling remains in place via `tools/gui_cli_parity_harness.py`, `tools/gui_cli_parity_model.py`, `src/gui/testing/gui_cli_parity_harness.py`, and `tools/gui_cli_parity.py`
     - the same full-gate pass also closed the seed-entry stale-`IntVar` regression in `src/gui/panels/tuning_tab_runtime.py`
+  - `13.0c -- Corporate PowerShell Entrypoint Hardening` is now landed as a Sprint 13 launch-support slice:
+    - direct PowerShell entrypoints now attempt a process-scope execution-policy bypass before the main script body so managed corporate shells do not depend entirely on wrapper launchers
+    - `tools/launch_gui.ps1` now reasserts repo-root and `.venv` context before launching the GUI from PowerShell
+    - `tools/build_usb_deploy_bundle.ps1` now resolves repo `.venv\Scripts\python.exe` from `$projectRoot` instead of the caller working directory
+    - the lingering GUI printable-path tail fix was reapplied and `docs/_printable/21_GUI_Guide.docx` was regenerated
   - `13.1 -- Multi-User Soak and Performance Baseline` is now started:
     - refreshed `docs/WORKSTATION_STRESS_TEST.md` from the current workstation simulation harness
     - added `src/tools/shared_deployment_soak.py` plus `tools/shared_deployment_soak.py` for repeatable shared-API soak baselines
@@ -138,14 +143,14 @@
       - `rag-shared-launch`
       - `rag-store-shared-token`
     - the auth/mode drift found in `13.4` is now closable through shipped code and tooling instead of manual env-only setup
-  - `13.5` is now back in rework after QA found a remaining auth-boundary defect:
-    - previous-token-only shared auth is still incorrectly treated as launch-ready
-  - `13.5a -- Current Token Requirement Fix` is now locally landed and ready for QA:
+  - `13.5`, `13.5a`, and `13.5b` are now closed in this checkout:
     - shared auth now requires a current token before the deployment is treated as configured or rotation-enabled
     - previous-token-only preflight now fails closed
     - previous-token-only production API startup now fails closed
     - previous-token-only `/auth/context` requests now stay in the anonymous open posture instead of being treated as authenticated shared auth
     - the same full-gate pass also hardened GUI seed persistence in `src/gui/panels/tuning_tab_runtime.py` so a lagging entry widget cannot overwrite a newer bound `IntVar` seed during large suite runs
+    - QA explicitly cleared `13.5a -- Current Token Requirement Fix` on `2026-03-13 12:36:36 -06:00`
+    - coder-side `13.5b -- Auth Boundary Reverify` reconfirmed env-backed and keyring-backed auth-source reporting after the QA pass
   - remaining completion path is now normalized as:
     - `13.5a -- Current Token Requirement Fix`
     - `13.5b -- Auth Boundary Reverify`
@@ -153,13 +158,16 @@
     - `13.7 -- Load Ceiling Decision And Operating Limit`
     - `13.8 -- Launch Verdict Refresh`
     - `Sprint 14 -- Shared Launch Acceptance And Project Closeout`
-  - next forward move after QA is `13.5b -- Auth Boundary Reverify`
+  - next forward move is `13.6 -- Live Authenticated-Online Soak Refresh`
 - Repo-level health blocker cleared again in this checkout:
   - class-size enforcement now follows the actual repo rule that comments, blank lines, and docstrings do not count
   - `QueryEngine` and `GroundedQueryEngine` helper surfaces were split so the effective class sizes are back under the standing 500-line rule
   - full repo gate is green again after fixing:
     - mode-autotune candidate writes so mode-scoped retrieval/query knobs no longer drift with `HYBRIDRAG_ACTIVE_MODE`
     - wildcard document-tag normalization in `src/core/access_tags.py`
+- Sprint 14 preparation is now started under explicit forward-execution direction:
+  - live shared cutover is still blocked behind `13.6`
+  - but the controlled cutover worksheet, post-cutover smoke checklist, final QA/PM freeze checklist, and project completion handoff template are now staged for the acceptance sprint
 
 ## Active Sprint Board
 
@@ -179,7 +187,7 @@
 | Sprint 11 -- Conversational Workflow and Shared History | `DONE` | Add follow-up question handling and persistent team query history. | Browser and Admin users can resume query threads, ask follow-ups, and review saved history without losing auditability or source integrity. |
 | Sprint 12 -- Security Hardening and Data Protection | `DONE` | Close the main production-grade security gaps for shared use. | Encryption-at-rest path, secret rotation story, audit-access controls, anomaly detection, and security docs are implemented and validated. |
 | Sprint 13 -- Launch Cutover and Scale Readiness | `BLOCKED` | Finish launch prep, soak testing, and operator runbooks for sustained shared use. | Desktop command center covers the primary CLI/operator path, and launch checklist, backup/restore, performance baselines, multi-user soak results, and rollback/runbook docs are complete. |
-| Sprint 14 -- Shared Launch Acceptance and Project Closeout | `NEXT` | Convert the launch-ready system into a formally accepted project completion state. | Controlled cutover or explicit rollback verdict is documented, final QA/PM signoff is recorded, project docs are frozen, and the completion handoff is ready for maintenance-only work. |
+| Sprint 14 -- Shared Launch Acceptance and Project Closeout | `IN PROGRESS` | Convert the launch-ready system into a formally accepted project completion state. | Controlled cutover or explicit rollback verdict is documented, final QA/PM signoff is recorded, project docs are frozen, and the completion handoff is ready for maintenance-only work. |
 
 ## Sprint 1 Detail
 
@@ -1253,16 +1261,20 @@ Without a trace view, tuning remains guesswork.
 ### Planned Slice Order
 
 1. `13.0 -- GUI/CLI Parity Surface And Harness` -- `DONE`
-2. `13.1 -- Multi-User Soak and Performance Baseline` -- `DONE`
-3. `13.2 -- Backup, Restore, and Rollback Drill` -- `DONE`
-4. `13.3 -- Launch Checklist and Operator Runbook` -- `DONE`
-5. `13.4 -- Cutover Readiness Review` -- `DONE`
-6. `13.5 -- Shared Launch Auth And Preflight` -- `IN PROGRESS (QA reject / rework)`
-7. `13.5a -- Current Token Requirement Fix` -- `IN PROGRESS (READY FOR QA)`
-8. `13.5b -- Auth Boundary Reverify` -- `NEXT`
-9. `13.6 -- Live Authenticated-Online Soak Refresh` -- `NEXT`
-10. `13.7 -- Load Ceiling Decision And Operating Limit` -- `NEXT`
-11. `13.8 -- Launch Verdict Refresh` -- `NEXT`
+2. `13.0a -- Explorer-Safe GUI BAT Launcher` -- `IMPLEMENTED / READY FOR QA`
+3. `13.0b -- User Guide Refresh And Printable Export` -- `DONE`
+4. `13.0c -- Corporate PowerShell Entrypoint Hardening` -- `DONE`
+5. `13.1 -- Multi-User Soak and Performance Baseline` -- `DONE`
+6. `13.2 -- Backup, Restore, and Rollback Drill` -- `DONE`
+7. `13.3 -- Launch Checklist and Operator Runbook` -- `DONE`
+8. `13.4 -- Cutover Readiness Review` -- `DONE`
+9. `13.5 -- Shared Launch Auth And Preflight` -- `DONE`
+10. `13.5a -- Current Token Requirement Fix` -- `DONE`
+11. `13.5b -- Auth Boundary Reverify` -- `DONE`
+12. `13.5c -- Preflight Online-Credential Blocker Surfacing` -- `IMPLEMENTED / READY FOR QA`
+13. `13.6 -- Live Authenticated-Online Soak Refresh` -- `BLOCKED (ENV)`
+14. `13.7 -- Load Ceiling Decision And Operating Limit` -- `NEXT`
+15. `13.8 -- Launch Verdict Refresh` -- `NEXT`
 
 ### 13.0 GUI/CLI Parity Surface And Harness -- 2026-03-13 09:28 America/Denver
 
@@ -1302,6 +1314,103 @@ Without a trace view, tuning remains guesswork.
 - PM interpretation:
   - Sprint 13 no longer treats GUI/CLI parity as harness-only future work; the real desktop command surface is now present in the app
   - the parity board and runtime runner remain acceptance tooling for future GUI growth instead of being the only GUI story
+
+### 13.0a Explorer-Safe GUI BAT Launcher -- 2026-03-13 14:16 America/Denver
+
+- Hardened `start_gui.bat` as the real one-click GUI launcher for Explorer and terminal use.
+- Launcher behavior now includes:
+  - repo-root resolution from the batch file location instead of caller working directory
+  - explicit `.venv` and `launch_gui.py` entrypoint checks with plain-English failures
+  - environment setup for `HYBRIDRAG_PROJECT_ROOT`, `PYTHONPATH`, proxy bypass, and UTF-8
+  - optional `--detach` mode for a console-free launch path
+  - dry-run and no-pause support so QA can execute the real batch file without opening the GUI
+- Added real Windows batch-execution coverage in:
+  - `tests/test_start_gui_bat.py`
+- Existing GUI-startup and setup-wizard launch guards stayed green.
+- Verification:
+  - `python -m pytest tests/test_start_gui_bat.py -q`
+    - result: `5 passed`
+  - `python -m pytest tests/test_launch_gui_startup.py -q`
+    - result: `6 passed`
+  - `python tests\virtual_test_setup_wizard.py`
+    - result: `54 PASS, 0 FAIL`
+  - `python tests\virtual_test_phase1_foundation.py`
+    - result: `55 PASS, 0 FAIL`
+  - `python -m pytest tests/ --ignore=tests/test_fastapi_server.py -q`
+    - result: `704 passed, 8 skipped, 7 warnings`
+- PM interpretation:
+  - the GUI now has a documented and testable BAT-first startup path that QA can exercise directly
+  - this is a Sprint 13 launch-support slice and does not change the environment blocker on `13.6`
+
+### 13.0b User Guide Refresh And Printable Export -- 2026-03-13 14:16 America/Denver
+
+- Refreshed the three main end-user guides to match the current shipped app:
+  - `docs/03_guides/USER_GUIDE.md`
+  - `docs/03_guides/CLI_GUIDE.md`
+  - `docs/03_guides/GUI_GUIDE.md`
+- The refreshed guides now document:
+  - `start_gui.bat`, `start_gui.bat --detach`, `start_rag.bat`, and direct Python launch
+  - the current single-window GUI anatomy (`File | View | Admin | Help`, nav tabs, status bar)
+  - the dark-mode `Command Center` as the GUI surface for CLI-equivalent workflows
+  - shared-launch preflight usage from both CLI and GUI
+- Primary DOCX outputs now align with the guide-local files:
+  - `docs/03_guides/USER_GUIDE.docx`
+  - `docs/03_guides/CLI_GUIDE.docx`
+  - `docs/03_guides/GUI_GUIDE.docx`
+- Supplemental numbered packet copies remain available for the landing and GUI guides:
+  - `docs/_printable/20_User_Guide.docx`
+  - `docs/_printable/21_GUI_Guide.docx`
+- QA follow-up fix:
+  - corrected stale guide references so the landing guide points at `USER_GUIDE.docx`, `CLI_GUIDE.docx`, and `GUI_GUIDE.docx`
+  - added the CLI guide entry to the root `README.md` documentation index
+  - corrected `docs/01_setup/INSTALL_AND_SETUP.md` metadata and setup-link references
+  - added explicit `start_gui.bat` and `start_gui.bat --detach` launch guidance to the refreshed markdown guides
+  - kept the numbered `_printable` packet copies documented as supplemental outputs instead of the primary guide-local DOCX set
+- PM interpretation:
+  - the launcher and the user-facing documentation are now aligned
+  - QA can review the BAT launcher slice against current docs instead of stale pre-Command-Center guidance
+  - QA cleared this slice on `2026-03-13 17:44 America/Denver`
+
+### 13.0c Corporate PowerShell Entrypoint Hardening -- 2026-03-13 17:18 America/Denver
+
+- Hardened the direct PowerShell entrypoints that operators are most likely to use on managed machines:
+  - `start_hybridrag.ps1`
+  - `tools/launch_gui.ps1`
+  - `tools/setup_home.ps1`
+  - `tools/build_usb_deploy_bundle.ps1`
+  - `tools/usb_install_offline.ps1`
+- Each now attempts:
+  - `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction SilentlyContinue`
+  - before the main script body, so direct PowerShell use does not rely entirely on a wrapper BAT file
+- Additional launch-path hardening:
+  - `tools/launch_gui.ps1` now sets the current directory to repo root, exports `HYBRIDRAG_PROJECT_ROOT`, and exports `.venv` context before launching the GUI
+  - `tools/build_usb_deploy_bundle.ps1` now prefers repo `.venv\Scripts\python.exe` using `$projectRoot` instead of the caller working directory
+- Regression coverage added in:
+  - `tests/test_powershell_entrypoints.py`
+  - `tests/virtual_test_setup_scripts.py`
+- Verification:
+  - `python -m pytest tests/test_powershell_entrypoints.py tests/test_start_gui_bat.py tests/test_launch_gui_startup.py -q`
+    - result: `14 passed`
+  - `python tests\virtual_test_setup_scripts.py`
+    - result: `107 passed, 0 failed`
+  - `python tests\virtual_test_setup_group_policy.py`
+    - result: `30 passed, 0 failed`
+  - `python tests\virtual_test_setup_wizard.py`
+    - result: `54 PASS, 0 FAIL`
+  - `python tests\virtual_test_phase1_foundation.py`
+    - result: `55 PASS, 0 FAIL`
+  - `cmd.exe /d /c D:\HybridRAG3\start_gui.bat --dry-run`
+    - result: correct repo-root and terminal target
+  - `cmd.exe /d /c D:\HybridRAG3\start_gui.bat --detach --dry-run`
+    - result: correct detached `pythonw.exe` target
+  - `python -m pytest tests/ --ignore=tests/test_fastapi_server.py -q`
+    - result: `709 passed, 6 skipped, 7 warnings`
+  - `.venv\Scripts\python.exe -m pytest tests/ -q`
+    - result: `832 passed, 4 skipped, 7 warnings`
+- PM interpretation:
+  - corporate PowerShell launches are now more self-contained and less dependent on wrapper-specific policy bypass
+  - this slice does not change the Sprint `13.6` environment blocker; it hardens the operator entrypoints around it
+  - QA cleared this slice on `2026-03-13 17:44 America/Denver`
 
 ### 13.1 Shared Deployment Soak Tooling -- 2026-03-13 09:25 America/Denver
 
@@ -1498,7 +1607,7 @@ Without a trace view, tuning remains guesswork.
   - Sprint 13 remains blocked at the PM level until the live workstation reruns the new preflight path and a fresh soak artifact confirms authenticated online posture
   - the live concurrency ceiling is still only validated at `concurrency=1`
 
-### 13.5a Current Token Requirement Fix -- IN PROGRESS (READY FOR QA)
+### 13.5a Current Token Requirement Fix -- DONE
 
 - Tightened shared auth readiness semantics so a previous token can extend a rotation window but cannot become the only configured shared launch secret.
 - Landed implementation:
@@ -1528,15 +1637,56 @@ Without a trace view, tuning remains guesswork.
   - required virtual suites rerun:
     - `phase1`, `phase2`, `phase4`, `view_switching`, `setup_wizard`, `setup_scripts`, `guard_part1`, `guard_part2`, `setup_group_policy`, `ibit_reference`, `offline_isolation`
     - result: green
+- QA:
+  - `2026-03-13 12:36:36 -06:00`
+  - status: passed QA
+  - note: Tk-dependent skip counts varied by machine availability, but the authoritative `.venv` full-suite gate stayed green
 
-### 13.5b Auth Boundary Reverify -- NEXT
+### 13.5b Auth Boundary Reverify -- DONE
 
-- Push the corrected `13.5` slice back through QA after the current-token requirement fix lands.
-- Acceptance target:
-  - QA explicitly confirms the previous-token-only repro is closed
-  - shared auth source reporting remains correct for env-backed and keyring-backed current tokens
+- Pushed the corrected `13.5` slice through QA after the current-token requirement fix landed.
+- Acceptance target achieved:
+  - QA explicitly confirmed the previous-token-only repro is closed
+  - shared auth source reporting still resolves correctly for env-backed and keyring-backed current tokens
+- Coder-side reverify:
+  - `python -m pytest tests/test_shared_deployment_auth.py -k "prefers_env_over_keyring or falls_back_to_keyring or build_shared_launch_snapshot_ready_with_keyring_token or previous_token_only_does_not_count_as_shared_launch_ready or shared_launch_preflight_previous_token_only_fails_in_production_online_mode" -q`
+    - result: `5 passed`
+  - `.venv\Scripts\python.exe -m pytest tests/test_api_web_dashboard.py -k "api_auth_source or keyring_token_required or login_accepts_keyring_backed_shared_token" -q`
+    - result: `2 passed`
+- PM interpretation:
+  - the auth-boundary portion of Sprint `13` is now closed
+  - the remaining live blocker is no longer auth semantics, it is the workstation-backed authenticated-online rerun in `13.6`
 
-### 13.6 Live Authenticated-Online Soak Refresh -- NEXT
+### 13.5c Preflight Online-Credential Blocker Surfacing -- 2026-03-13 15:35 America/Denver
+
+- Extended the shared-launch snapshot so the readiness report now surfaces online API credential posture directly instead of requiring a separate manual `resolve_credentials()` inspection.
+- Updated `src/security/shared_deployment_auth.py`:
+  - shared-launch snapshots now include:
+    - previous-token source/configured state
+    - online API readiness
+    - online API key, endpoint, and deployment sources
+    - operator-facing next-step hints
+  - readiness now blocks cleanly when online API credentials are missing
+  - formatted preflight output now includes a `Next Steps` section when the posture is blocked
+- Updated regressions in:
+  - `tests/test_shared_deployment_auth.py`
+  - `tests/test_query_threads.py`
+- Verification:
+  - `.venv\Scripts\python.exe -m pytest tests/test_shared_deployment_auth.py -q`
+    - result: `10 passed`
+  - `.venv\Scripts\python.exe -m pytest tests/test_fastapi_server.py -k "auth_context_does_not_treat_previous_token_without_current_primary_as_authenticated or production_startup_rejects_previous_token_without_current_primary" -q`
+    - result: `2 passed, 80 deselected, 1 warning`
+  - `.venv\Scripts\python.exe -m pytest tests/test_api_web_dashboard.py -k "api_auth_source or keyring_token_required or login_accepts_keyring_backed_shared_token" -q`
+    - result: `2 passed, 38 deselected`
+  - `.venv\Scripts\python.exe -m pytest tests/test_command_center_panel.py -q`
+    - result: `8 passed`
+  - `.venv\Scripts\python.exe -m pytest tests/ -q`
+    - result: `829 passed, 4 skipped, 7 warnings`
+- PM interpretation:
+  - coder-side preflight semantics are now clearer for operators and QA
+  - this still does not remove the workstation environment blocker on `13.6`
+
+### 13.6 Live Authenticated-Online Soak Refresh -- BLOCKED (ENV)
 
 - Run the workstation through the shipped shared launch preflight path:
   - store the shared token if needed
@@ -1547,6 +1697,21 @@ Without a trace view, tuning remains guesswork.
   - authenticated shared posture
   - online runtime mode
   - updated baseline latency
+- Current workstation result:
+  - `python tools/shared_launch_preflight.py --json --fail-if-blocked`
+    - result: blocked with
+      - `Shared API auth token is not configured.`
+      - `Deployment mode is not production.`
+      - `Runtime mode is not online.`
+  - `resolve_credentials(use_cache=False)`
+    - `has_key=False`
+    - `has_endpoint=False`
+    - `is_online_ready=False`
+- PM interpretation:
+  - this slice cannot produce a valid authenticated-online soak artifact until the workstation has both:
+    - a shared API auth token
+    - online API credentials (key plus endpoint)
+  - once those inputs exist, rerun the shipped preflight first and only then refresh the soak artifact
 
 ### 13.7 Load Ceiling Decision And Operating Limit -- NEXT
 
@@ -1574,10 +1739,198 @@ Without a trace view, tuning remains guesswork.
 
 ### Planned Slice Order
 
-1. `14.1 -- Controlled Shared Cutover` -- `NEXT`
-2. `14.2 -- Post-Cutover Smoke And Rollback Proof` -- `NEXT`
-3. `14.3 -- Final QA Sweep And PM Freeze` -- `NEXT`
-4. `14.4 -- Project Completion Handoff` -- `NEXT`
+1. `14.0 -- Closeout Packet Prep` -- `DONE`
+2. `14.2a -- Shared Cutover Smoke Automation` -- `IMPLEMENTED / READY FOR QA`
+3. `14.3a -- Final QA Freeze Packet Automation` -- `IMPLEMENTED / READY FOR QA`
+4. `14.4a -- Completion Handoff Automation` -- `IMPLEMENTED / READY FOR QA`
+5. `14.1 -- Controlled Shared Cutover` -- `NEXT`
+6. `14.2 -- Post-Cutover Smoke And Rollback Proof` -- `NEXT`
+7. `14.3 -- Final QA Sweep And PM Freeze` -- `NEXT`
+8. `14.4 -- Project Completion Handoff` -- `NEXT`
+
+### 14.0 Closeout Packet Prep -- DONE
+
+- Added the acceptance-sprint operator packet so Sprint 14 no longer starts from a blank page:
+  - `docs/05_security/SHARED_DEPLOYMENT_CONTROLLED_CUTOVER_WORKSHEET_2026-03-13_165338.md`
+  - `docs/05_security/SHARED_DEPLOYMENT_POST_CUTOVER_SMOKE_AND_ROLLBACK_CHECKLIST_2026-03-13_165338.md`
+  - `docs/09_project_mgmt/FINAL_QA_PM_FREEZE_CHECKLIST_2026-03-13_165338.md`
+  - `docs/09_project_mgmt/PROJECT_COMPLETION_HANDOFF_TEMPLATE_2026-03-13_165338.md`
+- PM interpretation:
+  - this does not clear the live blocker on `13.6`
+  - it does mean the next sprint packet is now prepared and reviewable while the environment blocker is being held outside the codebase
+
+### 14.2a Shared Cutover Smoke Automation -- 2026-03-13 17:58 America/Denver
+
+- Added the shared acceptance-smoke tool:
+  - `src/tools/shared_cutover_smoke.py`
+  - `tools/shared_cutover_smoke.py`
+- Functional result:
+  - runs the Sprint 14 acceptance-side endpoint checks against:
+    - `/health`
+    - `/status`
+    - `/auth/context`
+    - `/dashboard`
+    - post-dashboard session `/auth/context`
+    - `/admin/data`
+  - captures whether the dashboard request bootstrapped a browser session
+  - records deployment mode, runtime mode, auth posture, actor/session actor, and blocker text in one timestamped JSON artifact
+  - can optionally verify a backup bundle and run a non-destructive restore drill so rollback proof is attached to the same smoke report
+  - can auto-select the newest backup bundle via `--backup-bundle latest`
+- Added regression coverage in:
+  - `tests/test_shared_cutover_smoke_tool.py`
+- Verification:
+  - `.venv\Scripts\python.exe -m pytest tests/test_shared_cutover_smoke_tool.py tests/test_shared_deployment_soak_tool.py tests/test_shared_deployment_backup_tool.py tests/test_shared_deployment_auth.py -q`
+    - result: `30 passed`
+  - `python -m py_compile src/tools/shared_cutover_smoke.py tools/shared_cutover_smoke.py tests/test_shared_cutover_smoke_tool.py`
+    - result: `passed`
+  - `python tools/shared_cutover_smoke.py --help`
+    - result: `passed`
+  - `python -m pytest tests/ --ignore=tests/test_fastapi_server.py -q`
+    - result: `713 passed, 7 skipped, 7 warnings`
+  - `.venv\Scripts\python.exe -m pytest tests/ -q`
+    - result: `835 passed, 6 skipped, 7 warnings`
+- PM interpretation:
+  - Sprint 14 no longer depends on a purely manual smoke/rollback proof pass once the live cutover window opens
+  - this is support tooling only; the environment-bound Sprint `13.6` blocker still gates actual launch acceptance
+
+### 14.3a Final QA Freeze Packet Automation -- 2026-03-13 18:47 America/Denver
+
+- Added the final QA/PM freeze evidence collector:
+  - `src/tools/final_qa_freeze_packet.py`
+  - `tools/final_qa_freeze_packet.py`
+- Added regression coverage in:
+  - `tests/test_final_qa_freeze_packet_tool.py`
+- Updated the final QA checklist command pack:
+  - `docs/09_project_mgmt/FINAL_QA_PM_FREEZE_CHECKLIST_2026-03-13_165338.md`
+- Updated the completion handoff template so the freeze packet is part of the frozen artifact set:
+  - `docs/09_project_mgmt/PROJECT_COMPLETION_HANDOFF_TEMPLATE_2026-03-13_165338.md`
+- Functional result:
+  - one tool now collects the current Sprint 14 freeze evidence into a timestamped JSON packet under `output/final_qa_freeze/`
+  - it auto-discovers the latest:
+    - shared cutover smoke artifact
+    - shared soak artifact
+    - shared backup bundle
+    - shared restore drill directory
+  - it auto-discovers the latest launch runbook, freeze checklist, and completion handoff template instead of pinning one hardcoded timestamp
+  - it now requires an explicit final acceptance state:
+    - `accepted`
+    - `rolled_back`
+    - otherwise the packet stays blocked
+  - rollback can now close cleanly when the packet has:
+    - an explicit rollback note
+    - backup-verify proof
+    - restore-drill proof
+    - without falsely demanding a green cutover/soak result
+  - it links the active sprint plan, PM tracker, launch runbook, freeze checklist, completion handoff template, and shared AI handoff file
+  - it can optionally rerun backup verify and a fresh non-destructive restore drill so the freeze packet contains live rollback evidence instead of only stale links
+  - it fails closed on the exact remaining blockers instead of forcing QA/PM to infer them from multiple files
+- Verification:
+  - `python -m py_compile src\tools\final_qa_freeze_packet.py tools\final_qa_freeze_packet.py tests\test_final_qa_freeze_packet_tool.py`
+    - result: `passed`
+  - `python -m pytest tests/test_final_qa_freeze_packet_tool.py -q`
+    - result: `8 passed`
+  - `python tools/final_qa_freeze_packet.py --help`
+    - result: `passed`
+  - `python tools/final_qa_freeze_packet.py --acceptance-state pending --no-write --fail-if-blocked`
+    - result: blocked as designed because final acceptance state is still pending
+- PM interpretation:
+  - Sprint 14 now has a single machine-readable freeze packet instead of a hand-collected evidence list
+  - this slice reduces manual PM/QA synthesis work but does not override the live cutover gate
+  - the packet can now distinguish:
+    - accepted launch freeze
+    - explicit rollback freeze
+    - still-pending launch posture
+  - the next live blocker is still the missing cutover-smoke evidence, which itself depends on the environment-bound shared launch posture
+
+### 14.3a Reject Fix And Reverify -- 2026-03-14 14:05 America/Denver
+
+- Closed the rollback/no-soak QA reject in:
+  - `src/tools/final_qa_freeze_packet.py`
+  - `tests/test_final_qa_freeze_packet_tool.py`
+- Functional correction:
+  - `rolled_back` freeze packets no longer require a shared-soak artifact solely for presence when rollback note, backup proof, and restore proof already exist
+- Repo-gate stabilization:
+  - refreshed `tests/test_content_freshness.py` so the fresh-index case uses relative timestamps instead of a hardcoded date that aged out of the current day
+- Refreshed live blocked artifacts:
+  - `output/final_qa_freeze/2026-03-14_140545_final_qa_freeze_packet.json`
+  - `docs/09_project_mgmt/PROJECT_COMPLETION_HANDOFF_2026-03-14_140544.md`
+- Verification:
+  - `python -m pytest tests/test_final_qa_freeze_packet_tool.py tests/test_content_freshness.py -q`
+    - result: `15 passed`
+  - direct rollback repro:
+    - `rolled_back` + rollback note + linked backup/restore proof + backup bundle + no soak artifact
+    - result: `ready_for_freeze=true` and `blockers=[]`
+  - `python -m pytest tests/test_project_completion_handoff_tool.py tests/test_final_qa_freeze_packet_tool.py -q`
+    - result: `14 passed`
+  - `python tools/final_qa_freeze_packet.py --acceptance-state pending`
+    - result: wrote current blocked packet
+  - `python tools/project_completion_handoff.py --allow-blocked-preview`
+    - result: wrote current blocked preview handoff
+  - `python tests\virtual_test_phase1_foundation.py`
+    - result: `55 PASS, 0 FAIL`
+  - `python tests\virtual_test_phase2_exhaustive.py`
+    - result: `63 PASS, 0 FAIL, 1 SKIP`
+  - `python tests\virtual_test_phase4_exhaustive.py`
+    - result: `153 PASS, 0 FAIL, 4 WARN, 1 SKIP`
+  - `python tests\virtual_test_view_switching.py`
+    - result: `51 PASS, 0 FAIL`
+  - `python tests\virtual_test_setup_wizard.py`
+    - result: `54 PASS, 0 FAIL`
+  - `python tests\virtual_test_setup_scripts.py`
+    - result: `110 passed, 0 failed`
+  - `python tests\virtual_test_guard_part1.py`
+    - result: `97 PASS, 0 FAIL`
+  - `python tests\virtual_test_guard_part2.py`
+    - result: `61 PASS, 0 FAIL`
+  - `python tests\virtual_test_setup_group_policy.py`
+    - result: `30 passed, 0 failed`
+  - `python tests\virtual_test_ibit_reference.py`
+    - result: `66 PASS, 0 FAIL`
+  - `python tests\virtual_test_offline_isolation.py`
+    - result: `8 PASS, 0 FAIL`
+  - `python -m pytest tests/ --ignore=tests/test_fastapi_server.py -q`
+    - result: `733 passed, 7 skipped, 7 warnings`
+  - `.venv\Scripts\python.exe -m pytest tests/test_fastapi_server.py -q`
+    - result: `82 passed, 1 warning`
+- PM interpretation:
+  - the `14.3a` reject is closed and ready for QA rerun
+  - `14.4a` preview generation has been refreshed against the fixed freeze-packet logic
+  - the live operational blocker remains `13.6`
+
+### 14.4a Completion Handoff Automation -- 2026-03-13 19:00 America/Denver
+
+- Added the project-completion handoff generator:
+  - `src/tools/project_completion_handoff.py`
+  - `tools/project_completion_handoff.py`
+- Added regression coverage in:
+  - `tests/test_project_completion_handoff_tool.py`
+- Updated the completion handoff template and freeze checklist so the final operator packet points at the real automation path:
+  - `docs/09_project_mgmt/PROJECT_COMPLETION_HANDOFF_TEMPLATE_2026-03-13_165338.md`
+  - `docs/09_project_mgmt/FINAL_QA_PM_FREEZE_CHECKLIST_2026-03-13_165338.md`
+- Functional result:
+  - one tool now generates the final project-completion handoff markdown from the latest freeze packet
+  - it auto-links the freeze packet, sprint tracker, PM tracker, launch runbook, backup/restore evidence, cutover smoke, soak evidence, and shared handoff path
+  - it auto-loads the maintenance watchlist from `SPRINT_PLAN.md`
+  - it derives the supported operating limit from the latest shared-soak evidence unless an explicit override is supplied
+  - it fails closed by default when the freeze packet is still blocked
+  - it can still write a clearly marked preview handoff when `--allow-blocked-preview` is used
+- Generated preview artifact on the live blocked worktree:
+  - `docs/09_project_mgmt/PROJECT_COMPLETION_HANDOFF_2026-03-13_190511.md`
+- Verification:
+  - `python -m py_compile src\tools\project_completion_handoff.py tools\project_completion_handoff.py tests\test_project_completion_handoff_tool.py`
+    - result: `passed`
+  - `.venv\Scripts\python.exe -m pytest tests/test_project_completion_handoff_tool.py tests/test_final_qa_freeze_packet_tool.py -q`
+    - result: `13 passed`
+  - `python tools/project_completion_handoff.py --help`
+    - result: `passed`
+  - `python tools/project_completion_handoff.py --allow-blocked-preview`
+    - result: wrote preview handoff and correctly surfaced the current blocked-freeze posture
+- PM interpretation:
+  - Sprint 14 now has automated freeze evidence plus automated completion-handoff generation
+  - this still does not clear the environment-bound `13.6` blocker or the live cutover requirement
+  - the generated handoff can now be previewed safely without pretending launch acceptance is complete
+  - refreshed preview artifact after the `14.3a` reject fix:
+    - `docs/09_project_mgmt/PROJECT_COMPLETION_HANDOFF_2026-03-14_140544.md`
 
 ### 14.1 Controlled Shared Cutover -- NEXT
 

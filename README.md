@@ -349,16 +349,25 @@ All packages sourced from PyPI (pypi.org) -- open-source with permissive license
 ### Getting Started
 - `docs/01_setup/INSTALL_AND_SETUP.md` -- Full installation and deployment guide (10 parts)
 - `docs/03_guides/USER_GUIDE.md` -- Daily use, all commands, tuning, troubleshooting
+- `docs/03_guides/CLI_GUIDE.md` -- PowerShell-first workflow, automation, diagnostics, and operator commands
+- `docs/03_guides/GUI_GUIDE.md` -- Desktop GUI and shared browser dashboard/admin walkthrough
 - `docs/03_guides/SHORTCUT_SHEET.md` -- Quick reference card (phone-friendly)
+- `docs/03_guides/README.md` -- Guide catalog with role-based doc routing
 
 ### Understanding the System
 - `docs/02_architecture/THEORY_OF_OPERATION_RevA.md` -- High-level overview for non-programmers
-- `docs/02_architecture/TECHNICAL_THEORY_OF_OPERATION_RevA.md` -- Developer-focused technical reference
+- `docs/02_architecture/TECHNICAL_THEORY_OF_OPERATION_RevC.md` -- Current developer-focused technical reference
 - `docs/02_architecture/SECURITY_THEORY_OF_OPERATION_RevA.md` -- Security design and threat model
 - `docs/02_architecture/ARCHITECTURE_DIAGRAM.md` -- System architecture diagram
 
+### Learning and Demo Prep
+- `docs/08_learning/STUDY_GUIDE.md` -- Canonical curriculum and role-based onboarding path
+- `docs/04_demo/DEMO_PREP.md` -- Demo checklist and talk track
+- `docs/04_demo/DEMO_GUIDE.md` -- Narrative structure and audience framing
+- `docs/04_demo/DEMO_QA_PREP.md` -- Likely objections and answer prep
+- `docs/04_demo/DEMO_LEARNING_PATH.md` -- Optional external reading library after the core curriculum
+
 ### Reference
-- `docs/03_guides/GUI_GUIDE.md` -- Graphical interface walkthrough
 - `docs/02_architecture/INTERFACES.md` -- Stable public API reference for all modules
 - `docs/02_architecture/FORMAT_SUPPORT.md` -- All 49+ supported file formats
 - `docs/03_guides/GLOSSARY.md` -- Every acronym and term defined
@@ -369,8 +378,6 @@ All packages sourced from PyPI (pypi.org) -- open-source with permissive license
 - `config/user_modes.yaml` -- User/admin profiles with checked vs agnostic overrides
 
 ### Additional Guides
-- `docs/04_demo/DEMO_PREP.md` -- Demo preparation checklist
-- `docs/04_demo/DEMO_GUIDE.md` -- Demo walkthrough script
 - `docs/09_project_mgmt/SPRINT_PLAN.md` -- Active sprint tracker with status and exit criteria
 - `docs/HANDOVER_AND_SPRINT_PLAN_FREEZE_SAFE.md` -- Historical freeze-safe handoff notes
 - `docs/05_security/GIT_REPO_RULES.md` -- Git workflow and sync rules

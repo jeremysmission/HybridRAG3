@@ -16,6 +16,18 @@ Safety notes: Run in a test environment before using on production systems.
 # Work laptop (AllSigned/Restricted GP): IEX via ReadAllText
 # =============================================================
 
+# ------------------------------------------------------------------
+# Process-scope execution policy bypass
+# ------------------------------------------------------------------
+# Direct PowerShell launches on managed machines may skip the .bat
+# wrappers. Attempt the safest local bypass for this process only.
+try {
+    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction SilentlyContinue
+} catch {
+    # Group Policy may still block this. Batch launchers and IEX fallback
+    # paths cover the fully locked-down case.
+}
+
 function Test-MachineRestricted {
     # Checks both GP-controlled execution policy scopes.
     # MachinePolicy = per-machine Group Policy (cannot be overridden by user)

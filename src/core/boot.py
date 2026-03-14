@@ -229,7 +229,7 @@ def boot_hybridrag(config_path=None) -> BootResult:
     _boot_step("Step 2: resolving credentials...")
     try:
         from src.security.credentials import resolve_credentials
-        creds = resolve_credentials(config)
+        creds = resolve_credentials(config, use_cache=False)
         result.credentials = creds
 
         if creds.has_endpoint:

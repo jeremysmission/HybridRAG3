@@ -19,6 +19,17 @@ Safety notes: Run in a test environment before using on production systems.
 # anything left incomplete. Use "P" at the prompt to purge and restart.
 # ============================================================================
 
+# ------------------------------------------------------------------
+# Group Policy Bypass
+# ------------------------------------------------------------------
+# Home machines can still inherit restrictive execution policy defaults.
+# Attempt a process-local bypass before the rest of setup starts.
+try {
+    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction SilentlyContinue
+} catch {
+    # Direct powershell.exe callers can still pass -ExecutionPolicy Bypass.
+}
+
 $ErrorActionPreference = 'Stop'
 
 # ------------------------------------------------------------------

@@ -1,8 +1,29 @@
-# RAG Demo Preparation: Complete Learning Resource Guide
+# HybridRAG3 Demo Learning Resource Library
 
-> **Purpose**: A structured learning path to take a field engineer from zero RAG knowledge to demo-ready confidence in ~40-60 hours. Resources ordered by priority within each phase.
->
-> **Research basis**: 38 vetted resources across videos, courses, articles, books, GitHub repos, and security guides. Curated from DeepLearning.AI, OWASP, HBR, Pinecone, Lakera, McKinsey, Prosci, FreeCodeCamp, and production experience reports.
+**Created:** 2026-02-22  
+**Last updated:** 2026-03-14 13:55 America/Denver  
+**Purpose:** external reading library for demo leads and learners who already finished the repo-first path in [STUDY_GUIDE.md](../08_learning/STUDY_GUIDE.md).
+
+This file is no longer the primary curriculum.
+
+Use it this way:
+
+- start with [STUDY_GUIDE.md](../08_learning/STUDY_GUIDE.md) for the canonical HybridRAG3 learning sequence
+- use [DEMO_PREP.md](DEMO_PREP.md), [DEMO_GUIDE.md](DEMO_GUIDE.md), and [DEMO_QA_PREP.md](DEMO_QA_PREP.md) for the live presentation workflow
+- come back here only when you need extra background on RAG foundations, evaluation, security, ROI, or change management
+- do not try to read every item before the first demo
+
+## Fastest High-Impact Use
+
+| If you need to improve... | Start with |
+|---|---|
+| a plain-English explanation of RAG | resources `#1-#4` |
+| technical credibility on retrieval and evaluation | resources `#5-#13` |
+| security and prompt-injection answers | resources `#14-#21` |
+| leadership, ROI, and adoption answers | resources `#24-#32` |
+| advanced follow-up material after the demo | resources `#33-#38` |
+
+**Research basis:** 38 curated resources across videos, courses, articles, books, GitHub repos, and security guides.
 
 ---
 
