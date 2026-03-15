@@ -294,6 +294,14 @@ class QueryEngine(QueryEnginePromptMixin):
             search_results = self.retriever.search(user_query)
             retrieval_trace = getattr(self.retriever, "last_search_trace", None) or minimal_retrieval_trace(search_results)
 
+            # --------------------------------------------------------
+            # Step 1.5: Corrective retrieval (CRAG pattern)
+            # --------------------------------------------------------
+            # If initial retrieval is empty or low-confidence,
+            # reformulate the query and retry once. Opt-in via config.
+            search_results = self._attempt_corrective_retrieval(
+                user_query, search_results)
+
             if not search_results:
                 if _retrieval_access_denied(retrieval_trace):
                     result = QueryResult(
@@ -524,6 +532,94 @@ class QueryEngine(QueryEnginePromptMixin):
                 prompt_preview=prompt_preview,
             )
             return result
+
+    # ------------------------------------------------------------------
+    # Corrective retrieval (CRAG pattern)
+    # ------------------------------------------------------------------
+
+    def _attempt_corrective_retrieval(self, user_query, initial_results):
+        """
+        CRAG pattern: if initial retrieval is low-confidence, reformulate
+        the query and retry once.
+
+        Opt-in via config.corrective_retrieval (default False).
+        Threshold via config.corrective_threshold (default 0.35).
+        Max 1 retry (2 retrieval rounds total).
+        """
+        if not getattr(self.config, "corrective_retrieval", False):
+            return initial_results
+
+        threshold = getattr(self.config, "corrective_threshold", 0.35)
+
+        # Check if results are good enough
+        if initial_results:
+            best_score = max(h.score for h in initial_results)
+            if best_score >= threshold:
+                return initial_results
+
+        # Reformulate and retry
+        reformulated = self._reformulate_for_retry(user_query)
+        if reformulated == user_query:
+            return initial_results
+
+        retry_results = self.retriever.search(reformulated)
+
+        if not retry_results:
+            return initial_results
+
+        # Merge: combine both result sets, deduplicate, keep best scores
+        return self._merge_search_results(initial_results, retry_results)
+
+    def _reformulate_for_retry(self, user_query):
+        """
+        Reformulate a query for corrective retry.
+
+        Strategies (no LLM needed):
+        1. Strip question patterns to get keyword-focused query
+        2. Expand acronyms if QueryExpander is available
+        3. Rearrange terms for different FTS5 matching
+        """
+        import re
+
+        # Strip common question patterns
+        q = user_query.strip()
+        for pattern in [
+            r"^(?:what|how|where|when|why|which|who)\s+(?:is|are|does|do|did|was|were|can|could|would|should)\s+",
+            r"^(?:can you|could you|please)\s+(?:tell me|explain|describe|show)\s+",
+            r"^(?:tell me about|explain|describe)\s+",
+            r"\?$",
+        ]:
+            q = re.sub(pattern, "", q, flags=re.IGNORECASE).strip()
+
+        if not q or q == user_query:
+            return user_query
+
+        # If we have a query expander, use acronym expansion
+        expander = getattr(self, "_query_expander", None)
+        if expander and hasattr(expander, "expand_keywords"):
+            q = expander.expand_keywords(q)
+
+        return q if q != user_query else user_query
+
+    @staticmethod
+    def _merge_search_results(results_a, results_b):
+        """
+        Merge two result sets. Deduplicate by (source_path, chunk_index),
+        keeping the higher score when both sets contain the same chunk.
+        """
+        seen = {}
+        for hit in (results_a or []):
+            key = (hit.source_path, hit.chunk_index)
+            if key not in seen or hit.score > seen[key].score:
+                seen[key] = hit
+
+        for hit in (results_b or []):
+            key = (hit.source_path, hit.chunk_index)
+            if key not in seen or hit.score > seen[key].score:
+                seen[key] = hit
+
+        merged = sorted(seen.values(), key=lambda h: h.score, reverse=True)
+        return merged
 
     def query_stream(self, user_query: str) -> Generator[Dict[str, Any], None, None]:
         """

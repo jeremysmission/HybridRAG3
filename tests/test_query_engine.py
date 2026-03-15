@@ -348,6 +348,205 @@ class TestQueryEngine:
 
 
 # ============================================================================
+# SECTION 2B: CORRECTIVE RETRIEVAL (CRAG) TESTS
+# ============================================================================
+#
+# Tests for the three corrective retrieval methods added in Sprint 15:
+#   _attempt_corrective_retrieval, _reformulate_for_retry, _merge_search_results
+# ============================================================================
+
+from src.core.retriever import SearchHit
+
+
+class TestCorrectiveRetrieval:
+
+    def _make_engine_with_corrective(self, corrective=True, threshold=0.35,
+                                      search_results=None, retry_results=None):
+        """Helper: build engine with corrective retrieval enabled."""
+        config = FakeConfig(mode="offline")
+        config.corrective_retrieval = corrective
+        config.corrective_threshold = threshold
+
+        mock_vector_store = MagicMock()
+        mock_embedder = MagicMock()
+        mock_llm_router = MagicMock()
+        mock_llm_router.query.return_value = FakeLLMResponse(
+            text="Answer", tokens_in=100, tokens_out=20,
+            model="phi4-mini", latency_ms=1000.0,
+        )
+
+        with patch("src.core.query_engine.get_app_logger") as mock_logger:
+            mock_logger.return_value = MagicMock()
+            with patch("src.core.query_engine.Retriever") as MockRetriever:
+                mock_retriever = MagicMock()
+
+                if search_results is None:
+                    search_results = []
+                if retry_results is None:
+                    retry_results = []
+
+                mock_retriever.search.side_effect = [search_results, retry_results]
+                mock_retriever.build_context.return_value = "context"
+                mock_retriever.get_sources.return_value = []
+                MockRetriever.return_value = mock_retriever
+
+                from src.core.query_engine import QueryEngine
+                engine = QueryEngine(
+                    config, mock_vector_store, mock_embedder, mock_llm_router
+                )
+
+        return engine, mock_retriever
+
+    def _hit(self, score, path="doc.pdf", chunk=0, text="chunk text"):
+        return SearchHit(score=score, source_path=path,
+                         chunk_index=chunk, text=text)
+
+    # ------------------------------------------------------------------
+    # _attempt_corrective_retrieval
+    # ------------------------------------------------------------------
+
+    def test_disabled_returns_original(self):
+        """When corrective_retrieval=False, results pass through unchanged."""
+        engine, _ = self._make_engine_with_corrective(corrective=False)
+        hits = [self._hit(0.9)]
+        result = engine._attempt_corrective_retrieval("test query", hits)
+        assert result is hits
+
+    def test_high_confidence_skips_retry(self):
+        """Above threshold, no retry happens."""
+        engine, mock_ret = self._make_engine_with_corrective(threshold=0.35)
+        hits = [self._hit(0.80), self._hit(0.50)]
+        result = engine._attempt_corrective_retrieval("find the spec", hits)
+        assert result is hits
+        mock_ret.search.assert_not_called()
+
+    def test_low_confidence_triggers_retry(self):
+        """Below threshold, reformulate + retry is attempted."""
+        engine, mock_ret = self._make_engine_with_corrective(threshold=0.50)
+        initial = [self._hit(0.30, path="a.pdf", chunk=0)]
+        retry = [self._hit(0.70, path="b.pdf", chunk=0)]
+        mock_ret.search.side_effect = None
+        mock_ret.search.return_value = retry
+
+        result = engine._attempt_corrective_retrieval(
+            "what is the operating frequency?", initial)
+
+        mock_ret.search.assert_called_once()
+        assert len(result) == 2
+        assert result[0].score == 0.70
+
+    def test_empty_initial_triggers_retry(self):
+        """Empty initial results also trigger retry."""
+        engine, mock_ret = self._make_engine_with_corrective()
+        mock_ret.search.side_effect = None
+        mock_ret.search.return_value = [self._hit(0.60)]
+
+        result = engine._attempt_corrective_retrieval(
+            "what is the power output?", [])
+
+        mock_ret.search.assert_called_once()
+        assert len(result) == 1
+
+    def test_retry_returns_empty_keeps_initial(self):
+        """If retry also returns nothing, keep initial results."""
+        engine, mock_ret = self._make_engine_with_corrective(threshold=0.50)
+        initial = [self._hit(0.20)]
+        mock_ret.search.side_effect = None
+        mock_ret.search.return_value = []
+
+        result = engine._attempt_corrective_retrieval(
+            "what is the spec?", initial)
+
+        assert result is initial
+
+    def test_unreformulable_query_skips_retry(self):
+        """If reformulation produces same query, no retry."""
+        engine, mock_ret = self._make_engine_with_corrective(threshold=0.50)
+        initial = [self._hit(0.20)]
+        result = engine._attempt_corrective_retrieval("xyz123", initial)
+        assert result is initial
+        mock_ret.search.assert_not_called()
+
+    # ------------------------------------------------------------------
+    # _reformulate_for_retry
+    # ------------------------------------------------------------------
+
+    def test_strips_question_prefix(self):
+        """Question patterns are stripped to get keyword core."""
+        engine, _ = self._make_engine_with_corrective()
+        result = engine._reformulate_for_retry(
+            "what is the operating frequency?")
+        assert "what is" not in result.lower()
+        assert "frequency" in result.lower()
+
+    def test_strips_polite_prefix(self):
+        engine, _ = self._make_engine_with_corrective()
+        result = engine._reformulate_for_retry(
+            "can you tell me about the calibration procedure?")
+        assert "can you" not in result.lower()
+        assert "calibration" in result.lower()
+
+    def test_identity_query_unchanged(self):
+        """Single keyword query can't be simplified further."""
+        engine, _ = self._make_engine_with_corrective()
+        result = engine._reformulate_for_retry("calibration")
+        assert result == "calibration"
+
+    def test_expander_integration(self):
+        """If query expander is attached, acronyms are expanded."""
+        engine, _ = self._make_engine_with_corrective()
+        mock_expander = MagicMock()
+        mock_expander.expand_keywords.return_value = "radio frequency expanded"
+        engine._query_expander = mock_expander
+
+        result = engine._reformulate_for_retry("what is the RF spec?")
+        assert "expanded" in result
+
+    # ------------------------------------------------------------------
+    # _merge_search_results
+    # ------------------------------------------------------------------
+
+    def test_merge_deduplicates(self):
+        """Same (path, chunk) keeps higher score."""
+        from src.core.query_engine import QueryEngine
+        a = [self._hit(0.60, "doc.pdf", 0)]
+        b = [self._hit(0.80, "doc.pdf", 0)]
+        merged = QueryEngine._merge_search_results(a, b)
+        assert len(merged) == 1
+        assert merged[0].score == 0.80
+
+    def test_merge_combines_unique(self):
+        """Different chunks from both sets appear in merged output."""
+        from src.core.query_engine import QueryEngine
+        a = [self._hit(0.90, "a.pdf", 0)]
+        b = [self._hit(0.70, "b.pdf", 0)]
+        merged = QueryEngine._merge_search_results(a, b)
+        assert len(merged) == 2
+        assert merged[0].score == 0.90
+
+    def test_merge_sorted_descending(self):
+        """Merged results are sorted by score descending."""
+        from src.core.query_engine import QueryEngine
+        a = [self._hit(0.30, "a.pdf", 0), self._hit(0.10, "a.pdf", 1)]
+        b = [self._hit(0.50, "b.pdf", 0), self._hit(0.20, "b.pdf", 1)]
+        merged = QueryEngine._merge_search_results(a, b)
+        scores = [h.score for h in merged]
+        assert scores == sorted(scores, reverse=True)
+
+    def test_merge_handles_none_inputs(self):
+        """None inputs are treated as empty lists."""
+        from src.core.query_engine import QueryEngine
+        b = [self._hit(0.70, "b.pdf", 0)]
+        merged = QueryEngine._merge_search_results(None, b)
+        assert len(merged) == 1
+
+    def test_merge_both_empty(self):
+        from src.core.query_engine import QueryEngine
+        merged = QueryEngine._merge_search_results([], [])
+        assert merged == []
+
+
+# ============================================================================
 # SECTION 3: INDEXER TESTS
 # ============================================================================
 #
