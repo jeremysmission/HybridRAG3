@@ -1,4 +1,4 @@
-<#
+﻿<#
 === NON-PROGRAMMER GUIDE ===
 Purpose: Implements the scan model caches part of the application runtime.
 How to follow: Read variables first, then each command block in order.

@@ -409,6 +409,17 @@ class Retriever:
             top_k=candidate_k,
         )
 
+        # Source-path search: find chunks whose filename matches query terms.
+        # Appended to FTS hits so they enter RRF as weak keyword signals.
+        # Only adds chunks NOT already in FTS results (purely additive).
+        if hasattr(self.vector_store, "source_path_search"):
+            path_hits = self.vector_store.source_path_search(query, top_k=candidate_k)
+            fts_keys = {(h["source_path"], h["chunk_index"]) for h in fts_hits}
+            for hit in path_hits:
+                key = (hit["source_path"], hit["chunk_index"])
+                if key not in fts_keys:
+                    fts_hits.append(hit)
+
         # Merge the two ranked lists using RRF
         return self._reciprocal_rank_fusion(vector_hits, fts_hits)
 

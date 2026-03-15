@@ -703,6 +703,55 @@ class VectorStore:
             })
         return hits
 
+    def source_path_search(self, query_text, top_k=20):
+        """
+        Find chunks whose source_path contains query terms.
+
+        Supplements FTS5 text search when a user queries by document
+        name or filename keywords (e.g., 'calibration guide' matching
+        'Engineer_Calibration_Guide.pdf'). Uses the existing
+        idx_chunks_source index -- no schema change required.
+
+        Returns results in the same dict format as fts_search().
+        """
+        self._ensure_connected()
+        words = re.findall(r'[A-Za-z0-9]+', query_text or '')
+        words = [w for w in words if len(w) >= 3]
+        if not words:
+            return []
+
+        # Match any word against source_path (case-insensitive via LIKE)
+        conditions = ["source_path LIKE ?"] * len(words)
+        params = [f"%{w}%" for w in words]
+        where_clause = " OR ".join(conditions)
+
+        with self._db_lock:
+            try:
+                rows = self.conn.execute(
+                    f"SELECT source_path, chunk_index, text, access_tags, "
+                    f"access_tag_source FROM chunks "
+                    f"WHERE {where_clause} LIMIT ?",
+                    params + [top_k],
+                ).fetchall()
+            except Exception:
+                return []
+
+        hits = []
+        for source_path, chunk_index, text, access_tags, access_tag_source in rows:
+            # Count how many query words match the path (more matches = higher score)
+            path_lower = str(source_path).lower()
+            match_count = sum(1 for w in words if w.lower() in path_lower)
+            score = min(0.5, 0.15 * match_count)
+            hits.append({
+                "score": score,
+                "source_path": str(source_path),
+                "chunk_index": int(chunk_index),
+                "text": str(text or ""),
+                "access_tags": list(normalize_access_tags(access_tags) or ("shared",)),
+                "access_tag_source": str(access_tag_source or "default_document_tags"),
+            })
+        return hits
+
     # --- Statistics and health checks -----------------------------------------
 
     def get_stats(self) -> Dict[str, Any]:

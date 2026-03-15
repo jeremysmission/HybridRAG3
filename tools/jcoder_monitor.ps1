@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet("status", "snapshot", "nudge", "policy", "tail")]
     [string]$Command = "status",
     [string]$ProjectRoot = "D:\JCoder",
@@ -114,14 +114,14 @@ function Write-SnapshotFiles {
         [string]$Dir
     )
     Ensure-Dir -Path $Dir
-    ($Snapshot | Select-Object project_root, branch, head, clean, changed_files | ConvertTo-Json -Depth 6) | Set-Content -Path (Join-Path $Dir "summary.json") -Encoding UTF8
-    $Snapshot.status_short | Set-Content -Path (Join-Path $Dir "status_short.txt") -Encoding UTF8
-    $Snapshot.diff_stat | Set-Content -Path (Join-Path $Dir "diff_stat.txt") -Encoding UTF8
-    $Snapshot.diff_names | Set-Content -Path (Join-Path $Dir "diff_names.txt") -Encoding UTF8
-    $Snapshot.staged_names | Set-Content -Path (Join-Path $Dir "staged_names.txt") -Encoding UTF8
-    $Snapshot.untracked | Set-Content -Path (Join-Path $Dir "untracked.txt") -Encoding UTF8
-    $Snapshot.patch | Set-Content -Path (Join-Path $Dir "diff.patch") -Encoding UTF8
-    $Snapshot.staged_patch | Set-Content -Path (Join-Path $Dir "diff_staged.patch") -Encoding UTF8
+    [System.IO.File]::WriteAllText((Join-Path $Dir "summary.json"), ($Snapshot | Select-Object project_root, branch, head, clean, changed_files | ConvertTo-Json -Depth 6))
+    [System.IO.File]::WriteAllText((Join-Path $Dir "status_short.txt"), $Snapshot.status_short)
+    [System.IO.File]::WriteAllText((Join-Path $Dir "diff_stat.txt"), $Snapshot.diff_stat)
+    [System.IO.File]::WriteAllText((Join-Path $Dir "diff_names.txt"), $Snapshot.diff_names)
+    [System.IO.File]::WriteAllText((Join-Path $Dir "staged_names.txt"), $Snapshot.staged_names)
+    [System.IO.File]::WriteAllText((Join-Path $Dir "untracked.txt"), $Snapshot.untracked)
+    [System.IO.File]::WriteAllText((Join-Path $Dir "diff.patch"), $Snapshot.patch)
+    [System.IO.File]::WriteAllText((Join-Path $Dir "diff_staged.patch"), $Snapshot.staged_patch)
 }
 
 function Build-NudgePrompt {
@@ -132,21 +132,22 @@ function Build-NudgePrompt {
 
     $files = $Snapshot.changed_files | Select-Object -First 12
     $fileBlock = ($files | ForEach-Object { "- $_" }) -join "`r`n"
-    return @"
+    $prompt = @'
 You are working in JCoder. Do a read-only self-review of your current uncommitted changes and do not edit anything yet.
 
 Changed files:
-$fileBlock
+{FILE_BLOCK}
 
 Reply with exactly:
 1. Current task
 2. Top 3 concrete risks or bugs in these changes
 3. Whether you should fix anything before committing
-"@
+'@
+    return $prompt.Replace('{FILE_BLOCK}', $fileBlock)
 }
 
 function Build-WorkflowPolicyPrompt {
-    return @"
+    return @'
 Treat this as workflow policy for the active JCoder sprint.
 
 Operating rules:
@@ -168,7 +169,7 @@ Reply with exactly:
 1. acknowledged
 2. the current scoped objective
 3. the next test gate you will run before the next commit
-"@
+'@
 }
 
 function Invoke-BridgeEnqueue {

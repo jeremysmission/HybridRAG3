@@ -1,4 +1,4 @@
-<#
+﻿<#
 === NON-PROGRAMMER GUIDE ===
 Purpose: Implements the open diagnostic part of the application runtime.
 How to follow: Read variables first, then each command block in order.

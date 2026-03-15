@@ -126,6 +126,7 @@ class TestIndexer:
         def fake_embed_batch(texts):
             return [[0.0] * 384 for _ in texts]
 
+        mock_embedder.embed_documents.side_effect = fake_embed_batch
         mock_embedder.embed_batch.side_effect = fake_embed_batch
 
         # Chunker: split text into fixed-size chunks for testing
@@ -226,6 +227,7 @@ class TestIndexer:
         mocks["vector_store"].get_file_hash.side_effect = return_matching_hash
 
         # Reset the call counters
+        mocks["embedder"].embed_documents.reset_mock()
         mocks["embedder"].embed_batch.reset_mock()
 
         # Second run: everything should be skipped
@@ -620,7 +622,7 @@ class TestIndexer:
                     stop_flag.set()
                 return [[0.0] * 384 for _ in chunks]
 
-            mocks["embedder"].embed_batch.side_effect = embed_then_cancel
+            mocks["embedder"].embed_documents.side_effect = embed_then_cancel
 
             from src.core.indexing.cancel import IndexCancelled
             with pytest.raises(IndexCancelled):

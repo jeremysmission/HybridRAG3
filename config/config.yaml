@@ -7,6 +7,8 @@ modes:
       hybrid_search: true
       reranker_enabled: false
       reranker_top_n: 20
+      corrective_retrieval: true
+      corrective_threshold: 0.35
     api:
       model: gpt-4o
       deployment: gpt-4o

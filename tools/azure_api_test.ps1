@@ -1,4 +1,4 @@
-<#
+﻿<#
 === NON-PROGRAMMER GUIDE ===
 Purpose: Automates the azure api operational workflow for developers or operators.
 How to follow: Read variables first, then each command block in order.

@@ -71,6 +71,13 @@ class Embedder:
     # Hostnames considered safe for embedding traffic (no gate check needed)
     _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "[::1]"})
 
+    # nomic-embed-text is a task-aware model: queries and documents use
+    # different prefixes so the model maps them to the correct embedding
+    # subspace. Without these, retrieval accuracy drops 2-5%.
+    # Ref: https://huggingface.co/nomic-ai/nomic-embed-text-v1.5
+    _NOMIC_MODELS = frozenset({"nomic-embed-text", "nomic-embed-text:latest",
+                                "nomic-embed-text:v1.5"})
+
     def __init__(self, model_name: str | None = None, dimension: int = 0):
         """
         Initialize the embedder.
@@ -88,6 +95,7 @@ class Embedder:
 
         self.model_name = model_name or self.DEFAULT_MODEL
         self.logger = get_app_logger("embedder")
+        self._use_task_prefix = self.model_name.split(":")[0] in {"nomic-embed-text"}
 
         self.base_url = sanitize_ollama_base_url(
             os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
@@ -256,6 +264,18 @@ class Embedder:
 
         return result
 
+    def embed_documents(self, texts: list[str]) -> np.ndarray:
+        """
+        Embed documents with the correct task prefix for asymmetric models.
+
+        For nomic-embed-text, prepends 'search_document: ' to each text.
+        For other models, behaves identically to embed_batch().
+        Call this from the indexer; call embed_query() for search.
+        """
+        if self._use_task_prefix:
+            texts = ["search_document: " + t for t in texts]
+        return self.embed_batch(texts)
+
     def encode(self, texts: list[str]) -> np.ndarray:
         """
         Alias for embed_batch().
@@ -271,6 +291,9 @@ class Embedder:
         """
         Embed a single query string (used at search time).
 
+        For nomic-embed-text, prepends 'search_query: ' for asymmetric
+        retrieval. Must pair with embed_documents() at index time.
+
         Parameters
         ----------
         text : str
@@ -281,7 +304,10 @@ class Embedder:
         np.ndarray
             Shape (dimension,), dtype float32.
         """
-        vec = self.embed_batch([str(text or "")])
+        query_text = str(text or "")
+        if self._use_task_prefix:
+            query_text = "search_query: " + query_text
+        vec = self.embed_batch([query_text])
         return vec[0]
 
     def close(self) -> None:

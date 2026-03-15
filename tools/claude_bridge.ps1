@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet("init", "send", "enqueue", "watch", "status", "tail", "reset")]
     [string]$Command = "status",
     [string]$Prompt = "",
@@ -154,7 +154,7 @@ function Write-BridgeState {
         [string]$StatePath
     )
     Ensure-ParentDirectory -Path $StatePath
-    ($State | ConvertTo-Json -Depth 8) | Set-Content -Path $StatePath -Encoding UTF8
+    [System.IO.File]::WriteAllText($StatePath, ($State | ConvertTo-Json -Depth 8))
 }
 
 function Get-RequestPrompt {
@@ -313,8 +313,8 @@ function Invoke-ClaudeRequest {
     }
     $commandPreview = "$($State.claude_path) " + ($quotedArgs -join " ")
 
-    $PromptText | Set-Content -Path $promptPath -Encoding UTF8
-    $commandPreview | Set-Content -Path $commandPath -Encoding UTF8
+    [System.IO.File]::WriteAllText($promptPath, $PromptText)
+    [System.IO.File]::WriteAllText($commandPath, $commandPreview)
 
     $exitCode = 0
     $rawText = ""
@@ -334,8 +334,8 @@ function Invoke-ClaudeRequest {
     }
 
     $responseText = Get-ResponseText -RawText $rawText
-    $rawText | Set-Content -Path $rawPath -Encoding UTF8
-    $responseText | Set-Content -Path $responsePath -Encoding UTF8
+    [System.IO.File]::WriteAllText($rawPath, $rawText)
+    [System.IO.File]::WriteAllText($responsePath, $responseText)
 
     $State.last_used_at = (Get-Date).ToString("o")
     $State.last_run_dir = $runDir
@@ -363,7 +363,7 @@ function Invoke-ClaudeRequest {
         allowed_tools = $AllowedTools
         response = $responseText
     }
-    ($result | ConvertTo-Json -Depth 8) | Set-Content -Path $metaPath -Encoding UTF8
+    [System.IO.File]::WriteAllText($metaPath, ($result | ConvertTo-Json -Depth 8))
     return $result
 }
 
@@ -439,7 +439,7 @@ function Enqueue-BridgeRequest {
         system_prompt_file = $SystemPromptFile
     }
     $target = Join-Path $paths.inbox "$reqId.json"
-    ($payload | ConvertTo-Json -Depth 6) | Set-Content -Path $target -Encoding UTF8
+    [System.IO.File]::WriteAllText($target, ($payload | ConvertTo-Json -Depth 6))
     return $target
 }
 
@@ -466,7 +466,7 @@ function Process-QueueFile {
     Write-BridgeState -State $State -StatePath $StatePath
 
     $responsePath = Join-Path $paths.outbox "$($result.request_id).json"
-    ($result | ConvertTo-Json -Depth 8) | Set-Content -Path $responsePath -Encoding UTF8
+    [System.IO.File]::WriteAllText($responsePath, ($result | ConvertTo-Json -Depth 8))
     Move-Item -Force -Path $RequestPath -Destination (Join-Path $paths.archive ([System.IO.Path]::GetFileName($RequestPath)))
     return $result
 }
@@ -592,7 +592,7 @@ switch ($Command) {
                         error = $_.Exception.Message
                         timestamp = (Get-Date).ToString("o")
                     }
-                    ($errorPayload | ConvertTo-Json -Depth 5) | Set-Content -Path (Join-Path $paths.outbox ($req.BaseName + ".error.json")) -Encoding UTF8
+                    [System.IO.File]::WriteAllText((Join-Path $paths.outbox ($req.BaseName + ".error.json")), ($errorPayload | ConvertTo-Json -Depth 5))
                     Move-Item -Force -Path $req.FullName -Destination (Join-Path $paths.errors $req.Name)
                     Write-Warning "Failed processing $($req.Name): $($_.Exception.Message)"
                 }

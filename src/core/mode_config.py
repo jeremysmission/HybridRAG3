@@ -141,6 +141,8 @@ MODE_RUNTIME_DEFAULTS = {
             "hybrid_search": True,
             "reranker_enabled": False,
             "reranker_top_n": 20,
+            "corrective_retrieval": True,
+            "corrective_threshold": 0.35,
         },
         "api": {
             "model": "",
@@ -230,7 +232,8 @@ def snapshot_mode_entry(config, mode: str) -> dict[str, Any]:
     query = getattr(config, "query", None)
 
     if retrieval is not None:
-        for key in ("top_k", "min_score", "hybrid_search", "reranker_enabled", "reranker_top_n"):
+        for key in ("top_k", "min_score", "hybrid_search", "reranker_enabled", "reranker_top_n",
+                    "corrective_retrieval", "corrective_threshold"):
             if hasattr(retrieval, key):
                 entry["retrieval"][key] = getattr(retrieval, key)
 

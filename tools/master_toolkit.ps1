@@ -1,4 +1,4 @@
-<#
+﻿<#
 === NON-PROGRAMMER GUIDE ===
 Purpose: Automates the master toolkit operational workflow for developers or operators.
 How to follow: Read variables first, then each command block in order.
@@ -586,9 +586,9 @@ function rag-fix-quotes {
             if ($content -ne $original) {
                 $backupPath = $file.FullName + ".bak"
                 if (-not (Test-Path $backupPath)) {
-                    $original | Out-File -FilePath $backupPath -Encoding UTF8 -NoNewline
+                    [System.IO.File]::WriteAllText($backupPath, $original)
                 }
-                $content | Out-File -FilePath $file.FullName -Encoding UTF8 -NoNewline
+                [System.IO.File]::WriteAllText($file.FullName, $content)
                 $fixed++
                 Write-Host "  Fixed: $($file.Name)" -ForegroundColor Yellow
             }

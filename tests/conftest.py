@@ -125,6 +125,8 @@ class FakeRetrievalConfig:
     block_rows: int = 25000
     lex_boost: float = 0.06
     offline_top_k: Optional[int] = None
+    corrective_retrieval: bool = False
+    corrective_threshold: float = 0.35
 
 
 @dataclass

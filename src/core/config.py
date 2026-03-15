@@ -378,6 +378,12 @@ class RetrievalConfig:
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     reranker_top_n: int = 20       # Retrieve this many candidates, rerank, keep top_k
 
+    # --- Corrective retrieval (CRAG pattern) ---
+    # When enabled and initial retrieval scores are below threshold,
+    # reformulates the query and retries once. Max 2 retrieval rounds.
+    corrective_retrieval: bool = False  # Opt-in: reformulate + retry on low confidence
+    corrective_threshold: float = 0.35  # Below this best-score, trigger retry
+
     # --- Retrieval gate (source-bounded generation) ---
     min_chunks: int = 1            # Minimum chunks required before calling LLM
 
@@ -865,7 +871,8 @@ def apply_mode_to_config(
 
     # Retrieval settings (top_k, min_score, etc.)
     r = merged.get("retrieval", {})
-    for key in ("top_k", "min_score", "hybrid_search", "reranker_enabled", "reranker_top_n"):
+    for key in ("top_k", "min_score", "hybrid_search", "reranker_enabled", "reranker_top_n",
+                "corrective_retrieval", "corrective_threshold"):
         if key in r and hasattr(config.retrieval, key):
             setattr(config.retrieval, key, r[key])
 

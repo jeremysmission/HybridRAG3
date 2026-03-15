@@ -38,6 +38,7 @@
 #   Offline mode: localhost only (Ollama)
 # ============================================================================
 
+import re
 import time
 from typing import Optional, Dict, Any, Generator
 from dataclasses import dataclass
@@ -291,14 +292,27 @@ class QueryEngine(QueryEnginePromptMixin):
             # The retriever converts the question into a numeric vector,
             # then finds the closest matching document chunks by cosine
             # similarity. Returns a ranked list of "hits" (chunks + scores).
-            search_results = self.retriever.search(user_query)
+            # --------------------------------------------------------
+            # Step 1a: Query decomposition (multi-part detection)
+            # --------------------------------------------------------
+            # If the query contains multiple sub-questions joined by
+            # "and", "as well as", etc., split into atomic queries,
+            # retrieve for each, and merge results. This improves
+            # recall on complex questions like "What are the calibration
+            # steps AND acceptable tolerance ranges?"
+            sub_queries = _decompose_query(user_query)
+            if len(sub_queries) > 1:
+                search_results = self._multi_query_retrieve(sub_queries)
+            else:
+                search_results = self.retriever.search(user_query)
             retrieval_trace = getattr(self.retriever, "last_search_trace", None) or minimal_retrieval_trace(search_results)
 
             # --------------------------------------------------------
             # Step 1.5: Corrective retrieval (CRAG pattern)
             # --------------------------------------------------------
             # If initial retrieval is empty or low-confidence,
-            # reformulate the query and retry once. Opt-in via config.
+            # reformulate the query and retry once. Auto-enabled for
+            # online mode; opt-in for offline via config.
             search_results = self._attempt_corrective_retrieval(
                 user_query, search_results)
 
@@ -546,10 +560,10 @@ class QueryEngine(QueryEnginePromptMixin):
         Threshold via config.corrective_threshold (default 0.35).
         Max 1 retry (2 retrieval rounds total).
         """
-        if not getattr(self.config, "corrective_retrieval", False):
+        if not getattr(self.config.retrieval, "corrective_retrieval", False):
             return initial_results
 
-        threshold = getattr(self.config, "corrective_threshold", 0.35)
+        threshold = getattr(self.config.retrieval, "corrective_threshold", 0.35)
 
         # Check if results are good enough
         if initial_results:
@@ -579,7 +593,6 @@ class QueryEngine(QueryEnginePromptMixin):
         2. Expand acronyms if QueryExpander is available
         3. Rearrange terms for different FTS5 matching
         """
-        import re
 
         # Strip common question patterns
         q = user_query.strip()
@@ -621,6 +634,31 @@ class QueryEngine(QueryEnginePromptMixin):
         merged = sorted(seen.values(), key=lambda h: h.score, reverse=True)
         return merged
 
+    def _multi_query_retrieve(self, sub_queries: list):
+        """
+        Retrieve for each sub-query and merge results.
+
+        Runs each atomic sub-query through the retriever, then combines
+        all results using score-based deduplication. Chunks appearing in
+        multiple sub-query results get their best score preserved.
+        """
+        all_results = []
+        for sq in sub_queries:
+            hits = self.retriever.search(sq)
+            all_results.extend(hits or [])
+
+        if not all_results:
+            return []
+
+        # Deduplicate: keep best score per (source_path, chunk_index)
+        seen = {}
+        for hit in all_results:
+            key = (hit.source_path, hit.chunk_index)
+            if key not in seen or hit.score > seen[key].score:
+                seen[key] = hit
+
+        return sorted(seen.values(), key=lambda h: h.score, reverse=True)
+
     def query_stream(self, user_query: str) -> Generator[Dict[str, Any], None, None]:
         """
         Stream a query response token-by-token.
@@ -654,8 +692,12 @@ class QueryEngine(QueryEnginePromptMixin):
             # Phase 1: Retrieval (eager)
             yield {"phase": "searching"}
             search_results = self.retriever.search(user_query)
-            retrieval_ms = (time.time() - start_time) * 1000
             retrieval_trace = getattr(self.retriever, "last_search_trace", None) or minimal_retrieval_trace(search_results)
+
+            # Step 1.5: Corrective retrieval (CRAG pattern)
+            search_results = self._attempt_corrective_retrieval(
+                user_query, search_results)
+            retrieval_ms = (time.time() - start_time) * 1000
 
             if not search_results:
                 if _retrieval_access_denied(retrieval_trace):
@@ -872,6 +914,36 @@ class QueryEngine(QueryEnginePromptMixin):
                 sources=sources,
             )
             yield {"done": True, "result": result}
+
+
+# ------------------------------------------------------------------
+# Query decomposition (module-level to keep QueryEngine under 500 lines)
+# ------------------------------------------------------------------
+
+_QUERY_SPLIT_PATTERNS = [
+    r'\band\b(?:\s+also\b)?',
+    r'\bas well as\b',
+    r'\balong with\b',
+    r'\bin addition to\b',
+    r'\bplus\b',
+    r';\s+',
+]
+
+
+def _decompose_query(user_query: str) -> list:
+    """Split a multi-part query into atomic sub-queries.
+
+    Detects connectors like "and", "as well as", semicolons, etc.
+    Only splits if both halves are long enough to be meaningful (>15 chars).
+    Returns the original query as a single-element list if no split found.
+    """
+    q = user_query.strip().rstrip("?")
+    for pattern in _QUERY_SPLIT_PATTERNS:
+        parts = re.split(pattern, q, flags=re.IGNORECASE)
+        parts = [p.strip() for p in parts if p.strip()]
+        if len(parts) >= 2 and all(len(p) > 15 for p in parts):
+            return parts
+    return [user_query]
 
 
 def _retrieval_access_denied(retrieval_trace: dict[str, Any] | None) -> bool:

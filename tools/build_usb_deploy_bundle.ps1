@@ -1,4 +1,4 @@
-<#
+﻿<#
 === NON-PROGRAMMER GUIDE ===
 Purpose: Automates the build usb deploy bundle operational workflow for developers or operators.
 How to follow: Read variables first, then each command block in order.
@@ -105,7 +105,7 @@ function Save-Manifest([string]$Root) {
         $size = $_.Length
         $lines.Add("{0}`t{1}" -f $size, $rel)
     }
-    Set-Content -Path $manifest -Value $lines -Encoding UTF8
+    [System.IO.File]::WriteAllText($manifest, ($lines -join "`r`n"))
 }
 
 function Save-Sha256Manifest([string]$Root) {
@@ -119,7 +119,7 @@ function Save-Sha256Manifest([string]$Root) {
         # Common checksum format used by many tools: "<hash> *<relative_path>"
         $lines.Add("{0} *{1}" -f $hash, $rel)
     }
-    Set-Content -Path $manifest -Value $lines -Encoding UTF8
+    [System.IO.File]::WriteAllText($manifest, ($lines -join "`r`n"))
 }
 
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path

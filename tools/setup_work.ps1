@@ -1,4 +1,4 @@
-<#
+﻿<#
 === NON-PROGRAMMER GUIDE ===
 Purpose: Automates the setup work operational workflow for developers or operators.
 How to follow: Read variables first, then each command block in order.
@@ -248,7 +248,8 @@ function Set-OllamaOfflineDefaults {
             }
         }
         $cfg["disable_ollama_cloud"] = $true
-        $cfg | ConvertTo-Json -Depth 10 | Set-Content -Path $serverJsonPath -Encoding UTF8
+        $jsonText = $cfg | ConvertTo-Json -Depth 10
+        [System.IO.File]::WriteAllText($serverJsonPath, $jsonText)
         Write-Ok "Configured .ollama\\server.json (disable_ollama_cloud=true)"
     } catch {
         Write-Warn "Could not write .ollama\\server.json: $($_.Exception.Message)"
@@ -622,14 +623,14 @@ $env:NO_PROXY = "localhost,127.0.0.1"
 # This ensures ALL pip commands inside the venv automatically get trusted
 # hosts, timeout, and retries -- even manual troubleshooting commands.
 $pipIni = "$PROJECT_ROOT\.venv\pip.ini"
-$pipIniContent = @"
+$pipIniContent = @'
 [global]
 trusted-host =
     pypi.org
     files.pythonhosted.org
 timeout = 120
 retries = 3
-"@
+'@
 if ($proxyDetected -and $env:HTTPS_PROXY) {
     $pipIniContent += "`nproxy = $($env:HTTPS_PROXY)"
 }

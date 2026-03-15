@@ -364,8 +364,8 @@ class TestCorrectiveRetrieval:
                                       search_results=None, retry_results=None):
         """Helper: build engine with corrective retrieval enabled."""
         config = FakeConfig(mode="offline")
-        config.corrective_retrieval = corrective
-        config.corrective_threshold = threshold
+        config.retrieval.corrective_retrieval = corrective
+        config.retrieval.corrective_threshold = threshold
 
         mock_vector_store = MagicMock()
         mock_embedder = MagicMock()
@@ -544,6 +544,207 @@ class TestCorrectiveRetrieval:
         from src.core.query_engine import QueryEngine
         merged = QueryEngine._merge_search_results([], [])
         assert merged == []
+
+
+# ============================================================================
+# SECTION 2C: SOURCE PATH SEARCH TESTS
+# ============================================================================
+#
+# Tests for VectorStore.source_path_search() -- filename-aware retrieval.
+# Uses an in-memory SQLite database with real chunks table schema.
+# ============================================================================
+
+import sqlite3
+import numpy as np
+
+
+class TestSourcePathSearch:
+    """Test VectorStore.source_path_search() with a real SQLite database."""
+
+    def _make_store(self, tmp_path, chunks):
+        """Create a minimal VectorStore with test chunks in SQLite."""
+        db_path = str(tmp_path / "test.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("""
+            CREATE TABLE chunks (
+                chunk_pk INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_path TEXT,
+                chunk_index INTEGER,
+                text TEXT,
+                embedding_row INTEGER,
+                file_hash TEXT DEFAULT '',
+                access_tags TEXT DEFAULT 'shared',
+                access_tag_source TEXT DEFAULT 'default_document_tags'
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX idx_chunks_source ON chunks(source_path)")
+        conn.execute("""
+            CREATE VIRTUAL TABLE chunks_fts
+            USING fts5(text, content='chunks', content_rowid='chunk_pk')
+        """)
+        for src, idx, text in chunks:
+            cur = conn.execute(
+                "INSERT INTO chunks (source_path, chunk_index, text, embedding_row)"
+                " VALUES (?, ?, ?, 0)",
+                (src, idx, text),
+            )
+            conn.execute(
+                "INSERT INTO chunks_fts (rowid, text) VALUES (?, ?)",
+                (cur.lastrowid, text),
+            )
+        conn.commit()
+
+        # Build a minimal VectorStore mock that has a real conn
+        store = MagicMock()
+        store.conn = conn
+        store._db_lock = __import__("threading").Lock()
+        store._ensure_connected = MagicMock()
+
+        # Bind the real method
+        from src.core.vector_store import VectorStore
+        import types
+        store.source_path_search = types.MethodType(
+            VectorStore.source_path_search, store)
+        return store
+
+    def test_finds_by_filename(self, tmp_path):
+        chunks = [
+            ("D:/docs/Engineer_Calibration_Guide.pdf", 0, "Calibration steps"),
+            ("D:/docs/Safety_Manual.pdf", 0, "Safety procedures"),
+        ]
+        store = self._make_store(tmp_path, chunks)
+        hits = store.source_path_search("calibration guide", top_k=10)
+        assert len(hits) >= 1
+        assert any("Calibration" in h["source_path"] for h in hits)
+
+    def test_no_match_returns_empty(self, tmp_path):
+        chunks = [
+            ("D:/docs/Safety_Manual.pdf", 0, "Safety procedures"),
+        ]
+        store = self._make_store(tmp_path, chunks)
+        hits = store.source_path_search("quantum entanglement", top_k=10)
+        assert hits == []
+
+    def test_multi_word_scores_higher(self, tmp_path):
+        chunks = [
+            ("D:/docs/Engineer_Calibration_Guide.pdf", 0, "Step 1"),
+            ("D:/docs/General_Guide.pdf", 0, "Overview"),
+        ]
+        store = self._make_store(tmp_path, chunks)
+        hits = store.source_path_search("calibration guide", top_k=10)
+        cal_hits = [h for h in hits if "Calibration" in h["source_path"]]
+        gen_hits = [h for h in hits if "General" in h["source_path"]]
+        # "Calibration" + "Guide" matches 2 words, "General" + "Guide" matches 1
+        assert cal_hits[0]["score"] > gen_hits[0]["score"]
+
+    def test_short_words_ignored(self, tmp_path):
+        chunks = [
+            ("D:/docs/an_overview.pdf", 0, "Content"),
+        ]
+        store = self._make_store(tmp_path, chunks)
+        # "an" and "of" are < 3 chars, should be ignored
+        hits = store.source_path_search("an of", top_k=10)
+        assert hits == []
+
+    def test_result_format(self, tmp_path):
+        chunks = [
+            ("D:/docs/Spec_Document.pdf", 0, "The specification"),
+        ]
+        store = self._make_store(tmp_path, chunks)
+        hits = store.source_path_search("spec document", top_k=10)
+        assert len(hits) == 1
+        hit = hits[0]
+        assert "score" in hit
+        assert "source_path" in hit
+        assert "chunk_index" in hit
+        assert "text" in hit
+        assert "access_tags" in hit
+
+    def test_respects_top_k(self, tmp_path):
+        chunks = [
+            (f"D:/docs/Report_{i}.pdf", 0, f"Report {i} content")
+            for i in range(20)
+        ]
+        store = self._make_store(tmp_path, chunks)
+        hits = store.source_path_search("report", top_k=5)
+        assert len(hits) == 5
+
+
+# ============================================================================
+# SECTION 2b: QUERY DECOMPOSITION TESTS
+# ============================================================================
+
+class TestQueryDecomposition:
+    """Tests for multi-part query splitting."""
+
+    def test_simple_and_splits(self):
+        from src.core.query_engine import _decompose_query
+        parts = _decompose_query(
+            "What is the calibration procedure and what are the tolerance ranges?"
+        )
+        assert len(parts) == 2
+        assert "calibration" in parts[0].lower()
+        assert "tolerance" in parts[1].lower()
+
+    def test_as_well_as_splits(self):
+        from src.core.query_engine import _decompose_query
+        parts = _decompose_query(
+            "Describe the backup schedule as well as the disaster recovery steps"
+        )
+        assert len(parts) == 2
+
+    def test_semicolon_splits(self):
+        from src.core.query_engine import _decompose_query
+        parts = _decompose_query(
+            "What is the retention policy; how long are weekly backups kept"
+        )
+        assert len(parts) == 2
+
+    def test_short_fragments_no_split(self):
+        """Don't split if one half is too short to be meaningful."""
+        from src.core.query_engine import _decompose_query
+        parts = _decompose_query(
+            "What is A and B?"
+        )
+        assert len(parts) == 1  # "A" and "B" are < 15 chars
+
+    def test_single_query_unchanged(self):
+        from src.core.query_engine import _decompose_query
+        parts = _decompose_query(
+            "What is the calibration procedure?"
+        )
+        assert len(parts) == 1
+        assert parts[0] == "What is the calibration procedure?"
+
+    def test_along_with_splits(self):
+        from src.core.query_engine import _decompose_query
+        parts = _decompose_query(
+            "List all safety violations along with corrective actions taken"
+        )
+        assert len(parts) == 2
+
+    def test_multi_query_retrieve_merges_results(self):
+        """_multi_query_retrieve should merge hits from multiple sub-queries."""
+        from src.core.query_engine import QueryEngine
+        from src.core.retriever import SearchHit
+
+        engine = MagicMock(spec=QueryEngine)
+        engine._multi_query_retrieve = QueryEngine._multi_query_retrieve.__get__(engine)
+
+        hit_a = SearchHit(score=0.9, source_path="a.pdf", chunk_index=0, text="chunk a")
+        hit_b = SearchHit(score=0.8, source_path="b.pdf", chunk_index=0, text="chunk b")
+        hit_a_dup = SearchHit(score=0.7, source_path="a.pdf", chunk_index=0, text="chunk a")
+
+        engine.retriever = MagicMock()
+        engine.retriever.search.side_effect = [
+            [hit_a, hit_b],
+            [hit_a_dup],
+        ]
+
+        results = engine._multi_query_retrieve(["query 1", "query 2"])
+        assert len(results) == 2  # deduped
+        assert results[0].score == 0.9  # kept best score for a.pdf
 
 
 # ============================================================================

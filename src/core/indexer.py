@@ -422,7 +422,7 @@ class Indexer:
                 char_offset += len(block)
                 continue
             self._raise_if_cancelled(stop_flag, f"before embed: {file_path.name}")
-            embeddings = self.embedder.embed_batch(chunks)
+            embeddings = self.embedder.embed_documents(chunks)
             metadata_list = []
             chunk_ids = []
             chunk_offsets = _locate_chunk_offsets(block, chunks)
