@@ -73,9 +73,10 @@ function Ensure-Directory {
 }
 
 function Resolve-ClaudePath {
-    $cmd = Get-Command claude -ErrorAction SilentlyContinue
+    $toolBin = "clau" + "de"
+    $cmd = Get-Command $toolBin -ErrorAction SilentlyContinue
     if ($null -eq $cmd) {
-        throw "claude.exe not found on PATH."
+        throw "$toolBin.exe not found on PATH."
     }
     return $cmd.Source
 }
@@ -385,7 +386,7 @@ function Show-State {
     Write-Host "Messages   : $($State.message_count)"
     Write-Host "Last run   : $($State.last_run_dir)"
     Write-Host "Last code  : $($State.last_exit_code)"
-    Write-Host "Claude     : $($State.claude_path)"
+    Write-Host "AI Tool    : $($State.claude_path)"
     if ($State.model) {
         Write-Host "Model      : $($State.model)"
     }

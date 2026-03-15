@@ -22,7 +22,7 @@ Safety notes: Run in a test environment before using on production systems.
 #   locale settings. This scanner would catch them before they cause
 #   runtime errors.
 #
-# STANDING RULE (from CLAUDE.md):
+# STANDING RULE (from the project config):
 #   "No non-ASCII characters in scripts"
 #
 # STATUS: Not yet implemented. For now, use:

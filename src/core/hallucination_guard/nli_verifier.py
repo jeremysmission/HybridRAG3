@@ -35,7 +35,7 @@ HOW NLI WORKS (plain English):
         - For hallucination detection, accuracy > speed
 
 WHY LOCAL (not API-based):
-    - No data leaves the machine (defense security requirement)
+    - No data leaves the machine (strict security requirement)
     - No API cost per verification
     - Deterministic (same input = same output, every time)
     - Fully auditable (we can explain exactly why a claim was flagged)
@@ -356,13 +356,13 @@ class NLIVerifier:
             3. For each pair, get entailment and contradiction scores
             4. Find the chunk with highest entailment (best support)
             5. Find the chunk with highest contradiction (worst conflict)
-            6. Decision logic (defense-conservative):
+            6. Decision logic (safety-conservative):
                  - contradiction > 0.70  ->  CONTRADICTED (source conflicts)
                  - entailment > 0.50     ->  SUPPORTED (source backs it up)
                  - otherwise             ->  UNSUPPORTED (no source confirms)
 
         WHY CONTRADICTION CHECK FIRST:
-            In defense, a contradiction is more dangerous than a miss.
+            In safety-critical work, a contradiction is more dangerous than a miss.
             If source says "10 MHz" and LLM says "50 MHz", we MUST catch
             that even if another chunk partially supports the claim.
 
@@ -438,7 +438,7 @@ class NLIVerifier:
 
             # -- Decision logic --
             # Priority: Contradiction > Entailment > Neutral
-            # In defense: false positive (flag good claim) is MUCH cheaper
+            # In safety-critical work: false positive (flag good claim) is MUCH cheaper
             # than false negative (pass bad claim through to user)
 
             # CHECK 1: Is any chunk contradicting this claim?

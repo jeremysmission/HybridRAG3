@@ -123,6 +123,15 @@ rag-mode-online
 
 If you stay offline, you do not need API credentials.
 
+### Grounding and Creativity (Online Mode)
+
+When using online API mode, two knobs control the balance between accuracy and creativity:
+
+- **Accuracy-first** (grounding_bias=9, open_knowledge=OFF, temp=0.03): best for real-time Q&A. Zero hallucinations; may refuse broad creative queries.
+- **Creativity-first** (grounding_bias=6, open_knowledge=ON, temp=0.15): best for report generation and synthesis. Always attempts answers; outputs should be human-reviewed.
+
+See [AUTOTUNE_CHEAT_SHEET.md](AUTOTUNE_CHEAT_SHEET.md) for full per-query-type recommendations and [SHORTCUT_SHEET.md](SHORTCUT_SHEET.md) Section 6 for the quick reference table.
+
 ### Profiles Affect Performance, Not Permissions
 
 Use profiles to match the machine:

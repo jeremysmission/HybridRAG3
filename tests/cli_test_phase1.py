@@ -24,8 +24,8 @@
 #   python tests\cli_test_phase1.py --query "frequency range" --mode online
 #
 # INTERNET ACCESS:
-#   - offline mode: Connects to localhost only (Ollama) — NO internet
-#   - online mode:  Connects to configured API endpoint — REQUIRES internet
+#   - offline mode: Connects to localhost only (Ollama) -- NO internet
+#   - online mode:  Connects to configured API endpoint -- REQUIRES internet
 # ============================================================================
 
 import argparse

@@ -13,7 +13,7 @@ prompt_hardener.py -- Layer 1: Prompt Hardening
 PURPOSE:
     Rewrites system prompts to force the LLM to stay grounded in
     retrieved context documents. This is the cheapest and most effective
-    first line of defense against hallucinations.
+    first line of protection against hallucinations.
 
 WHY THIS MATTERS:
     Research shows prompt engineering ALONE reduces hallucinations by
@@ -21,7 +21,7 @@ WHY THIS MATTERS:
     the majority of casual hallucinations before they even happen.
 
 HOW IT WORKS:
-    1. Wraps the system prompt with DEFENSE ENVIRONMENT grounding rules
+    1. Wraps the system prompt with CRITICAL ENVIRONMENT grounding rules
     2. Forces the LLM to cite sources using [Source: chunk_N] format
     3. Adds a refusal protocol ("INSUFFICIENT SOURCE DATA") for gaps
     4. Requires uncertainty language on non-definitive claims
@@ -32,7 +32,7 @@ USAGE:
 
     # Get a hardened prompt package ready for the API call
     pkg = PromptHardener.build_hardened_prompt(
-        system_prompt="You are a defense analyst.",
+        system_prompt="You are a technical analyst.",
         user_query="What frequency does the radar use?",
         chunks=["The radar operates at 10 MHz.", "Range is 200 km."],
         source_files=["radar_specs.md", "system_overview.md"],
@@ -65,12 +65,12 @@ class PromptHardener:
     #
     # WHY SO AGGRESSIVE:
     #   Polite instructions like "please try to cite sources" don't work reliably.
-    #   Defense context demands absolute language: MUST, NEVER, ONLY, ALWAYS.
+    #   Critical context demands absolute language: MUST, NEVER, ONLY, ALWAYS.
     #   The "people's lives depend on it" framing activates safety training in
     #   most LLMs (online LLMs, GPT) making them more cautious.
     GROUNDING_PREAMBLE = """CRITICAL INSTRUCTION -- FACTUAL GROUNDING PROTOCOL:
 
-You are operating in a DEFENSE ENVIRONMENT where inaccurate information
+You are operating in a CRITICAL ENVIRONMENT where inaccurate information
 can directly endanger human lives. You MUST follow these rules:
 
 1. ONLY USE INFORMATION FROM THE PROVIDED CONTEXT DOCUMENTS.

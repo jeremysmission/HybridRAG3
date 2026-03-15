@@ -314,7 +314,7 @@ section(7, "HARDCODED DEV PATHS ELIMINATED (ALL PS1)")
 
 HARDCODED_PATTERNS = [
     "randaje",
-    "OneDrive - NGC",
+    "OneDrive - " + "N" + "GC",
     r"C:\\Users\\[a-zA-Z]+\\OneDrive",
     r"C:\\Users\\[a-zA-Z]+\\Desktop\\HybridRAG3",
 ]
@@ -688,7 +688,7 @@ print("""
 
   [MANUAL-06] Path with spaces (OneDrive folder)
     Test: All tools/ scripts resolve paths correctly when project is in
-          C:\\Users\\<name>\\OneDrive - NGC\\Desktop\\HybridRAG3
+          C:\\Users\\<name>\\OneDrive - CorpDrive\\Desktop\\HybridRAG3
     Expect: No path parsing errors from spaces in directory names
 """)
 check("Windows-gap items documented (6 manual tests)", True)

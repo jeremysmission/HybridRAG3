@@ -43,6 +43,70 @@ This reference captures the final tuning results for March 6–7, 2026. Use it t
 - Run `python tools/sync_mode_overrides.py --api-endpoint <your endpoint> --api-model <model>` after you change the Admin panel knobs. It writes both offline and online sections into `config/config.yaml`, mirroring the same controls so the “Default” checkbox just reloads the values you previously saved (and includes the tune date 2026-03-07 for reference).
 - The file now records the tuned winners (offline `tk4_ms10_np384`, online `tk6_ms08_mt1024`) under `tuned_baseline` so future developers know how recent the defaults are without having to hunt the logs.
 
+## Recommended Settings by Query Type (Online gpt-4o)
+
+Results from controlled sweet-spot experiment (2026-03-14): 5 synthetic source
+documents with verifiable ground truth, 14 queries across 6 categories, 8
+setting configs swept, 112 API calls, $0.52 total.
+
+### Quick Reference Table
+
+| Query Type | Best Config | Bias | Open Knowledge | Temp | Score |
+|---|---|---|---|---|---|
+| Fact extraction ("What is the MTBF for HR-7741?") | STRICT-9 | 9 | OFF | 0.03 | 100% |
+| Cross-doc synthesis ("Correlate compliance and uptime") | Any 7+ | 7-10 | either | 0.03-0.15 | 100% |
+| Reasoning / inference ("Which site is most at risk?") | STRICT-9 or BALANCED-6 | 6-9 | OFF or ON | 0.03-0.15 | 100% |
+| Trend analysis ("Rank all sites best to worst") | BALANCED-6 | 6 | ON | 0.15 | 65% |
+| Creative / executive summary | BALANCED-6 | 6 | ON | 0.15 | 100% |
+| Unanswerable / hallucination guard | STRICT-9 | 9 | OFF | 0.03 | 100% |
+
+### Two Profiles for Two Use Cases
+
+**Production queries (accuracy-first, zero hallucination tolerance):**
+
+```yaml
+# STRICT-9 -- 91.1% overall, 100% fact + refusal accuracy
+query:
+  grounding_bias: 9
+  allow_open_knowledge: false
+api:
+  temperature: 0.03
+retrieval:
+  top_k: 10
+```
+
+Use when: answering user questions in real time, compliance queries, anything
+where a wrong answer is worse than no answer.
+
+**Report generation (synthesis-first, human-reviewed output):**
+
+```yaml
+# BALANCED-6 -- 87.9% overall, 100% creative + synthesis
+query:
+  grounding_bias: 6
+  allow_open_knowledge: true
+api:
+  temperature: 0.15
+retrieval:
+  top_k: 10
+```
+
+Use when: generating Excel/PPT reports, failure analysis, site rankings,
+executive summaries -- any output a human will review before use.
+
+### Key Tradeoff
+
+| Setting | Accuracy | Creativity | Hallucination Risk |
+|---|---|---|---|
+| STRICT-9 (bias=9, open=OFF) | Best | Sometimes refuses broad queries | None observed |
+| BALANCED-6 (bias=6, open=ON) | Good | Always attempts answers | Moderate (may invent data for nonexistent items) |
+
+### Experiment Artifacts
+
+- Full results: `logs/grounding_experiment/*_sweet_spot_results.json`
+- Test tool: `tools/grounding_sweet_spot_experiment.py`
+- Stress test tool: `tools/grounding_knob_stress_test.py`
+
 ## Next steps
 
 1. Apply these winners with `python tools/run_mode_autotune.py --workflow full --mode offline --apply-winner` and the matching `--mode online` so the repo defaults match the cheat sheet.  

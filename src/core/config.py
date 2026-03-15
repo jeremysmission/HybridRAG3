@@ -834,6 +834,69 @@ def load_config(
     return config
 
 
+def apply_mode_to_config(
+    config,
+    mode: str,
+    project_dir: str = ".",
+    config_filename: str = PRIMARY_CONFIG_NAME,
+) -> None:
+    """Apply mode-specific retrieval/query/backend settings to a live Config.
+
+    Many code paths set ``config.mode = "online"`` without updating the
+    retrieval, query, or backend sub-configs.  This function re-derives
+    the correct values from the persisted YAML + user-modes data and
+    writes them onto the existing Config object so callers don't need to
+    import GUI helpers.
+
+    Usage::
+
+        config = load_config()
+        apply_mode_to_config(config, "online")   # retrieval.top_k etc. updated
+    """
+    from .mode_config import normalize_mode
+
+    mode = normalize_mode(mode)
+    config.mode = mode
+
+    raw = load_primary_config_dict(project_dir, config_filename)
+    raw["mode"] = mode
+    user_modes = load_user_modes_data(project_dir)
+    merged = build_runtime_config_dict(raw, user_modes)
+
+    # Retrieval settings (top_k, min_score, etc.)
+    r = merged.get("retrieval", {})
+    for key in ("top_k", "min_score", "hybrid_search", "reranker_enabled", "reranker_top_n"):
+        if key in r and hasattr(config.retrieval, key):
+            setattr(config.retrieval, key, r[key])
+
+    # Query settings (grounding_bias, allow_open_knowledge)
+    q = merged.get("query", {})
+    for key in ("grounding_bias", "allow_open_knowledge"):
+        if key in q and hasattr(config.query, key):
+            setattr(config.query, key, q[key])
+
+    # Backend settings vary by mode
+    if mode == "online":
+        a = merged.get("api", {})
+        for key in ("model", "deployment", "context_window", "max_tokens",
+                     "temperature", "top_p", "presence_penalty",
+                     "frequency_penalty", "seed", "timeout_seconds"):
+            if key in a and hasattr(config.api, key):
+                setattr(config.api, key, a[key])
+    else:
+        o = merged.get("ollama", {})
+        for key in ("model", "base_url", "context_window", "num_predict",
+                     "temperature", "top_p", "seed", "timeout_seconds"):
+            if key in o and hasattr(config.ollama, key):
+                setattr(config.ollama, key, o[key])
+
+    try:
+        from .query_mode import apply_query_mode_to_config
+        apply_query_mode_to_config(config)
+    except Exception:
+        pass
+
+
 def validate_config(config: Config) -> List[str]:
     """
     Check a Config object for problems. Returns a list of error messages.

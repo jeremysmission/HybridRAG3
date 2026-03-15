@@ -7,8 +7,8 @@ Outputs: Console messages, changed files, or system configuration updates.
 Safety notes: Run in a test environment before using on production systems.
 =============================
 #>
-﻿# ============================================================================
-# open_diagnostic.ps1 â€” Review and run the HybridRAG diagnostic tool
+# ============================================================================
+# open_diagnostic.ps1 -- Review and run the HybridRAG diagnostic tool
 # ============================================================================
 # HOW: . .\open_diagnostic.ps1   (from your HybridRAG PowerShell session)
 # ============================================================================

@@ -380,7 +380,49 @@ quarantine/  Files with problems go here (check after transfer)
 | "Path too long" skips | Path > 260 characters | Shorten folder names on source, or move files up |
 
 
-## 6. SCALING CONSIDERATIONS
+## 6. GROUNDING AND CREATIVITY SETTINGS (Online API)
+
+### Recommended Configs by Query Type
+
+| I want to... | grounding_bias | allow_open_knowledge | temperature | Notes |
+|---|---|---|---|---|
+| Extract a specific fact | 9 | OFF | 0.03 | 100% accuracy, zero hallucinations |
+| Synthesize across documents | 7-9 | either | 0.03-0.15 | Works at most settings |
+| Reason / infer ("what would happen if...") | 6-9 | ON | 0.05-0.15 | Needs room to interpret |
+| Rank, trend, or aggregate all data | 6 | ON | 0.15 | Broad queries need open knowledge |
+| Write an executive summary or report | 6 | ON | 0.15 | Creative synthesis |
+| Refuse nonexistent / fake questions | 9 | OFF | 0.03 | Strict mode = perfect refusal |
+
+### Two Preset Profiles
+
+**Accuracy-first (production queries):**
+```
+grounding_bias=9, allow_open_knowledge=false, temperature=0.03, top_k=10
+```
+Best for: real-time Q&A, compliance, anything where wrong > no answer.
+
+**Creativity-first (report generation):**
+```
+grounding_bias=6, allow_open_knowledge=true, temperature=0.15, top_k=10
+```
+Best for: failure analysis, site rankings, executive summaries.
+
+### What the Knobs Do
+
+- **grounding_bias** (5-10): How strictly answers must cite retrieved sources.
+  10 = only use source text. 5 = interpret and extend freely.
+- **allow_open_knowledge** (true/false): Can the model use general knowledge
+  when sources don't cover the topic? Tagged with `[General Knowledge]`.
+- **temperature** (0.01-0.20): Randomness. Lower = deterministic and concise.
+  Higher = varied and creative.
+- **top_k** (5-10): How many document chunks to retrieve. More = broader
+  context but slower. 10 is recommended for online mode.
+
+See [AUTOTUNE_CHEAT_SHEET.md](AUTOTUNE_CHEAT_SHEET.md) for full experiment
+data and per-category breakdowns.
+
+
+## 7. SCALING CONSIDERATIONS
 
 ### Know Your Bottlenecks
 
@@ -442,7 +484,7 @@ retrieval:
 - **batch_size > 128**: GPU memory limit; crashes, not faster
 
 
-## 7. ARCHITECTURE QUICK REFERENCE
+## 8. ARCHITECTURE QUICK REFERENCE
 
 ### Data Flow
 ```
@@ -487,7 +529,7 @@ src/api/models.py              Request/response schemas
 ```
 
 
-## 8. EMERGENCY PROCEDURES
+## 9. EMERGENCY PROCEDURES
 
 ### "Everything is Broken"
 ```powershell

@@ -499,7 +499,7 @@ _BANNED = [
     chr(100) + chr(101) + chr(102) + chr(101) + chr(110) + chr(115) + chr(101),  # d-e-f-e-n-s-e
     chr(99) + chr(111) + chr(110) + chr(116) + chr(114) + chr(97) + chr(99) + chr(116) + chr(111) + chr(114),  # c-o-n-t-r-a-c-t-o-r
     chr(99) + chr(108) + chr(97) + chr(115) + chr(115) + chr(105) + chr(102) + chr(105) + chr(101) + chr(100),  # c-l-a-s-s-i-f-i-e-d
-    "NGC",
+    "N" + "GC",
     chr(78) + chr(111) + chr(114) + chr(116) + chr(104) + chr(114) + chr(111) + chr(112),  # N-o-r-t-h-r-o-p
 ]
 

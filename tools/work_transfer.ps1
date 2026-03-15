@@ -17,7 +17,7 @@ Safety notes: Run in a test environment before using on production systems.
 #   This is how code gets from the home PC to the work laptop.
 #
 # HOW THE TRANSFER WORKS:
-#   1. At home: Claude session produces updated files, packaged as ZIP
+#   1. At home: AI session produces updated files, packaged as ZIP
 #   2. ZIP is pushed to GitHub Educational repo under releases/
 #   3. At work: you download the ZIP through your browser
 #   4. Run this script: it unpacks and puts everything in the right place

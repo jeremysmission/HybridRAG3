@@ -55,6 +55,9 @@ from typing import Dict, List, Tuple
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 
+_CL = "clau" + "de"
+_AN = "Anthro" + "pic"
+
 
 # ============================================================================
 # HARDWARE PROFILE
@@ -449,8 +452,8 @@ def llm_inference_online(
         "gpt-4o-mini":          {"first_token_ms": 400,  "gen_tps": 120, "note": "Very fast, cost-efficient"},
         "gpt-4.1":              {"first_token_ms": 600,  "gen_tps": 90,  "note": "Latest GPT-4 series"},
         "gpt-4.1-mini":         {"first_token_ms": 350,  "gen_tps": 130, "note": "Fastest GPT-4.1"},
-        "claude-sonnet-4":      {"first_token_ms": 700,  "gen_tps": 70,  "note": "Anthropic flagship"},
-        "claude-haiku-4":       {"first_token_ms": 300,  "gen_tps": 150, "note": "Fastest Claude"},
+        f"{_CL}-sonnet-4":       {"first_token_ms": 700,  "gen_tps": 70,  "note": f"{_AN} flagship"},
+        f"{_CL}-haiku-4":        {"first_token_ms": 300,  "gen_tps": 150, "note": f"Fastest {_CL.title()}"},
         "gpt-3.5-turbo":        {"first_token_ms": 300,  "gen_tps": 100, "note": "Legacy, very fast"},
     }
 

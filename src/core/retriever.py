@@ -88,7 +88,14 @@ RERANKER_AVAILABLE = False
 
 
 def _retriever_resolve_settings(config) -> dict:
-    """Read the active retrieval settings from the current config object."""
+    """Read the active retrieval settings from the current config object.
+
+    The Config object is flat -- mode-specific retrieval values are merged
+    into ``config.retrieval`` at load time by ``build_runtime_config_dict``,
+    or at mode-switch time by ``apply_mode_to_config`` /
+    ``apply_mode_settings_to_config``.  This function simply reads whatever
+    is on the live Config.
+    """
     retrieval = getattr(config, "retrieval", None)
 
     settings = {

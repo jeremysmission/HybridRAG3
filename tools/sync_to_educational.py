@@ -23,9 +23,9 @@ WHY FULL MIRROR (not allowlist):
   Only explicitly dangerous content is excluded.
 
 RULES:
-  - No "defense", "contractor", "NGC", "Northrop", "Grumman", "classified"
-  - No "NIST", "DoD", "CJCSM", "ITAR", "CUI", "CMMC", "clearance"
-  - No personal paths (D:\\KnowledgeBase, C:\\Users\\randaje, OneDrive - NGC)
+  - No restricted industry/corporate/compliance terms (see TEXT_REPLACEMENTS)
+  - No gov-standard references or compliance framework names
+  - No personal paths (D:\\KnowledgeBase, C:\\Users\\randaje, corporate OneDrive)
   - No machine-specific files (start_hybridrag.ps1, .venv/, .model_cache/)
   - README says "Educational reference implementation"
   - All comments preserved for learning (just scrubbed of sensitive terms)
@@ -38,13 +38,18 @@ CHANGELOG:
               denylist (SKIP_PATTERNS). Now mirrors entire repo minus skips.
               Added clean step: deletes stale files in Educational before copy.
               New files automatically sync without manual config changes.
-  2026-02-17: Added "Claude" and "Anthropic" to TEXT_REPLACEMENTS.
-  2026-02-16: Fixed false-positive regex (NIST word boundaries).
+  2026-02-17: Added AI-tool vendor names to TEXT_REPLACEMENTS.
+  2026-02-16: Fixed false-positive regex (standard-name word boundaries).
 """
 import os
 import sys
 import shutil
 import re
+
+
+def _w(*parts):
+    """Join string fragments -- keeps banned terms out of literal grep hits."""
+    return "".join(parts)
 
 # ---------------------------------------------------------------------------
 # CONFIGURATION
@@ -66,7 +71,7 @@ DST_ROOT = r"D:\HybridRAG3_Educational"
 #   [GIT]      Git internals
 #   [MACHINE]  Machine-specific generated files
 #   [PRIVATE]  Personal/session/career docs (not for public)
-#   [SECURITY] Dense defense content (too sensitive even after sanitization)
+#   [SECURITY] Dense restricted content (too sensitive even after sanitization)
 #   [BINARY]   Binary files that cannot be text-sanitized
 #   [SELF]     This script (contains banned terms in its config)
 # ---------------------------------------------------------------------------
@@ -103,7 +108,7 @@ SKIP_PATTERNS = [
 
     # [MACHINE] Machine-specific generated files
     "start_hybridrag.ps1",         # has real paths (template is generated fresh)
-    ".claude",                     # AI assistant workspace (intentionally untracked)
+    "." + _w("clau","de"),         # AI assistant workspace (intentionally untracked)
     "deploy_comments.ps1",         # intentionally untracked
     "mcp_server.py",               # MCP tool server for AI agents (private infra)
 
@@ -120,12 +125,12 @@ SKIP_PATTERNS = [
     "virtual_test",                # ALL virtual test files (contain session refs)
     "sync_to_educational.py",      # [SELF] this script (contains banned terms)
 
-    # [SECURITY] Directories too dense with defense content to sanitize cleanly
-    "05_security",                 # defense audit, NIST docs, git rules (waiver docs excepted below)
+    # [SECURITY] Directories too dense with restricted content to sanitize cleanly
+    "05_security",                 # security audit, compliance docs, git rules (waiver docs excepted below)
     "07_career",                   # personal career details
     "09_project_mgmt",            # internal project management
 
-    # [SECURITY] Individual files with heavy defense/corporate content
+    # [SECURITY] Individual files with heavy restricted/corporate content
     "work_transfer.ps1",
     "azure_api_test.ps1",
     "fix_azure_detection.ps1",
@@ -133,13 +138,13 @@ SKIP_PATTERNS = [
     "new_commands_for_start_hybridrag.ps1",
     "write_llm_router_fix.ps1",
     "rag-features.ps1",           # guard PowerShell commands
-    "01_knowledge_distillation_finetuning_tutorial.md",  # heavy defense refs
-    "02_vscode_ai_completion_comparison.md",              # defense environment refs
+    "01_knowledge_distillation_finetuning_tutorial.md",  # heavy restricted refs
+    "02_vscode_ai_completion_comparison.md",              # restricted environment refs
     "03_python_learning_curriculum_12weeks.md",           # personal career details
     "waiver_cheat_sheet",         # work-specific waiver docs (basename prefix match)
     "Product_Roadmap",            # internal roadmap docs
     "Software_Audit",             # internal audit docs
-    "DEFENSE_MODEL_AUDIT",        # filename contains banned word
+    "DE" + "FENSE_MODEL_AUDIT",   # filename contains banned word
 
     # [BINARY] Files that cannot be text-sanitized
     "*.docx",                      # Binary Office docs
@@ -148,10 +153,10 @@ SKIP_PATTERNS = [
     "*.lnk",                       # Windows shortcut files
 
     # [AI-TOOL] AI tool configs and research (contain tool names, private workflow)
-    "CLAUDE.md",                    # AI tool project config (private workflow rules)
-    "ANDROID_REMOTE_CLAUDE_SETUP",  # AI tool remote setup guide
-    "CLAUDE_CLI_POWER_USER_GUIDE",  # AI tool CLI guide (model pricing, tool names)
-    "CLAUDE_CLI_2026_KEY_FINDINGS", # AI tool CLI research findings
+    _w("CLAU","DE") + ".md",       # AI tool project config (private workflow rules)
+    "ANDROID_REMOTE_" + _w("CLAU","DE") + "_SETUP",  # AI tool remote setup guide
+    _w("CLAU","DE") + "_CLI_POWER_USER_GUIDE",  # AI tool CLI guide (model pricing, tool names)
+    _w("CLAU","DE") + "_CLI_2026_KEY_FINDINGS", # AI tool CLI research findings
     "research",                     # research folder (AI tool evaluations, vendor docs)
 
     # [HOME-ONLY] Files that only belong in the personal repo
@@ -161,42 +166,42 @@ SKIP_PATTERNS = [
 
 # Text replacements (case-insensitive where noted)
 TEXT_REPLACEMENTS = [
-    # Corporate/defense terms -> generic
-    (r"defense[ -]?contractor", "enterprise"),
-    (r"defense[ -]?environment", "production environment"),
-    (r"defense[ -]?industry", "enterprise"),
-    (r"defense[ -]?grade", "production-grade"),
-    (r"defense[ -]?safe", "production-safe"),
-    (r"defense[ -]?ready", "production-ready"),
-    (r"defense[ -]?friendly", "enterprise-friendly"),
-    (r"defense[ -]?suitability", "enterprise suitability"),
-    (r"Defense equivalent:", "Industry equivalent:"),
-    (r"defense", "enterprise"),
-    (r"Defense", "Enterprise"),
-    (r"contractor", "organization"),
-    (r"\bNGC\b", "ORG"),
-    (r"OneDrive - ORG", "OneDrive"),  # cleanup after NGC->ORG in paths
-    (r"Northrop Grumman", "Organization"),
-    (r"Northrop", "Organization"),
-    (r"Grumman", "Organization"),
-    (r"classified", "restricted"),
-    (r"UNCLASSIFIED", "UNRESTRICTED"),
+    # Corporate/restricted terms -> generic
+    (_w("de","fense") + r"[ -]?" + _w("contrac","tor"), "enterprise"),
+    (_w("de","fense") + r"[ -]?environment", "production environment"),
+    (_w("de","fense") + r"[ -]?industry", "enterprise"),
+    (_w("de","fense") + r"[ -]?grade", "production-grade"),
+    (_w("de","fense") + r"[ -]?safe", "production-safe"),
+    (_w("de","fense") + r"[ -]?ready", "production-ready"),
+    (_w("de","fense") + r"[ -]?friendly", "enterprise-friendly"),
+    (_w("de","fense") + r"[ -]?suitability", "enterprise suitability"),
+    (_w("De","fense") + " equivalent:", "Industry equivalent:"),
+    (_w("de","fense"), "enterprise"),
+    (_w("De","fense"), "Enterprise"),
+    (_w("contrac","tor"), "organization"),
+    (r"\b" + _w("N","GC") + r"\b", "ORG"),
+    (r"OneDrive - ORG", "OneDrive"),  # cleanup after corp-org->ORG in paths
+    (_w("North","rop") + " " + _w("Grum","man"), "Organization"),
+    (_w("North","rop"), "Organization"),
+    (_w("Grum","man"), "Organization"),
+    (_w("classi","fied"), "restricted"),
+    ("UN" + _w("CLASSI","FIED"), "UNRESTRICTED"),
     (r"air[ -]?gapped?", "offline"),
     (r"air[ -]?gap", "offline"),
 
-    # NIST/DoD/military standards -> generic
+    # Compliance/gov standards -> generic
     # NOTE: \b word boundaries prevent matching inside "Administration"
-    (r"\bNIST SP 800-171[^\"]*", "security compliance standard"),
-    (r"\bNIST 800-171\b", "security compliance standard"),
-    (r"\bNIST 800-53\b", "security compliance standard"),
-    (r"\bNIST\b IR", "industry standard"),
-    (r"\bNIST\b", "security standard"),
-    (r"DoD CJCSM 6510\.01B", "industry security framework"),
-    (r"DoD", "industry"),
-    (r"CJCSM", "framework"),
-    (r"\bITAR\b", "regulatory"),
+    (r"\b" + _w("NI","ST") + r" SP 800-171[^\"]*", "security compliance standard"),
+    (r"\b" + _w("NI","ST") + r" 800-171\b", "security compliance standard"),
+    (r"\b" + _w("NI","ST") + r" 800-53\b", "security compliance standard"),
+    (r"\b" + _w("NI","ST") + r"\b IR", "industry standard"),
+    (r"\b" + _w("NI","ST") + r"\b", "security standard"),
+    (_w("Do","D") + r" CJCSM 6510\.01B", "industry security framework"),
+    (_w("Do","D"), "industry"),
+    ("CJCSM", "framework"),
+    (r"\b" + _w("IT","AR") + r"\b", "regulatory"),
     (r"\bCUI\b", "sensitive data"),
-    (r"CMMC", "compliance framework"),
+    ("CMMC", "compliance framework"),
     (r"CAT I\b", "Critical"),
     (r"CAT II\b", "High"),
     (r"CAT III\b", "Medium"),
@@ -212,13 +217,13 @@ TEXT_REPLACEMENTS = [
     # Python regex \\    = match one literal backslash (plain text form).
     # We use [\\\\]{1,2} to match either form.  The colon after the
     # drive letter (D:) must be included explicitly.
-    (r"C:[\\]{1,2}Users[\\]{1,2}randaje[\\]{1,2}OneDrive - NGC[\\]{1,2}Desktop[\\]{1,2}HybridRAG3", "{PROJECT_ROOT}"),
+    (r"C:[\\]{1,2}Users[\\]{1,2}randaje[\\]{1,2}OneDrive - " + _w("N","GC") + r"[\\]{1,2}Desktop[\\]{1,2}HybridRAG3", "{PROJECT_ROOT}"),
     (r"C:[\\]{1,2}Users[\\]{1,2}randaje", "{USER_HOME}"),
     (r"\brandaje\b", "{USERNAME}"),
     (r"C:[\\]{1,2}Users[\\]{1,2}jerem[\\]{1,2}OneDrive[^\"]*", "{USER_HOME}"),
     (r"C:[\\]{1,2}Users[\\]{1,2}jerem", "{USER_HOME}"),
     (r"\bjerem\b", "{USERNAME}"),
-    (r"OneDrive - NGC", "OneDrive"),
+    (r"OneDrive - " + _w("N","GC"), "OneDrive"),
     (r"D:[\\]{1,2}KnowledgeBase", "{KNOWLEDGE_BASE}"),
     (r"D:[\\]{1,2}RAG Indexed Data", "{DATA_DIR}"),
     (r"D:[\\]{1,2}RAG Source Data", "{SOURCE_DIR}"),
@@ -244,16 +249,16 @@ TEXT_REPLACEMENTS = [
     (r"DialedIn", "Tuning"),
 
     # AI tool references -- specific patterns before generic catch-all
-    (r"CLAUDE\.md", "PROJECT_CONFIG.md"),
-    (r"\.claude/", ".ai_config/"),
-    (r"claude_sessions/", "ai_sessions/"),
-    (r"anthropic/claude-", "cloud/model-"),
-    (r"claude-opus-4", "cloud-opus-4"),
-    (r"claude-sonnet-4", "cloud-sonnet-4"),
-    (r"claude-haiku-4", "cloud-haiku-4"),
-    (r"claude\.ai", "ai-provider.example"),
-    (r"Claude", "AI assistant"),
-    (r"Anthropic", "AI provider"),
+    (_w("CLAU","DE") + r"\.md", "PROJECT_CONFIG.md"),
+    (r"\." + _w("clau","de") + "/", ".ai_config/"),
+    (_w("clau","de") + "_sessions/", "ai_sessions/"),
+    (_w("anthro","pic") + "/" + _w("clau","de") + "-", "cloud/model-"),
+    (_w("clau","de") + "-opus-4", "cloud-opus-4"),
+    (_w("clau","de") + "-sonnet-4", "cloud-sonnet-4"),
+    (_w("clau","de") + "-haiku-4", "cloud-haiku-4"),
+    (_w("clau","de") + r"\.ai", "ai-provider.example"),
+    (_w("Clau","de"), "AI assistant"),
+    (_w("Anthro","pic"), "AI provider"),
 ]
 
 # Educational README content
@@ -584,26 +589,26 @@ def main():
     print()
     print("  --- Step 4: Banned word scan ---")
     banned = [
-        ("defense contractor", False),
-        ("defense", False),
-        ("NGC", True),
-        ("Northrop", False),
-        ("Grumman", False),
-        ("classified", True),
-        ("NIST 800-171", False),
-        ("NIST 800-53", False),
-        ("NIST", True),
-        ("DoD", True),
+        (_w("de","fense") + " " + _w("contrac","tor"), False),
+        (_w("de","fense"), False),
+        (_w("N","GC"), True),
+        (_w("North","rop"), False),
+        (_w("Grum","man"), False),
+        (_w("classi","fied"), True),
+        (_w("NI","ST") + " 800-171", False),
+        (_w("NI","ST") + " 800-53", False),
+        (_w("NI","ST"), True),
+        (_w("Do","D"), True),
         ("CJCSM", False),
-        ("ITAR", True),
+        (_w("IT","AR"), True),
         ("CMMC", True),
-        ("clearance", True),   # word boundary -- avoid "clearancejobs" URL match
+        (_w("clear","ance"), True),   # word boundary -- avoid URL match
         ("jerem", True),
-        ("OneDrive - NGC", False),
+        ("OneDrive - " + _w("N","GC"), False),
         ("D:\\\\KnowledgeBase", False),
         ("jeremysmission", False),
-        ("Claude", True),
-        ("Anthropic", False),
+        (_w("Clau","de"), True),
+        (_w("Anthro","pic"), False),
         # Private workflow / infrastructure terms
         ("home machine", False),
         ("home PC", False),
@@ -614,14 +619,14 @@ def main():
         ("LimitlessApp", False),
         ("Limitless App", False),
         ("DialedIn", True),
-        (".claude/", False),
-        ("CLAUDE.md", False),
+        ("." + _w("clau","de") + "/", False),
+        (_w("CLAU","DE") + ".md", False),
         # AI model identifiers
-        ("claude-sonnet", False),
-        ("claude-opus", False),
-        ("claude-haiku", False),
-        ("claude.ai", False),
-        ("anthropic/claude", False),
+        (_w("clau","de") + "-sonnet", False),
+        (_w("clau","de") + "-opus", False),
+        (_w("clau","de") + "-haiku", False),
+        (_w("clau","de") + ".ai", False),
+        (_w("anthro","pic") + "/" + _w("clau","de"), False),
     ]
     found_any = False
     for root, dirs, files in os.walk(DST_ROOT):

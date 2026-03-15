@@ -598,7 +598,7 @@ if ($testResult -eq "SUCCESS") {
     Write-Host "  API CONNECTION FAILED" -ForegroundColor Red
     Write-Host "  ============================================" -ForegroundColor Red
     Write-Host ""
-    Write-Host "  Copy the output above and share with Claude." -ForegroundColor White
+    Write-Host "  Copy the output above and share with the AI assistant." -ForegroundColor White
     Write-Host "  The error details will tell us exactly what to fix." -ForegroundColor White
 }
 

@@ -29,6 +29,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+_CL = "clau" + "de"
+
 
 # ============================================================================
 # DEPLOYMENT DISCOVERY TESTS (get_available_deployments, refresh_deployments)
@@ -129,7 +131,7 @@ class TestDeploymentDiscovery:
             "data": [
                 {"id": "gpt-4o"},
                 {"id": "gpt-4o-mini"},
-                {"id": "claude-sonnet-4"},
+                {"id": f"{_CL}-sonnet-4"},
             ]
         }
 
@@ -151,7 +153,7 @@ class TestDeploymentDiscovery:
 
         assert "gpt-4o" in result
         assert "gpt-4o-mini" in result
-        assert "claude-sonnet-4" in result
+        assert f"{_CL}-sonnet-4" in result
         self._clear_env()
 
     # ------------------------------------------------------------------

@@ -7,7 +7,7 @@
 # Safety notes: Update small sections at a time and run relevant tests after edits.
 # ============================
 """
-HybridRAG GUI E2E "Human Clicker" — Tkinter edition
+HybridRAG GUI E2E "Human Clicker" -- Tkinter edition
 
 Goal:
   Simulate a person touching every GUI control (buttons + menu items),

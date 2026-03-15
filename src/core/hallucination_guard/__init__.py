@@ -11,8 +11,8 @@ hallucination_guard -- Multi-Layer Hallucination Prevention for HybridRAG3
 ==========================================================================
 
 This package prevents online API mode (online LLM, GPT, etc.) from
-feeding hallucinated information to defense customers where inaccuracy
-can cost lives.
+feeding hallucinated information to mission-critical customers where
+inaccuracy can cost lives.
 
 ARCHITECTURE (6 files, each < 500 lines, AI-reviewable):
     guard_types.py        -- Constants, enums, data classes

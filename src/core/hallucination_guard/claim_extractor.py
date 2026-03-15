@@ -111,7 +111,7 @@ class ClaimExtractor:
         """
         protected = text
 
-        # Common abbreviations in defense/engineering context.
+        # Common abbreviations in technical/engineering context.
         # Each one has a period that could cause a false sentence split.
         abbreviations = [
             "Dr.", "Mr.", "Mrs.", "Ms.", "Prof.", "Sr.", "Jr.",

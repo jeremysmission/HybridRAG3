@@ -83,7 +83,7 @@ def run_self_test():
     # contains the critical keywords that force LLM compliance.
     print("\n[2/7] Prompt hardening...")
     h = PromptHardener.harden_system_prompt("You are helpful.")
-    assert "DEFENSE ENVIRONMENT" in h, "Missing DEFENSE ENVIRONMENT"
+    assert "CRITICAL ENVIRONMENT" in h, "Missing CRITICAL ENVIRONMENT"
     assert "INSUFFICIENT SOURCE DATA" in h, "Missing refusal phrase"
     print("  [PASS]")
 
