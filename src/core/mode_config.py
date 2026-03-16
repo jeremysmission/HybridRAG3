@@ -120,7 +120,7 @@ MODE_RUNTIME_DEFAULTS = {
             "reranker_top_n": 20,
         },
         "ollama": {
-            "model": "phi4-mini",
+            "model": "phi4:14b-q4_K_M",
             "base_url": "http://127.0.0.1:11434",
             "context_window": 4096,
             "num_predict": 384,

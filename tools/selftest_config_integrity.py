@@ -39,8 +39,7 @@ def main() -> int:
         import yaml
         with open(config_path, "r", encoding="utf-8") as f:
             raw = yaml.safe_load(f)
-        expected_keys = {"chunking", "embedding", "mode", "modes",
-                         "paths", "retrieval", "security"}
+        expected_keys = {"mode", "modes", "mode_store_version", "paths"}
         actual_keys = set(raw.keys())
         missing = expected_keys - actual_keys
         if missing:

@@ -191,6 +191,7 @@
 | Sprint 15 -- Retrieval Quality and QA Hardening | `DONE` | Fix QA audit findings, recalibrate retrieval scoring, close cosmetic and test gaps. | All CRITICAL/HIGH findings fixed, source path scores calibrated, PPTX multi-paragraph fix, demo mode isolation, export test coverage. QA cleared 2026-03-15: 847 passed, 6 skipped, 0 failed. |
 | Sprint 16 -- Reranker Revival and Retrieval Improvements | `DONE` | Replace retired sentence-transformers reranker with Ollama-based scorer, improve corrective retrieval. | Ollama reranker opt-in, retriever lazy-load wiring, corrective reformulation with stopword removal, query decomposition in streaming. QA cleared 2026-03-15: 847 passed, 6 skipped, 0 failed. |
 | Sprint 17 -- Live API Validation (GPT-4o) | `IN PROGRESS` | Leverage GPT-4o API access to run previously-blocked live online tests and close Sprint 5 demo blocker. | Demo preflight GO, real E2E query test, cost tracker validation, FastAPI /query live smoke. |
+| Sprint 19 -- Deep QA Hardening | `NEXT` | Fix critical/high findings from 2026-03-15 deep packet QA audit across core engine, API, GUI, and parsers. | 4 critical fixes verified, rate limiter hardened, GUI class splits done, silent exceptions replaced with logging. 871+ tests pass. |
 
 ## Sprint 1 Detail
 
@@ -2182,6 +2183,25 @@ Without a trace view, tuning remains guesswork.
 - IndexPanel: extracted _build_widgets (162 lines) to index_panel_build.py.
   Class dropped from 506 -> 375 code lines (under 500).
 
+### 17.10 Config Model Default Regression Fix -- DONE (2026-03-15, hotfix)
+
+- **Root cause**: commit 0863e61 changed the committed workstation defaults in
+  three places: `config/config.yaml` offline model flipped from
+  `phi4:14b-q4_K_M` to `phi4-mini`, `config/user_modes.yaml` started forcing
+  `active_profile: laptop_safe`, and `src/core/mode_config.py` kept
+  `phi4-mini` as the fallback runtime default
+- **Symptom**: workstation startup shows "Backend Health: Warning -- Ollama generate
+  probe failed (model 'phi4-mini'); server error 500" because phi4-mini is not
+  installed on workstation (laptop-only fallback model)
+- **Fix**: restored `config/config.yaml` line 11 to `model: phi4:14b-q4_K_M`
+- **Secondary fix**: `src/core/config.py` OllamaConfig dataclass default also
+  restored from `phi4-mini` to `phi4:14b-q4_K_M`, `config/user_modes.yaml`
+  no longer commits a machine-specific active profile, and
+  `src/core/mode_config.py` now matches the workstation default
+- **Verification**: `user_modes.yaml` laptop_safe profile still keeps phi4-mini
+  when selected intentionally, but the committed repo no longer forces it by
+  default on workstation startup.
+
 ### Exit Criteria
 
 - demo_day_sim --full --online returns GO verdict (BLOCKED: API key limit)
@@ -2322,6 +2342,172 @@ Without a trace view, tuning remains guesswork.
 - Flaky sleep-based tests migrated to time-machine or tagged slow
 - Mutation testing baseline documented for core modules
 - No regressions in existing 847-test suite
+
+## Sprint 19 Detail -- Deep QA Hardening
+
+### Focus
+
+- Fix all critical and high findings from the 2026-03-15 deep packet-level QA audit
+- Audit covered 226 source files across core engine, API, security, GUI, parsers, scripts
+- 4 critical bugs, 5 high issues, 14 medium issues identified
+- Prioritized by blast radius: crash/security fixes first, then resource leaks,
+  then maintainability
+
+### Planned Slice Order
+
+1. `19.1 -- Embedder numpy import crash` -- `NEXT`
+2. `19.2 -- Reranker cache thread safety` -- `NEXT`
+3. `19.3 -- Vector store memmap handle leak` -- `NEXT`
+4. `19.4 -- Source path search SQL hardening` -- `NEXT`
+5. `19.5 -- Rate limiter memory leak and proxy awareness` -- `NEXT`
+6. `19.6 -- GUI class size splits (api_admin_tab, tuning_tab_runtime, data_panel)` -- `NEXT`
+7. `19.7 -- Silent exception logging sweep` -- `NEXT`
+8. `19.8 -- SQLite context manager cleanup` -- `NEXT`
+9. `19.9 -- Embedding model mismatch guard` -- `NEXT`
+10. `19.10 -- Parser robustness (TAR leak, XLSX cap, mbox warning)` -- `NEXT`
+11. `19.11 -- Response sanitizer fallback` -- `NEXT`
+12. `19.12 -- Auth audit event persistence` -- `NEXT`
+
+### 19.1 Embedder numpy import crash
+
+- **Severity**: CRITICAL -- runtime NameError
+- **File**: `src/core/embedder.py:220`
+- **Issue**: `embed_batch()` references `np.ndarray` and `np.zeros()` but numpy is
+  only imported inside `__init__` and `_detect_dimension()`, not at module scope
+- **Impact**: any call to `embed_batch()` crashes with NameError
+- **Fix**: add `import numpy as np` at module top (around line 48)
+
+### 19.2 Reranker cache thread safety
+
+- **Severity**: CRITICAL -- race condition
+- **File**: `src/core/retriever.py:88-112`
+- **Issue**: `_reranker_available_cache` and `_reranker_available_ts` are global
+  variables written by multiple threads without a lock (TOCTOU race)
+- **Impact**: concurrent GUI queries can cause stale cache reads, duplicate Ollama
+  health checks, and cache incoherence
+- **Fix**: add module-level `threading.Lock()`, wrap cache read/write in `with` block
+
+### 19.3 Vector store memmap handle leak
+
+- **Severity**: CRITICAL -- resource leak (Windows-specific)
+- **File**: `src/core/vector_store.py:221-230`
+- **Issue**: `read_block()` creates numpy memmap, does `del mm` but never closes the
+  underlying mmap handle. On Windows, memmap holds exclusive file locks.
+- **Impact**: after ~1000 searches, OS file handle exhaustion causes crash
+- **Fix**: explicit `mm._mmap.close()` in finally block, or use raw mmap context manager
+
+### 19.4 Source path search SQL hardening
+
+- **Severity**: CRITICAL -- SQL injection vector
+- **File**: `src/core/vector_store.py:707-767`
+- **Issue**: `source_path_search` builds WHERE clause via f-string from tokenized user
+  input. Although LIKE values are parameterized, the clause structure itself is
+  dynamically constructed.
+- **Impact**: crafted queries with SQL metacharacters could bypass LIKE parameterization
+- **Fix**: verify end-to-end parameterization, add explicit input sanitization for
+  FTS5 special characters, add test with SQL injection payloads
+
+### 19.5 Rate limiter memory leak and proxy awareness
+
+- **Severity**: HIGH -- memory leak + DoS in shared deployment
+- **File**: `src/api/routes.py:160-195`
+- **Issue**: `_RATE_STATE` dict keyed on `(host, scope)` never evicts old entries.
+  Behind reverse proxy, all users share one rate bucket (proxy IP), allowing one user
+  to exhaust limits for everyone.
+- **Impact**: unbounded memory growth over long server lifetime; unfair rate limiting
+  in proxy environments
+- **Fix**: add LRU eviction or periodic cleanup of stale buckets; optionally support
+  X-Forwarded-For when trusted proxy is configured; document as best-effort local limit
+
+### 19.6 GUI class size splits
+
+- **Severity**: HIGH -- maintainability, violates 500-line class constraint
+- **Files**:
+  - `src/gui/panels/api_admin_tab.py` -- 2,041 code lines (4x limit)
+  - `src/gui/panels/tuning_tab_runtime.py` -- 1,556 code lines (3x limit)
+  - `src/gui/panels/data_panel.py` -- 1,067 code lines (2x limit)
+- **Fix**: split api_admin_tab into `data_paths_panel.py`, `model_selection_panel.py`,
+  `api_admin_tab.py` (coordinator). Extract tuning_tab_runtime into
+  `_tuning_hardware.py`, `_tuning_ui_builder.py`, `_tuning_logic.py`. Extract
+  data_panel into `_drive_browser.py`, `_transfer_progress.py`, `_transfer_controls.py`.
+- **Pattern**: follow existing query_panel + query_panel_*_runtime.py extraction pattern
+
+### 19.7 Silent exception logging sweep
+
+- **Severity**: MEDIUM -- observability gap
+- **Files**:
+  - `src/core/vector_store.py:678-689` -- fts_search bare `except Exception: return []`
+  - `src/core/retriever.py:768` -- _augment_with_adjacent_chunks bare except
+  - `src/api/auth_audit.py:114-130` -- auth events silently dropped
+  - `scripts/_model_meta.py:481` -- `except Exception: return 7`
+  - `src/parsers/archive_parser.py:207-208` -- bare except increments counter
+- **Fix**: replace bare `except Exception` with specific exception types + `logger.warning()`
+  in all cases. Never silently drop auth/security events.
+
+### 19.8 SQLite context manager cleanup
+
+- **Severity**: MEDIUM -- resource leak under exceptions
+- **Files**:
+  - `src/core/cost_tracker.py:273-317` -- `get_cumulative_summary()` opens connection
+    without context manager, leak if execute() throws
+  - `src/api/routes.py:406-418` -- index run retrieval missing `con.close()` in
+    success path
+- **Fix**: wrap all SQLite connections in `with sqlite3.connect(...) as conn:` or
+  use try/finally with explicit close
+
+### 19.9 Embedding model mismatch guard
+
+- **Severity**: MEDIUM -- silent wrong results
+- **File**: `src/core/vector_store.py:301-304`
+- **Issue**: when stored embedding model differs from configured model, code logs
+  WARNING but continues. Dot-product on mismatched vector spaces returns garbage.
+- **Fix**: raise `ValueError` with message to re-index, or at minimum surface the
+  warning in GUI status bar. User must explicitly acknowledge mismatch before proceeding.
+
+### 19.10 Parser robustness
+
+- **Severity**: MEDIUM -- resource leak + silent data loss
+- **Files**:
+  - `src/parsers/archive_parser.py:201-205` -- TAR `extractfile()` stream opened but
+    not closed when `src is None`
+  - `src/parsers/office_xlsx_parser.py:82-114` -- no row cap, 1GB spreadsheet loads
+    all values into memory (OOM on toaster)
+  - `src/parsers/mbox_parser.py:45-70` -- silent truncation at 200 messages with no
+    log WARNING. Users lose 99.6% of a 50K-message archive with no indication.
+- **Fix**: add `if src:` guard for TAR streams; add 100K row cap for XLSX with
+  logger.warning on truncation; log WARNING before mbox truncation and raise cap
+  to 1000 or make configurable
+
+### 19.11 Response sanitizer fallback
+
+- **Severity**: LOW -- injection pass-through edge case
+- **File**: `src/security/response_sanitizer.py:77-78`
+- **Issue**: if sanitization removes ALL lines from a response, fallback returns
+  the original (potentially injected) text
+- **Fix**: return `"[Response could not be verified]"` instead of original text when
+  sanitization produces empty output
+
+### 19.12 Auth audit event persistence
+
+- **Severity**: MEDIUM -- security audit gap
+- **File**: `src/api/auth_audit.py:114-130`
+- **Issue**: `record_auth_event()` silently returns on any import/state error,
+  dropping security events from the audit trail
+- **Fix**: log failures at WARNING level; optionally write to fallback file-based
+  audit log when in-memory tracker is unavailable
+
+### Exit Criteria
+
+- All 4 critical findings (19.1-19.4) fixed and verified with targeted tests
+- Rate limiter includes eviction and proxy documentation (19.5)
+- All 3 oversized GUI files split to under 500 code lines (19.6)
+- Zero bare `except Exception: pass/return` patterns in core + API + parsers (19.7)
+- All SQLite connections use context managers or try/finally (19.8)
+- Embedding model mismatch raises or surfaces warning (19.9)
+- Parser truncation/caps are logged (19.10)
+- Response sanitizer never returns unsanitized content (19.11)
+- Auth events never silently dropped (19.12)
+- Regression: 871+ tests pass, 0 fail
 
 ## Watchlist
 

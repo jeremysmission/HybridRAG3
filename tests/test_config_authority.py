@@ -70,6 +70,55 @@ def test_load_config_without_primary_does_not_fallback_to_legacy_authorities(tmp
 
     assert config.retrieval.top_k == 4
     assert abs(config.retrieval.min_score - 0.10) < 1e-9
+    assert config.ollama.model == "phi4:14b-q4_K_M"
+
+
+def test_blank_active_profile_does_not_override_primary_offline_model(tmp_path):
+    cfg_dir = tmp_path / "config"
+    _write_yaml(
+        cfg_dir / "config.yaml",
+        {
+            "mode": "offline",
+            "modes": {
+                "offline": {
+                    "retrieval": {"top_k": 4, "min_score": 0.1},
+                    "ollama": {"model": "phi4:14b-q4_K_M"},
+                    "query": {"grounding_bias": 8, "allow_open_knowledge": True},
+                },
+            },
+        },
+    )
+    _write_yaml(
+        cfg_dir / "user_modes.yaml",
+        {
+            "active_profile": "",
+            "profiles": {
+                "laptop_safe": {
+                    "label": "Laptop Safe",
+                    "notes": "Conservative laptop profile",
+                    "values": {
+                        "modes": {
+                            "offline": {
+                                "ollama": {"model": "phi4-mini"},
+                            },
+                        },
+                    },
+                    "checked": {
+                        "modes": {
+                            "offline": {
+                                "ollama": {"model": True},
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    )
+
+    config = load_config(str(tmp_path))
+
+    assert config.active_profile == ""
+    assert config.ollama.model == "phi4:14b-q4_K_M"
 
 
 def test_save_config_field_routes_runtime_sections_into_canonical_mode_paths(tmp_path):

@@ -1,4 +1,4 @@
-active_profile: laptop_safe
+active_profile: ""
 profiles:
   laptop_safe:
     label: Laptop Safe
