@@ -18,12 +18,13 @@
 # ===================================================================
 
 import sys
-import time
 import threading
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import time_machine
 np = pytest.importorskip("numpy")
 
 # -- sys.path setup --
@@ -162,20 +163,21 @@ def test_different_query_cache_miss():
 
 def test_ttl_expiration():
     """Entries older than ttl_seconds should not be returned."""
-    cache = _make_cache(ttl_seconds=1)
-    emb = _random_embedding(seed=30)
-    result = _make_result("will expire")
+    with time_machine.travel(datetime(2026, 1, 1), tick=False) as traveller:
+        cache = _make_cache(ttl_seconds=1)
+        emb = _random_embedding(seed=30)
+        result = _make_result("will expire")
 
-    cache.put("test query", emb, result)
+        cache.put("test query", emb, result)
 
-    # Immediate lookup should hit
-    assert cache.get("test query", emb) is not None
+        # Immediate lookup should hit
+        assert cache.get("test query", emb) is not None
 
-    # Wait for TTL to expire
-    time.sleep(1.1)
+        # Advance past TTL expiry (1.1 seconds)
+        traveller.shift(timedelta(seconds=1.1))
 
-    # Should now be a miss
-    assert cache.get("test query", emb) is None
+        # Should now be a miss
+        assert cache.get("test query", emb) is None
 
 
 # ============================================================================
@@ -376,14 +378,16 @@ def test_hit_count_increments():
 
 def test_stats_oldest_entry_age():
     """oldest_entry_age should reflect actual age of oldest entry."""
-    cache = _make_cache()
-    emb = _random_embedding(seed=120)
-    cache.put("old query", emb, _make_result())
+    with time_machine.travel(datetime(2026, 1, 1), tick=False) as traveller:
+        cache = _make_cache()
+        emb = _random_embedding(seed=120)
+        cache.put("old query", emb, _make_result())
 
-    time.sleep(0.5)
+        # Advance 0.5 seconds
+        traveller.shift(timedelta(seconds=0.5))
 
-    stats = cache.stats()
-    assert stats["oldest_entry_age"] >= 0.4
+        stats = cache.stats()
+        assert stats["oldest_entry_age"] >= 0.4
 
 
 # ============================================================================
@@ -452,26 +456,28 @@ def test_invalidate_empty_cache():
 
 def test_lru_evicts_by_access_not_insertion():
     """Eviction should be based on last_accessed, not timestamp."""
-    cache = _make_cache(max_entries=2)
+    with time_machine.travel(datetime(2026, 1, 1), tick=False) as traveller:
+        cache = _make_cache(max_entries=2)
 
-    emb_old = _random_embedding(seed=170)
-    emb_new = _random_embedding(seed=171)
-    emb_newest = _random_embedding(seed=172)
+        emb_old = _random_embedding(seed=170)
+        emb_new = _random_embedding(seed=171)
+        emb_newest = _random_embedding(seed=172)
 
-    cache.put("old query", emb_old, _make_result("old"))
-    time.sleep(0.05)
-    cache.put("new query", emb_new, _make_result("new"))
+        cache.put("old query", emb_old, _make_result("old"))
+        # Advance time so entries get different timestamps
+        traveller.shift(timedelta(milliseconds=50))
+        cache.put("new query", emb_new, _make_result("new"))
 
-    # Access old query to refresh its last_accessed
-    cache.get("old query", emb_old)
+        # Access old query to refresh its last_accessed
+        cache.get("old query", emb_old)
 
-    # Insert newest -- should evict "new query" (least recently accessed)
-    cache.put("newest query", emb_newest, _make_result("newest"))
+        # Insert newest -- should evict "new query" (least recently accessed)
+        cache.put("newest query", emb_newest, _make_result("newest"))
 
-    # old query should survive (was accessed most recently)
-    assert cache.get("old query", emb_old) is not None
-    # new query should be evicted
-    assert cache.get("new query", emb_new) is None
+        # old query should survive (was accessed most recently)
+        assert cache.get("old query", emb_old) is not None
+        # new query should be evicted
+        assert cache.get("new query", emb_new) is None
 
 
 # ============================================================================
@@ -555,7 +561,6 @@ def test_concurrent_invalidation():
         try:
             for _ in range(5):
                 cache.invalidate()
-                time.sleep(0.01)
         except Exception as e:
             errors.append((-1, str(e)))
 

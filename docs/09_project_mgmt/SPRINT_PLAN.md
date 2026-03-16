@@ -191,7 +191,8 @@
 | Sprint 15 -- Retrieval Quality and QA Hardening | `DONE` | Fix QA audit findings, recalibrate retrieval scoring, close cosmetic and test gaps. | All CRITICAL/HIGH findings fixed, source path scores calibrated, PPTX multi-paragraph fix, demo mode isolation, export test coverage. QA cleared 2026-03-15: 847 passed, 6 skipped, 0 failed. |
 | Sprint 16 -- Reranker Revival and Retrieval Improvements | `DONE` | Replace retired sentence-transformers reranker with Ollama-based scorer, improve corrective retrieval. | Ollama reranker opt-in, retriever lazy-load wiring, corrective reformulation with stopword removal, query decomposition in streaming. QA cleared 2026-03-15: 847 passed, 6 skipped, 0 failed. |
 | Sprint 17 -- Live API Validation (GPT-4o) | `IN PROGRESS` | Leverage GPT-4o API access to run previously-blocked live online tests and close Sprint 5 demo blocker. | Demo preflight GO, real E2E query test, cost tracker validation, FastAPI /query live smoke. |
-| Sprint 19 -- Deep QA Hardening | `NEXT` | Fix critical/high findings from 2026-03-15 deep packet QA audit across core engine, API, GUI, and parsers. | 4 critical fixes verified, rate limiter hardened, GUI class splits done, silent exceptions replaced with logging. 871+ tests pass. |
+| Sprint 18 -- DPI Audit Hardening + Test Modernization | `DONE` | Close remaining DPI audit findings, add property-based and RRF tests, stabilize flaky tests with time-machine. | 18.1-18.10 done. 18.11-18.12 LATER (BEAST). 871+ tests pass. |
+| Sprint 19 -- Deep QA Hardening | `DONE` | Fix critical/high findings from 2026-03-15 deep packet QA audit across core engine, API, GUI, and parsers. | 4 critical fixes verified, rate limiter hardened, GUI class splits done, silent exceptions replaced with logging. 871+ tests pass. |
 
 ## Sprint 1 Detail
 
@@ -2224,11 +2225,11 @@ Without a trace view, tuning remains guesswork.
 
 1. `18.1 -- contextlib.suppress teardown cleanup` -- `DONE`
 2. `18.2 -- Reranker NDAA compliance note` -- `DONE`
-3. `18.3 -- Test Tooling Bootstrap` -- `IN PROGRESS`
-4. `18.4 -- Property-Based Chunker Tests (Hypothesis)` -- `IN PROGRESS`
-5. `18.5 -- Hybrid Search RRF Validation` -- `IN PROGRESS`
-6. `18.6 -- Parser Fuzz Tests (Hypothesis)` -- `PARTIAL` (33 edge-case tests pass, Hypothesis deferred -- not installed)
-7. `18.7 -- Flaky Test Stabilization (time-machine)` -- `NEXT`
+3. `18.3 -- Test Tooling Bootstrap` -- `DONE` (hypothesis 6.151.9, time-machine 3.2.0 installed; mutmut deferred to BEAST)
+4. `18.4 -- Property-Based Chunker Tests (Hypothesis)` -- `DONE` (7 tests pass in 6s)
+5. `18.5 -- Hybrid Search RRF Validation` -- `DONE` (26 tests pass)
+6. `18.6 -- Parser Fuzz Tests (Hypothesis)` -- `DONE` (33 edge-case tests pass in 71s)
+7. `18.7 -- Flaky Test Stabilization (time-machine)` -- `DONE` (test_query_cache 2s->0.6s, test_runtime_limiter deterministic)
 8. `18.8 -- Stress Test Slow Tagging` -- `DONE`
 9. `18.9 -- Mutation Testing Baseline (mutmut)` -- `NEXT`
 10. `18.10 -- PS1 Line Ending Normalization` -- `DONE` (.gitattributes created with *.ps1 eol=crlf)
