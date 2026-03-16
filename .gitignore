@@ -4,6 +4,7 @@
 
 # Python bytecode
 __pycache__/
+.hypothesis/
 *.py[cod]
 *.pyo
 *.pyc
