@@ -8,7 +8,7 @@ modes:
       reranker_enabled: false
       reranker_top_n: 20
     ollama:
-      model: phi4-mini
+      model: phi4:14b-q4_K_M
       base_url: http://localhost:11434
       context_window: 4096
       num_predict: 384
