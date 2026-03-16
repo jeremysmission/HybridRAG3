@@ -1128,7 +1128,7 @@ def test_13_profile_dropdown_calls_switch():
 
     with patch("src.gui.panels.tuning_tab_runtime.subprocess.run") as mock_run, \
          patch("src.core.config.load_config", return_value=new_config), \
-         patch("src.gui.panels.tuning_tab_runtime.messagebox.showwarning"):
+         patch("src.gui.panels.tuning_tab_action_runtime.messagebox.showwarning"):
         mock_run.return_value = MagicMock(returncode=0, stdout="Applied", stderr="")
         app_ref = MagicMock()
         view = SettingsView(root, config=config, app_ref=app_ref)
