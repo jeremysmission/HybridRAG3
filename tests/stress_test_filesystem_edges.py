@@ -66,6 +66,8 @@ from src.tools.bulk_transfer_v2 import (
     _ALWAYS_SKIP,
 )
 
+pytestmark = pytest.mark.slow
+
 
 # ============================================================================
 # Helpers

@@ -1,0 +1,28 @@
+# Force CRLF line endings for PowerShell scripts (Windows requirement)
+*.ps1 eol=crlf
+
+# Force LF for Python and other cross-platform files
+*.py eol=lf
+*.md eol=lf
+*.yaml eol=lf
+*.yml eol=lf
+*.json eol=lf
+*.toml eol=lf
+*.cfg eol=lf
+*.ini eol=lf
+*.txt eol=lf
+*.sh eol=lf
+
+# Binary files -- no line-ending conversion
+*.xlsx binary
+*.docx binary
+*.pptx binary
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.db binary
+*.npy binary

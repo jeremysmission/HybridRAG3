@@ -284,15 +284,7 @@ Write-Host "  PYTHONPATH             = $env:PYTHONPATH"
 Write-Host ""
 
 # Quick config check (non-fatal if it fails)
-python -c "
-try:
-    from src.core.config import load_config
-    c = load_config('.')
-    print('Config DB:', c.paths.database)
-    print('Config embeddings cache:', c.paths.embeddings_cache)
-except Exception as e:
-    print('Note: config check skipped:', type(e).__name__ + ':', e)
-"
+python scripts/_startup_checks.py paths
 
 # ---- 10) FRIENDLY COMMANDS -------------------------------------------------
 
@@ -333,7 +325,7 @@ function rag-diag {
 function rag-status {
     Write-Host ""
     Write-Host "Python:" -ForegroundColor Cyan
-    python -c "import sys; print(sys.executable)"
+    Write-Host "  $((Get-Command python).Source)"
 
     Write-Host ""
     Write-Host "Network lockdown:" -ForegroundColor Cyan
@@ -343,24 +335,7 @@ function rag-status {
 
     Write-Host ""
     Write-Host "DB + memmap:" -ForegroundColor Cyan
-    python -c "
-import os, sqlite3
-db = os.path.join(os.getenv('HYBRIDRAG_DATA_DIR', ''), 'hybridrag.sqlite3')
-if not os.path.exists(db):
-    print('DB not found at:', db)
-    print('Run rag-index first.')
-else:
-    con = sqlite3.connect(db)
-    try:
-        count = con.execute('SELECT COUNT(*) FROM chunks').fetchone()[0]
-        sources = con.execute('SELECT COUNT(DISTINCT source_path) FROM chunks').fetchone()[0]
-        print(f'DB: {db}')
-        print(f'Chunks: {count}')
-        print(f'Source files: {sources}')
-    except Exception as e:
-        print('DB exists but chunks table missing:', e)
-    con.close()
-"
+    python "$PROJECT_ROOT\scripts\_rag_status_db.py"
 }
 
 function rag-gui {
@@ -444,17 +419,7 @@ if ($_failCount -eq 0) {
 # ---- 12) SHOW CURRENT MODE -------------------------------------------------
 Write-Host ""
 Write-Host "Current mode:" -ForegroundColor Cyan
-python -c "
-try:
-    from src.core.config import load_config
-    c = load_config('.')
-    mode = getattr(c, 'mode', 'unknown')
-    model = getattr(c.api, 'model', 'unknown') if mode == 'online' else getattr(c.ollama, 'model', 'unknown')
-    print(f'  Mode:  {mode}')
-    print(f'  Model: {model}')
-except Exception as e:
-    print(f'  Could not read config: {e}')
-"
+python scripts/_startup_checks.py mode
 
 Write-StartupLog 'Startup complete'
 

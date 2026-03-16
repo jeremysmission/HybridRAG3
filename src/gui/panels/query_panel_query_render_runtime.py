@@ -166,6 +166,11 @@ def _finish_stream(self, result):
     # Record cost event for PM dashboard
     self._emit_cost_event(result)
 
+    # Store result for report export (PPT/Excel) -- streaming path
+    query_text = self.question_entry.get().strip()
+    if query_text and query_text != "Type your question here...":
+        self.record_result(query_text, result)
+
 def _display_result(self, result):
     """Display query result in the UI (called on main thread)."""
     try:
@@ -248,6 +253,11 @@ def _display_result_inner(self, result):
 
     # Record cost event for PM dashboard
     self._emit_cost_event(result)
+
+    # Store result for report export (PPT/Excel)
+    query_text = self.question_entry.get().strip()
+    if query_text and query_text != "Type your question here...":
+        self.record_result(query_text, result)
 
 def _show_error(self, error_msg):
     """Display an error message in the answer area.

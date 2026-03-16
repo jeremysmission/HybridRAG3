@@ -84,7 +84,32 @@ from .query_trace import build_retrieval_trace, hit_to_debug_dict
 from .source_quality import ensure_source_quality_map
 
 logger = logging.getLogger(__name__)
-RERANKER_AVAILABLE = False
+
+_reranker_available_cache: bool | None = None
+_reranker_available_ts: float = 0.0
+_RERANKER_CHECK_TTL = 30.0  # seconds between Ollama probes
+
+
+def is_reranker_available(config) -> bool:
+    """Check if the Ollama reranker backend is reachable (cached 30s)."""
+    global _reranker_available_cache, _reranker_available_ts
+    now = time.monotonic()
+    if _reranker_available_cache is not None and (now - _reranker_available_ts) < _RERANKER_CHECK_TTL:
+        return _reranker_available_cache
+
+    import httpx as _httpx
+    ollama_cfg = getattr(config, "ollama", None)
+    base_url = getattr(ollama_cfg, "base_url", "http://127.0.0.1:11434") if ollama_cfg else "http://127.0.0.1:11434"
+    try:
+        with _httpx.Client(timeout=3, proxy=None, trust_env=False) as client:
+            resp = client.get(base_url, timeout=3)
+            available = resp.status_code == 200
+    except Exception:
+        available = False
+
+    _reranker_available_cache = available
+    _reranker_available_ts = now
+    return available
 
 
 def _retriever_resolve_settings(config) -> dict:
@@ -111,9 +136,6 @@ def _retriever_resolve_settings(config) -> dict:
         "reranker_enabled": bool(
             getattr(retrieval, "reranker_enabled", getattr(retrieval, "reranker", False))
         ) if retrieval else False,
-        "reranker_model_name": str(
-            getattr(retrieval, "reranker_model", "cross-encoder/ms-marco-MiniLM-L-6-v2")
-        ) if retrieval else "cross-encoder/ms-marco-MiniLM-L-6-v2",
         "reranker_top_n": int(getattr(retrieval, "reranker_top_n", 20) or 20) if retrieval else 20,
     }
 
@@ -248,15 +270,18 @@ class Retriever:
         self.hybrid_search = settings["hybrid_search"]
         self.rrf_k = settings["rrf_k"]
         self.reranker_enabled = settings["reranker_enabled"]
-        self.reranker_model_name = settings["reranker_model_name"]
         self.reranker_top_n = settings["reranker_top_n"]
 
-        if self.reranker_enabled and not RERANKER_AVAILABLE:
-            logger.warning(
-                "[WARN] reranker_enabled requested, but reranker backend is retired. "
-                "Running without reranker."
-            )
-            self.reranker_enabled = False
+        if self.reranker_enabled:
+            # Lazy-load on first enable -- _load_reranker checks Ollama health
+            if self._reranker is None:
+                self._reranker = self._load_reranker()
+            if self._reranker is None:
+                logger.warning(
+                    "[WARN] reranker_enabled but Ollama reranker unavailable. "
+                    "Running without reranker."
+                )
+                self.reranker_enabled = False
 
     def clear_runtime_state(self, warn: bool = False):
         """Purge query-time caches so a mode/profile switch starts clean."""
@@ -598,12 +623,15 @@ class Retriever:
         return hits
 
     def _load_reranker(self):
-        """Load the cross-encoder model. Retired dependency path is disabled."""
-        logger.warning(
-            "Reranker requested but sentence-transformers is retired; "
-            "running without reranker."
-        )
-        return None
+        """Load the Ollama-based reranker (replaces retired sentence-transformers)."""
+        from .ollama_reranker import load_ollama_reranker
+        reranker = load_ollama_reranker(self.config)
+        if reranker is None:
+            logger.warning(
+                "Reranker requested but Ollama unavailable; "
+                "running without reranker."
+            )
+        return reranker
 
     # ------------------------------------------------------------------
     # Context building -- format hits for the LLM prompt

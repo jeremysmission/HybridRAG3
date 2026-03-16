@@ -57,6 +57,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
 
+import pytest
+
+pytestmark = pytest.mark.slow
+
 
 # ============================================================================
 # Virtual Filesystem Generator

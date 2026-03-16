@@ -369,6 +369,18 @@ class QueryEngine(QueryEnginePromptMixin):
                 return result
 
             # ------------------------------------------------------------
+            # Step 1.7: Chunk relevance filter (CRAG decompose pattern)
+            # ------------------------------------------------------------
+            # Full CRAG decomposes retrieved documents to strip low-signal
+            # passages before they reach the LLM. We do a lightweight
+            # version: drop chunks where zero query terms appear in the
+            # text. This improves context signal density without an LLM
+            # call. Only applies when we have enough chunks to be
+            # selective (>= 3) and never drops all results.
+            search_results = _filter_low_relevance_chunks(
+                user_query, search_results)
+
+            # ------------------------------------------------------------
             # Step 2: Build context text
             # ------------------------------------------------------------
             # Combine the best matching chunks into a single text block
@@ -548,116 +560,21 @@ class QueryEngine(QueryEnginePromptMixin):
             return result
 
     # ------------------------------------------------------------------
-    # Corrective retrieval (CRAG pattern)
+    # Corrective retrieval (CRAG pattern) -- delegates to module-level
     # ------------------------------------------------------------------
 
     def _attempt_corrective_retrieval(self, user_query, initial_results):
-        """
-        CRAG pattern: if initial retrieval is low-confidence, reformulate
-        the query and retry once.
-
-        Opt-in via config.corrective_retrieval (default False).
-        Threshold via config.corrective_threshold (default 0.35).
-        Max 1 retry (2 retrieval rounds total).
-        """
-        if not getattr(self.config.retrieval, "corrective_retrieval", False):
-            return initial_results
-
-        threshold = getattr(self.config.retrieval, "corrective_threshold", 0.35)
-
-        # Check if results are good enough
-        if initial_results:
-            best_score = max(h.score for h in initial_results)
-            if best_score >= threshold:
-                return initial_results
-
-        # Reformulate and retry
-        reformulated = self._reformulate_for_retry(user_query)
-        if reformulated == user_query:
-            return initial_results
-
-        retry_results = self.retriever.search(reformulated)
-
-        if not retry_results:
-            return initial_results
-
-        # Merge: combine both result sets, deduplicate, keep best scores
-        return self._merge_search_results(initial_results, retry_results)
-
-    def _reformulate_for_retry(self, user_query):
-        """
-        Reformulate a query for corrective retry.
-
-        Strategies (no LLM needed):
-        1. Strip question patterns to get keyword-focused query
-        2. Expand acronyms if QueryExpander is available
-        3. Rearrange terms for different FTS5 matching
-        """
-
-        # Strip common question patterns
-        q = user_query.strip()
-        for pattern in [
-            r"^(?:what|how|where|when|why|which|who)\s+(?:is|are|does|do|did|was|were|can|could|would|should)\s+",
-            r"^(?:can you|could you|please)\s+(?:tell me|explain|describe|show)\s+",
-            r"^(?:tell me about|explain|describe)\s+",
-            r"\?$",
-        ]:
-            q = re.sub(pattern, "", q, flags=re.IGNORECASE).strip()
-
-        if not q or q == user_query:
-            return user_query
-
-        # If we have a query expander, use acronym expansion
-        expander = getattr(self, "_query_expander", None)
-        if expander and hasattr(expander, "expand_keywords"):
-            q = expander.expand_keywords(q)
-
-        return q if q != user_query else user_query
+        return _attempt_corrective_retrieval(
+            self.config, self.retriever, user_query, initial_results,
+            query_expander=getattr(self, "_query_expander", None),
+        )
 
     @staticmethod
     def _merge_search_results(results_a, results_b):
-        """
-        Merge two result sets. Deduplicate by (source_path, chunk_index),
-        keeping the higher score when both sets contain the same chunk.
-        """
-        seen = {}
-        for hit in (results_a or []):
-            key = (hit.source_path, hit.chunk_index)
-            if key not in seen or hit.score > seen[key].score:
-                seen[key] = hit
-
-        for hit in (results_b or []):
-            key = (hit.source_path, hit.chunk_index)
-            if key not in seen or hit.score > seen[key].score:
-                seen[key] = hit
-
-        merged = sorted(seen.values(), key=lambda h: h.score, reverse=True)
-        return merged
+        return _merge_search_results(results_a, results_b)
 
     def _multi_query_retrieve(self, sub_queries: list):
-        """
-        Retrieve for each sub-query and merge results.
-
-        Runs each atomic sub-query through the retriever, then combines
-        all results using score-based deduplication. Chunks appearing in
-        multiple sub-query results get their best score preserved.
-        """
-        all_results = []
-        for sq in sub_queries:
-            hits = self.retriever.search(sq)
-            all_results.extend(hits or [])
-
-        if not all_results:
-            return []
-
-        # Deduplicate: keep best score per (source_path, chunk_index)
-        seen = {}
-        for hit in all_results:
-            key = (hit.source_path, hit.chunk_index)
-            if key not in seen or hit.score > seen[key].score:
-                seen[key] = hit
-
-        return sorted(seen.values(), key=lambda h: h.score, reverse=True)
+        return _multi_query_retrieve(self.retriever, sub_queries)
 
     def query_stream(self, user_query: str) -> Generator[Dict[str, Any], None, None]:
         """
@@ -691,7 +608,13 @@ class QueryEngine(QueryEnginePromptMixin):
         try:
             # Phase 1: Retrieval (eager)
             yield {"phase": "searching"}
-            search_results = self.retriever.search(user_query)
+
+            # Step 1a: Query decomposition (multi-part detection)
+            sub_queries = _decompose_query(user_query)
+            if len(sub_queries) > 1:
+                search_results = self._multi_query_retrieve(sub_queries)
+            else:
+                search_results = self.retriever.search(user_query)
             retrieval_trace = getattr(self.retriever, "last_search_trace", None) or minimal_retrieval_trace(search_results)
 
             # Step 1.5: Corrective retrieval (CRAG pattern)
@@ -920,6 +843,22 @@ class QueryEngine(QueryEnginePromptMixin):
 # Query decomposition (module-level to keep QueryEngine under 500 lines)
 # ------------------------------------------------------------------
 
+_STOP_WORDS = frozenset({
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "shall",
+    "should", "may", "might", "must", "can", "could", "of", "in", "to",
+    "for", "with", "on", "at", "from", "by", "about", "as", "into",
+    "through", "during", "before", "after", "above", "below", "between",
+    "out", "off", "over", "under", "again", "further", "then", "once",
+    "here", "there", "when", "where", "why", "how", "all", "each",
+    "every", "both", "few", "more", "most", "other", "some", "such",
+    "no", "nor", "not", "only", "own", "same", "so", "than", "too",
+    "very", "just", "because", "but", "and", "or", "if", "while",
+    "that", "this", "these", "those", "it", "its", "my", "your",
+    "his", "her", "our", "their", "what", "which", "who", "whom",
+    "me", "him", "us", "them", "i", "you", "he", "she", "we", "they",
+})
+
 _QUERY_SPLIT_PATTERNS = [
     r'\band\b(?:\s+also\b)?',
     r'\bas well as\b',
@@ -928,6 +867,111 @@ _QUERY_SPLIT_PATTERNS = [
     r'\bplus\b',
     r';\s+',
 ]
+
+
+def _attempt_corrective_retrieval(config, retriever, user_query, initial_results,
+                                  query_expander=None):
+    """CRAG pattern: if initial retrieval is low-confidence, reformulate and retry.
+
+    Opt-in via config.retrieval.corrective_retrieval (default False).
+    Threshold via config.retrieval.corrective_threshold (default 0.35).
+    Max 1 retry (2 retrieval rounds total).
+    """
+    if not getattr(config.retrieval, "corrective_retrieval", False):
+        return initial_results
+
+    threshold = getattr(config.retrieval, "corrective_threshold", 0.35)
+
+    if initial_results:
+        best_score = max(h.score for h in initial_results)
+        if best_score >= threshold:
+            return initial_results
+
+    reformulated = _reformulate_for_retry(user_query, query_expander)
+    if reformulated == user_query:
+        return initial_results
+
+    retry_results = retriever.search(reformulated)
+    if not retry_results:
+        return initial_results
+
+    return _merge_search_results(initial_results, retry_results)
+
+
+def _reformulate_for_retry(user_query, query_expander=None):
+    """Reformulate a query for corrective retry.
+
+    Strategies (no LLM needed):
+    1. Strip question patterns to get keyword-focused query
+    2. Remove stopwords to isolate content terms
+    3. Put longer (more specific) terms first for FTS5
+    4. Expand acronyms if QueryExpander is available
+    """
+    q = user_query.strip()
+    for pattern in [
+        r"^(?:what|how|where|when|why|which|who)\s+(?:is|are|does|do|did|was|were|can|could|would|should)\s+",
+        r"^(?:can you|could you|please)\s+(?:tell me|explain|describe|show)\s+",
+        r"^(?:tell me about|explain|describe)\s+",
+        r"\?$",
+    ]:
+        q = re.sub(pattern, "", q, flags=re.IGNORECASE).strip()
+
+    if not q:
+        return user_query
+
+    words = re.findall(r"[A-Za-z0-9][\w\-]*", q)
+    content_words = [
+        w for w in words
+        if (w.isupper() or w.lower() not in _STOP_WORDS) and len(w) >= 2
+    ]
+
+    if content_words:
+        content_words.sort(key=len, reverse=True)
+        q = " ".join(content_words)
+
+    if q == user_query:
+        return user_query
+
+    if query_expander and hasattr(query_expander, "expand_keywords"):
+        q = query_expander.expand_keywords(q)
+
+    return q
+
+
+def _filter_low_relevance_chunks(user_query, search_results):
+    """CRAG-inspired chunk filter: drop chunks with zero query term overlap.
+
+    Lightweight heuristic (no LLM call):
+    - Extract content terms from the query (>= 3 chars, not stopwords)
+    - For each chunk, check if any term appears in the text
+    - Drop chunks with zero matches, but never drop all results
+    - Only filters when we have >= 3 chunks (don't filter sparse results)
+
+    This improves context signal density: the LLM sees fewer irrelevant
+    passages, reducing hallucination risk from low-quality context.
+    """
+    if len(search_results) < 3:
+        return search_results
+
+    terms = re.findall(r"[A-Za-z0-9]+", (user_query or "").lower())
+    content_terms = [
+        t for t in terms
+        if len(t) >= 3 and t not in _STOP_WORDS
+    ]
+    if not content_terms:
+        return search_results
+
+    filtered = []
+    for hit in search_results:
+        text_lower = (getattr(hit, "text", "") or "").lower()
+        if any(t in text_lower for t in content_terms):
+            filtered.append(hit)
+
+    # Never drop everything -- if filter removed all, return originals
+    if not filtered:
+        return search_results
+
+    return filtered
 
 
 def _decompose_query(user_query: str) -> list:
@@ -944,6 +988,37 @@ def _decompose_query(user_query: str) -> list:
         if len(parts) >= 2 and all(len(p) > 15 for p in parts):
             return parts
     return [user_query]
+
+
+def _merge_search_results(results_a, results_b):
+    """Merge two result sets. Deduplicate by (source_path, chunk_index),
+    keeping the higher score when both sets contain the same chunk."""
+    seen = {}
+    for hit in (results_a or []):
+        key = (hit.source_path, hit.chunk_index)
+        if key not in seen or hit.score > seen[key].score:
+            seen[key] = hit
+    for hit in (results_b or []):
+        key = (hit.source_path, hit.chunk_index)
+        if key not in seen or hit.score > seen[key].score:
+            seen[key] = hit
+    return sorted(seen.values(), key=lambda h: h.score, reverse=True)
+
+
+def _multi_query_retrieve(retriever, sub_queries: list):
+    """Retrieve for each sub-query and merge results with deduplication."""
+    all_results = []
+    for sq in sub_queries:
+        hits = retriever.search(sq)
+        all_results.extend(hits or [])
+    if not all_results:
+        return []
+    seen = {}
+    for hit in all_results:
+        key = (hit.source_path, hit.chunk_index)
+        if key not in seen or hit.score > seen[key].score:
+            seen[key] = hit
+    return sorted(seen.values(), key=lambda h: h.score, reverse=True)
 
 
 def _retrieval_access_denied(retrieval_trace: dict[str, Any] | None) -> bool:

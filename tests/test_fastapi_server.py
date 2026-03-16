@@ -20,6 +20,7 @@
 import os
 import sqlite3
 import sys
+import tempfile
 import time
 import threading
 import pytest
@@ -28,8 +29,8 @@ import pytest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # Set environment before any imports
-os.environ.setdefault("HYBRIDRAG_DATA_DIR", "D:\\RAG Indexed Data")
-os.environ.setdefault("HYBRIDRAG_INDEX_FOLDER", "D:\\RAG Source Data")
+os.environ.setdefault("HYBRIDRAG_DATA_DIR", os.path.join(tempfile.gettempdir(), "hybridrag_test_data"))
+os.environ.setdefault("HYBRIDRAG_INDEX_FOLDER", os.path.join(tempfile.gettempdir(), "hybridrag_test_source"))
 os.environ["HYBRIDRAG_DEPLOYMENT_MODE"] = "development"
 # RETIRED (Session 15): HF_HUB_OFFLINE, TRANSFORMERS_OFFLINE no longer needed
 # HuggingFace/torch removed. Embeddings served by Ollama.

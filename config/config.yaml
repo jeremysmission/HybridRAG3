@@ -1,5 +1,58 @@
 mode: offline
 modes:
+  offline:
+    retrieval:
+      top_k: 5
+      min_score: 0.1
+      hybrid_search: true
+      reranker_enabled: false
+      reranker_top_n: 20
+    ollama:
+      model: phi4-mini
+      base_url: http://localhost:11434
+      context_window: 4096
+      num_predict: 384
+      temperature: 0.1
+      top_p: 0.9
+      seed: 0
+      timeout_seconds: 180
+    query:
+      grounding_bias: 8
+      allow_open_knowledge: true
+    paths:
+      database: ''
+      embeddings_cache: ''
+      source_folder: ''
+      download_folder: ''
+      transfer_source_folder: ''
+    defaults:
+      top_k: 5
+      min_score: 0.1
+      hybrid_search: true
+      reranker_enabled: false
+      reranker_top_n: 20
+      context_window: 4096
+      num_predict: 384
+      temperature: 0.1
+      top_p: 0.9
+      seed: 0
+      timeout_seconds: 180
+      grounding_bias: 8
+      allow_open_knowledge: false
+    locks:
+      top_k: false
+      min_score: false
+      hybrid_search: false
+      reranker_enabled: false
+      reranker_top_n: false
+      context_window: false
+      num_predict: false
+      temperature: false
+      top_p: false
+      seed: false
+      timeout_seconds: false
+      grounding_bias: false
+      allow_open_knowledge: false
   online:
     retrieval:
       top_k: 10
@@ -21,7 +74,7 @@ modes:
       seed: 0
       timeout_seconds: 180
     query:
-      grounding_bias: 8
+      grounding_bias: 7
       allow_open_knowledge: true
     paths:
       database: ''
@@ -30,8 +83,8 @@ modes:
       download_folder: ''
       transfer_source_folder: ''
     defaults:
-      top_k: 4
-      min_score: 0.1
+      top_k: 6
+      min_score: 0.08
       hybrid_search: true
       reranker_enabled: false
       reranker_top_n: 20
@@ -43,7 +96,7 @@ modes:
       frequency_penalty: 0.0
       seed: 0
       timeout_seconds: 180
-      grounding_bias: 8
+      grounding_bias: 7
       allow_open_knowledge: true
     locks:
       top_k: false
@@ -61,59 +114,6 @@ modes:
       timeout_seconds: false
       grounding_bias: false
       allow_open_knowledge: false
-  offline:
-    retrieval:
-      top_k: 5
-      min_score: 0.1
-      hybrid_search: true
-      reranker_enabled: false
-      reranker_top_n: 20
-    ollama:
-      model: phi4-mini
-      base_url: http://localhost:11434
-      context_window: 4096
-      num_predict: 384
-      temperature: 0.1
-      top_p: 0.9
-      seed: 0
-      timeout_seconds: 180
-    query:
-      grounding_bias: 8
-      allow_open_knowledge: true
-    defaults:
-      top_k: 4
-      min_score: 0.1
-      hybrid_search: true
-      reranker_enabled: false
-      reranker_top_n: 20
-      context_window: 4096
-      num_predict: 384
-      temperature: 0.05
-      top_p: 0.9
-      seed: 0
-      timeout_seconds: 180
-      grounding_bias: 8
-      allow_open_knowledge: true
-    locks:
-      top_k: false
-      min_score: false
-      hybrid_search: false
-      reranker_enabled: false
-      reranker_top_n: false
-      context_window: false
-      num_predict: false
-      temperature: false
-      top_p: false
-      seed: false
-      timeout_seconds: false
-      grounding_bias: false
-      allow_open_knowledge: false
-    paths:
-      database: ''
-      embeddings_cache: ''
-      source_folder: ''
-      download_folder: ''
-      transfer_source_folder: ''
 mode_store_version: 2
 paths:
   database: ''

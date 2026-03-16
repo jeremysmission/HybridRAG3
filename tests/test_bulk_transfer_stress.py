@@ -54,6 +54,8 @@ from src.tools.bulk_transfer_v2 import (
 from src.tools.transfer_manifest import TransferManifest
 from src.tools.transfer_staging import StagingManager
 
+pytestmark = pytest.mark.slow
+
 
 # ============================================================================
 # Fixtures

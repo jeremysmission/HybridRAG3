@@ -51,6 +51,8 @@ from src.tools.bulk_transfer_v2 import (
     _can_read_file,
 )
 
+pytestmark = pytest.mark.slow
+
 # ---------------------------------------------------------------------------
 # Constants for the stress tests
 # ---------------------------------------------------------------------------

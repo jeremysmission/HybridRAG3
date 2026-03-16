@@ -106,6 +106,9 @@ class QueryPanel(tk.LabelFrame):
         self._open_knowledge_var = tk.BooleanVar(value=True)
         self._open_knowledge_hint = tk.StringVar(value=OPEN_KNOWLEDGE_HINTS[True])
 
+        # Query result history for report export
+        self._result_history = []
+
         # Public testing state -- poll these from harness/tools.
         # Event is the thread-safe completion signal; plain attrs are
         # convenience for assertions after the event fires.
@@ -378,6 +381,32 @@ class QueryPanel(tk.LabelFrame):
             lambda e: e.widget.config(wraplength=max(1, e.width - 4)),
         )
 
+        # -- Export buttons row --
+        export_row = tk.Frame(a_frame, bg=t["panel_bg"])
+        export_row.pack(fill=tk.X, pady=(6, 0))
+
+        self._export_excel_btn = tk.Button(
+            export_row, text="Export to Excel", font=FONT, width=14,
+            command=self._on_export_excel, bg=t["accent"],
+            fg=t["accent_fg"], relief=tk.FLAT, bd=0, padx=8, pady=4,
+            state=tk.DISABLED,
+        )
+        self._export_excel_btn.pack(side=tk.LEFT, padx=(0, 6))
+
+        self._export_pptx_btn = tk.Button(
+            export_row, text="Export to PowerPoint", font=FONT, width=18,
+            command=self._on_export_pptx, bg=t["accent"],
+            fg=t["accent_fg"], relief=tk.FLAT, bd=0, padx=8, pady=4,
+            state=tk.DISABLED,
+        )
+        self._export_pptx_btn.pack(side=tk.LEFT)
+
+        self._export_count_label = tk.Label(
+            export_row, text="", bg=t["panel_bg"], fg=t["gray"],
+            font=FONT_SMALL,
+        )
+        self._export_count_label.pack(side=tk.LEFT, padx=(12, 0))
+
         # -- Vector field overlay (animated, hidden until query starts) --
         self._overlay = VectorFieldOverlay(self.answer_text, theme=t)
 
@@ -456,6 +485,80 @@ class QueryPanel(tk.LabelFrame):
     # ----------------------------------------------------------------
 
     _EMBED_MODELS = {"nomic-embed-text", "all-minilm", "mxbai-embed"}
+
+    # ----------------------------------------------------------------
+    # REPORT EXPORT
+    # ----------------------------------------------------------------
+
+    def record_result(self, query_text, result):
+        """Store a query result for later export to PPT/Excel."""
+        from src.tools.report_generator import from_query_result
+        rec = from_query_result(
+            result,
+            query=query_text,
+            use_case=self.uc_var.get(),
+        )
+        self._result_history.append(rec)
+        count = len(self._result_history)
+        self._export_count_label.config(
+            text="{} result{} ready to export".format(
+                count, "s" if count != 1 else ""))
+        self._export_excel_btn.config(state=tk.NORMAL)
+        self._export_pptx_btn.config(state=tk.NORMAL)
+
+    def _on_export_excel(self):
+        """Export result history to Excel."""
+        if not self._result_history:
+            messagebox.showinfo("Export", "No query results to export yet.")
+            return
+        from tkinter import filedialog
+        from src.tools.report_generator import generate_excel_report
+        from datetime import datetime
+
+        path = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
+            initialfile="hybridrag_report_{}.xlsx".format(
+                datetime.now().strftime("%Y%m%d_%H%M%S")),
+        )
+        if not path:
+            return
+        try:
+            generate_excel_report(self._result_history, path)
+        except Exception as exc:
+            messagebox.showerror("Export Failed", str(exc))
+            return
+        messagebox.showinfo(
+            "Export Complete",
+            "Exported {} results to:\n{}".format(
+                len(self._result_history), path))
+
+    def _on_export_pptx(self):
+        """Export result history to PowerPoint."""
+        if not self._result_history:
+            messagebox.showinfo("Export", "No query results to export yet.")
+            return
+        from tkinter import filedialog
+        from src.tools.report_generator import generate_pptx_report
+        from datetime import datetime
+
+        path = filedialog.asksaveasfilename(
+            defaultextension=".pptx",
+            filetypes=[("PowerPoint files", "*.pptx"), ("All files", "*.*")],
+            initialfile="hybridrag_report_{}.pptx".format(
+                datetime.now().strftime("%Y%m%d_%H%M%S")),
+        )
+        if not path:
+            return
+        try:
+            generate_pptx_report(self._result_history, path)
+        except Exception as exc:
+            messagebox.showerror("Export Failed", str(exc))
+            return
+        messagebox.showinfo(
+            "Export Complete",
+            "Exported {} results to:\n{}".format(
+                len(self._result_history), path))
 
 
 # Bind extracted runtime/model/query methods onto QueryPanel.

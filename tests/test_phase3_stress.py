@@ -39,6 +39,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from tests.conftest import FakeConfig, FakeLLMResponse
 
+pytestmark = pytest.mark.slow
+
 
 # ============================================================================
 # SECTION 1: CHUNKER STRESS TESTS

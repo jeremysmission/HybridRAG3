@@ -80,6 +80,230 @@ def _env_positive_int(name: str, default: int) -> int:
     return max(1, int(default))
 
 
+# ------------------------------------------------------------------
+# Encryption key rewrap helpers (module-level to keep class under 500)
+# ------------------------------------------------------------------
+
+def _record_turn_impl(
+    con: sqlite3.Connection,
+    *,
+    thread_id: Optional[str],
+    question: str,
+    answer: str,
+    mode: str,
+    transport: str,
+    actor: str,
+    actor_source: str,
+    actor_role: str,
+    allowed_doc_tags: list[str],
+    document_policy_source: str,
+    status: str,
+    latency_ms: Optional[float],
+    chunks_used: int,
+    source_count: int,
+    source_paths: list[str],
+    sources: list[dict[str, Any]],
+    denied_hits: int,
+    error: Optional[str],
+) -> dict[str, Any]:
+    """Insert a turn row and update the parent thread. Returns metadata dict."""
+    question_text = _compact_text(question)
+    question_preview = _text_preview(question_text)
+    answer_text = str(answer or "")
+    answer_preview = _text_preview(answer_text, max_len=280) if answer_text else None
+    current = _now_iso()
+    effective_thread_id = str(thread_id or "").strip()
+    created_new = False
+
+    if effective_thread_id:
+        existing = con.execute(
+            "SELECT title, created_at, created_by_actor, created_by_source, created_by_role "
+            "FROM conversation_threads WHERE thread_id = ?",
+            (effective_thread_id,),
+        ).fetchone()
+        if existing is None:
+            raise KeyError("conversation_thread_not_found")
+        title = _restore_text(str(existing[0] or "")) or question_preview or "Conversation"
+    else:
+        effective_thread_id = uuid.uuid4().hex[:16]
+        title = question_preview or "Conversation"
+        created_new = True
+        con.execute(
+            "INSERT INTO conversation_threads "
+            "(thread_id, title, created_at, updated_at, "
+            "created_by_actor, created_by_source, created_by_role, "
+            "last_actor, last_actor_source, last_actor_role, "
+            "turn_count, last_question_preview, last_answer_preview, "
+            "last_mode, last_status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', NULL, '', '')",
+            (
+                effective_thread_id,
+                _protect_text(title),
+                current, current,
+                _protect_text(str(actor or "anonymous")),
+                _protect_text(str(actor_source or "anonymous")),
+                _protect_text(str(actor_role or "viewer")),
+                _protect_text(str(actor or "anonymous")),
+                _protect_text(str(actor_source or "anonymous")),
+                _protect_text(str(actor_role or "viewer")),
+            ),
+        )
+
+    turn_index = int(
+        con.execute(
+            "SELECT COALESCE(MAX(turn_index), 0) + 1 FROM conversation_turns WHERE thread_id = ?",
+            (effective_thread_id,),
+        ).fetchone()[0] or 1
+    )
+    con.execute(
+        "INSERT INTO conversation_turns "
+        "(thread_id, turn_index, created_at, completed_at, "
+        "question_text, question_preview, answer_text, answer_preview, "
+        "mode, transport, actor, actor_source, actor_role, "
+        "allowed_doc_tags_json, document_policy_source, status, "
+        "latency_ms, chunks_used, source_count, "
+        "source_paths_json, sources_json, denied_hits, error) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            effective_thread_id, turn_index, current, current,
+            _protect_text(question_text),
+            _protect_text(question_preview),
+            _protect_text(answer_text) if answer_text else None,
+            _protect_text(answer_preview) if answer_preview else None,
+            _protect_text(str(mode or "")),
+            _protect_text(str(transport or "sync")),
+            _protect_text(str(actor or "anonymous")),
+            _protect_text(str(actor_source or "anonymous")),
+            _protect_text(str(actor_role or "viewer")),
+            _protect_text(json.dumps(list(allowed_doc_tags or []))),
+            _protect_text(str(document_policy_source or "")),
+            str(status or "completed"),
+            None if latency_ms is None else round(float(latency_ms), 2),
+            max(0, int(chunks_used or 0)),
+            max(0, int(source_count or 0)),
+            _protect_text(json.dumps(list(source_paths or []))),
+            _protect_text(json.dumps(list(sources or []))),
+            max(0, int(denied_hits or 0)),
+            _protect_text(error) if error else None,
+        ),
+    )
+    con.execute(
+        "UPDATE conversation_threads "
+        "SET title = ?, updated_at = ?, last_actor = ?, last_actor_source = ?, "
+        "last_actor_role = ?, turn_count = ?, last_question_preview = ?, "
+        "last_answer_preview = ?, last_mode = ?, last_status = ? "
+        "WHERE thread_id = ?",
+        (
+            _protect_text(title), current,
+            _protect_text(str(actor or "anonymous")),
+            _protect_text(str(actor_source or "anonymous")),
+            _protect_text(str(actor_role or "viewer")),
+            turn_index,
+            _protect_text(question_preview),
+            _protect_text(answer_preview) if answer_preview else None,
+            _protect_text(str(mode or "")),
+            str(status or "completed"),
+            effective_thread_id,
+        ),
+    )
+    return {
+        "thread_id": effective_thread_id,
+        "turn_index": turn_index,
+        "thread_created": created_new,
+    }
+
+
+def _rewrap_thread_rows(con: sqlite3.Connection) -> None:
+    """Rewrap all thread-level protected text fields to the current key."""
+    rows = con.execute(
+        """
+        SELECT thread_id, title, created_by_actor, created_by_source,
+               created_by_role, last_actor, last_actor_source, last_actor_role,
+               last_question_preview, last_answer_preview, last_mode
+        FROM conversation_threads
+        """
+    ).fetchall()
+    for row in rows:
+        con.execute(
+            """
+            UPDATE conversation_threads
+            SET title = ?, created_by_actor = ?, created_by_source = ?,
+                created_by_role = ?, last_actor = ?, last_actor_source = ?,
+                last_actor_role = ?, last_question_preview = ?,
+                last_answer_preview = ?, last_mode = ?
+            WHERE thread_id = ?
+            """,
+            (
+                _rewrap_text(str(row["title"] or "")) or "",
+                _rewrap_text(str(row["created_by_actor"] or "")) or "",
+                _rewrap_text(str(row["created_by_source"] or "")) or "",
+                _rewrap_text(str(row["created_by_role"] or "")) or "",
+                _rewrap_text(str(row["last_actor"] or "")) or "",
+                _rewrap_text(str(row["last_actor_source"] or "")) or "",
+                _rewrap_text(str(row["last_actor_role"] or "")) or "",
+                _rewrap_text(str(row["last_question_preview"] or "")) or "",
+                _rewrap_text(
+                    None if row["last_answer_preview"] is None
+                    else str(row["last_answer_preview"] or "")
+                ),
+                _rewrap_text(str(row["last_mode"] or "")) or "",
+                str(row["thread_id"] or ""),
+            ),
+        )
+
+
+def _rewrap_turn_rows(con: sqlite3.Connection) -> None:
+    """Rewrap all turn-level protected text fields to the current key."""
+    rows = con.execute(
+        """
+        SELECT thread_id, turn_index, question_text, question_preview,
+               answer_text, answer_preview, mode, transport, actor,
+               actor_source, actor_role, allowed_doc_tags_json,
+               document_policy_source, source_paths_json, sources_json, error
+        FROM conversation_turns
+        """
+    ).fetchall()
+    for row in rows:
+        con.execute(
+            """
+            UPDATE conversation_turns
+            SET question_text = ?, question_preview = ?, answer_text = ?,
+                answer_preview = ?, mode = ?, transport = ?, actor = ?,
+                actor_source = ?, actor_role = ?, allowed_doc_tags_json = ?,
+                document_policy_source = ?, source_paths_json = ?,
+                sources_json = ?, error = ?
+            WHERE thread_id = ? AND turn_index = ?
+            """,
+            (
+                _rewrap_text(str(row["question_text"] or "")) or "",
+                _rewrap_text(str(row["question_preview"] or "")) or "",
+                _rewrap_text(
+                    None if row["answer_text"] is None
+                    else str(row["answer_text"] or "")
+                ),
+                _rewrap_text(
+                    None if row["answer_preview"] is None
+                    else str(row["answer_preview"] or "")
+                ),
+                _rewrap_text(str(row["mode"] or "")) or "",
+                _rewrap_text(str(row["transport"] or "")) or "",
+                _rewrap_text(str(row["actor"] or "")) or "",
+                _rewrap_text(str(row["actor_source"] or "")) or "",
+                _rewrap_text(str(row["actor_role"] or "")) or "",
+                _rewrap_text(str(row["allowed_doc_tags_json"] or "")) or "[]",
+                _rewrap_text(str(row["document_policy_source"] or "")) or "",
+                _rewrap_text(str(row["source_paths_json"] or "")) or "[]",
+                _rewrap_text(str(row["sources_json"] or "")) or "[]",
+                _rewrap_text(
+                    None if row["error"] is None
+                    else str(row["error"] or "")
+                ),
+                str(row["thread_id"] or ""),
+                int(row["turn_index"] or 0),
+            ),
+        )
+
+
 class ConversationThreadStore:
     """Persistent thread-safe store for shared conversation history."""
 
@@ -370,202 +594,16 @@ class ConversationThreadStore:
         )
         return "\n".join(lines)
 
-    def _record_turn(
-        self,
-        *,
-        thread_id: Optional[str],
-        question: str,
-        answer: str,
-        mode: str,
-        transport: str,
-        actor: str,
-        actor_source: str,
-        actor_role: str,
-        allowed_doc_tags: list[str],
-        document_policy_source: str,
-        status: str,
-        latency_ms: Optional[float],
-        chunks_used: int,
-        source_count: int,
-        source_paths: list[str],
-        sources: list[dict[str, Any]],
-        denied_hits: int,
-        error: Optional[str],
-    ) -> dict[str, Any]:
-        question_text = _compact_text(question)
-        question_preview = _text_preview(question_text)
-        answer_text = str(answer or "")
-        answer_preview = _text_preview(answer_text, max_len=280) if answer_text else None
-        current = _now_iso()
-        effective_thread_id = str(thread_id or "").strip()
-        created_new = False
-
+    def _record_turn(self, **kwargs) -> dict[str, Any]:
         with self._lock:
             con = self._connect()
             try:
-                if effective_thread_id:
-                    existing = con.execute(
-                        """
-                        SELECT title, created_at, created_by_actor, created_by_source, created_by_role
-                        FROM conversation_threads
-                        WHERE thread_id = ?
-                        """,
-                        (effective_thread_id,),
-                    ).fetchone()
-                    if existing is None:
-                        raise KeyError("conversation_thread_not_found")
-                    title = _restore_text(str(existing[0] or "")) or question_preview or "Conversation"
-                    created_at = str(existing[1] or "") or current
-                    created_by_actor = _restore_text(str(existing[2] or "")) or str(actor or "anonymous")
-                    created_by_source = _restore_text(str(existing[3] or "")) or str(actor_source or "anonymous")
-                    created_by_role = _restore_text(str(existing[4] or "")) or str(actor_role or "viewer")
-                else:
-                    effective_thread_id = uuid.uuid4().hex[:16]
-                    title = question_preview or "Conversation"
-                    created_at = current
-                    created_by_actor = str(actor or "anonymous")
-                    created_by_source = str(actor_source or "anonymous")
-                    created_by_role = str(actor_role or "viewer")
-                    created_new = True
-                    con.execute(
-                        """
-                        INSERT INTO conversation_threads (
-                            thread_id,
-                            title,
-                            created_at,
-                            updated_at,
-                            created_by_actor,
-                            created_by_source,
-                            created_by_role,
-                            last_actor,
-                            last_actor_source,
-                            last_actor_role,
-                            turn_count,
-                            last_question_preview,
-                            last_answer_preview,
-                            last_mode,
-                            last_status
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', NULL, '', '')
-                        """,
-                        (
-                            effective_thread_id,
-                            _protect_text(title),
-                            created_at,
-                            current,
-                            _protect_text(created_by_actor),
-                            _protect_text(created_by_source),
-                            _protect_text(created_by_role),
-                            _protect_text(str(actor or "anonymous")),
-                            _protect_text(str(actor_source or "anonymous")),
-                            _protect_text(str(actor_role or "viewer")),
-                        ),
-                    )
-
-                turn_index = int(
-                    con.execute(
-                        """
-                        SELECT COALESCE(MAX(turn_index), 0) + 1
-                        FROM conversation_turns
-                        WHERE thread_id = ?
-                        """,
-                        (effective_thread_id,),
-                    ).fetchone()[0]
-                    or 1
-                )
-                con.execute(
-                    """
-                    INSERT INTO conversation_turns (
-                        thread_id,
-                        turn_index,
-                        created_at,
-                        completed_at,
-                        question_text,
-                        question_preview,
-                        answer_text,
-                        answer_preview,
-                        mode,
-                        transport,
-                        actor,
-                        actor_source,
-                        actor_role,
-                        allowed_doc_tags_json,
-                        document_policy_source,
-                        status,
-                        latency_ms,
-                        chunks_used,
-                        source_count,
-                        source_paths_json,
-                        sources_json,
-                        denied_hits,
-                        error
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        effective_thread_id,
-                        turn_index,
-                        current,
-                        current,
-                        _protect_text(question_text),
-                        _protect_text(question_preview),
-                        _protect_text(answer_text) if answer_text else None,
-                        _protect_text(answer_preview) if answer_preview else None,
-                        _protect_text(str(mode or "")),
-                        _protect_text(str(transport or "sync")),
-                        _protect_text(str(actor or "anonymous")),
-                        _protect_text(str(actor_source or "anonymous")),
-                        _protect_text(str(actor_role or "viewer")),
-                        _protect_text(json.dumps(list(allowed_doc_tags or []))),
-                        _protect_text(str(document_policy_source or "")),
-                        str(status or "completed"),
-                        None if latency_ms is None else round(float(latency_ms), 2),
-                        max(0, int(chunks_used or 0)),
-                        max(0, int(source_count or 0)),
-                        _protect_text(json.dumps(list(source_paths or []))),
-                        _protect_text(json.dumps(list(sources or []))),
-                        max(0, int(denied_hits or 0)),
-                        _protect_text(error) if error else None,
-                    ),
-                )
-                con.execute(
-                    """
-                    UPDATE conversation_threads
-                    SET
-                        title = ?,
-                        updated_at = ?,
-                        last_actor = ?,
-                        last_actor_source = ?,
-                        last_actor_role = ?,
-                        turn_count = ?,
-                        last_question_preview = ?,
-                        last_answer_preview = ?,
-                        last_mode = ?,
-                        last_status = ?
-                    WHERE thread_id = ?
-                    """,
-                    (
-                        _protect_text(title),
-                        current,
-                        _protect_text(str(actor or "anonymous")),
-                        _protect_text(str(actor_source or "anonymous")),
-                        _protect_text(str(actor_role or "viewer")),
-                        turn_index,
-                        _protect_text(question_preview),
-                        _protect_text(answer_preview) if answer_preview else None,
-                        _protect_text(str(mode or "")),
-                        str(status or "completed"),
-                        effective_thread_id,
-                    ),
-                )
-                self._apply_retention(con, effective_thread_id)
+                result = _record_turn_impl(con, **kwargs)
+                self._apply_retention(con, result["thread_id"])
                 con.commit()
             finally:
                 con.close()
-
-        return {
-            "thread_id": effective_thread_id,
-            "turn_index": turn_index,
-            "thread_created": created_new,
-        }
+        return result
 
     def _connect(self) -> sqlite3.Connection:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -644,119 +682,8 @@ class ConversationThreadStore:
         with self._lock:
             con = self._connect()
             try:
-                thread_rows = con.execute(
-                    """
-                    SELECT
-                        thread_id,
-                        title,
-                        created_by_actor,
-                        created_by_source,
-                        created_by_role,
-                        last_actor,
-                        last_actor_source,
-                        last_actor_role,
-                        last_question_preview,
-                        last_answer_preview,
-                        last_mode
-                    FROM conversation_threads
-                    """
-                ).fetchall()
-                for row in thread_rows:
-                    con.execute(
-                        """
-                        UPDATE conversation_threads
-                        SET
-                            title = ?,
-                            created_by_actor = ?,
-                            created_by_source = ?,
-                            created_by_role = ?,
-                            last_actor = ?,
-                            last_actor_source = ?,
-                            last_actor_role = ?,
-                            last_question_preview = ?,
-                            last_answer_preview = ?,
-                            last_mode = ?
-                        WHERE thread_id = ?
-                        """,
-                        (
-                            _rewrap_text(str(row["title"] or "")) or "",
-                            _rewrap_text(str(row["created_by_actor"] or "")) or "",
-                            _rewrap_text(str(row["created_by_source"] or "")) or "",
-                            _rewrap_text(str(row["created_by_role"] or "")) or "",
-                            _rewrap_text(str(row["last_actor"] or "")) or "",
-                            _rewrap_text(str(row["last_actor_source"] or "")) or "",
-                            _rewrap_text(str(row["last_actor_role"] or "")) or "",
-                            _rewrap_text(str(row["last_question_preview"] or "")) or "",
-                            _rewrap_text(
-                                None if row["last_answer_preview"] is None else str(row["last_answer_preview"] or "")
-                            ),
-                            _rewrap_text(str(row["last_mode"] or "")) or "",
-                            str(row["thread_id"] or ""),
-                        ),
-                    )
-
-                turn_rows = con.execute(
-                    """
-                    SELECT
-                        thread_id,
-                        turn_index,
-                        question_text,
-                        question_preview,
-                        answer_text,
-                        answer_preview,
-                        mode,
-                        transport,
-                        actor,
-                        actor_source,
-                        actor_role,
-                        allowed_doc_tags_json,
-                        document_policy_source,
-                        source_paths_json,
-                        sources_json,
-                        error
-                    FROM conversation_turns
-                    """
-                ).fetchall()
-                for row in turn_rows:
-                    con.execute(
-                        """
-                        UPDATE conversation_turns
-                        SET
-                            question_text = ?,
-                            question_preview = ?,
-                            answer_text = ?,
-                            answer_preview = ?,
-                            mode = ?,
-                            transport = ?,
-                            actor = ?,
-                            actor_source = ?,
-                            actor_role = ?,
-                            allowed_doc_tags_json = ?,
-                            document_policy_source = ?,
-                            source_paths_json = ?,
-                            sources_json = ?,
-                            error = ?
-                        WHERE thread_id = ? AND turn_index = ?
-                        """,
-                        (
-                            _rewrap_text(str(row["question_text"] or "")) or "",
-                            _rewrap_text(str(row["question_preview"] or "")) or "",
-                            _rewrap_text(None if row["answer_text"] is None else str(row["answer_text"] or "")),
-                            _rewrap_text(None if row["answer_preview"] is None else str(row["answer_preview"] or "")),
-                            _rewrap_text(str(row["mode"] or "")) or "",
-                            _rewrap_text(str(row["transport"] or "")) or "",
-                            _rewrap_text(str(row["actor"] or "")) or "",
-                            _rewrap_text(str(row["actor_source"] or "")) or "",
-                            _rewrap_text(str(row["actor_role"] or "")) or "",
-                            _rewrap_text(str(row["allowed_doc_tags_json"] or "")) or "[]",
-                            _rewrap_text(str(row["document_policy_source"] or "")) or "",
-                            _rewrap_text(str(row["source_paths_json"] or "")) or "[]",
-                            _rewrap_text(str(row["sources_json"] or "")) or "[]",
-                            _rewrap_text(None if row["error"] is None else str(row["error"] or "")),
-                            str(row["thread_id"] or ""),
-                            int(row["turn_index"] or 0),
-                        ),
-                    )
+                _rewrap_thread_rows(con)
+                _rewrap_turn_rows(con)
                 con.commit()
                 harden_history_storage_path(self.db_path)
             finally:

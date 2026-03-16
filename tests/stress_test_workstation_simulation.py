@@ -52,11 +52,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+import pytest
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 
 _CL = "clau" + "de"
 _AN = "Anthro" + "pic"
+
+pytestmark = pytest.mark.slow
 
 
 # ============================================================================

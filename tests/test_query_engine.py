@@ -473,33 +473,31 @@ class TestCorrectiveRetrieval:
 
     def test_strips_question_prefix(self):
         """Question patterns are stripped to get keyword core."""
-        engine, _ = self._make_engine_with_corrective()
-        result = engine._reformulate_for_retry(
-            "what is the operating frequency?")
+        from src.core.query_engine import _reformulate_for_retry
+        result = _reformulate_for_retry("what is the operating frequency?")
         assert "what is" not in result.lower()
         assert "frequency" in result.lower()
 
     def test_strips_polite_prefix(self):
-        engine, _ = self._make_engine_with_corrective()
-        result = engine._reformulate_for_retry(
+        from src.core.query_engine import _reformulate_for_retry
+        result = _reformulate_for_retry(
             "can you tell me about the calibration procedure?")
         assert "can you" not in result.lower()
         assert "calibration" in result.lower()
 
     def test_identity_query_unchanged(self):
         """Single keyword query can't be simplified further."""
-        engine, _ = self._make_engine_with_corrective()
-        result = engine._reformulate_for_retry("calibration")
+        from src.core.query_engine import _reformulate_for_retry
+        result = _reformulate_for_retry("calibration")
         assert result == "calibration"
 
     def test_expander_integration(self):
         """If query expander is attached, acronyms are expanded."""
-        engine, _ = self._make_engine_with_corrective()
+        from src.core.query_engine import _reformulate_for_retry
         mock_expander = MagicMock()
         mock_expander.expand_keywords.return_value = "radio frequency expanded"
-        engine._query_expander = mock_expander
 
-        result = engine._reformulate_for_retry("what is the RF spec?")
+        result = _reformulate_for_retry("what is the RF spec?", query_expander=mock_expander)
         assert "expanded" in result
 
     # ------------------------------------------------------------------
@@ -672,7 +670,77 @@ class TestSourcePathSearch:
 
 
 # ============================================================================
-# SECTION 2b: QUERY DECOMPOSITION TESTS
+# SECTION 2b: CHUNK RELEVANCE FILTER TESTS (CRAG decompose pattern)
+# ============================================================================
+
+class TestChunkRelevanceFilter:
+    """Tests for _filter_low_relevance_chunks (CRAG-inspired)."""
+
+    def _make_hit(self, text, score=0.5):
+        from src.core.retriever import SearchHit
+        return SearchHit(score=score, source_path="doc.pdf",
+                         chunk_index=0, text=text)
+
+    def test_keeps_relevant_chunks(self):
+        from src.core.query_engine import _filter_low_relevance_chunks
+        hits = [
+            self._make_hit("The frequency range is 0.5 to 30 MHz."),
+            self._make_hit("Calibration intervals are quarterly."),
+            self._make_hit("The radar operates at high frequency."),
+        ]
+        result = _filter_low_relevance_chunks("frequency range", hits)
+        # Both frequency-containing chunks kept, calibration dropped
+        assert len(result) == 2
+        assert all("frequency" in h.text.lower() for h in result)
+
+    def test_drops_zero_overlap_chunks(self):
+        from src.core.query_engine import _filter_low_relevance_chunks
+        hits = [
+            self._make_hit("The frequency is 2.4 GHz."),
+            self._make_hit("Company policy requires annual review."),
+            self._make_hit("Operating frequency specifications."),
+        ]
+        result = _filter_low_relevance_chunks("frequency specifications", hits)
+        assert len(result) == 2
+        assert all("frequency" in h.text.lower() or "specifications" in h.text.lower()
+                    for h in result)
+
+    def test_never_drops_all(self):
+        from src.core.query_engine import _filter_low_relevance_chunks
+        hits = [
+            self._make_hit("Completely unrelated text about weather."),
+            self._make_hit("Another irrelevant passage about food."),
+            self._make_hit("Third chunk about gardening tips."),
+        ]
+        result = _filter_low_relevance_chunks("radar calibration", hits)
+        # None match, so all are kept (never drop everything)
+        assert len(result) == 3
+
+    def test_skips_filter_with_few_chunks(self):
+        from src.core.query_engine import _filter_low_relevance_chunks
+        hits = [
+            self._make_hit("Unrelated text."),
+            self._make_hit("Also unrelated."),
+        ]
+        result = _filter_low_relevance_chunks("frequency", hits)
+        # Only 2 chunks -- too few to filter
+        assert len(result) == 2
+
+    def test_preserves_order(self):
+        from src.core.query_engine import _filter_low_relevance_chunks
+        hits = [
+            self._make_hit("First: frequency data.", score=0.9),
+            self._make_hit("Second: unrelated.", score=0.7),
+            self._make_hit("Third: frequency specs.", score=0.5),
+        ]
+        result = _filter_low_relevance_chunks("frequency", hits)
+        assert len(result) == 2
+        assert result[0].score == 0.9
+        assert result[1].score == 0.5
+
+
+# ============================================================================
+# SECTION 2c: QUERY DECOMPOSITION TESTS
 # ============================================================================
 
 class TestQueryDecomposition:
@@ -745,6 +813,52 @@ class TestQueryDecomposition:
         results = engine._multi_query_retrieve(["query 1", "query 2"])
         assert len(results) == 2  # deduped
         assert results[0].score == 0.9  # kept best score for a.pdf
+
+    def test_streaming_uses_decomposition(self):
+        """query_stream() should split multi-part queries just like query()."""
+        from src.core.query_engine import _decompose_query
+
+        # Verify the decomposer splits this query
+        parts = _decompose_query(
+            "What is the calibration procedure and what are the tolerance ranges?"
+        )
+        assert len(parts) == 2, "Precondition: query should decompose into 2 parts"
+
+        # Build a mock engine with streaming support
+        config = FakeConfig(mode="offline")
+        mock_vs = MagicMock()
+        mock_emb = MagicMock()
+        mock_llm = MagicMock()
+
+        # Streaming LLM returns tokens then done
+        mock_llm.query_stream.return_value = iter([
+            {"token": "Answer"},
+            {"done": True, "tokens_in": 100, "tokens_out": 10,
+             "model": "phi4-mini", "latency_ms": 500.0},
+        ])
+
+        with patch("src.core.query_engine.get_app_logger") as ml:
+            ml.return_value = MagicMock()
+            with patch("src.core.query_engine.Retriever") as MR:
+                mock_ret = MagicMock()
+                # Return different hits per sub-query call
+                hit_a = MagicMock(source_path="a.pdf", chunk_index=0, score=0.9)
+                hit_b = MagicMock(source_path="b.pdf", chunk_index=0, score=0.8)
+                mock_ret.search.side_effect = [[hit_a], [hit_b]]
+                mock_ret.build_context.return_value = "Context text."
+                mock_ret.get_sources.return_value = [{"path": "a.pdf", "chunks": 1}]
+                MR.return_value = mock_ret
+
+                from src.core.query_engine import QueryEngine
+                engine = QueryEngine(config, mock_vs, mock_emb, mock_llm)
+
+        # Consume the stream
+        events = list(engine.query_stream(
+            "What is the calibration procedure and what are the tolerance ranges?"
+        ))
+
+        # retriever.search should have been called twice (once per sub-query)
+        assert mock_ret.search.call_count == 2
 
 
 # ============================================================================

@@ -27,6 +27,7 @@ from tkinter import filedialog
 from src.gui.theme import current_theme, FONT, FONT_BOLD, FONT_SMALL, FONT_MONO, bind_hover
 from src.gui.helpers.safe_after import safe_after
 from src.core.config import save_config_field
+from src.gui.panels.index_panel_build import _build_index_panel_widgets
 
 logger = logging.getLogger(__name__)
 
@@ -60,167 +61,8 @@ class IndexPanel(tk.LabelFrame):
         self._build_widgets(t)
 
     def _build_widgets(self, t):
-        """Build all child widgets with theme colors."""
-        # -- Row 0: Source folder (changeable independently of downloader) --
-        row0 = tk.Frame(self, bg=t["panel_bg"])
-        row0.pack(fill=tk.X, pady=(0, 4))
-
-        self.folder_label = tk.Label(row0, text="Source:",
-                                     bg=t["panel_bg"], fg=t["label_fg"],
-                                     font=FONT)
-        self.folder_label.pack(side=tk.LEFT)
-
-        default_source = getattr(
-            getattr(self.config, "paths", None), "source_folder", ""
-        ) or ""
-
-        self.folder_var = tk.StringVar(value=default_source)
-        self.folder_display = tk.Label(
-            row0, textvariable=self.folder_var, anchor=tk.W,
-            bg=t["panel_bg"], fg=t["fg"], font=FONT,
-        )
-        self.folder_display.pack(side=tk.LEFT, fill=tk.X, expand=True,
-                                 padx=(8, 0))
-
-        self._change_source_btn = tk.Button(
-            row0, text="Change...", command=self._on_change_source, width=10,
-            bg=t["accent"], fg=t["accent_fg"], font=FONT,
-            relief=tk.FLAT, bd=0, padx=12, pady=4,
-            activebackground=t.get("accent_hover", t["accent"]),
-            activeforeground=t["accent_fg"],
-        )
-        self._change_source_btn.pack(side=tk.RIGHT, padx=(8, 0))
-        bind_hover(self._change_source_btn)
-
-        # -- Row 0b: Index folder (changeable from the main panel) --
-        row0b = tk.Frame(self, bg=t["panel_bg"])
-        row0b.pack(fill=tk.X, pady=(0, 8))
-
-        self.index_label = tk.Label(row0b, text="Index:",
-                                    bg=t["panel_bg"], fg=t["label_fg"],
-                                    font=FONT)
-        self.index_label.pack(side=tk.LEFT)
-
-        db_path = getattr(
-            getattr(self.config, "paths", None), "database", ""
-        ) or ""
-        index_default = os.path.dirname(db_path) if db_path else "(not set)"
-
-        self.index_var = tk.StringVar(value=index_default)
-        self.index_display = tk.Label(
-            row0b, textvariable=self.index_var, anchor=tk.W,
-            bg=t["panel_bg"], fg=t["fg"], font=FONT,
-        )
-        self.index_display.pack(side=tk.LEFT, fill=tk.X, expand=True,
-                                padx=(8, 0))
-
-        self._change_index_btn = tk.Button(
-            row0b, text="Change...", command=self._on_change_index, width=10,
-            bg=t["accent"], fg=t["accent_fg"], font=FONT,
-            relief=tk.FLAT, bd=0, padx=12, pady=4,
-            activebackground=t.get("accent_hover", t["accent"]),
-            activeforeground=t["accent_fg"],
-        )
-        self._change_index_btn.pack(side=tk.RIGHT, padx=(8, 0))
-        bind_hover(self._change_index_btn)
-
-        self.paths_hint = tk.Label(
-            row0b, text="",
-            bg=t["panel_bg"], fg=t["gray"], font=("Segoe UI", 8),
-        )
-        self.paths_hint.pack(side=tk.RIGHT)
-
-        # -- Status indicator (shows why indexing is disabled) --
-        self._status_var = tk.StringVar(value="Waiting for backends...")
-        self._status_label = tk.Label(
-            self, textvariable=self._status_var,
-            bg=t["panel_bg"], fg=t.get("yellow", "#e8a838"),
-            font=FONT_SMALL, anchor=tk.W,
-        )
-        self._status_label.pack(fill=tk.X, pady=(0, 4))
-
-        # -- Row 1: Controls --
-        row1 = tk.Frame(self, bg=t["panel_bg"])
-        row1.pack(fill=tk.X, pady=(0, 8))
-
-        self.start_btn = tk.Button(
-            row1, text="Start Indexing", command=self._on_start, width=14,
-            bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"],
-            font=FONT_BOLD, relief=tk.FLAT, bd=0,
-            padx=24, pady=8, state=tk.DISABLED,
-            activebackground=t["accent_hover"],
-            activeforeground=t["accent_fg"],
-        )
-        self.start_btn.pack(side=tk.LEFT)
-
-        self.stop_btn = tk.Button(
-            row1, text="Stop Indexing", command=self._on_stop, width=12,
-            state=tk.DISABLED,
-            bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"],
-            font=FONT_BOLD, relief=tk.FLAT, bd=0, padx=16, pady=8,
-        )
-        self.stop_btn.pack(side=tk.LEFT, padx=(8, 0))
-
-        if self._dev_ui_enabled:
-            self._clear_armed_var = tk.BooleanVar(value=False)
-            self.clear_btn = tk.Button(
-                row1, text="Clear Index (Dev)", command=self._on_clear_index,
-                width=14,
-                bg=t["inactive_btn_bg"], fg=t["inactive_btn_fg"],
-                font=FONT, relief=tk.FLAT, bd=0, padx=12, pady=8,
-                state=tk.DISABLED,
-            )
-            self.clear_btn.pack(side=tk.LEFT, padx=(8, 0))
-            self.clear_guard_cb = tk.Checkbutton(
-                row1,
-                text="Unlock Clear",
-                variable=self._clear_armed_var,
-                command=self._on_toggle_clear_guard,
-                bg=t["panel_bg"],
-                fg=t["fg"],
-                selectcolor=t["input_bg"],
-                activebackground=t["panel_bg"],
-                activeforeground=t["fg"],
-                font=FONT_SMALL,
-            )
-            self.clear_guard_cb.pack(side=tk.LEFT, padx=(8, 0))
-
-        self.progress_file_label = tk.Label(
-            row1, text="", anchor=tk.W, fg=t["gray"],
-            bg=t["panel_bg"], font=FONT,
-        )
-        self.progress_file_label.pack(side=tk.LEFT, padx=(16, 0),
-                                      fill=tk.X, expand=True)
-
-        # -- Row 2: Progress bar --
-        row2 = tk.Frame(self, bg=t["panel_bg"])
-        row2.pack(fill=tk.X, pady=(0, 8))
-
-        self.progress_bar = ttk.Progressbar(
-            row2, mode="determinate", length=400,
-        )
-        self.progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-        self.progress_count_label = tk.Label(
-            row2, text="0 / 0 files", anchor=tk.W, padx=8,
-            bg=t["panel_bg"], fg=t["fg"], font=FONT_MONO,
-        )
-        self.progress_count_label.pack(side=tk.LEFT)
-
-        # -- Row 3: Last run info --
-        self.last_run_label = tk.Label(
-            self, text="Last run: (none)", anchor=tk.W, fg=t["gray"],
-            bg=t["panel_bg"], font=FONT,
-        )
-        self.last_run_label.pack(fill=tk.X)
-
-        # -- Row 4: Live telemetry (indexing) --
-        self.index_stats_label = tk.Label(
-            self,
-            text="Telemetry: chunks 0 | files skipped 0 | file errors 0 | rate -- chunks/s | ETA --",
-            anchor=tk.W, fg=t["gray"], bg=t["panel_bg"], font=FONT_SMALL,
-        )
-        self.index_stats_label.pack(fill=tk.X, pady=(2, 0))
+        """Build all child widgets (delegated to companion module)."""
+        _build_index_panel_widgets(self, t)
 
     def apply_theme(self, t):
         """Re-apply theme colors to all widgets."""
@@ -480,8 +322,8 @@ class IndexPanel(tk.LabelFrame):
         try:
             if self.indexer is not None and hasattr(self.indexer, "close"):
                 self.indexer.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Could not close indexer before clear: %s", e)
 
         errors = []
         removed = []

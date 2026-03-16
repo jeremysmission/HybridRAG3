@@ -363,7 +363,8 @@ class VectorStore:
             )
             self.conn.execute("""
                 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts
-                USING fts5(text, content='chunks', content_rowid='chunk_pk');
+                USING fts5(text, content='chunks', content_rowid='chunk_pk',
+                           tokenize='porter unicode61');
             """)
             ensure_source_quality_schema(self.conn)
             self.conn.commit()
@@ -712,6 +713,10 @@ class VectorStore:
         'Engineer_Calibration_Guide.pdf'). Uses the existing
         idx_chunks_source index -- no schema change required.
 
+        Scoring uses coverage ratio: what fraction of query terms match
+        the path. A query with 3 terms that all match scores higher than
+        a query with 5 terms where only 1 matches.
+
         Returns results in the same dict format as fts_search().
         """
         self._ensure_connected()
@@ -738,10 +743,19 @@ class VectorStore:
 
         hits = []
         for source_path, chunk_index, text, access_tags, access_tag_source in rows:
-            # Count how many query words match the path (more matches = higher score)
             path_lower = str(source_path).lower()
-            match_count = sum(1 for w in words if w.lower() in path_lower)
-            score = min(0.5, 0.15 * match_count)
+            # Tokenize the path for word-boundary matching
+            path_tokens = set(re.findall(r'[a-z0-9]+', path_lower))
+            match_count = sum(
+                1 for w in words
+                if w.lower() in path_tokens or w.lower() in path_lower
+            )
+            # Coverage ratio: fraction of query terms matched in path
+            coverage = match_count / len(words) if words else 0
+            # Scale: 0.5 for perfect coverage, down to ~0.05 for weak.
+            # Capped below content matches so path-only hits don't
+            # outrank actual text relevance in RRF fusion.
+            score = min(0.5, 0.05 + 0.45 * coverage)
             hits.append({
                 "score": score,
                 "source_path": str(source_path),

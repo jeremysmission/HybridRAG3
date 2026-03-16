@@ -68,6 +68,8 @@ def hard_timeout(seconds=30):
 # Import targets under test (module-level functions + classes)
 # ---------------------------------------------------------------------------
 
+import pytest
+
 from src.tools.bulk_transfer_v2 import (
     _buffered_copy,
     _can_read_file,
@@ -77,6 +79,8 @@ from src.tools.bulk_transfer_v2 import (
     TransferConfig,
     TransferStats,
 )
+
+pytestmark = pytest.mark.slow
 
 
 # ===========================================================================

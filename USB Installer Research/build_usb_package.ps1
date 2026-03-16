@@ -1,4 +1,4 @@
-<#
+﻿<#
 === NON-PROGRAMMER GUIDE ===
 Purpose: Supports the build usb package workflow in this repository.
 How to follow: Read variables first, then each command block in order.
@@ -289,7 +289,7 @@ if (Test-Path "$usbBatSrc") {
     Write-Ok "Copied INSTALL.bat (USB version)"
 } else {
     Write-Warn "usb_install.bat not found -- creating basic launcher"
-    Set-Content -Path "$STAGING\INSTALL.bat" -Value @"
+    Set-Content -Path "$STAGING\INSTALL.bat" -Value @'
 @echo off
 title HybridRAG3 -- USB Offline Installer
 echo.
@@ -302,7 +302,7 @@ powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0usb_install.ps1"
 echo.
 echo  Press any key to close...
 pause >nul
-"@
+'@
 }
 
 # ------------------------------------------------------------------

@@ -30,6 +30,7 @@
 # ============================================================================
 
 import tkinter as tk
+from contextlib import suppress
 from tkinter import ttk, filedialog, messagebox
 import logging
 from datetime import datetime
@@ -367,8 +368,8 @@ class CostDashboard(tk.Frame):
                 cost_cfg = getattr(parent_config, "cost", None)
                 if cost_cfg:
                     budget = getattr(cost_cfg, "daily_budget_usd", 5.0)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Could not read budget config: %s", e)
 
         spent = s.total_cost_usd
         pct = min(spent / budget, 1.0) if budget > 0 else 0.0
@@ -524,15 +525,11 @@ class CostDashboard(tk.Frame):
 
     def cleanup(self):
         """Unregister listener and cancel pending refreshes."""
-        try:
+        with suppress(Exception):
             self._tracker.remove_listener(self._listener)
-        except Exception:
-            pass
         if self._refresh_id:
-            try:
+            with suppress(Exception):
                 self.after_cancel(self._refresh_id)
-            except Exception:
-                pass
 
     def apply_theme(self, t):
         """Re-apply theme to dashboard."""

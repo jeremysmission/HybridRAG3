@@ -1,0 +1,21 @@
+# =============================================================================
+# HybridRAG3 -- Development / Test Dependencies
+# =============================================================================
+# These are NOT production runtime dependencies.
+# Install alongside requirements_approved.txt for dev/test workflows:
+#   pip install -r requirements_dev.txt
+#
+# All packages: MIT or Apache 2.0, no NDAA concerns, pure-Python or lightweight C.
+# =============================================================================
+
+# Property-based testing -- auto-generates edge case inputs
+# https://hypothesis.readthedocs.io
+hypothesis>=6.100.0
+
+# Fast time mocking -- 300x faster than freezegun, C-level patching
+# https://github.com/adamchainz/time-machine
+time-machine>=2.13.0
+
+# Mutation testing -- finds tests that pass but don't verify behavior
+# https://github.com/boxed/mutmut
+mutmut>=3.0.0

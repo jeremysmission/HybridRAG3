@@ -246,7 +246,7 @@
 
 ### Q31. "Walk me through the architecture end-to-end."
 **Who asks**: Chief Engineer, architects
-**Your answer**: "Documents are chunked into passages, embedded into vectors using sentence-transformers, stored in a local FAISS index. At query time, your question is embedded, similar chunks are retrieved via hybrid search with tuned mode defaults (offline top_k=4, online top_k=6, min_score 0.10/0.08), and a local or API-backed LLM generates an answer grounded exclusively in those chunks. FastAPI server exposes it as a REST API. No cloud is required for offline mode."
+**Your answer**: "Documents are chunked into passages, embedded into 768-dimensional vectors using Ollama nomic-embed-text, stored in a local SQLite database with memory-mapped vector search. At query time, your question is embedded, similar chunks are retrieved via hybrid search (semantic + FTS5 keyword, fused with Reciprocal Rank Fusion) with tuned mode defaults (offline top_k=5, online top_k=10, min_score 0.10), and a local or API-backed LLM generates an answer grounded exclusively in those chunks. FastAPI server exposes it as a REST API. No cloud is required for offline mode."
 
 ---
 
@@ -294,7 +294,7 @@
 
 ### Q39. "Did you build this yourself or just use a framework?"
 **Who asks**: Chief Engineer -- capability assessment
-**Your answer**: "I built the pipeline, the prompt engineering, the 400-question eval framework, the REST API, the GUI, and the 9-profile system. It uses standard libraries -- sentence-transformers for embeddings, Ollama for inference, FastAPI for the server -- but the architecture, tuning, and integration are mine."
+**Your answer**: "I built the pipeline, the prompt engineering, the 400-question eval framework, the REST API, the GUI, and the 9-profile system. It uses standard libraries -- Ollama for embeddings and inference, SQLite for storage, FastAPI for the server -- but the architecture, tuning, and integration are mine."
 
 ---
 
@@ -350,7 +350,7 @@
 
 ### Q48. "What about vendor lock-in?"
 **Who asks**: Architects, procurement
-**Your answer**: "Zero lock-in. Every component is open-source: FAISS (Meta, MIT), sentence-transformers (Apache), Ollama (MIT), FastAPI (MIT). The model can be swapped without changing the pipeline. The data stays in standard formats on your filesystem. If a better model comes out tomorrow, we swap a config line."
+**Your answer**: "Zero lock-in. Every component is open-source: Ollama (MIT), nomic-embed-text (Apache), SQLite (public domain), FastAPI (MIT). The model can be swapped without changing the pipeline. The data stays in standard formats on your filesystem. If a better model comes out tomorrow, we swap a config line."
 
 ---
 

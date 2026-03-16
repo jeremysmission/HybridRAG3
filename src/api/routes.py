@@ -554,7 +554,7 @@ def _build_config_response() -> ConfigResponse:
     if not s.config:
         raise HTTPException(status_code=503, detail="Server not initialized")
 
-    from src.core.retriever import RERANKER_AVAILABLE
+    from src.core.retriever import is_reranker_available
 
     c = s.config
     effective_reranker_enabled = bool(
@@ -575,7 +575,7 @@ def _build_config_response() -> ConfigResponse:
         min_score=c.retrieval.min_score,
         hybrid_search=c.retrieval.hybrid_search,
         reranker_enabled=effective_reranker_enabled,
-        reranker_backend_available=bool(RERANKER_AVAILABLE),
+        reranker_backend_available=is_reranker_available(c),
     )
 
 

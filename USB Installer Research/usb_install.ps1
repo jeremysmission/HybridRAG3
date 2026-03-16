@@ -1,4 +1,4 @@
-<#
+﻿<#
 === NON-PROGRAMMER GUIDE ===
 Purpose: Supports the usb install workflow in this repository.
 How to follow: Read variables first, then each command block in order.
@@ -7,7 +7,7 @@ Outputs: Console messages, changed files, or system configuration updates.
 Safety notes: Run in a test environment before using on production systems.
 =============================
 #>
-﻿# ============================================================================
+# ============================================================================
 # HybridRAG3 -- USB Offline Installer
 # Date: 2026-02-25
 # Status: RESEARCH / PROTOTYPE
