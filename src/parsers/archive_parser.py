@@ -41,6 +41,7 @@
 from __future__ import annotations
 
 import gzip
+import logging
 import os
 import shutil
 import tarfile
@@ -48,6 +49,8 @@ import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 # Safety limits
@@ -201,11 +204,15 @@ class ArchiveParser:
                     src = tf.extractfile(entry)
                     if src is None:
                         continue
-                    with open(dest, "wb") as dst:
-                        shutil.copyfileobj(src, dst)
-                    members.append((entry.name, dest))
-                except Exception:
+                    try:
+                        with open(dest, "wb") as dst:
+                            shutil.copyfileobj(src, dst)
+                        members.append((entry.name, dest))
+                    finally:
+                        src.close()
+                except Exception as e:
                     details["members_skipped"] = details.get("members_skipped", 0) + 1
+                    details.setdefault("skip_errors", []).append(str(e)[:200])
 
         return members
 

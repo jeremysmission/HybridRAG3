@@ -75,7 +75,7 @@ class ResponseSanitizer:
         text = "\n".join(cleaned).strip()
 
         # If we stripped everything (rare), fall back to original rather than blanking.
-        return text if text else original.strip()
+        return text if text else "[Response removed after content verification]"
 
     def _looks_like_injection_line(self, line: str) -> bool:
         for pat in _INJECTION_LINE_PATTERNS:

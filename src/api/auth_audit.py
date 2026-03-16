@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
@@ -7,6 +8,8 @@ from collections import deque
 from datetime import datetime
 
 from fastapi import Request
+
+logger = logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
@@ -113,7 +116,8 @@ def record_auth_event(
     """Best-effort recorder for security activity without making callers own state wiring."""
     try:
         from src.api.server import state
-    except Exception:
+    except Exception as e:
+        logger.warning("[WARN] Auth event recording unavailable: %s", e)
         return
 
     tracker = getattr(state, "auth_audit", None)

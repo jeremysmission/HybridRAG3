@@ -225,8 +225,12 @@ class EmbeddingMemmapStore:
         mm = np.memmap(
             self.dat_path, dtype=np.float16, mode="r", shape=(self.count, self.dim)
         )
-        block = np.array(mm[start:end], dtype=np.float32)
-        del mm
+        try:
+            block = np.array(mm[start:end], dtype=np.float32)
+        finally:
+            if hasattr(mm, '_mmap') and mm._mmap is not None:
+                mm._mmap.close()
+            del mm
         return block
 
     def paths_ok(self) -> Tuple[bool, str]:
@@ -298,10 +302,21 @@ class VectorStore:
             self.conn.execute("PRAGMA foreign_keys=ON;")
 
             self._init_schema()
-            # Warn on embedding model mismatch (index vs config)
             stored = self.mem_store.embedding_model
             if stored and self.embedding_model and stored != self.embedding_model:
-                logger.warning("[WARN] Embedding model mismatch: index='%s' config='%s'", stored, self.embedding_model)
+                if os.environ.get("HYBRIDRAG_ALLOW_EMBEDDING_MISMATCH"):
+                    logger.warning(
+                        "[WARN] Embedding model mismatch: index='%s' config='%s' "
+                        "(continuing due to HYBRIDRAG_ALLOW_EMBEDDING_MISMATCH)",
+                        stored, self.embedding_model,
+                    )
+                else:
+                    raise ValueError(
+                        f"Embedding model mismatch: index was built with "
+                        f"'{stored}' but config specifies "
+                        f"'{self.embedding_model}'. Re-index required. "
+                        f"Set HYBRIDRAG_ALLOW_EMBEDDING_MISMATCH=1 to override."
+                    )
 
     # =================================================================
     # BUG-001 FIX: Schema now includes file_hash column
@@ -685,7 +700,8 @@ class VectorStore:
                     "ORDER BY rank LIMIT ?",
                     (fts_query, top_k),
                 ).fetchall()
-            except Exception:
+            except sqlite3.OperationalError as e:
+                logger.warning("[WARN] FTS5 search failed: %s", e)
                 return []
         hits = []
         for source_path, chunk_index, text, access_tags, access_tag_source, rank_score in rows:
@@ -738,7 +754,8 @@ class VectorStore:
                     f"WHERE {where_clause} LIMIT ?",
                     params + [top_k],
                 ).fetchall()
-            except Exception:
+            except sqlite3.OperationalError as e:
+                logger.warning("[WARN] Source path search failed: %s", e)
                 return []
 
         hits = []

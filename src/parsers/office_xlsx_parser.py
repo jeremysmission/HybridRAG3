@@ -39,9 +39,14 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Tuple, Dict, Any
 from datetime import datetime, date
+
+logger = logging.getLogger(__name__)
+
+_MAX_ROWS_PER_SHEET = 100_000
 
 
 def _cell_to_text(value: Any) -> str:
@@ -96,6 +101,7 @@ class XlsxParser:
                 header = None
                 header_row_idx = None
 
+                row_count = 0
                 for ridx, row in enumerate(ws.iter_rows(values_only=True), start=1):
                     vals = [_cell_to_text(v) for v in row]
                     if all(x == "" for x in vals):
@@ -107,6 +113,11 @@ class XlsxParser:
                         header_row_idx = ridx
                         parts.append(f"[HEADER row={ridx}] " + " | ".join(header))
                         continue
+
+                    row_count += 1
+                    if row_count >= _MAX_ROWS_PER_SHEET:
+                        logger.warning("[WARN] XLSX sheet '%s' truncated at %d rows", sheet.title, _MAX_ROWS_PER_SHEET)
+                        break
 
                     rows_emitted += 1
                     # Always include raw row for exact matching.

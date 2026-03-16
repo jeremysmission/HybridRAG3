@@ -50,6 +50,8 @@ from __future__ import annotations
 import os
 from urllib.parse import urlparse
 
+import numpy as np
+
 from ..monitoring.logger import get_app_logger
 from .exceptions import OllamaNotRunningError, OllamaModelNotFoundError
 from .ollama_endpoint_resolver import sanitize_ollama_base_url
@@ -235,8 +237,6 @@ class Embedder:
             Shape (N, dimension), dtype float32.
             Vectors are L2-normalized so dot product = cosine similarity.
         """
-        import numpy as np
-
         if not texts:
             return np.zeros((0, self.dimension), dtype=np.float32)
 

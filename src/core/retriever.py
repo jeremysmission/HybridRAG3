@@ -88,28 +88,30 @@ logger = logging.getLogger(__name__)
 _reranker_available_cache: bool | None = None
 _reranker_available_ts: float = 0.0
 _RERANKER_CHECK_TTL = 30.0  # seconds between Ollama probes
+_reranker_lock = threading.Lock()
 
 
 def is_reranker_available(config) -> bool:
     """Check if the Ollama reranker backend is reachable (cached 30s)."""
     global _reranker_available_cache, _reranker_available_ts
-    now = time.monotonic()
-    if _reranker_available_cache is not None and (now - _reranker_available_ts) < _RERANKER_CHECK_TTL:
-        return _reranker_available_cache
+    with _reranker_lock:
+        now = time.monotonic()
+        if _reranker_available_cache is not None and (now - _reranker_available_ts) < _RERANKER_CHECK_TTL:
+            return _reranker_available_cache
 
-    import httpx as _httpx
-    ollama_cfg = getattr(config, "ollama", None)
-    base_url = getattr(ollama_cfg, "base_url", "http://127.0.0.1:11434") if ollama_cfg else "http://127.0.0.1:11434"
-    try:
-        with _httpx.Client(timeout=3, proxy=None, trust_env=False) as client:
-            resp = client.get(base_url, timeout=3)
-            available = resp.status_code == 200
-    except Exception:
-        available = False
+        import httpx as _httpx
+        ollama_cfg = getattr(config, "ollama", None)
+        base_url = getattr(ollama_cfg, "base_url", "http://127.0.0.1:11434") if ollama_cfg else "http://127.0.0.1:11434"
+        try:
+            with _httpx.Client(timeout=3, proxy=None, trust_env=False) as client:
+                resp = client.get(base_url, timeout=3)
+                available = resp.status_code == 200
+        except Exception:
+            available = False
 
-    _reranker_available_cache = available
-    _reranker_available_ts = now
-    return available
+        _reranker_available_cache = available
+        _reranker_available_ts = now
+        return available
 
 
 def _retriever_resolve_settings(config) -> dict:
@@ -765,7 +767,8 @@ class Retriever:
                             access_tags=normalize_access_tags(access_tags),
                             access_tag_source=str(access_tag_source or ""),
                         )
-        except Exception:
+        except Exception as e:
+            logger.warning("[WARN] Adjacent chunk augmentation failed: %s", e)
             return hits
 
         out = list(by_key.values())

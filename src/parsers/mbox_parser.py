@@ -26,9 +26,12 @@
 from __future__ import annotations
 
 import email
+import logging
 import mailbox
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 class MboxParser:
@@ -64,6 +67,10 @@ class MboxParser:
         try:
             for message in mbox:
                 if msg_count >= self.MAX_MESSAGES:
+                    logger.warning(
+                        "[WARN] mbox file truncated: %d messages exceeded cap of %d",
+                        msg_count, self.MAX_MESSAGES,
+                    )
                     parts.append(
                         f"\n... truncated at {self.MAX_MESSAGES} messages"
                     )

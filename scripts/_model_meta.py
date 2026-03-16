@@ -478,7 +478,7 @@ def _est_params(size_str):
         est = round(gb / 0.55)
         snaps = [1,2,3,7,8,13,14,32,34,70,72]
         return min(snaps, key=lambda x: abs(x - est))
-    except Exception:
+    except (ValueError, IndexError, TypeError):
         return 7
 
 

@@ -275,22 +275,24 @@ class CostTracker:
         self.flush()  # Ensure current session data is persisted
         try:
             conn = sqlite3.connect(self._db_path)
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT
-                    COUNT(DISTINCT session_id),
-                    COUNT(*),
-                    COALESCE(SUM(tokens_in), 0),
-                    COALESCE(SUM(tokens_out), 0),
-                    COALESCE(SUM(total_cost_usd), 0),
-                    COALESCE(SUM(data_bytes_in), 0),
-                    COALESCE(SUM(data_bytes_out), 0),
-                    MIN(timestamp),
-                    MAX(timestamp)
-                FROM cost_events
-            """)
-            row = cur.fetchone()
-            conn.close()
+            try:
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT
+                        COUNT(DISTINCT session_id),
+                        COUNT(*),
+                        COALESCE(SUM(tokens_in), 0),
+                        COALESCE(SUM(tokens_out), 0),
+                        COALESCE(SUM(total_cost_usd), 0),
+                        COALESCE(SUM(data_bytes_in), 0),
+                        COALESCE(SUM(data_bytes_out), 0),
+                        MIN(timestamp),
+                        MAX(timestamp)
+                    FROM cost_events
+                """)
+                row = cur.fetchone()
+            finally:
+                conn.close()
 
             sessions, queries = row[0], row[1]
             return CumulativeSummary(
@@ -321,14 +323,16 @@ class CostTracker:
         self.flush()
         try:
             conn = sqlite3.connect(self._db_path)
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT * FROM cost_events
-                ORDER BY timestamp DESC LIMIT ?
-            """, (limit,))
-            rows = [dict(r) for r in cur.fetchall()]
-            conn.close()
+            try:
+                conn.row_factory = sqlite3.Row
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT * FROM cost_events
+                    ORDER BY timestamp DESC LIMIT ?
+                """, (limit,))
+                rows = [dict(r) for r in cur.fetchall()]
+            finally:
+                conn.close()
             return rows
         except Exception as e:
             logger.warning("Recent events query failed: %s", e)
@@ -369,11 +373,13 @@ class CostTracker:
         import csv
         try:
             conn = sqlite3.connect(self._db_path)
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
-            cur.execute("SELECT * FROM cost_events ORDER BY timestamp")
-            rows = cur.fetchall()
-            conn.close()
+            try:
+                conn.row_factory = sqlite3.Row
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM cost_events ORDER BY timestamp")
+                rows = cur.fetchall()
+            finally:
+                conn.close()
 
             if not rows:
                 return 0
