@@ -1266,7 +1266,7 @@ Without a trace view, tuning remains guesswork.
 ### Planned Slice Order
 
 1. `13.0 -- GUI/CLI Parity Surface And Harness` -- `DONE`
-2. `13.0a -- Explorer-Safe GUI BAT Launcher` -- `IMPLEMENTED / READY FOR QA`
+2. `13.0a -- Explorer-Safe GUI BAT Launcher` -- `DONE` (QA verified 2026-03-16: 8/8 tests pass)
 3. `13.0b -- User Guide Refresh And Printable Export` -- `DONE`
 4. `13.0c -- Corporate PowerShell Entrypoint Hardening` -- `DONE`
 5. `13.1 -- Multi-User Soak and Performance Baseline` -- `DONE`
@@ -1276,7 +1276,7 @@ Without a trace view, tuning remains guesswork.
 9. `13.5 -- Shared Launch Auth And Preflight` -- `DONE`
 10. `13.5a -- Current Token Requirement Fix` -- `DONE`
 11. `13.5b -- Auth Boundary Reverify` -- `DONE`
-12. `13.5c -- Preflight Online-Credential Blocker Surfacing` -- `IMPLEMENTED / READY FOR QA`
+12. `13.5c -- Preflight Online-Credential Blocker Surfacing` -- `DONE` (QA verified 2026-03-16: preflight/cutover/launch tests pass)
 13. `13.6 -- Live Authenticated-Online Soak Refresh` -- `BLOCKED (ENV)`
 14. `13.7 -- Load Ceiling Decision And Operating Limit` -- `NEXT`
 15. `13.8 -- Launch Verdict Refresh` -- `NEXT`
@@ -2231,7 +2231,7 @@ Without a trace view, tuning remains guesswork.
 6. `18.6 -- Parser Fuzz Tests (Hypothesis)` -- `DONE` (33 edge-case tests pass in 71s)
 7. `18.7 -- Flaky Test Stabilization (time-machine)` -- `DONE` (test_query_cache 2s->0.6s, test_runtime_limiter deterministic)
 8. `18.8 -- Stress Test Slow Tagging` -- `DONE`
-9. `18.9 -- Mutation Testing Baseline (mutmut)` -- `NEXT`
+9. `18.9 -- Mutation Testing Baseline (mutmut)` -- `BLOCKED` (mutmut requires WSL/Linux, not native Windows; deferred to BEAST)
 10. `18.10 -- PS1 Line Ending Normalization` -- `DONE` (.gitattributes created with *.ps1 eol=crlf)
 11. `18.11 -- DeepEval RAG Metrics` -- `LATER` (needs BEAST or API-backed judge LLM)
 12. `18.12 -- RAGAS Synthetic Test Generation` -- `LATER` (BEAST batch job)
