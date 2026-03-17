@@ -29,7 +29,7 @@ enforcing zero-trust outbound access control.
      +------------------+               |   Embedder       |
      | Parser           |               |   Ollama         |
      | Registry         |               |   /api/embed     |
-     | (24+ ext)        |               |   nomic-embed-   |
+     | (67 ext)         |               |   nomic-embed-   |
      +------------------+               |   text (768-dim) |
             |                           +------------------+
             v                                  |
@@ -139,7 +139,7 @@ api/                         (FastAPI REST server)
 
 ### 3.1 Parser Registry
 
-`src/parsers/registry.py` maps 24+ file extensions to parser classes.
+`src/parsers/registry.py` maps 67 file extensions to parser classes.
 Each parser implements:
 
 ```python

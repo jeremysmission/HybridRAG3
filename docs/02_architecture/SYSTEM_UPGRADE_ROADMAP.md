@@ -245,7 +245,7 @@ These require NO hardware investment. They are code or configuration changes.
 | # | Improvement | Affects | Impact | Effort |
 |---|------------|---------|--------|--------|
 | 1 | Response caching | Query (Stage 5) | Instant for repeated queries, eliminates LLM call entirely | Medium |
-| 2 | vLLM serving (enable) | Query (Stage 5) | Continuous batching, prefix caching, 2-3x throughput per GPU | Low (config) |
+| 2 | vLLM serving (enable) | Query (Stage 5) | Continuous batching, prefix caching, 2-3x throughput per GPU | Low (config) -- *requires running an external vLLM server; not in requirements.txt* |
 | 3 | IVF indexing | Search (Stage 2) | Sub-linear search at 1M+ vectors, near-GPU speed on CPU | Medium |
 | 4 | Parallel parsing | Index (Stage A) | Multi-process file parsing, better CPU utilization during index | Medium |
 | 5 | Nightly sync scheduling | Data freshness | Windows Task Scheduler triggers bulk_transfer_v2, auto-incremental | Low |
@@ -254,7 +254,7 @@ These require NO hardware investment. They are code or configuration changes.
 
 ### Priority order for software improvements:
 
-1. **vLLM serving** -- Already installed, just needs `vllm.enabled: true` in config. Biggest free win for workstation throughput.
+1. **vLLM serving** -- Requires an external vLLM server running separately (not bundled with HybridRAG; vLLM is not in requirements.txt). Once a vLLM server is available, set `vllm.enabled: true` in config and point the endpoint to it. Biggest free win for workstation throughput.
 2. **Response caching** -- Repeat queries are common in team use. Cache hit = 0 ms instead of 2-10 sec.
 3. **Nightly sync scheduling** -- Data freshness drives the whole system's value. Without fresh data, answers are stale.
 4. **IVF indexing** -- Only matters at 500K+ vectors. Low priority until production scale.

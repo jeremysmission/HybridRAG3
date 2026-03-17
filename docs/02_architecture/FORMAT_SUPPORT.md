@@ -78,8 +78,8 @@ These formats are parsed NOW. HybridRAG extracts searchable text from them.
 
 | Extension | Format Name | Parser         | Dependencies         |
 |-----------|-------------|----------------|----------------------|
-| `.html`   | HTML page   | HtmlFileParser | beautifulsoup4 (MIT) |
-| `.htm`    | HTML page   | HtmlFileParser | beautifulsoup4 (MIT) |
+| `.html`   | HTML page   | HtmlFileParser | None (stdlib html.parser) |
+| `.htm`    | HTML page   | HtmlFileParser | None (stdlib html.parser) |
 
 ### 1.5 Image Formats (OCR-based)
 
@@ -285,7 +285,7 @@ pdfplumber          # PDF extraction (MIT)
 python-docx         # DOCX reading (MIT)
 python-pptx         # PPTX reading (MIT)
 openpyxl            # XLSX reading (MIT)
-beautifulsoup4      # HTML parsing (MIT)
+html.parser         # HTML parsing (stdlib -- no install needed)
 Pillow              # Image handling (MIT)
 pytesseract         # OCR bridge to Tesseract (Apache 2.0)
 ```

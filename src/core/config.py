@@ -43,7 +43,7 @@
 #   2026-02-07: SEC-001 FIX -- API endpoint default changed from public
 #               OpenAI URL to empty string. Online mode now requires
 #               explicit endpoint configuration. Added endpoint validation.
-#   2026-02-07: Reranker enabled by default for technical document accuracy.
+#   2026-02-07: Reranker disabled by default (opt-in for technical document accuracy).
 #   2026-02-14: SAFETY NET -- _dict_to_dataclass now warns on YAML key
 #               mismatches instead of silently dropping them. Catches the
 #               class of bug where YAML says "timeout" but Python expects
