@@ -667,7 +667,7 @@ class VectorStore:
         hits.sort(key=lambda x: x["score"], reverse=True)
         return hits
 
-    def fts_search(self, query_text, top_k=20):
+    def fts_search(self, query_text, top_k=20, source_path_filter=None):
         """
         Keyword search using SQLite FTS5 (BM25 ranking).
 
@@ -679,6 +679,11 @@ class VectorStore:
 
         The BM25 score is normalized to 0.0-1.0 range so it can be merged
         with semantic scores in the Retriever's hybrid ranking.
+
+        source_path_filter: optional list of exact source_path strings.
+            When provided, FTS5 only searches chunks from these documents.
+            Used for scoped retrieval when the query references a specific
+            document by name.
         """
         self._ensure_connected()
         # Extract words of 3+ characters for keyword matching.
@@ -691,15 +696,28 @@ class VectorStore:
         fts_query = ' OR '.join(words)
         with self._db_lock:
             try:
-                rows = self.conn.execute(
-                    "SELECT c.source_path, c.chunk_index, c.text, c.access_tags, "
-                    "c.access_tag_source, rank "
-                    "FROM chunks_fts "
-                    "JOIN chunks c ON chunks_fts.rowid = c.chunk_pk "
-                    "WHERE chunks_fts MATCH ? "
-                    "ORDER BY rank LIMIT ?",
-                    (fts_query, top_k),
-                ).fetchall()
+                if source_path_filter:
+                    placeholders = ", ".join("?" * len(source_path_filter))
+                    rows = self.conn.execute(
+                        "SELECT c.source_path, c.chunk_index, c.text, "
+                        "c.access_tags, c.access_tag_source, rank "
+                        "FROM chunks_fts "
+                        "JOIN chunks c ON chunks_fts.rowid = c.chunk_pk "
+                        "WHERE chunks_fts MATCH ? "
+                        f"AND c.source_path IN ({placeholders}) "
+                        "ORDER BY rank LIMIT ?",
+                        [fts_query] + list(source_path_filter) + [top_k],
+                    ).fetchall()
+                else:
+                    rows = self.conn.execute(
+                        "SELECT c.source_path, c.chunk_index, c.text, "
+                        "c.access_tags, c.access_tag_source, rank "
+                        "FROM chunks_fts "
+                        "JOIN chunks c ON chunks_fts.rowid = c.chunk_pk "
+                        "WHERE chunks_fts MATCH ? "
+                        "ORDER BY rank LIMIT ?",
+                        (fts_query, top_k),
+                    ).fetchall()
             except sqlite3.OperationalError as e:
                 logger.warning("[WARN] FTS5 search failed: %s", e)
                 return []

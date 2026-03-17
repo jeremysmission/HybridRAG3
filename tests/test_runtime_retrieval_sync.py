@@ -117,7 +117,7 @@ def test_query_engine_rebinds_retriever_and_router_to_latest_config():
     cfg_new.query.allow_open_knowledge = False
     engine.config = cfg_new
 
-    def _assert_rebound(_query):
+    def _assert_rebound(_query, **_kwargs):
         assert engine.retriever.config is engine.config
         assert engine.llm_router.config is engine.config
         assert engine.llm_router.api.config is engine.config

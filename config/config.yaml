@@ -6,6 +6,7 @@ modes:
       min_score: 0.1
       hybrid_search: true
       reranker_enabled: false
+      reranker_model: phi4:14b-q4_K_M
       reranker_top_n: 20
     ollama:
       model: phi4:14b-q4_K_M
@@ -30,6 +31,7 @@ modes:
       min_score: 0.1
       hybrid_search: true
       reranker_enabled: false
+      reranker_model: phi4:14b-q4_K_M
       reranker_top_n: 20
       context_window: 4096
       num_predict: 384
@@ -59,6 +61,7 @@ modes:
       min_score: 0.1
       hybrid_search: true
       reranker_enabled: false
+      reranker_model: phi4:14b-q4_K_M
       reranker_top_n: 20
       corrective_retrieval: true
       corrective_threshold: 0.35
@@ -87,6 +90,7 @@ modes:
       min_score: 0.08
       hybrid_search: true
       reranker_enabled: false
+      reranker_model: phi4:14b-q4_K_M
       reranker_top_n: 20
       context_window: 128000
       max_tokens: 1024

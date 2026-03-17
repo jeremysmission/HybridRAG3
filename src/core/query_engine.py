@@ -48,6 +48,7 @@ from .vector_store import VectorStore
 from .retriever import Retriever
 from .embedder import Embedder
 from .llm_router import LLMRouter, LLMResponse
+from .query_classifier import QueryClassifier
 from .query_mode import apply_query_mode_to_engine
 from .query_trace import (
     attach_result_trace,
@@ -261,6 +262,7 @@ class QueryEngine(QueryEnginePromptMixin):
 
         # Retriever is now memmap-based internally, but QueryEngine doesn't care.
         self.retriever = Retriever(vector_store, embedder, config)
+        self._classifier = QueryClassifier()
 
         self.logger = get_app_logger("query_engine")
         self.last_query_trace = None
@@ -293,6 +295,11 @@ class QueryEngine(QueryEnginePromptMixin):
             # then finds the closest matching document chunks by cosine
             # similarity. Returns a ranked list of "hits" (chunks + scores).
             # --------------------------------------------------------
+            # Step 0.5: Classify query (gates conditional reranker)
+            # --------------------------------------------------------
+            classification = self._classifier.classify(user_query)
+
+            # --------------------------------------------------------
             # Step 1a: Query decomposition (multi-part detection)
             # --------------------------------------------------------
             # If the query contains multiple sub-questions joined by
@@ -302,9 +309,11 @@ class QueryEngine(QueryEnginePromptMixin):
             # steps AND acceptable tolerance ranges?"
             sub_queries = _decompose_query(user_query)
             if len(sub_queries) > 1:
-                search_results = self._multi_query_retrieve(sub_queries)
+                search_results = self._multi_query_retrieve(
+                    sub_queries, classification=classification)
             else:
-                search_results = self.retriever.search(user_query)
+                search_results = self.retriever.search(
+                    user_query, classification=classification)
             retrieval_trace = getattr(self.retriever, "last_search_trace", None) or minimal_retrieval_trace(search_results)
 
             # --------------------------------------------------------
@@ -573,8 +582,9 @@ class QueryEngine(QueryEnginePromptMixin):
     def _merge_search_results(results_a, results_b):
         return _merge_search_results(results_a, results_b)
 
-    def _multi_query_retrieve(self, sub_queries: list):
-        return _multi_query_retrieve(self.retriever, sub_queries)
+    def _multi_query_retrieve(self, sub_queries: list, classification=None):
+        return _multi_query_retrieve(
+            self.retriever, sub_queries, classification=classification)
 
     def query_stream(self, user_query: str) -> Generator[Dict[str, Any], None, None]:
         """
@@ -609,12 +619,17 @@ class QueryEngine(QueryEnginePromptMixin):
             # Phase 1: Retrieval (eager)
             yield {"phase": "searching"}
 
+            # Classify query (gates conditional reranker)
+            classification = self._classifier.classify(user_query)
+
             # Step 1a: Query decomposition (multi-part detection)
             sub_queries = _decompose_query(user_query)
             if len(sub_queries) > 1:
-                search_results = self._multi_query_retrieve(sub_queries)
+                search_results = self._multi_query_retrieve(
+                    sub_queries, classification=classification)
             else:
-                search_results = self.retriever.search(user_query)
+                search_results = self.retriever.search(
+                    user_query, classification=classification)
             retrieval_trace = getattr(self.retriever, "last_search_trace", None) or minimal_retrieval_trace(search_results)
 
             # Step 1.5: Corrective retrieval (CRAG pattern)
@@ -1005,11 +1020,11 @@ def _merge_search_results(results_a, results_b):
     return sorted(seen.values(), key=lambda h: h.score, reverse=True)
 
 
-def _multi_query_retrieve(retriever, sub_queries: list):
+def _multi_query_retrieve(retriever, sub_queries: list, classification=None):
     """Retrieve for each sub-query and merge results with deduplication."""
     all_results = []
     for sq in sub_queries:
-        hits = retriever.search(sq)
+        hits = retriever.search(sq, classification=classification)
         all_results.extend(hits or [])
     if not all_results:
         return []

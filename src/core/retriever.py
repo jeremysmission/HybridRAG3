@@ -298,25 +298,39 @@ class Retriever:
     # Public API -- this is what query_engine.py calls
     # ------------------------------------------------------------------
 
-    def search(self, query):
+    def search(self, query, classification=None):
         """
         Search for chunks relevant to the query.
 
         Pipeline:
           1. Choose search strategy (hybrid or vector-only)
           2. Retrieve candidates (more than top_k if reranker is on)
-          3. Optionally rerank with cross-encoder
+          3. Conditionally rerank with cross-encoder
           4. Filter by min_score
           5. Trim to top_k results
+
+        classification: optional ClassificationResult from QueryClassifier.
+            When provided, enables conditional reranking -- the reranker
+            only fires for ANSWERABLE/UNKNOWN queries where initial
+            retrieval scores are in the uncertain middle range.
 
         Returns a list of SearchHit objects, sorted by score descending.
         """
         self.refresh_settings()
         self.last_search_trace = None
 
+        # Conditional reranker: config is the master switch, classification
+        # gates by query type, retrieval scores gate by confidence.
+        use_reranker = self.reranker_enabled
+        reranker_skip_reason = None
+        if use_reranker and classification is not None:
+            if not classification.should_rerank:
+                use_reranker = False
+                reranker_skip_reason = "query_type=%s" % classification.query_type.name
+
         # If reranker is on, we fetch more candidates so it has a bigger
         # pool to rerank from. Otherwise, just fetch top_k directly.
-        candidate_k = self.reranker_top_n if self.reranker_enabled else self.top_k
+        candidate_k = self.reranker_top_n if use_reranker else self.top_k
         structured_query = _is_structured_lookup_query(query)
         fts_query = query
         min_score = self.min_score
@@ -336,9 +350,23 @@ class Retriever:
         search_ms = (time.perf_counter() - search_started) * 1000
         raw_hits = list(hits)
 
-        # --- Step 2: Optional reranking ---
+        # --- Step 2: Conditional reranking ---
+        # Gate 2: Retrieval confidence -- skip reranking if results are
+        # already high-confidence (median > 0.65) or too low to salvage
+        # (max < 0.15). The "uncertain middle" is where reranking helps.
         rerank_ms = 0.0
-        if self.reranker_enabled and len(hits) > 0:
+        if use_reranker and len(hits) > 1:
+            scores = sorted([h.score for h in hits], reverse=True)
+            median_score = scores[len(scores) // 2]
+            if scores[0] < 0.15:
+                use_reranker = False
+                reranker_skip_reason = "max_score=%.3f (too low)" % scores[0]
+            elif median_score > 0.65:
+                use_reranker = False
+                reranker_skip_reason = "median=%.3f (confident)" % median_score
+        if reranker_skip_reason:
+            logger.info("[OK] reranker skipped: %s", reranker_skip_reason)
+        if use_reranker and len(hits) > 0:
             rerank_started = time.perf_counter()
             hits = self._rerank(query, hits)
             rerank_ms = (time.perf_counter() - rerank_started) * 1000
@@ -430,17 +458,28 @@ class Retriever:
         q_vec = self._embed_query_cached(query)
         vector_hits = self.vector_store.search(q_vec, top_k=candidate_k, block_rows=self.block_rows)
 
-        # Keyword search: use SQLite FTS5 full-text index
+        # Source-path pre-filter: if the query references a specific document
+        # by name, scope FTS5 to only that document's chunks at the SQL level.
+        # This replaces post-retrieval prompt-level filtering with faster,
+        # more precise SQL-level filtering.
+        source_path_filter = None
+        path_hits = []
+        if hasattr(self.vector_store, "source_path_search"):
+            path_hits = self.vector_store.source_path_search(query, top_k=candidate_k)
+            source_path_filter = _extract_strong_path_matches(path_hits)
+
+        # Keyword search: use SQLite FTS5 full-text index.
+        # When source_path_filter is set, FTS5 only searches within the
+        # referenced documents (scoped retrieval at SQL level).
         fts_hits = self.vector_store.fts_search(
             fts_query if fts_query is not None else query,
             top_k=candidate_k,
+            source_path_filter=source_path_filter,
         )
 
-        # Source-path search: find chunks whose filename matches query terms.
-        # Appended to FTS hits so they enter RRF as weak keyword signals.
-        # Only adds chunks NOT already in FTS results (purely additive).
-        if hasattr(self.vector_store, "source_path_search"):
-            path_hits = self.vector_store.source_path_search(query, top_k=candidate_k)
+        # Append remaining path hits not already in FTS results.
+        # These enter RRF as weak keyword signals (purely additive).
+        if path_hits:
             fts_keys = {(h["source_path"], h["chunk_index"]) for h in fts_hits}
             for hit in path_hits:
                 key = (hit["source_path"], hit["chunk_index"])
@@ -960,6 +999,27 @@ def _query_terms(query):
     """
     terms = re.findall(r"[A-Za-z0-9]+", (query or "").lower())
     return [t for t in terms if len(t) >= 3]
+
+
+def _extract_strong_path_matches(path_hits):
+    """Extract unique source paths with strong document-name coverage.
+
+    source_path_search scores are: min(0.5, 0.05 + 0.45 * coverage).
+    A score >= 0.35 means ~67% of query terms match the filename, which
+    is a strong signal the query references that specific document.
+
+    Returns a list of path strings for SQL-level FTS scoping, or None
+    if no strong matches were found. Limited to 3 paths to prevent
+    over-scoping when many documents weakly match.
+    """
+    if not path_hits:
+        return None
+    strong = sorted(
+        {h["source_path"] for h in path_hits if h.get("score", 0) >= 0.35},
+    )
+    if not strong or len(strong) > 3:
+        return None
+    return strong
 
 
 def _is_structured_lookup_query(query):

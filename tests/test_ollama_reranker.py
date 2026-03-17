@@ -290,3 +290,52 @@ class TestLoadOllamaReranker:
             result = load_ollama_reranker(config)
 
         assert result is None
+
+    @patch("src.core.ollama_reranker.get_gate")
+    def test_prefers_retrieval_reranker_model(self, mock_gate):
+        """load_ollama_reranker prefers retrieval.reranker_model over ollama.model."""
+        mock_gate.return_value.check_allowed = MagicMock()
+        config = MagicMock()
+        config.ollama.base_url = "http://127.0.0.1:11434"
+        config.ollama.model = "phi4:14b-q4_K_M"
+        config.retrieval.reranker_model = "phi4:14b"
+
+        with patch("src.core.ollama_reranker.httpx.Client",
+                    _mock_client_class([])):
+            result = load_ollama_reranker(config)
+
+        assert isinstance(result, OllamaReranker)
+        assert result.model == "phi4:14b"
+
+    @patch("src.core.ollama_reranker.get_gate")
+    def test_ignores_retired_crossencoder_model(self, mock_gate):
+        """Retired cross-encoder model name is ignored, falls back to ollama.model."""
+        mock_gate.return_value.check_allowed = MagicMock()
+        config = MagicMock()
+        config.ollama.base_url = "http://127.0.0.1:11434"
+        config.ollama.model = "phi4:14b-q4_K_M"
+        config.retrieval.reranker_model = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+        with patch("src.core.ollama_reranker.httpx.Client",
+                    _mock_client_class([])):
+            result = load_ollama_reranker(config)
+
+        assert isinstance(result, OllamaReranker)
+        assert result.model == "phi4:14b-q4_K_M"
+
+    @patch("src.core.ollama_reranker.get_gate")
+    def test_falls_back_to_ollama_model_when_no_reranker_model(self, mock_gate):
+        """When retrieval.reranker_model is not set, uses ollama.model."""
+        mock_gate.return_value.check_allowed = MagicMock()
+        config = MagicMock()
+        config.ollama.base_url = "http://127.0.0.1:11434"
+        config.ollama.model = "phi4-mini"
+        # Simulate retrieval config without reranker_model attribute
+        config.retrieval = MagicMock(spec=["top_k", "min_score"])
+
+        with patch("src.core.ollama_reranker.httpx.Client",
+                    _mock_client_class([])):
+            result = load_ollama_reranker(config)
+
+        assert isinstance(result, OllamaReranker)
+        assert result.model == "phi4-mini"

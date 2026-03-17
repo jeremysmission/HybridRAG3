@@ -146,7 +146,17 @@ def load_ollama_reranker(config):
         return None
 
     base_url = getattr(ollama_cfg, "base_url", "http://127.0.0.1:11434")
-    model = getattr(ollama_cfg, "model", "phi4-mini")
+    # Prefer dedicated reranker_model from retrieval config; fall back to
+    # the main Ollama model so the reranker works even if reranker_model
+    # is not explicitly set.
+    retrieval_cfg = getattr(config, "retrieval", None)
+    reranker_model = getattr(retrieval_cfg, "reranker_model", None) if retrieval_cfg else None
+    # Only use reranker_model if it's a real string (not a MagicMock or empty),
+    # and not the retired sentence-transformers model name.
+    if isinstance(reranker_model, str) and reranker_model and "cross-encoder" not in reranker_model:
+        model = reranker_model
+    else:
+        model = getattr(ollama_cfg, "model", "phi4:14b-q4_K_M")
 
     # Quick health check -- don't create reranker if Ollama is down
     try:

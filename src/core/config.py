@@ -370,12 +370,12 @@ class RetrievalConfig:
     rrf_k: int = 60                # RRF constant (higher = less aggressive merging)
 
     # --- Cross-encoder reranker ---
-    # CHANGED 2026-02-07: Default OFF. sentence-transformers was retired in
-    # Session 15 (HuggingFace removal). The import silently fails and search
-    # proceeds without reranking regardless -- config should reflect reality.
-    # Re-enable when a replacement reranker (e.g. Ollama-served) is available.
-    reranker_enabled: bool = False  # Cross-encoder reranker OFF (no backend)
-    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    # CHANGED 2026-03-17: Ollama-based reranker now available (Sprint 16).
+    # Uses the local Ollama server with phi4:14b as a relevance scorer.
+    # Still opt-in (default OFF) to avoid latency for users who don't need it.
+    # Degrades gracefully if Ollama is unreachable.
+    reranker_enabled: bool = False  # Cross-encoder reranker OFF (opt-in)
+    reranker_model: str = "phi4:14b-q4_K_M"  # Ollama model for reranking
     reranker_top_n: int = 20       # Retrieve this many candidates, rerank, keep top_k
 
     # --- Corrective retrieval (CRAG pattern) ---

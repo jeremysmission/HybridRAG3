@@ -169,10 +169,10 @@ retired_optional:
       Code in nli_verifier.py degrades gracefully (logs warning, skips check).
       Feature will be reimplemented using Ollama-served models in a future phase.
 
-  # --- Reranker Model (reranking -- RETIRED) ---
+  # --- Reranker Model (reranking via Ollama) ---
   - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
     type: "reranker_cross_encoder"
-    status: "RETIRED -- requires sentence-transformers (removed Session 15)"
+    status: "RETIRED -- replaced by Ollama-based reranker (Sprint 16)"
     vendor: "Microsoft"
     vendor_country: "USA"
     license: "MIT"
@@ -181,9 +181,10 @@ retired_optional:
     config_key: "retrieval.reranker_model"
     enabled_by_default: false
     notes: >
-      RETIRED. Required sentence-transformers which was removed in Session 15.
-      Code in retriever.py degrades gracefully (logs warning, skips reranking).
-      Also: enabling reranker destroys injection detection scores (100->46%).
+      RETIRED. Replaced by Ollama-based LLM reranker in Sprint 16.
+      The reranker now uses the local Ollama server (phi4:14b by default)
+      as a cross-encoder relevance scorer. Opt-in via reranker_enabled.
+      Degrades gracefully if Ollama is unreachable.
 
 # ============================================================================
 # SECTION 4: RUNTIME DEPENDENCIES (not model weights, but required software)
