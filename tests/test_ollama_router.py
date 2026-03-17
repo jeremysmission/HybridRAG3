@@ -53,7 +53,7 @@ class TestOllamaRouter:
             config = FakeConfig(mode="offline")
 
         # We mock the logger import to prevent actual log file creation
-        with patch("src.core.llm_router.get_app_logger") as mock_logger:
+        with patch("src.core.ollama_router.get_app_logger") as mock_logger:
             mock_logger.return_value = MagicMock()
 
             # Import the real class -- this tests your actual code
@@ -150,7 +150,7 @@ class TestOllamaRouter:
         router._client = MagicMock()
         router._client.post.return_value = mock_response
 
-        with patch("src.core.llm_router.time.time", side_effect=fake_time):
+        with patch("src.core.ollama_router.time.time", side_effect=fake_time):
             result = router.query("What is the operating frequency?")
 
         # Verify we got a proper response back
@@ -535,7 +535,7 @@ class TestLLMRouter:
         """
         config = FakeConfig(mode="offline")
 
-        with patch("src.core.llm_router.get_app_logger") as mock_logger:
+        with patch("src.core.ollama_router.get_app_logger") as mock_logger:
             mock_logger.return_value = MagicMock()
 
             # We need to patch the credential resolution to avoid keyring
@@ -574,7 +574,7 @@ class TestLLMRouter:
         """
         config = FakeConfig(mode="online")
 
-        with patch("src.core.llm_router.get_app_logger") as mock_logger:
+        with patch("src.core.ollama_router.get_app_logger") as mock_logger:
             mock_logger.return_value = MagicMock()
 
             from src.core.llm_router import LLMRouter
@@ -609,7 +609,7 @@ class TestLLMRouter:
         """
         config = FakeConfig(mode="online")
 
-        with patch("src.core.llm_router.get_app_logger") as mock_logger:
+        with patch("src.core.ollama_router.get_app_logger") as mock_logger:
             mock_logger.return_value = MagicMock()
 
             from src.core.llm_router import LLMRouter
@@ -643,7 +643,7 @@ class TestLLMRouter:
             source_endpoint="config",
         )
 
-        with patch("src.core.llm_router.get_app_logger") as mock_logger:
+        with patch("src.core.ollama_router.get_app_logger") as mock_logger:
             mock_logger.return_value = MagicMock()
             with patch(
                 "src.security.credentials.resolve_credentials",
@@ -684,7 +684,7 @@ class TestLLMRouter:
             source_endpoint="config",
         )
 
-        with patch("src.core.llm_router.get_app_logger") as mock_logger:
+        with patch("src.core.ollama_router.get_app_logger") as mock_logger:
             mock_logger.return_value = MagicMock()
             with patch(
                 "src.security.credentials.resolve_credentials",
@@ -711,7 +711,7 @@ class TestLLMRouter:
         """
         config = FakeConfig(mode="offline")
 
-        with patch("src.core.llm_router.get_app_logger") as mock_logger:
+        with patch("src.core.ollama_router.get_app_logger") as mock_logger:
             mock_logger.return_value = MagicMock()
 
             from src.core.llm_router import LLMRouter

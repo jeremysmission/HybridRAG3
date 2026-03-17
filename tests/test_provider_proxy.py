@@ -38,7 +38,7 @@ class TestBuildHttpxClient:
 
     def _get_factory(self):
         """Import factory, patching out network gate to avoid import issues."""
-        with patch("src.core.llm_router.get_gate", return_value=MagicMock()):
+        with patch("src.core.api_router.get_gate", return_value=MagicMock()):
             from src.core.llm_router import _build_httpx_client
         return _build_httpx_client
 
@@ -151,8 +151,8 @@ class TestProviderDetection:
             config = FakeConfig(mode="online")
         mock_gate = MagicMock()
         mock_gate.check_allowed.return_value = None
-        with patch("src.core.llm_router.get_gate", return_value=mock_gate):
-            with patch("src.core.llm_router.get_app_logger") as ml:
+        with patch("src.core.api_router.get_gate", return_value=mock_gate):
+            with patch("src.core.api_router.get_app_logger") as ml:
                 ml.return_value = MagicMock()
                 with patch("openai.OpenAI") as MockOpenAI:
                     with patch("openai.AzureOpenAI") as MockAzure:

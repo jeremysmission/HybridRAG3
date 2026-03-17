@@ -189,8 +189,8 @@ def test_api_router_init_failure_sets_client_none_and_query_returns_none():
     mock_gate = MagicMock()
     mock_gate.check_allowed.return_value = None
 
-    with patch("src.core.llm_router.get_gate", return_value=mock_gate), \
-            patch("src.core.llm_router.get_app_logger") as mock_logger, \
+    with patch("src.core.api_router.get_gate", return_value=mock_gate), \
+            patch("src.core.api_router.get_app_logger") as mock_logger, \
             patch("openai.OpenAI", side_effect=RuntimeError("client init failed")), \
             patch("openai.AzureOpenAI"):
         mock_logger.return_value = MagicMock()

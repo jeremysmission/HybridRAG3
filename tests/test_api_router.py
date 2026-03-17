@@ -61,8 +61,8 @@ class TestAPIRouter:
         mock_gate = MagicMock()
         mock_gate.check_allowed.return_value = None  # Never blocks
 
-        with patch("src.core.llm_router.get_gate", return_value=mock_gate):
-            with patch("src.core.llm_router.get_app_logger") as mock_logger:
+        with patch("src.core.api_router.get_gate", return_value=mock_gate):
+            with patch("src.core.api_router.get_app_logger") as mock_logger:
                 mock_logger.return_value = MagicMock()
 
                 with patch("openai.OpenAI") as MockOpenAI:
@@ -200,12 +200,12 @@ class TestAPIRouter:
             _time_calls.append(1)
             return 1000.000 if len(_time_calls) == 1 else 1000.050
 
-        with patch("src.core.llm_router.get_gate", return_value=mock_gate):
-            with patch("src.core.llm_router.get_app_logger") as mock_logger:
+        with patch("src.core.api_router.get_gate", return_value=mock_gate):
+            with patch("src.core.api_router.get_app_logger") as mock_logger:
                 mock_logger.return_value = MagicMock()
 
                 with patch("openai.OpenAI") as MockOpenAI:
-                    with patch("src.core.llm_router.time.time", side_effect=fake_time):
+                    with patch("src.core.api_router.time.time", side_effect=fake_time):
                         # Build a fake SDK response object
                         # This mimics what openai.ChatCompletion actually returns
                         mock_choice = MagicMock()
@@ -254,8 +254,8 @@ class TestAPIRouter:
         mock_gate = MagicMock()
         mock_gate.check_allowed.return_value = None
 
-        with patch("src.core.llm_router.get_gate", return_value=mock_gate):
-            with patch("src.core.llm_router.get_app_logger") as mock_logger:
+        with patch("src.core.api_router.get_gate", return_value=mock_gate):
+            with patch("src.core.api_router.get_app_logger") as mock_logger:
                 mock_logger.return_value = MagicMock()
 
                 with patch("openai.OpenAI") as MockOpenAI:
@@ -299,8 +299,8 @@ class TestAPIRouter:
         mock_gate = MagicMock()
         mock_gate.check_allowed.return_value = None
 
-        with patch("src.core.llm_router.get_gate", return_value=mock_gate):
-            with patch("src.core.llm_router.get_app_logger") as mock_logger:
+        with patch("src.core.api_router.get_gate", return_value=mock_gate):
+            with patch("src.core.api_router.get_app_logger") as mock_logger:
                 mock_logger.return_value = MagicMock()
 
                 with patch("openai.OpenAI") as MockOpenAI:
@@ -344,7 +344,7 @@ class TestAPIRouter:
         config = FakeConfig(mode="online")
 
         import sys
-        with patch("src.core.llm_router.get_app_logger") as mock_logger:
+        with patch("src.core.api_router.get_app_logger") as mock_logger:
             mock_logger.return_value = MagicMock()
 
             with patch.dict(sys.modules, {"openai": None}):
@@ -374,8 +374,8 @@ class TestAPIRouter:
 
         mock_log_instance = MagicMock()
 
-        with patch("src.core.llm_router.get_gate", return_value=mock_gate):
-            with patch("src.core.llm_router.get_app_logger") as mock_logger:
+        with patch("src.core.api_router.get_gate", return_value=mock_gate):
+            with patch("src.core.api_router.get_app_logger") as mock_logger:
                 mock_logger.return_value = mock_log_instance
 
                 with patch("openai.OpenAI") as MockOpenAI:

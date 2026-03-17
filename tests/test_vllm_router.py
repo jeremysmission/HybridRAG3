@@ -38,7 +38,7 @@ class TestVLLMRouter:
             config = FakeConfig(mode="offline")
             config.vllm = FakeVLLMConfig(enabled=True)
 
-        with patch("src.core.llm_router.get_app_logger") as mock_logger:
+        with patch("src.core.vllm_router.get_app_logger") as mock_logger:
             mock_logger.return_value = MagicMock()
             from src.core.llm_router import VLLMRouter
             router = VLLMRouter(config)
@@ -56,7 +56,7 @@ class TestVLLMRouter:
         config = FakeConfig(mode="offline")
         assert config.vllm.enabled is False
 
-        with patch("src.core.llm_router.get_app_logger") as mock_logger:
+        with patch("src.core.vllm_router.get_app_logger") as mock_logger:
             mock_logger.return_value = MagicMock()
             from src.core.llm_router import LLMRouter
             router = LLMRouter(config, api_key=None)
@@ -162,7 +162,7 @@ class TestVLLMRouter:
         config = FakeConfig(mode="offline")
         config.vllm = FakeVLLMConfig(enabled=True)
 
-        with patch("src.core.llm_router.get_app_logger") as mock_logger:
+        with patch("src.core.vllm_router.get_app_logger") as mock_logger:
             mock_logger.return_value = MagicMock()
             from src.core.llm_router import LLMRouter
             router = LLMRouter(config, api_key=None)
@@ -200,7 +200,7 @@ class TestVLLMRouter:
 
         from src.core.network_gate import NetworkBlockedError
 
-        with patch("src.core.llm_router.get_gate") as mock_get_gate:
+        with patch("src.core.vllm_router.get_gate") as mock_get_gate:
             mock_gate = MagicMock()
             mock_gate.check_allowed.side_effect = NetworkBlockedError(
                 "http://localhost:8000/v1/chat/completions",
