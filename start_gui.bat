@@ -61,6 +61,10 @@ if /I "%HYBRIDRAG_GUI_DETACH%"=="1" if /I "%GUI_MODE%"=="terminal" set "GUI_MODE
 
 if not exist "%VENV_PYTHON%" goto missing_venv
 if not exist "%GUI_SCRIPT%" goto missing_gui_script
+if "%DRY_RUN%"=="0" (
+  "%VENV_PYTHON%" -c "import sys" >nul 2>nul
+  if errorlevel 1 goto broken_venv
+)
 
 set "PYTHONPATH=%PROJECT_ROOT%"
 set "HYBRIDRAG_PROJECT_ROOT=%PROJECT_ROOT%"
@@ -121,6 +125,24 @@ echo.
 echo Then run start_gui.bat again.
 call :maybe_pause
 exit /b 2
+
+:broken_venv
+echo.
+echo [FAIL] HybridRAG found .venv, but its Python executable cannot start.
+echo Python launcher:
+echo   "%VENV_PYTHON%"
+echo.
+echo This usually means the virtual environment was created against a Python install
+echo that was moved, removed, or upgraded after .venv was built.
+echo Rebuild the virtual environment from this repo:
+echo   cd "%PROJECT_ROOT%"
+echo   Remove-Item -Recurse -Force .venv
+echo   py -3.12 -m venv .venv
+echo   .venv\Scripts\pip install -r requirements_approved.txt
+echo.
+echo Then run start_gui.bat again.
+call :maybe_pause
+exit /b 4
 
 :missing_gui_script
 echo.

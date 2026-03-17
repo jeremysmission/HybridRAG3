@@ -49,6 +49,7 @@ from .retriever import Retriever
 from .embedder import Embedder
 from .llm_router import LLMRouter, LLMResponse
 from .query_classifier import QueryClassifier
+from .query_expander import QueryExpander
 from .query_mode import apply_query_mode_to_engine
 from .query_trace import (
     attach_result_trace,
@@ -263,6 +264,7 @@ class QueryEngine(QueryEnginePromptMixin):
         # Retriever is now memmap-based internally, but QueryEngine doesn't care.
         self.retriever = Retriever(vector_store, embedder, config)
         self._classifier = QueryClassifier()
+        self._query_expander = QueryExpander(config)
 
         self.logger = get_app_logger("query_engine")
         self.last_query_trace = None
@@ -300,6 +302,19 @@ class QueryEngine(QueryEnginePromptMixin):
             classification = self._classifier.classify(user_query)
 
             # --------------------------------------------------------
+            # Step 0.7: Acronym expansion (zero-cost, instant)
+            # --------------------------------------------------------
+            # Expand acronyms before retrieval so embeddings match
+            # documents that use either the acronym or full form.
+            # e.g. "TCXO calibration" -> "TCXO (Temperature Compensated
+            # Crystal Oscillator) calibration"
+            search_query = user_query
+            if self._query_expander:
+                expanded = self._query_expander.expand_keywords(user_query)
+                if expanded != user_query:
+                    search_query = expanded
+
+            # --------------------------------------------------------
             # Step 1a: Query decomposition (multi-part detection)
             # --------------------------------------------------------
             # If the query contains multiple sub-questions joined by
@@ -307,13 +322,13 @@ class QueryEngine(QueryEnginePromptMixin):
             # retrieve for each, and merge results. This improves
             # recall on complex questions like "What are the calibration
             # steps AND acceptable tolerance ranges?"
-            sub_queries = _decompose_query(user_query)
+            sub_queries = _decompose_query(search_query)
             if len(sub_queries) > 1:
                 search_results = self._multi_query_retrieve(
                     sub_queries, classification=classification)
             else:
                 search_results = self.retriever.search(
-                    user_query, classification=classification)
+                    search_query, classification=classification)
             retrieval_trace = getattr(self.retriever, "last_search_trace", None) or minimal_retrieval_trace(search_results)
 
             # --------------------------------------------------------
@@ -622,14 +637,21 @@ class QueryEngine(QueryEnginePromptMixin):
             # Classify query (gates conditional reranker)
             classification = self._classifier.classify(user_query)
 
+            # Acronym expansion before retrieval
+            search_query = user_query
+            if self._query_expander:
+                expanded = self._query_expander.expand_keywords(user_query)
+                if expanded != user_query:
+                    search_query = expanded
+
             # Step 1a: Query decomposition (multi-part detection)
-            sub_queries = _decompose_query(user_query)
+            sub_queries = _decompose_query(search_query)
             if len(sub_queries) > 1:
                 search_results = self._multi_query_retrieve(
                     sub_queries, classification=classification)
             else:
                 search_results = self.retriever.search(
-                    user_query, classification=classification)
+                    search_query, classification=classification)
             retrieval_trace = getattr(self.retriever, "last_search_trace", None) or minimal_retrieval_trace(search_results)
 
             # Step 1.5: Corrective retrieval (CRAG pattern)

@@ -40,6 +40,8 @@ def test_launch_gui_ps1_resolves_project_root_and_venv_context():
     assert "$env:HYBRIDRAG_PROJECT_ROOT = $ProjectRoot" in content
     assert "$env:VIRTUAL_ENV = $VenvRoot" in content
     assert "Join-Path $ProjectRoot '.venv\\Scripts\\python.exe'" in content
+    assert "function Test-PythonUsable([string]$PythonPath)" in content
+    assert 'throw "No usable Python interpreter found.' in content
 
 
 def test_build_usb_deploy_bundle_prefers_repo_venv_python_by_project_root():

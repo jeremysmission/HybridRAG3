@@ -27,7 +27,13 @@ from src.core.model_identity import canonicalize_model_name
 logger = logging.getLogger(__name__)
 
 # Embedding-only models that should be excluded from LLM model lists.
-_EMBED_MODELS = {"nomic-embed-text", "all-minilm", "mxbai-embed"}
+_EMBED_MODELS = {
+    "nomic-embed-text",
+    "nomic-embed-text-v2",
+    "nomic-embed-text-v2-moe",
+    "all-minilm",
+    "mxbai-embed",
+}
 
 
 @dataclass

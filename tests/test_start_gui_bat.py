@@ -92,6 +92,23 @@ def test_start_gui_bat_missing_venv_reports_plain_english_error(tmp_path):
     assert str(fake_root) in output
 
 
+def test_start_gui_bat_broken_venv_reports_rebuild_steps(tmp_path):
+    fake_root = tmp_path / "Repo With Spaces"
+    fake_root.mkdir()
+    batch_path = _seed_fake_repo(fake_root, with_venv=True)
+
+    code, output = _run_batch(
+        batch_path,
+        cwd=tmp_path,
+        env={"HYBRIDRAG_GUI_NO_PAUSE": "1"},
+    )
+
+    assert code == 4
+    assert "found .venv, but its python executable cannot start" in output.lower()
+    assert "Remove-Item -Recurse -Force .venv" in output
+    assert "py -3.12 -m venv .venv" in output
+
+
 def test_start_gui_bat_dry_run_handles_space_paths_and_reports_launch_targets(tmp_path):
     fake_root = tmp_path / "Repo With Spaces"
     fake_root.mkdir()

@@ -43,8 +43,8 @@ def boot_headless():
     try:
         from src.core.boot import boot_hybridrag
         boot_result = boot_hybridrag()
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("boot_hybridrag failed in test harness: %s", exc)
 
     try:
         from src.core.config import load_config
@@ -88,7 +88,7 @@ def attach_backends_sync(app, timeout_s=60):
                 app.update()
                 drain_ui_queue()
             except Exception:
-                break
+                break  # Tk event loop failed (headless/destroyed) -- expected in tests
 
             # Done once backends are attached
             if app.query_engine is not None or app.indexer is not None:
@@ -101,7 +101,7 @@ def attach_backends_sync(app, timeout_s=60):
             app.update()
             drain_ui_queue()
         except Exception:
-            pass
+            pass  # Tk final pump failed (headless/destroyed) -- expected in tests
 
     finally:
         mb_mod.showwarning = _orig_warn

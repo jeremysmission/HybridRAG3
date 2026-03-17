@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import hmac
+import logging
 import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from fastapi import HTTPException, Request
 
@@ -301,7 +304,15 @@ def _secret_ring(*, primary_env: str, previous_env: str) -> tuple[str, ...]:
             continue
         for value in re.split(r"[,\s;]+", raw):
             secret = value.strip()
-            if secret and secret not in values:
+            if not secret:
+                continue
+            if len(secret) < 8:
+                logger.warning(
+                    "[SECURITY] Ignoring proxy secret from %s: too short (%d chars, minimum 8)",
+                    env_name, len(secret),
+                )
+                continue
+            if secret not in values:
                 values.append(secret)
     return tuple(values)
 

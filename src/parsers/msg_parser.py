@@ -141,7 +141,9 @@ def _try_olefile_msg(file_path: str, details: Dict) -> str:
         for stream, label in field_map.items():
             if ole.exists(stream):
                 try:
-                    data = ole.openstream(stream).read()
+                    s = ole.openstream(stream)
+                    data = s.read()
+                    s.close()
                     text = data.decode("utf-16-le", errors="ignore").strip()
                     if text:
                         if label == "Body":

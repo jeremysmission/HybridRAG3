@@ -106,7 +106,7 @@ def _build_browser_section(self, t):
     # drive detection missed it (common on slow network login).
     if preferred_drive and preferred_drive not in drives:
         drives = [preferred_drive] + drives
-    initial_drive = preferred_drive if preferred_drive else (drives[0] if drives else "C:\\")
+    initial_drive = preferred_drive if preferred_drive else (drives[0] if drives else os.environ.get("SystemDrive", "C:") + "\\")
     self._drive_var = tk.StringVar(value=initial_drive)
     self._drive_combo = ttk.Combobox(
         drive_row, textvariable=self._drive_var, values=drives,

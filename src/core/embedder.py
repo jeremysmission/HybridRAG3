@@ -73,12 +73,16 @@ class Embedder:
     # Hostnames considered safe for embedding traffic (no gate check needed)
     _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "[::1]"})
 
-    # nomic-embed-text is a task-aware model: queries and documents use
+    # Nomic embedding models are task-aware: queries and documents use
     # different prefixes so the model maps them to the correct embedding
-    # subspace. Without these, retrieval accuracy drops 2-5%.
+    # subspace. Without these, retrieval accuracy drops materially.
     # Ref: https://huggingface.co/nomic-ai/nomic-embed-text-v1.5
-    _NOMIC_MODELS = frozenset({"nomic-embed-text", "nomic-embed-text:latest",
-                                "nomic-embed-text:v1.5"})
+    # Ref: https://huggingface.co/nomic-ai/nomic-embed-text-v2-moe
+    _TASK_AWARE_MODEL_PREFIXES = frozenset({
+        "nomic-embed-text",
+        "nomic-embed-text-v2",
+        "nomic-embed-text-v2-moe",
+    })
 
     def __init__(self, model_name: str | None = None, dimension: int = 0):
         """
@@ -97,7 +101,7 @@ class Embedder:
 
         self.model_name = model_name or self.DEFAULT_MODEL
         self.logger = get_app_logger("embedder")
-        self._use_task_prefix = self.model_name.split(":")[0] in {"nomic-embed-text"}
+        self._use_task_prefix = self.model_name.split(":")[0] in self._TASK_AWARE_MODEL_PREFIXES
 
         self.base_url = sanitize_ollama_base_url(
             os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")

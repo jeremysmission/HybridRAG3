@@ -117,12 +117,20 @@ def test_build_candidates_starter_grid_counts():
     online = autotune.build_candidates("online", "starter")
 
     assert len(offline) == 16
-    assert len(online) == 16
+    assert len(online) == 24
     assert offline[0].mode == "offline"
     assert offline[0].bundle in {"strict", "balanced"}
     assert "np" in offline[0].name
     assert "_b" in offline[0].name
     assert "mt" in online[0].name
+    assert any(candidate.bundle == "recovery" for candidate in online)
+    assert any("_cr0t35_" in candidate.name for candidate in online if candidate.bundle == "strict")
+    assert any(
+        candidate.values.get("corrective_retrieval") is True
+        and abs(float(candidate.values.get("corrective_threshold", 0.0)) - 0.50) < 1e-9
+        for candidate in online
+        if candidate.bundle == "recovery"
+    )
 
 
 def test_build_candidate_config_writes_mode_specific_knobs():
@@ -143,6 +151,8 @@ def test_build_candidate_config_writes_mode_specific_knobs():
             "hybrid_search": True,
             "reranker_enabled": False,
             "reranker_top_n": 20,
+            "corrective_retrieval": True,
+            "corrective_threshold": 0.50,
             "grounding_bias": 6,
             "allow_open_knowledge": True,
             "context_window": 128000,
@@ -179,6 +189,8 @@ def test_build_candidate_config_writes_mode_specific_knobs():
     assert online_cfg["modes"]["online"]["api"]["max_tokens"] == 1024
     assert abs(online_cfg["modes"]["online"]["api"]["top_p"] - 0.95) < 1e-9
     assert online_cfg["modes"]["online"]["retrieval"]["top_k"] == 8
+    assert online_cfg["modes"]["online"]["retrieval"]["corrective_retrieval"] is True
+    assert abs(online_cfg["modes"]["online"]["retrieval"]["corrective_threshold"] - 0.50) < 1e-9
     assert online_cfg["modes"]["online"]["query"]["grounding_bias"] == 6
     assert online_cfg["modes"]["online"]["query"]["allow_open_knowledge"] is True
     assert offline_cfg["mode"] == "offline"
@@ -222,6 +234,8 @@ def test_build_candidate_config_updates_mode_scoped_runtime_sections():
                     "hybrid_search": True,
                     "reranker_enabled": False,
                     "reranker_top_n": 20,
+                    "corrective_retrieval": True,
+                    "corrective_threshold": 0.35,
                 },
                 "query": {
                     "grounding_bias": 3,
@@ -271,6 +285,8 @@ def test_build_candidate_config_updates_mode_scoped_runtime_sections():
             "hybrid_search": True,
             "reranker_enabled": False,
             "reranker_top_n": 20,
+            "corrective_retrieval": False,
+            "corrective_threshold": 0.35,
             "grounding_bias": 6,
             "allow_open_knowledge": True,
             "context_window": 128000,
@@ -297,9 +313,11 @@ def test_build_candidate_config_updates_mode_scoped_runtime_sections():
     assert offline_runtime["ollama"]["num_predict"] == 384
 
     assert online_cfg["modes"]["online"]["retrieval"]["top_k"] == 8
+    assert online_cfg["modes"]["online"]["retrieval"]["corrective_retrieval"] is False
     assert online_cfg["modes"]["online"]["query"]["grounding_bias"] == 6
     assert online_cfg["modes"]["online"]["api"]["max_tokens"] == 1024
     assert online_runtime["retrieval"]["top_k"] == 8
+    assert online_runtime["retrieval"]["corrective_retrieval"] is False
     assert online_runtime["query"]["grounding_bias"] == 6
     assert online_runtime["api"]["max_tokens"] == 1024
 
@@ -318,6 +336,7 @@ def test_build_candidate_config_ignores_runtime_active_mode_env(monkeypatch):
             "online": {
                 "retrieval": {"top_k": 10, "min_score": 0.12},
                 "query": {"grounding_bias": 3, "allow_open_knowledge": False},
+                "retrieval": {"top_k": 10, "min_score": 0.12, "corrective_retrieval": True, "corrective_threshold": 0.35},
                 "api": {"max_tokens": 2048},
             },
         },
@@ -332,6 +351,8 @@ def test_build_candidate_config_ignores_runtime_active_mode_env(monkeypatch):
             "hybrid_search": True,
             "reranker_enabled": False,
             "reranker_top_n": 20,
+            "corrective_retrieval": False,
+            "corrective_threshold": 0.35,
             "grounding_bias": 6,
             "allow_open_knowledge": True,
             "context_window": 128000,
@@ -348,6 +369,7 @@ def test_build_candidate_config_ignores_runtime_active_mode_env(monkeypatch):
     assert candidate_cfg["modes"]["offline"]["retrieval"]["top_k"] == 5
     assert candidate_cfg["modes"]["offline"]["query"]["grounding_bias"] == 8
     assert candidate_cfg["modes"]["online"]["retrieval"]["top_k"] == 8
+    assert candidate_cfg["modes"]["online"]["retrieval"]["corrective_retrieval"] is False
     assert candidate_cfg["modes"]["online"]["query"]["grounding_bias"] == 6
     assert candidate_cfg["modes"]["online"]["api"]["max_tokens"] == 1024
 
@@ -723,6 +745,8 @@ def test_apply_winners_updates_mode_store_values_defaults_and_locks(tmp_path):
                 "hybrid_search": True,
                 "reranker_enabled": False,
                 "reranker_top_n": 20,
+                "corrective_retrieval": False,
+                "corrective_threshold": 0.50,
                 "grounding_bias": 6,
                 "allow_open_knowledge": True,
                 "context_window": 128000,
@@ -757,11 +781,15 @@ def test_apply_winners_updates_mode_store_values_defaults_and_locks(tmp_path):
     assert offline_state["locks"]["top_k"] is True
     assert offline_state["locks"]["grounding_bias"] is True
     assert online_state["values"]["max_tokens"] == 1024
+    assert online_state["values"]["corrective_retrieval"] is False
+    assert abs(online_state["values"]["corrective_threshold"] - 0.50) < 1e-9
     assert online_state["values"]["grounding_bias"] == 6
     assert online_state["values"]["allow_open_knowledge"] is True
     assert online_state["defaults"]["context_window"] == 128000
+    assert abs(online_state["defaults"]["corrective_threshold"] - 0.50) < 1e-9
     assert abs(online_state["defaults"]["top_p"] - 0.95) < 1e-9
     assert online_state["locks"]["max_tokens"] is True
+    assert online_state["locks"]["corrective_retrieval"] is True
 
 
 def test_apply_winners_skips_screen_fallbacks_not_eligible_for_apply(tmp_path):
@@ -803,6 +831,8 @@ def test_apply_winners_skips_screen_fallbacks_not_eligible_for_apply(tmp_path):
                 "hybrid_search": True,
                 "reranker_enabled": False,
                 "reranker_top_n": 20,
+                "corrective_retrieval": False,
+                "corrective_threshold": 0.50,
                 "grounding_bias": 6,
                 "allow_open_knowledge": True,
                 "context_window": 128000,
@@ -835,6 +865,7 @@ def test_apply_winners_skips_screen_fallbacks_not_eligible_for_apply(tmp_path):
     assert applied["modes"]["online"]["candidate"] == "tk8_ms10_mt1024_bbalanced"
     assert offline_state["values"]["grounding_bias"] != 9
     assert online_state["values"]["grounding_bias"] == 6
+    assert online_state["values"]["corrective_retrieval"] is False
 
 
 def test_main_writes_screen_fallback_winner_as_not_apply_eligible(tmp_path, monkeypatch):

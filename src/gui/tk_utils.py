@@ -20,7 +20,10 @@
 
 from __future__ import annotations
 
+import logging
 import tkinter as tk
+
+logger = logging.getLogger(__name__)
 
 
 def force_foreground(win: tk.Toplevel, parent: tk.Tk | None = None) -> None:
@@ -40,8 +43,8 @@ def force_foreground(win: tk.Toplevel, parent: tk.Tk | None = None) -> None:
         if parent is not None:
             try:
                 win.transient(parent)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("transient binding failed: %s", exc)
 
         # Center on screen (prevents off-screen invisible)
         _center_window(win)
@@ -58,21 +61,21 @@ def force_foreground(win: tk.Toplevel, parent: tk.Tk | None = None) -> None:
         win.after(10, win.lift)
         win.after(20, win.focus_force)
 
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("force_foreground failed: %s", exc)
 
 
 def _safe_topmost_off(win: tk.Toplevel) -> None:
-    """Plain-English: This function handles safe topmost off."""
+    """Remove topmost flag safely (called from after() timer)."""
     try:
         if win.winfo_exists():
             win.attributes("-topmost", False)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("topmost-off failed: %s", exc)
 
 
 def _center_window(win: tk.Toplevel) -> None:
-    """Plain-English: This function handles center window."""
+    """Center a Toplevel on screen."""
     try:
         win.update_idletasks()
         w = win.winfo_width() or win.winfo_reqwidth()
@@ -82,5 +85,5 @@ def _center_window(win: tk.Toplevel) -> None:
         x = max(0, (sw - w) // 2)
         y = max(0, (sh - h) // 3)
         win.geometry("+{}+{}".format(x, y))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("center_window failed: %s", exc)

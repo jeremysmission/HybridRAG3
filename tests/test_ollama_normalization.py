@@ -88,6 +88,64 @@ def test_embedder_sanitizes_https_loopback_env_var_before_embed_requests(monkeyp
     ]
 
 
+def test_embedder_uses_task_prefix_for_newer_nomic_variants(monkeypatch):
+    import sys
+
+    calls = []
+
+    class DummyResponse:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"embeddings": [[1.0, 0.0]]}
+
+    class DummyClient:
+        def __init__(self, *args, **kwargs):
+            return None
+
+        def post(self, url, json=None):
+            calls.append({"url": url, "json": json})
+            return DummyResponse()
+
+        def close(self):
+            return None
+
+    fake_httpx = SimpleNamespace(
+        Client=DummyClient,
+        Timeout=lambda *_args, **_kwargs: None,
+    )
+
+    monkeypatch.setitem(sys.modules, "httpx", fake_httpx)
+
+    embedder = Embedder(model_name="nomic-embed-text-v2-moe:latest", dimension=2)
+    try:
+        embedder.embed_documents(["document body"])
+        embedder.embed_query("question text")
+    finally:
+        embedder.close()
+
+    assert calls == [
+        {
+            "url": "http://127.0.0.1:11434/api/embed",
+            "json": {
+                "model": "nomic-embed-text-v2-moe:latest",
+                "input": ["search_document: document body"],
+            },
+        },
+        {
+            "url": "http://127.0.0.1:11434/api/embed",
+            "json": {
+                "model": "nomic-embed-text-v2-moe:latest",
+                "input": ["search_query: question text"],
+            },
+        },
+    ]
+
+
 def test_canonicalize_model_name_phi_aliases():
     assert canonicalize_model_name("phi4-mini:latest") == "phi4-mini"
     assert canonicalize_model_name("phi4-mini:3.8b") == "phi4-mini"

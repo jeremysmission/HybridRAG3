@@ -743,22 +743,81 @@ def _gqe_query_stream(
         yield {"done": True, "result": result}
 
 def _gqe_fallback_score(claims, source_texts, threshold):
-    """Lightweight claim-vs-source scoring when NLI model is not loaded."""
+    """Token-overlap claim-vs-source scoring when NLI model is not loaded.
+
+    Scores each claim by the fraction of its content tokens that appear
+    somewhere in the source texts.  Much more robust than the old 60-char
+    substring approach because GPT-4o paraphrases freely -- individual
+    technical terms still match even when sentence structure differs.
+
+    A claim is SUPPORTED when >= 50% of its content tokens appear in
+    sources.  This threshold is deliberately lenient: false negatives
+    (blocking good answers) are far worse than false positives here.
+    """
     if not claims:
         return 1.0, {"method": "fallback_no_claims"}
-    joined = " ".join(source_texts).lower()
+
+    # Build a set of all content tokens from source texts (once)
+    _STOP = {
+        "the", "a", "an", "is", "are", "was", "were", "be", "been",
+        "being", "have", "has", "had", "do", "does", "did", "will",
+        "would", "could", "should", "may", "might", "shall", "can",
+        "to", "of", "in", "for", "on", "with", "at", "by", "from",
+        "as", "into", "through", "during", "before", "after", "and",
+        "but", "or", "nor", "not", "no", "so", "if", "than", "that",
+        "this", "these", "those", "it", "its", "they", "them", "their",
+        "we", "our", "you", "your", "he", "she", "his", "her",
+    }
+    import re as _re
+
+    def _tokenize(text):
+        """Split text into content tokens, handling 28VDC -> [28, vdc]."""
+        tokens = []
+        for raw in _re.findall(r"[A-Za-z0-9][\w\-\.]*", (text or "").lower()):
+            # Split on digit-letter boundaries (e.g. 28vdc -> 28, vdc)
+            parts = _re.findall(r"[a-z]+|[0-9]+", raw)
+            for p in parts:
+                if len(p) >= 2 and p not in _STOP:
+                    tokens.append(p)
+        return tokens
+
+    source_tokens = set()
+    for src in source_texts:
+        source_tokens.update(_tokenize(src))
+
     supported = 0
+    claim_details = []
     for c in claims:
         text = c.get("text", "") if isinstance(c, dict) else str(c)
-        key = text[:60].strip().lower()
-        if key and key in joined:
+        if c.get("is_trivial", False):
             supported += 1
+            claim_details.append({"claim": text[:80], "verdict": "TRIVIAL"})
+            continue
+        claim_tokens = _tokenize(text)
+        if not claim_tokens:
+            supported += 1
+            claim_details.append({"claim": text[:80], "verdict": "NO_TOKENS"})
+            continue
+        hits = sum(1 for tok in claim_tokens if tok in source_tokens)
+        overlap = hits / len(claim_tokens)
+        verdict = "SUPPORTED" if overlap >= 0.50 else "UNSUPPORTED"
+        if verdict == "SUPPORTED":
+            supported += 1
+        claim_details.append({
+            "claim": text[:80],
+            "verdict": verdict,
+            "overlap": round(overlap, 2),
+            "tokens": len(claim_tokens),
+            "hits": hits,
+        })
+
     total = len(claims)
     score = supported / total if total > 0 else 0.0
     return score, {
-        "method": "fallback_substring",
+        "method": "fallback_token_overlap",
         "total_claims": total,
         "supported": supported,
+        "claims": claim_details,
     }
 
 

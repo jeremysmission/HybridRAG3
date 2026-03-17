@@ -193,9 +193,13 @@ def _enforce_rate_limit(request: Request, scope: str) -> None:
                 detail="Rate limit exceeded. Please retry later.",
             )
         q.append(now)
-        if len(_RATE_STATE) > 10000:
-            empty_keys = [k for k, v in _RATE_STATE.items() if not v]
-            for k in empty_keys:
+        # Evict stale and empty buckets (TTL-based, not just size-based)
+        if len(_RATE_STATE) > 500:
+            stale_keys = [
+                k for k, v in _RATE_STATE.items()
+                if not v or v[-1] < cutoff
+            ]
+            for k in stale_keys:
                 del _RATE_STATE[k]
 
 

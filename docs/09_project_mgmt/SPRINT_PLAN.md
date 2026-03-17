@@ -1,7 +1,7 @@
 # HybridRAG3 Sprint Plan
 
 **Created:** 2026-03-08  
-**Last updated:** 2026-03-15 America/Denver  
+**Last updated:** 2026-03-17 21:00 America/Denver
 **Purpose:** one active tracker for demo-critical work, deployment prep, and longer-term backlog.
 
 ## Status Key
@@ -168,6 +168,14 @@
 - Sprint 14 preparation is now started under explicit forward-execution direction:
   - live shared cutover is still blocked behind `13.6`
   - but the controlled cutover worksheet, post-cutover smoke checklist, final QA/PM freeze checklist, and project completion handoff template are now staged for the acceptance sprint
+- **Beast is now online (2026-03-17)**:
+  - dual RTX 3090 (48 GB VRAM total), 128 GB RAM, Windows 11 Pro
+  - replaces Toaster — all D:\ repos carried over and verified
+  - full regression gate: 1120 passed, 11 skipped, 0 failed (2026-03-17)
+  - openai package corruption fixed, config authority test updated, backup tool sys.path fixed
+  - Beast unblocks: GPU model serving, FAISS-GPU indexing, vLLM tensor parallelism, DeepEval/RAGAS with phi4:14b, concurrent multi-model serving, IonoscaleML U-Net training, JCoder full-corpus ingest
+  - the sprint roadmap is now restructured to maximize Beast impact — GPU-heavy and compute-heavy work that Toaster could never run is front-loaded
+  - cross-project sprints (JCoder, IonoscaleML, IQT) are now scheduled alongside HybridRAG3 work to exploit parallel GPU capacity
 
 ## Active Sprint Board
 
@@ -192,7 +200,14 @@
 | Sprint 16 -- Reranker Revival and Retrieval Improvements | `DONE` | Replace retired sentence-transformers reranker with Ollama-based scorer, improve corrective retrieval. | Ollama reranker opt-in, retriever lazy-load wiring, corrective reformulation with stopword removal, query decomposition in streaming. QA cleared 2026-03-15: 847 passed, 6 skipped, 0 failed. |
 | Sprint 17 -- Live API Validation (GPT-4o) | `IN PROGRESS` | Leverage GPT-4o API access to run previously-blocked live online tests and close Sprint 5 demo blocker. | Demo preflight GO, real E2E query test, cost tracker validation, FastAPI /query live smoke. |
 | Sprint 18 -- DPI Audit Hardening + Test Modernization | `DONE` | Close remaining DPI audit findings, add property-based and RRF tests, stabilize flaky tests with time-machine. | 18.1-18.10 done. 18.11-18.12 LATER (BEAST). 871+ tests pass. |
-| Sprint 19 -- Deep QA Hardening | `DONE` | Fix critical/high findings from 2026-03-15 deep packet QA audit across core engine, API, GUI, and parsers. | 4 critical fixes verified, rate limiter hardened, GUI class splits done, silent exceptions replaced with logging. 871+ tests pass. |
+| Sprint 19 -- Deep QA Hardening | `DONE` | Fix critical/high findings from 2026-03-15 deep packet QA audit across core engine, API, GUI, and parsers. | 19.1-19.5, 19.7-19.12 DONE. 19.6 (GUI class splits) deferred to LATER. cost_tracker SQLite leaks fixed, rate limiter TTL eviction added, auth audit logging escalated, memmap append_batch handle closed, proxy secret validation hardened, 6 silent exceptions swept in launch_gui/tk_utils/app_runtime. OLE streams closed in doc/msg parsers. |
+| Sprint 20 -- Beast: Deferred Slices And End-To-End AI Testing | `IN PROGRESS` | Close all BEAST-deferred slices now that Beast is online. Run phi4:14b as DeepEval judge LLM, generate RAGAS synthetic test sets, complete GUI class splits, run mutmut mutation testing under WSL. | 18.11 DeepEval done, 18.12 RAGAS done, 19.6 GUI splits done, 18.9 mutmut baseline done, 17.5 autotune sweep done, 17.9 Recall@50 done. |
+| Sprint 21 -- Beast: Live Online Soak And Launch Unblock | `NEXT` | Use Beast's stable environment to finally run the authenticated-online soak (13.6) and close the Sprint 5/13 API credential blockers that Toaster could never resolve. | 13.6 live authenticated-online soak refresh done, Sprint 5 final online demo pass done, 13.7 load ceiling measured on Beast, 13.8 launch verdict updated. |
+| Sprint 22 -- Beast: Phi-4 Offline RAG Judge And Quality Loop | `NEXT` | Stand up phi4:14b via Ollama as a persistent offline RAG quality judge. Run continuous faithfulness, relevancy, and hallucination scoring on query results without API costs. | Offline judge loop running, quality dashboard in Admin, regression alerts on score drift. |
+| Sprint 23 -- Beast: vLLM Multi-GPU Serving And Reranker Activation | `PLANNED` | Deploy vLLM on dual RTX 3090s with tensor parallelism. Activate the cross-encoder reranker path for production retrieval. Benchmark throughput vs Ollama single-GPU. | vLLM serving phi4:14b on 2xGPU, reranker live in retrieval pipeline, latency/throughput baselines documented. |
+| Sprint 24 -- Beast: JCoder Full-Corpus GPU Ingest | `PLANNED` | Build FAISS-GPU index for JCoder's 18GB+ StackExchange corpus and all ingested code repos. Tree-sitter parse, embed, and index at Beast speed. | FAISS-GPU index built, full corpus searchable, ingest pipeline benchmarked, eval golden set validated. |
+| Sprint 25 -- Beast: IonoscaleML U-Net Training And IQT Model Bridge | `PLANNED` | Train IonoscaleML U-Net on real ionogram data using dual 3090s. Bridge trained model into IQT quality pipeline for automated ionogram scoring. | U-Net trained on real data (50+ epochs), evaluation vs ARTIST baseline documented, IQT model bridge functional. |
+| Sprint 26 -- Beast: Cross-Project Multiagent Orchestration | `PLANNED` | Build the multiagent workflow framework shared across HybridRAG3, JCoder, and IQT. Parallel agent lanes, remote phone access, weekly automated scrapes. | Agent roles defined, shared artifact bus working, 3-agent coordinated task demonstrated, remote SSH/tmux phone access verified, weekly scrape cron operational. |
 
 ## Sprint 1 Detail
 
@@ -377,7 +392,7 @@ Without a trace view, tuning remains guesswork.
 1. `Codex_Coder`
 2. `QA1`
 3. `QA2`
-4. `Claude_QA`
+4. `AI_QA`
 5. `Final Approver`
 6. `Agent Planner`
 7. `Project Manager`
@@ -2356,18 +2371,18 @@ Without a trace view, tuning remains guesswork.
 
 ### Planned Slice Order
 
-1. `19.1 -- Embedder numpy import crash` -- `NEXT`
-2. `19.2 -- Reranker cache thread safety` -- `NEXT`
-3. `19.3 -- Vector store memmap handle leak` -- `NEXT`
-4. `19.4 -- Source path search SQL hardening` -- `NEXT`
-5. `19.5 -- Rate limiter memory leak and proxy awareness` -- `NEXT`
-6. `19.6 -- GUI class size splits (api_admin_tab, tuning_tab_runtime, data_panel)` -- `NEXT`
-7. `19.7 -- Silent exception logging sweep` -- `NEXT`
-8. `19.8 -- SQLite context manager cleanup` -- `NEXT`
-9. `19.9 -- Embedding model mismatch guard` -- `NEXT`
-10. `19.10 -- Parser robustness (TAR leak, XLSX cap, mbox warning)` -- `NEXT`
-11. `19.11 -- Response sanitizer fallback` -- `NEXT`
-12. `19.12 -- Auth audit event persistence` -- `NEXT`
+1. `19.1 -- Embedder numpy import crash` -- `DONE` (pre-existing fix: numpy imported at module scope)
+2. `19.2 -- Reranker cache thread safety` -- `DONE` (pre-existing fix: lock in retriever.py)
+3. `19.3 -- Vector store memmap handle leak` -- `DONE` (read_block fixed previously; append_batch fixed 2026-03-17)
+4. `19.4 -- Source path search SQL hardening` -- `DONE` (pre-existing fix: parameterized queries)
+5. `19.5 -- Rate limiter memory leak and proxy awareness` -- `DONE` (TTL-based eviction at 500 entries, 2026-03-17)
+6. `19.6 -- GUI class size splits (api_admin_tab, tuning_tab_runtime, data_panel)` -- `LATER` (api_admin_tab still ~871 lines; needs dedicated extraction sprint)
+7. `19.7 -- Silent exception logging sweep` -- `DONE` (launch_gui.py, tk_utils.py, app_runtime.py, gui_boot.py swept 2026-03-17)
+8. `19.8 -- SQLite context manager cleanup` -- `DONE` (cost_tracker.py 3 sites fixed with try/finally 2026-03-17)
+9. `19.9 -- Embedding model mismatch guard` -- `DONE` (pre-existing fix: raises ValueError unless env override)
+10. `19.10 -- Parser robustness (TAR leak, XLSX cap, mbox warning)` -- `DONE` (TAR stream already in try/finally; XLSX/mbox caps+logging pre-existing; OLE streams closed 2026-03-17)
+11. `19.11 -- Response sanitizer fallback` -- `DONE` (pre-existing: returns safe fallback string, not original)
+12. `19.12 -- Auth audit event persistence` -- `DONE` (warning-level logging with event context added 2026-03-17)
 
 ### 19.1 Embedder numpy import crash
 
@@ -2510,6 +2525,173 @@ Without a trace view, tuning remains guesswork.
 - Auth events never silently dropped (19.12)
 - Regression: 871+ tests pass, 0 fail
 
+## Sprint 20 Detail -- Beast: Deferred Slices And End-To-End AI Testing
+
+### Focus
+
+Close every slice that was explicitly deferred to BEAST. Now that Beast (dual RTX 3090,
+128 GB RAM) is online, these are no longer blocked.
+
+### Planned Slice Order
+
+1. `20.1 -- DeepEval RAG Metrics (was 18.11)` -- Install deepeval, configure phi4:14b via Ollama as judge LLM. Add pytest-native faithfulness, answer relevancy, and contextual precision tests. Validate phi4:14b handles judge prompts reliably on Beast's 48 GB VRAM.
+2. `20.2 -- RAGAS Synthetic Test Generation (was 18.12)` -- Batch generate Q&A triplets from 39,602 chunks using RAGAS TestsetGenerator. Expand golden set from 400q to 2000+ with auto-generated ground truth contexts. One-time Beast job, check in as static test fixture.
+3. `20.3 -- GUI Class Size Splits (was 19.6)` -- Split api_admin_tab.py (2,041 lines), tuning_tab_runtime.py (1,556 lines), data_panel.py (1,067 lines) under 500 LOC each. Follow existing query_panel extraction pattern.
+4. `20.4 -- Mutation Testing Baseline (was 18.9)` -- Run mutmut under WSL on Beast. Document mutation scores for core modules.
+5. `20.5 -- Generation Autotune Sweep (was 17.5)` -- Run full generation-side autotune sweep with live API + phi4:14b offline.
+6. `20.6 -- Recall@50 Measurement Tool (was 17.9)` -- Full re-index on Beast, build eval set, measure retrieval recall.
+
+### Exit Criteria
+
+- DeepEval RAG metrics running in pytest with phi4:14b judge
+- RAGAS synthetic golden set expanded to 2000+ and checked in
+- All GUI files under 500 LOC
+- Mutation testing baseline documented
+- Generation autotune results saved
+- Recall@50 measured and baselined
+
+## Sprint 21 Detail -- Beast: Live Online Soak And Launch Unblock
+
+### Focus
+
+The Toaster could never run authenticated-online soak tests because it lacked stable
+API credentials and sufficient resources. Beast resolves both blockers.
+
+### Planned Slice Order
+
+1. `21.1 -- API Credential Setup` -- Configure Azure OpenAI / GPT-4o credentials on Beast, verify with model-env-check.
+2. `21.2 -- Live Authenticated-Online Soak (was 13.6)` -- Run the full shared-deployment soak with real API traffic, auth enabled, online mode.
+3. `21.3 -- Sprint 5 Final Online Demo Pass` -- Complete the demo hardening pass that was blocked by missing live API credentials.
+4. `21.4 -- Load Ceiling Measurement (was 13.7)` -- Measure Beast's actual concurrent query ceiling under sustained load.
+5. `21.5 -- Launch Verdict Refresh (was 13.8)` -- Update cutover readiness with Beast evidence.
+
+### Exit Criteria
+
+- Authenticated-online soak artifact saved with all-green results
+- Demo rehearsal passes with live online answers
+- Beast load ceiling documented with concurrency evidence
+- Launch verdict updated with Beast-backed evidence
+
+## Sprint 22 Detail -- Beast: Phi-4 Offline RAG Judge And Quality Loop
+
+### Focus
+
+Stand up a persistent offline RAG quality judge using phi4:14b on Beast. This enables
+continuous quality scoring without API costs, supporting nightly regression runs and
+quality drift alerting.
+
+### Planned Slice Order
+
+1. `22.1 -- Ollama Judge Endpoint` -- Configure persistent phi4:14b endpoint for RAG evaluation.
+2. `22.2 -- Faithfulness Scorer` -- Score query answers against retrieved context for factual grounding.
+3. `22.3 -- Answer Relevancy Scorer` -- Score whether answers address the actual question asked.
+4. `22.4 -- Hallucination Detector` -- Flag answers containing claims not supported by retrieved chunks.
+5. `22.5 -- Quality Dashboard` -- Surface quality scores in Admin console with trend graphs.
+6. `22.6 -- Regression Alerting` -- Alert when quality scores drift below baseline thresholds.
+
+### Exit Criteria
+
+- phi4:14b running as persistent judge on Beast
+- Three quality dimensions scored on every query (or nightly batch)
+- Admin dashboard shows quality trends
+- Alert fires when scores drop below threshold
+
+## Sprint 23 Detail -- Beast: vLLM Multi-GPU Serving And Reranker Activation
+
+### Focus
+
+Beast has dual RTX 3090s (24GB each). This sprint stands up vLLM with tensor parallelism
+across both GPUs and activates the cross-encoder reranker that was built in Sprint 16 but
+never had the hardware to run in production.
+
+### Planned Slice Order
+
+1. `23.1 -- vLLM Install And Dual-GPU Verification` -- Install vLLM, verify both 3090s are visible, confirm tensor parallelism works with phi4:14b.
+2. `23.2 -- vLLM Serving Configuration` -- Configure vLLM as persistent model server alongside Ollama. Document port allocation, model loading, and failover.
+3. `23.3 -- Cross-Encoder Reranker Activation` -- Switch the Ollama reranker path to vLLM cross-encoder. Benchmark reranking latency on Beast vs Ollama fallback.
+4. `23.4 -- Throughput Benchmarking` -- Measure concurrent query throughput: vLLM 2xGPU vs Ollama single-GPU vs API. Document ceiling for shared deployment sizing.
+5. `23.5 -- Concurrent Model Serving` -- Run embedding model + generation model + reranker simultaneously. Measure VRAM allocation and throughput under multi-model load.
+
+### Exit Criteria
+
+- vLLM serving phi4:14b across 2 GPUs with tensor parallelism
+- Cross-encoder reranker active in retrieval pipeline with measured latency
+- Throughput baselines documented for all serving configurations
+- Multi-model concurrent serving validated with VRAM budget documented
+
+## Sprint 24 Detail -- Beast: JCoder Full-Corpus GPU Ingest
+
+### Focus
+
+JCoder has 18GB+ of StackExchange archives and ingested code repos sitting on D:\JCoder_Data.
+The Toaster could never build the FAISS-GPU index. Beast resolves this completely.
+
+### Planned Slice Order
+
+1. `24.1 -- FAISS-GPU Environment Setup` -- Install faiss-gpu, verify CUDA integration, confirm both 3090s available for index building.
+2. `24.2 -- StackExchange Full Ingest` -- Parse and embed all 7z-compressed StackExchange archives (AskUbuntu 1GB+, Arduino, AI, Academia, etc.) using tree-sitter.
+3. `24.3 -- Code Repository Ingest` -- Index all code repos on D:\ through JCoder's multi-language parser pipeline (Python, JS, TS, Java, C++, C#, Go, Rust).
+4. `24.4 -- FAISS-GPU Index Build` -- Build production FAISS index on GPU. Benchmark build time and query latency vs CPU fallback.
+5. `24.5 -- Eval Golden Set Validation` -- Run JCoder's golden question benchmarks against the full index. Measure recall, precision, and answer quality.
+6. `24.6 -- vLLM Reranker Integration` -- Wire JCoder's reranker to vLLM cross-encoder (shared with HybridRAG3's Sprint 23 vLLM instance).
+
+### Exit Criteria
+
+- Full StackExchange + code corpus indexed on FAISS-GPU
+- Query latency under 500ms for semantic search on full index
+- Golden set eval results documented with recall/precision baselines
+- vLLM reranker shared across HybridRAG3 and JCoder
+
+## Sprint 25 Detail -- Beast: IonoscaleML U-Net Training And IQT Model Bridge
+
+### Focus
+
+IonoscaleML has a proof-of-concept U-Net (7.8M params) that was only tested on synthetic
+data because Toaster lacked GPU power. Beast enables real training and connects the trained
+model to IQT's quality pipeline for automated ionogram scoring.
+
+### Planned Slice Order
+
+1. `25.1 -- Real Training Data Preparation` -- Convert IQT's labeled ionogram dataset into training/validation splits suitable for the dual-output U-Net.
+2. `25.2 -- U-Net Training On Dual 3090s` -- Train the 6-class segmentation + 7-parameter regression model on real data. Target 50+ epochs with early stopping.
+3. `25.3 -- ARTIST Baseline Comparison` -- Evaluate trained model against ARTIST baselines. Document accuracy per parameter (foF2, hmF2, foE, etc.).
+4. `25.4 -- IQT Model Bridge` -- Wire trained model into IQT's quality pipeline so scraped ionograms get automated ML-based quality scores alongside heuristic scores.
+5. `25.5 -- Inference Optimization` -- Quantize model for fast inference. Benchmark single-image and batch scoring throughput.
+
+### Exit Criteria
+
+- U-Net trained on real ionogram data with documented accuracy
+- Model beats or matches ARTIST on at least 3/7 parameters
+- IQT quality pipeline can invoke trained model for automated scoring
+- Inference under 100ms per ionogram on single GPU
+
+## Sprint 26 Detail -- Beast: Cross-Project Multiagent Orchestration
+
+### Focus
+
+Build the shared multiagent workflow framework that coordinates work across HybridRAG3,
+JCoder, and IQT. Beast's resources allow running multiple agents in parallel with
+concurrent GPU workloads.
+
+### Planned Slice Order
+
+1. `26.1 -- Agent Role Definitions` -- Define Planner, Implementer, Reviewer, QA agent roles with artifact contracts.
+2. `26.2 -- Shared Artifact Bus` -- Build cross-project artifact exchange (checkpoint files, handoff notes, evidence packs).
+3. `26.3 -- Parallel Execution Lanes` -- Run agents in parallel worktrees or separate terminals with coordinated output paths.
+4. `26.4 -- Three-Agent Coordinated Demo` -- Validate with a real cross-project task (e.g., shared module extraction from HybridRAG3 to JCoder).
+5. `26.5 -- Remote Phone Orchestration` -- Enable remote session management from Android (SSH + tmux or VS Code Server).
+6. `26.6 -- Weekly Automated Scrape Pipeline` -- Set up cron/scheduled tasks for weekly data source scraping (IQT ionograms, StackExchange updates, cert study materials).
+7. `26.7 -- Offline Distillation Prep` -- Prepare distillation pipeline for training smaller models from phi4:14b teacher outputs. Document data format and training loop.
+
+### Exit Criteria
+
+- Three agents coordinate on a real task with clean handoff artifacts
+- Cross-project artifact exchange working
+- Remote phone access demonstrated from Android
+- Agent guardrails prevent conflicting writes
+- Weekly scrape pipeline running on schedule
+- Distillation data pipeline documented and ready for first training run
+
 ## Watchlist
 
 - verify online/offline data paths stay isolated when switching
@@ -2524,6 +2706,10 @@ Without a trace view, tuning remains guesswork.
 - keep class sizes under 500 LOC
 - keep new work modular and portable
 - prefer redesigns over layering more compatibility shims
+- **Beast GPU allocation**: track VRAM budget across concurrent workloads (Ollama + vLLM + FAISS-GPU). Dual 3090 = 48GB total, plan for 14B model (10-12GB) + embedder (2GB) + reranker (4-6GB) + FAISS index headroom
+- **Cross-project shared modules**: as JCoder and HybridRAG3 share more infrastructure (vLLM, embedder, reranker), track candidates for extraction into a shared library under `D:\Projects`
+- **openai package**: reinstalled 2026-03-17 after corruption; monitor for recurrence if pip upgrades other deps
+- **Distillation legality**: any distillation from phi4 outputs must comply with model license terms; verify before Sprint 26.7
 
 ## Notes
 

@@ -34,6 +34,8 @@ def _make_config():
             hybrid_search=True,
             reranker_enabled=False,
             reranker_top_n=20,
+            corrective_retrieval=True,
+            corrective_threshold=0.35,
         ),
         api=SimpleNamespace(
             context_window=4096,
@@ -84,10 +86,10 @@ def test_online_mode_bootstraps_from_online_defaults_not_shared_runtime_values()
             store = ModeTuningStore()
             state = store.get_mode_state(cfg, "online")
 
-            assert state["defaults"]["top_k"] == 6
+            assert state["defaults"]["top_k"] == 10
             assert abs(state["defaults"]["min_score"] - 0.08) < 1e-9
             assert state["defaults"]["context_window"] == 128000
-            assert state["defaults"]["max_tokens"] == 1024
+            assert state["defaults"]["max_tokens"] == 16384
             assert abs(state["defaults"]["top_p"] - 1.0) < 1e-9
             assert state["defaults"]["seed"] == 0
 
@@ -95,10 +97,10 @@ def test_online_mode_bootstraps_from_online_defaults_not_shared_runtime_values()
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)
 
-    assert cfg.retrieval.top_k == 6
+    assert cfg.retrieval.top_k == 10
     assert abs(cfg.retrieval.min_score - 0.08) < 1e-9
     assert cfg.api.context_window == 128000
-    assert cfg.api.max_tokens == 1024
+    assert cfg.api.max_tokens == 16384
     assert abs(cfg.api.top_p - 1.0) < 1e-9
     assert cfg.api.seed == 0
 
@@ -125,10 +127,10 @@ def test_first_active_mode_bootstraps_from_live_config_values():
     assert offline_state["values"]["context_window"] == 8192
     assert offline_state["values"]["num_predict"] == 1024
     assert abs(offline_state["values"]["top_p"] - 0.90) < 1e-9
-    assert online_state["values"]["top_k"] == 6
+    assert online_state["values"]["top_k"] == 10
     assert abs(online_state["values"]["min_score"] - 0.08) < 1e-9
     assert online_state["values"]["context_window"] == 128000
-    assert online_state["values"]["max_tokens"] == 1024
+    assert online_state["values"]["max_tokens"] == 16384
     assert abs(online_state["values"]["top_p"] - 1.0) < 1e-9
 
 
@@ -217,6 +219,23 @@ def test_apply_to_config_pushes_query_mode_settings_into_runtime_config():
 
     assert cfg.query.grounding_bias == 9
     assert cfg.query.allow_open_knowledge is False
+
+
+def test_apply_to_config_pushes_online_corrective_retrieval_settings_into_runtime_config():
+    cfg = _make_config()
+
+    temp_root = _make_local_temp_root()
+    try:
+        with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": temp_root}):
+            store = ModeTuningStore()
+            store.update_value(cfg, "online", "corrective_retrieval", False)
+            store.update_value(cfg, "online", "corrective_threshold", 0.50)
+            store.apply_to_config(cfg, "online")
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+    assert cfg.retrieval.corrective_retrieval is False
+    assert abs(cfg.retrieval.corrective_threshold - 0.50) < 1e-9
 
 
 def test_snapshot_config_captures_query_values_from_live_config():

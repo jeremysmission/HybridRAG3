@@ -40,7 +40,15 @@ if ($env:HYBRIDRAG_GUI_DETACH -eq "1") {
 $VenvRoot = Join-Path $ProjectRoot '.venv'
 $VenvScripts = Join-Path $VenvRoot 'Scripts'
 $VenvPython = Join-Path $ProjectRoot '.venv\Scripts\python.exe'
-if (Test-Path $VenvPython) {
+function Test-PythonUsable([string]$PythonPath) {
+    if (-not (Test-Path $PythonPath)) {
+        return $false
+    }
+    & $PythonPath -c "import sys" *> $null
+    return ($LASTEXITCODE -eq 0)
+}
+
+if (Test-PythonUsable $VenvPython) {
     $env:VIRTUAL_ENV = $VenvRoot
     if ($env:Path -notlike "$VenvScripts*") {
         $env:Path = "$VenvScripts;$env:Path"
@@ -48,6 +56,14 @@ if (Test-Path $VenvPython) {
     Write-Host "[OK] Launching HybridRAG GUI via venv: $VenvPython" -ForegroundColor Green
     & $VenvPython @LaunchArgs
 } else {
-    Write-Host "[WARN] .venv python not found; falling back to system python" -ForegroundColor Yellow
-    python @LaunchArgs
+    if (Test-Path $VenvPython) {
+        Write-Host "[WARN] .venv python exists but is not runnable; falling back to system python" -ForegroundColor Yellow
+    } else {
+        Write-Host "[WARN] .venv python not found; falling back to system python" -ForegroundColor Yellow
+    }
+    if (Get-Command python -ErrorAction SilentlyContinue) {
+        python @LaunchArgs
+    } else {
+        throw "No usable Python interpreter found. Rebuild .venv or install Python 3.12 and recreate the virtual environment."
+    }
 }

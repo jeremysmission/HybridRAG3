@@ -470,6 +470,10 @@ class ModeTuningStore:
             retrieval.reranker_enabled = bool(value)
         elif key == "reranker_top_n" and retrieval is not None:
             retrieval.reranker_top_n = int(value)
+        elif key == "corrective_retrieval" and retrieval is not None:
+            retrieval.corrective_retrieval = bool(value)
+        elif key == "corrective_threshold" and retrieval is not None:
+            retrieval.corrective_threshold = float(value)
         elif key == "context_window":
             if mode == "online" and api is not None:
                 api.context_window = int(value)

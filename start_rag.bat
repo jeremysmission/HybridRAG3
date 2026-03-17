@@ -29,8 +29,8 @@ if not exist "%~dp0.venv\Scripts\python.exe" (
     echo  Open a command prompt and run these commands:
     echo.
     echo    cd "%~dp0"
-    echo    py -3.11 -m venv .venv
-    echo    .venv\Scripts\pip install -r requirements.txt
+    echo    py -3.12 -m venv .venv
+    echo    .venv\Scripts\pip install -r requirements_approved.txt
     echo.
     echo  Then double-click this file again.
     echo.
@@ -40,6 +40,25 @@ if not exist "%~dp0.venv\Scripts\python.exe" (
     echo.
     pause
     exit /b 1
+)
+
+"%~dp0.venv\Scripts\python.exe" -c "import sys" >nul 2>nul
+if errorlevel 1 (
+    echo.
+    echo  [FAIL] Virtual environment exists, but its Python executable cannot start.
+    echo.
+    echo  This usually means .venv was created from a Python install that no longer exists.
+    echo  Rebuild it from this repo:
+    echo.
+    echo    cd "%~dp0"
+    echo    Remove-Item -Recurse -Force .venv
+    echo    py -3.12 -m venv .venv
+    echo    .venv\Scripts\pip install -r requirements_approved.txt
+    echo.
+    echo  Then double-click this file again.
+    echo.
+    pause
+    exit /b 2
 )
 
 REM ---- Launch via PowerShell (full environment setup) ----

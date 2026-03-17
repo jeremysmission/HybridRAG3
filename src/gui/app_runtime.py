@@ -423,8 +423,8 @@ def _poll_index_ready(self, attempts=0):
         self._poll_timer_id = self.after(
             500, self._poll_index_ready, attempts + 1,
         )
-    except Exception:
-        pass  # App being destroyed -- stop polling
+    except Exception as exc:
+        logger.debug("Poll timer scheduling stopped (app closing): %s", exc)
 
 # ----------------------------------------------------------------
 # THEME TOGGLE
@@ -453,8 +453,8 @@ def _toggle_maximize(self):
             self.state("zoomed")
             self.maximize_btn.config(text="Restore")
         self._maximized = not getattr(self, "_maximized", False)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Maximize toggle failed: %s", exc)
 
 def _apply_theme_to_all(self):
     """Re-apply theme colors to all widgets without rebuilding."""
@@ -544,12 +544,16 @@ def _persist_mode(self, new_mode):
 # BACKEND RESET + READY STATE
 # ----------------------------------------------------------------
 
+_backend_reload_lock = threading.Lock()
+
+
 def reset_backends(self):
     """Tear down backends, show loading state, and reload in background."""
-    if getattr(self, "_backend_reload_thread", None) is not None:
-        if self._backend_reload_thread.is_alive():
-            logger.warning("Backend reload already in progress")
-            return
+    with _backend_reload_lock:
+        if getattr(self, "_backend_reload_thread", None) is not None:
+            if self._backend_reload_thread.is_alive():
+                logger.warning("Backend reload already in progress")
+                return
     self.query_engine = None
     self.indexer = None
     self.router = None
@@ -663,12 +667,12 @@ def _drain_pump(self):
     """
     try:
         drain_ui_queue()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("drain_ui_queue error: %s", exc)
     try:
         self.after(50, self._drain_pump)
     except Exception:
-        pass  # App being destroyed -- stop pumping
+        pass  # App being destroyed -- stop pumping (expected on shutdown)
 
 def _on_close(self):
     """Clean up and close the application.

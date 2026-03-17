@@ -227,6 +227,18 @@ if (-not (Test-Path ".\.venv\Scripts\Activate.ps1")) {
     return
 }
 
+& "$PROJECT_ROOT\.venv\Scripts\python.exe" -c "import sys" *> $null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: .venv exists, but its Python executable cannot start." -ForegroundColor Red
+    Write-Host "This usually means the base Python install moved or was removed after .venv was created."
+    Write-Host "Fix:"
+    Write-Host "  Remove-Item -Recurse -Force .venv"
+    Write-Host "  py -3.12 -m venv .venv"
+    Write-Host "  .\.venv\Scripts\Activate.ps1"
+    Write-Host "  pip install -r requirements_approved.txt"
+    return
+}
+
 Write-Host "Activating .venv..." -ForegroundColor Green
 Write-StartupLog 'Activating .venv...'
 Invoke-Script "$PROJECT_ROOT\.venv\Scripts\Activate.ps1"

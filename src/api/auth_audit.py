@@ -117,7 +117,10 @@ def record_auth_event(
     try:
         from src.api.server import state
     except Exception as e:
-        logger.warning("[WARN] Auth event recording unavailable: %s", e)
+        logger.warning(
+            "[SECURITY] Auth event recording unavailable — %s event for %s lost: %s",
+            event, outcome, e,
+        )
         return
 
     tracker = getattr(state, "auth_audit", None)

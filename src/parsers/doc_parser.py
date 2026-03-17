@@ -138,7 +138,9 @@ def _try_olefile(file_path: str, details: Dict) -> str:
 
         # Try to read the WordDocument stream
         if ole.exists("WordDocument"):
-            data = ole.openstream("WordDocument").read()
+            stream = ole.openstream("WordDocument")
+            data = stream.read()
+            stream.close()
             # Extract ASCII/Unicode text runs from the binary data
             text = _extract_text_from_binary(data)
             if text.strip():

@@ -419,6 +419,7 @@ class CostTracker:
         if not events:
             return
 
+        conn = None
         try:
             conn = sqlite3.connect(self._db_path)
             cur = conn.cursor()
@@ -436,9 +437,11 @@ class CostTracker:
                     e.data_bytes_in, e.data_bytes_out, e.latency_ms,
                 ))
             conn.commit()
-            conn.close()
         except Exception as e:
             logger.warning("Cost flush failed: %s", e)
+        finally:
+            if conn is not None:
+                conn.close()
 
     def shutdown(self) -> None:
         """Flush remaining events and cancel timer."""
@@ -460,6 +463,7 @@ class CostTracker:
     def _ensure_db(self) -> None:
         """Create tables if they don't exist."""
         os.makedirs(os.path.dirname(self._db_path), exist_ok=True)
+        conn = None
         try:
             conn = sqlite3.connect(self._db_path)
             cur = conn.cursor()
@@ -503,13 +507,15 @@ class CostTracker:
                 self._rates.input_rate_per_1m = row[0]
                 self._rates.output_rate_per_1m = row[1]
                 self._rates.label = row[2]
-
-            conn.close()
         except Exception as e:
             logger.warning("Cost DB init failed: %s", e)
+        finally:
+            if conn is not None:
+                conn.close()
 
     def _persist_rates(self) -> None:
         """Save current rates to SQLite."""
+        conn = None
         try:
             conn = sqlite3.connect(self._db_path)
             cur = conn.cursor()
@@ -524,9 +530,11 @@ class CostTracker:
                 self._rates.label,
             ))
             conn.commit()
-            conn.close()
         except Exception as e:
             logger.warning("Rate persist failed: %s", e)
+        finally:
+            if conn is not None:
+                conn.close()
 
     def _schedule_flush(self) -> None:
         """

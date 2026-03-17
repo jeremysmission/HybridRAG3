@@ -73,7 +73,7 @@ def main() -> int:
     print(f"  Online model: {getattr(getattr(after, 'api', None), 'model', '') or getattr(getattr(after, 'api', None), 'deployment', '')}")
 
     if before_embed and after_embed and before_embed != after_embed:
-        source_folder = getattr(getattr(after, "paths", None), "source_folder", "") or "D:\\RAG Source Data"
+        source_folder = getattr(getattr(after, "paths", None), "source_folder", "") or "(not configured)"
         print("")
         print(f"[WARN] Embedding model changed: {before_embed} -> {after_embed}")
         print("       Existing vectors are incompatible with the new embedding model.")

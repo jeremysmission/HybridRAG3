@@ -34,6 +34,7 @@ Each candidate now combines:
   - `top_k`
   - `min_score`
   - output budget (`num_predict` offline, `max_tokens` online)
+  - online corrective retrieval posture (`corrective_retrieval`, `corrective_threshold`)
 - query/generation bundle:
   - `grounding_bias`
   - `allow_open_knowledge`
@@ -267,6 +268,7 @@ Important baseline rule:
 Before comparing a new autotune run to an older handoff or cheat sheet, check `config/config.yaml` first so you are comparing against the actual baseline used by the tool.
 
 Sprint 4 winner artifacts now also show the paired query/generation bundle and a preferred-stage ranked winner set, so review is no longer limited to retriever-side settings.
+For online mode, bundle comparison now also captures whether corrective retrieval was disabled, left at the default threshold, or made more recovery-aggressive.
 
 If a full-run finalist stage fails but the screen-stage result is still the best available evidence, `winner_set.json` and `winners.json` can point back to that screen fallback. In that case `winners.json` marks the mode as not apply-eligible so `--apply-winner` does not silently promote a screen-only fallback.
 

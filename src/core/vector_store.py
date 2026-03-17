@@ -210,9 +210,13 @@ class EmbeddingMemmapStore:
         mm = np.memmap(
             self.dat_path, dtype=np.float16, mode="r+", shape=(end, self.dim)
         )
-        mm[start:end] = embeddings_f32.astype(np.float16, copy=False)
-        mm.flush()
-        del mm
+        try:
+            mm[start:end] = embeddings_f32.astype(np.float16, copy=False)
+            mm.flush()
+        finally:
+            if hasattr(mm, '_mmap') and mm._mmap is not None:
+                mm._mmap.close()
+            del mm
 
         self.count = end
         self._save_meta()

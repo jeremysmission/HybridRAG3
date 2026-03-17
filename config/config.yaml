@@ -6,13 +6,15 @@ modes:
       min_score: 0.1
       hybrid_search: true
       reranker_enabled: false
-      reranker_model: phi4:14b-q4_K_M
       reranker_top_n: 20
+      corrective_retrieval: true
+      corrective_threshold: 0.35
+      reranker_model: phi4:14b-q4_K_M
     ollama:
-      model: phi4:14b-q4_K_M
+      model: phi4-mini
       base_url: http://localhost:11434
       context_window: 4096
-      num_predict: 384
+      num_predict: 512
       temperature: 0.1
       top_p: 0.9
       seed: 0
@@ -27,20 +29,22 @@ modes:
       download_folder: ''
       transfer_source_folder: ''
     defaults:
-      top_k: 5
+      top_k: 6
       min_score: 0.1
       hybrid_search: true
       reranker_enabled: false
       reranker_model: phi4:14b-q4_K_M
       reranker_top_n: 20
       context_window: 4096
-      num_predict: 384
+      num_predict: 512
       temperature: 0.1
       top_p: 0.9
       seed: 0
       timeout_seconds: 180
       grounding_bias: 8
       allow_open_knowledge: false
+      corrective_retrieval: true
+      corrective_threshold: 0.35
     locks:
       top_k: false
       min_score: false
@@ -55,16 +59,18 @@ modes:
       timeout_seconds: false
       grounding_bias: false
       allow_open_knowledge: false
+      corrective_retrieval: false
+      corrective_threshold: false
   online:
     retrieval:
       top_k: 10
       min_score: 0.1
       hybrid_search: true
       reranker_enabled: false
-      reranker_model: phi4:14b-q4_K_M
       reranker_top_n: 20
       corrective_retrieval: true
       corrective_threshold: 0.35
+      reranker_model: phi4:14b-q4_K_M
     api:
       model: gpt-4o
       deployment: gpt-4o
@@ -77,7 +83,7 @@ modes:
       seed: 0
       timeout_seconds: 180
     query:
-      grounding_bias: 7
+      grounding_bias: 5
       allow_open_knowledge: true
     paths:
       database: ''
@@ -86,22 +92,24 @@ modes:
       download_folder: ''
       transfer_source_folder: ''
     defaults:
-      top_k: 6
+      top_k: 10
       min_score: 0.08
       hybrid_search: true
       reranker_enabled: false
       reranker_model: phi4:14b-q4_K_M
       reranker_top_n: 20
       context_window: 128000
-      max_tokens: 1024
-      temperature: 0.05
+      max_tokens: 16384
+      temperature: 0.08
       top_p: 1.0
       presence_penalty: 0.0
       frequency_penalty: 0.0
       seed: 0
       timeout_seconds: 180
-      grounding_bias: 7
+      grounding_bias: 5
       allow_open_knowledge: true
+      corrective_retrieval: true
+      corrective_threshold: 0.35
     locks:
       top_k: false
       min_score: false
@@ -118,6 +126,8 @@ modes:
       timeout_seconds: false
       grounding_bias: false
       allow_open_knowledge: false
+      corrective_retrieval: false
+      corrective_threshold: false
 mode_store_version: 2
 paths:
   database: ''

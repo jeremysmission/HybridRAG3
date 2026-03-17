@@ -484,7 +484,13 @@ class QueryPanel(tk.LabelFrame):
     # MODEL LIST + SELECTION
     # ----------------------------------------------------------------
 
-    _EMBED_MODELS = {"nomic-embed-text", "all-minilm", "mxbai-embed"}
+    _EMBED_MODELS = {
+        "nomic-embed-text",
+        "nomic-embed-text-v2",
+        "nomic-embed-text-v2-moe",
+        "all-minilm",
+        "mxbai-embed",
+    }
 
     # ----------------------------------------------------------------
     # REPORT EXPORT

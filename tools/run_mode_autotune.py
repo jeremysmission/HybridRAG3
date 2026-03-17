@@ -119,6 +119,8 @@ QUERY_GENERATION_BUNDLES = {
                 "values": {
                     "grounding_bias": 8,
                     "allow_open_knowledge": False,
+                    "corrective_retrieval": False,
+                    "corrective_threshold": 0.35,
                     "temperature": 0.05,
                     "top_p": 0.90,
                 },
@@ -128,8 +130,21 @@ QUERY_GENERATION_BUNDLES = {
                 "values": {
                     "grounding_bias": 6,
                     "allow_open_knowledge": True,
+                    "corrective_retrieval": True,
+                    "corrective_threshold": 0.35,
                     "temperature": 0.15,
                     "top_p": 0.95,
+                },
+            },
+            {
+                "name": "recovery",
+                "values": {
+                    "grounding_bias": 6,
+                    "allow_open_knowledge": True,
+                    "corrective_retrieval": True,
+                    "corrective_threshold": 0.50,
+                    "temperature": 0.12,
+                    "top_p": 0.93,
                 },
             },
         ],
@@ -170,6 +185,8 @@ QUERY_GENERATION_BUNDLES = {
                 "values": {
                     "grounding_bias": 8,
                     "allow_open_knowledge": False,
+                    "corrective_retrieval": False,
+                    "corrective_threshold": 0.35,
                     "temperature": 0.05,
                     "top_p": 0.90,
                 },
@@ -179,8 +196,21 @@ QUERY_GENERATION_BUNDLES = {
                 "values": {
                     "grounding_bias": 6,
                     "allow_open_knowledge": True,
+                    "corrective_retrieval": True,
+                    "corrective_threshold": 0.35,
                     "temperature": 0.15,
                     "top_p": 0.95,
+                },
+            },
+            {
+                "name": "recovery",
+                "values": {
+                    "grounding_bias": 6,
+                    "allow_open_knowledge": True,
+                    "corrective_retrieval": True,
+                    "corrective_threshold": 0.50,
+                    "temperature": 0.12,
+                    "top_p": 0.93,
                 },
             },
             {
@@ -188,6 +218,8 @@ QUERY_GENERATION_BUNDLES = {
                 "values": {
                     "grounding_bias": 4,
                     "allow_open_knowledge": True,
+                    "corrective_retrieval": True,
+                    "corrective_threshold": 0.65,
                     "temperature": 0.25,
                     "top_p": 1.0,
                 },
@@ -213,6 +245,8 @@ FIXED_KNOBS = {
         "hybrid_search": True,
         "reranker_enabled": False,
         "reranker_top_n": 20,
+        "corrective_retrieval": True,
+        "corrective_threshold": 0.35,
         "context_window": 128000,
         "temperature": 0.05,
         "top_p": 1.0,
@@ -329,6 +363,10 @@ def _candidate_name(mode: str, values: Dict[str, Any], bundle: str) -> str:
             f"ms{min_score:02d}_"
             f"mt{int(values['max_tokens'])}"
         )
+        if "corrective_retrieval" in values:
+            corrective_on = 1 if bool(values["corrective_retrieval"]) else 0
+            corrective_threshold = int(round(float(values.get("corrective_threshold", 0.0)) * 100))
+            base = f"{base}_cr{corrective_on}t{corrective_threshold:02d}"
     return f"{base}_b{bundle}"
 
 
@@ -340,6 +378,9 @@ def _candidate_sections(mode: str, values: Dict[str, Any]) -> Dict[str, Dict[str
         "reranker_enabled": bool(values["reranker_enabled"]),
         "reranker_top_n": int(values["reranker_top_n"]),
     }
+    if mode == "online":
+        retrieval["corrective_retrieval"] = bool(values.get("corrective_retrieval", True))
+        retrieval["corrective_threshold"] = float(values.get("corrective_threshold", 0.35))
     query = {
         "grounding_bias": int(values["grounding_bias"]),
         "allow_open_knowledge": bool(values["allow_open_knowledge"]),

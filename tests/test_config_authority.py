@@ -68,7 +68,8 @@ def test_load_config_without_primary_does_not_fallback_to_legacy_authorities(tmp
 
     config = load_config(str(tmp_path))
 
-    assert config.retrieval.top_k == 4
+    # No config.yaml exists → MODE_RUNTIME_DEFAULTS apply (offline top_k=6)
+    assert config.retrieval.top_k == 6
     assert abs(config.retrieval.min_score - 0.10) < 1e-9
     assert config.ollama.model == "phi4:14b-q4_K_M"
 

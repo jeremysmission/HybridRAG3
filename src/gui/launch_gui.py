@@ -81,7 +81,8 @@ def _read_embedding_preload_settings():
         model_name = getattr(emb, "model_name", None) if emb else None
         dim = int(getattr(emb, "dimension", 0) or 0) if emb else 0
         return model_name, dim
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Preload config read failed: %s", exc)
         return None, 0
 
 
@@ -105,13 +106,17 @@ def _preload_embedder():
 _preload_thread = None
 
 
+_preload_lock = threading.Lock()
+
+
 def _ensure_preload_started():
     """Start embedder preload lazily (avoids import-time side effects)."""
     global _preload_thread
-    if _preload_thread is not None:
-        return
-    _preload_thread = threading.Thread(target=_preload_embedder, daemon=True)
-    _preload_thread.start()
+    with _preload_lock:
+        if _preload_thread is not None:
+            return
+        _preload_thread = threading.Thread(target=_preload_embedder, daemon=True)
+        _preload_thread.start()
 
 # ============================================================================
 # Module-level embedder cache -- survives Reset clicks so the expensive
@@ -186,8 +191,8 @@ def _set_stage(app, stage_text):
             app.status_bar.set_loading_stage(stage_text)
             if hasattr(app, "status_bar") else None
         ))
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Stage update failed: %s", exc)
 
 
 def _probe_ollama_runtime(router, config, logger):
@@ -477,8 +482,8 @@ def _run_ibit_sequence(app, config, query_engine, indexer, router, logger):
             # Safety net: clear loading state even on crash
             try:
                 safe_after(app, 0, lambda: app.status_bar.set_ibit_result(0, 0, []))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("[IBIT] Safety-net stage clear failed: %s", exc)
 
     # Run checks in background to avoid blocking GUI
     import threading
@@ -532,8 +537,8 @@ def _sync_path_widgets_from_config(app, config):
             index_panel.config = config
             index_panel.folder_var.set(source or "")
             index_panel.index_var.set(index_dir)
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Index panel path sync failed: %s", exc)
 
     admin_panel = getattr(app, "_admin_panel", None)
     paths_panel = getattr(admin_panel, "_paths_panel", None) if admin_panel is not None else None
@@ -543,8 +548,8 @@ def _sync_path_widgets_from_config(app, config):
             paths_panel.index_var.set(os.path.dirname(database) if database else "")
             if hasattr(paths_panel, "_refresh_info"):
                 paths_panel._refresh_info()
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Admin panel path sync failed: %s", exc)
 
 
 def _apply_wizard_config_reload(app, logger):
@@ -619,8 +624,8 @@ def _launch_setup_wizard_after_boot(app, logger):
                 "Error: {}".format(str(exc)[:200]),
                 parent=app,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).warning("[LAUNCH:WIZARD] Messagebox fallback failed: %s", exc)
     finally:
         _start_backend_thread(app, logger)
 
