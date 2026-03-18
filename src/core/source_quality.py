@@ -30,6 +30,14 @@ _HTML_EXTENSIONS = {
     ".htm",
     ".html",
 }
+_SUSPECT_PATH_FLAGS = frozenset(
+    {
+        "test_or_demo_artifact",
+        "golden_seed_file",
+        "zip_bundle",
+        "temp_or_pipeline_doc",
+    }
+)
 
 
 def ensure_source_quality_schema(conn) -> None:
@@ -100,12 +108,27 @@ def assess_source_quality(source_path: str, sample_text: str = "") -> dict:
         flags.append("low_text_signal")
         quality_score -= 0.08
 
+    # ---- Source-quality rules for known junk/test artifacts ----
+    if _is_test_or_demo_artifact(low_path):
+        flags.append("test_or_demo_artifact")
+        quality_score -= 0.55
+    if _is_golden_seed_file(low_path):
+        flags.append("golden_seed_file")
+        quality_score -= 0.50
+    if _is_zip_bundle(low_path):
+        flags.append("zip_bundle")
+        quality_score -= 0.40
+    if _is_temp_or_pipeline_doc(low_path):
+        flags.append("temp_or_pipeline_doc")
+        quality_score -= 0.55
+
     quality_score = max(0.0, min(1.0, quality_score))
     retrieval_tier = _resolve_retrieval_tier(
         quality_score=quality_score,
         has_missing_path=has_missing_path,
         is_saved_resource=is_saved_resource,
         has_encoded_blob=has_encoded_blob,
+        flags=flags,
     )
 
     return {
@@ -195,18 +218,71 @@ def ensure_source_quality_map(
     conn,
     source_samples: Mapping[str, str],
 ) -> dict[str, dict]:
-    """Fetch quality rows and backfill missing ones from source samples."""
+    """Fetch quality rows and refresh stale records from current rules."""
     existing = fetch_source_quality_map(conn, source_samples.keys())
-    missing_records = []
+    refreshed_records = []
     for source_path, sample_text in source_samples.items():
         cleaned = str(source_path or "").strip()
-        if cleaned not in existing:
-            record = assess_source_quality(cleaned, sample_text)
-            existing[cleaned] = record
-            missing_records.append(record)
-    if missing_records:
-        upsert_source_quality_records(conn, missing_records)
+        refreshed = assess_source_quality(cleaned, sample_text)
+        current = existing.get(cleaned)
+        if _record_needs_refresh(current, refreshed):
+            existing[cleaned] = refreshed
+            refreshed_records.append(refreshed)
+    if refreshed_records:
+        upsert_source_quality_records(conn, refreshed_records)
     return existing
+
+
+def refresh_source_quality_records(
+    conn,
+    source_samples: Mapping[str, str],
+) -> dict[str, int]:
+    """Refresh source-quality metadata for the provided source/sample pairs."""
+    existing = fetch_source_quality_map(conn, source_samples.keys())
+    refreshed_records = []
+    skipped_manual_override = 0
+    for source_path, sample_text in source_samples.items():
+        cleaned = str(source_path or "").strip()
+        refreshed = assess_source_quality(cleaned, sample_text)
+        current = existing.get(cleaned)
+        if current is not None and not _record_needs_refresh(current, refreshed):
+            if _has_manual_override(current):
+                skipped_manual_override += 1
+            continue
+        refreshed_records.append(refreshed)
+    if refreshed_records:
+        upsert_source_quality_records(conn, refreshed_records)
+    return {
+        "requested": len(source_samples),
+        "refreshed": len(refreshed_records),
+        "skipped_manual_override": skipped_manual_override,
+    }
+
+
+def refresh_all_source_quality_records(conn) -> dict[str, int]:
+    """Re-score every distinct source currently present in the chunks table."""
+    rows = conn.execute(
+        """
+        SELECT c.source_path, COALESCE(c.text, '')
+        FROM chunks AS c
+        INNER JOIN (
+            SELECT source_path, MIN(chunk_pk) AS first_chunk_pk
+            FROM chunks
+            GROUP BY source_path
+        ) AS first_chunk
+            ON c.source_path = first_chunk.source_path
+           AND c.chunk_pk = first_chunk.first_chunk_pk
+        ORDER BY c.source_path
+        """
+    ).fetchall()
+    source_samples = {
+        str(row[0] or "").strip(): str(row[1] or "")[:8000]
+        for row in rows
+        if str(row[0] or "").strip()
+    }
+    stats = refresh_source_quality_records(conn, source_samples)
+    stats["total_sources"] = len(source_samples)
+    return stats
 
 
 def _detect_source_type(source_path: str) -> str:
@@ -234,15 +310,93 @@ def _has_navigation_boilerplate(low_sample: str) -> bool:
     return matches >= 2
 
 
+def _is_test_or_demo_artifact(low_path: str) -> bool:
+    """Detect testing packs, demo docs, and addon test artifacts."""
+    markers = (
+        "testing_addon_pack", "test_addon_pack", "unanswerable_question",
+        "_demo_doc", "demo_doc.", ".tmp_gui_demo", "smoke_test",
+        "_pipeline_test_doc", "test_harness", "test_fixture",
+    )
+    return any(m in low_path for m in markers)
+
+
+def _is_golden_seed_file(low_path: str) -> bool:
+    """Detect golden_seeds JSON/JSONL files used for evaluation, not retrieval."""
+    return "golden_seeds" in low_path or "golden_seed" in low_path
+
+
+def _is_zip_bundle(low_path: str) -> bool:
+    """Detect ZIP archives that shouldn't be in the retrieval index."""
+    return low_path.endswith(".zip") or low_path.endswith(".tar.gz")
+
+
+def _is_temp_or_pipeline_doc(low_path: str) -> bool:
+    """Detect temp directory artifacts and pipeline test documents."""
+    markers = (
+        "\\temp\\", "/temp/", "\\tmp\\", "/tmp/",
+        "appdata\\local\\temp", "appdata/local/temp",
+        "_pipeline_test", ".tmp_",
+    )
+    return any(m in low_path for m in markers)
+
+
 def _resolve_retrieval_tier(
     *,
     quality_score: float,
     has_missing_path: bool,
     is_saved_resource: bool,
     has_encoded_blob: bool,
+    flags: Iterable[str] = (),
 ) -> str:
-    if has_missing_path or is_saved_resource or has_encoded_blob:
+    flag_set = set(flags or ())
+    if (
+        has_missing_path
+        or is_saved_resource
+        or has_encoded_blob
+        or bool(flag_set & _SUSPECT_PATH_FLAGS)
+    ):
         return "suspect"
     if quality_score >= 0.75:
         return "serve"
     return "archive"
+
+
+def _parse_flags(flags_json: str | Iterable[str] | None) -> set[str]:
+    if isinstance(flags_json, str):
+        try:
+            decoded = json.loads(flags_json)
+        except Exception:
+            return set()
+        return {str(flag) for flag in decoded if str(flag)}
+    if isinstance(flags_json, Iterable):
+        return {str(flag) for flag in flags_json if str(flag)}
+    return set()
+
+
+def _has_manual_override(record: Mapping[str, object] | None) -> bool:
+    if not isinstance(record, Mapping):
+        return False
+    return "manual_override" in _parse_flags(record.get("flags_json"))
+
+
+def _record_needs_refresh(
+    current: Mapping[str, object] | None,
+    refreshed: Mapping[str, object],
+) -> bool:
+    if not current:
+        return True
+    if _has_manual_override(current):
+        return False
+
+    current_flags = _parse_flags(current.get("flags_json"))
+    refreshed_flags = _parse_flags(refreshed.get("flags_json"))
+    if current_flags != refreshed_flags:
+        return True
+    if str(current.get("retrieval_tier", "serve") or "serve") != str(
+        refreshed.get("retrieval_tier", "serve") or "serve"
+    ):
+        return True
+    return abs(
+        float(current.get("quality_score", 0.0) or 0.0)
+        - float(refreshed.get("quality_score", 0.0) or 0.0)
+    ) > 1e-9

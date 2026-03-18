@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import yaml
 
-from src.core.config import load_config, save_config_field
+from src.core.config import apply_mode_to_config, load_config, save_config_field
 from src.core.user_modes import load_user_modes_data
 
 
@@ -285,6 +285,157 @@ def test_load_config_uses_mode_specific_paths_for_runtime_projection(tmp_path):
     assert online_config.paths.database == os.path.normpath(
         "D:/shared/index/hybridrag.sqlite3"
     )
+
+
+def test_save_config_field_mirrors_last_used_paths_at_root_without_erasing_modes(tmp_path):
+    cfg_dir = tmp_path / "config"
+    _write_yaml(
+        cfg_dir / "config.yaml",
+        {
+            "mode": "online",
+            "paths": {
+                "source_folder": "D:/shared/source",
+                "database": "D:/shared/index/hybridrag.sqlite3",
+                "embeddings_cache": "D:/shared/index",
+            },
+            "modes": {
+                "offline": {
+                    "paths": {
+                        "source_folder": "",
+                        "database": "",
+                        "embeddings_cache": "",
+                    },
+                },
+                "online": {
+                    "paths": {
+                        "source_folder": "D:/shared/source",
+                        "database": "D:/shared/index/hybridrag.sqlite3",
+                        "embeddings_cache": "D:/shared/index",
+                    },
+                },
+            },
+        },
+    )
+
+    original_root = os.environ.get("HYBRIDRAG_PROJECT_ROOT")
+    original_active_mode = os.environ.get("HYBRIDRAG_ACTIVE_MODE")
+    os.environ["HYBRIDRAG_PROJECT_ROOT"] = str(tmp_path)
+    os.environ["HYBRIDRAG_ACTIVE_MODE"] = "online"
+    try:
+        save_config_field("paths.source_folder", "D:/last-used/source")
+        save_config_field("paths.database", "D:/last-used/index/hybridrag.sqlite3")
+    finally:
+        if original_root is None:
+            os.environ.pop("HYBRIDRAG_PROJECT_ROOT", None)
+        else:
+            os.environ["HYBRIDRAG_PROJECT_ROOT"] = original_root
+        if original_active_mode is None:
+            os.environ.pop("HYBRIDRAG_ACTIVE_MODE", None)
+        else:
+            os.environ["HYBRIDRAG_ACTIVE_MODE"] = original_active_mode
+
+    saved = yaml.safe_load((cfg_dir / "config.yaml").read_text(encoding="utf-8"))
+    assert saved["paths"]["source_folder"] == "D:/last-used/source"
+    assert saved["paths"]["database"] == "D:/last-used/index/hybridrag.sqlite3"
+    assert saved["modes"]["online"]["paths"]["source_folder"] == "D:/last-used/source"
+    assert saved["modes"]["offline"]["paths"]["source_folder"] == ""
+
+
+def test_reload_preserves_last_used_paths_when_boot_mode_changes(tmp_path):
+    cfg_dir = tmp_path / "config"
+    _write_yaml(
+        cfg_dir / "config.yaml",
+        {
+            "mode": "online",
+            "paths": {
+                "source_folder": "D:/shared/source",
+                "database": "D:/shared/index/hybridrag.sqlite3",
+                "embeddings_cache": "D:/shared/index",
+            },
+            "modes": {
+                "offline": {
+                    "paths": {
+                        "source_folder": "",
+                        "database": "",
+                        "embeddings_cache": "",
+                    },
+                },
+                "online": {
+                    "paths": {
+                        "source_folder": "D:/shared/source",
+                        "database": "D:/shared/index/hybridrag.sqlite3",
+                        "embeddings_cache": "D:/shared/index",
+                    },
+                },
+            },
+        },
+    )
+
+    original_root = os.environ.get("HYBRIDRAG_PROJECT_ROOT")
+    original_active_mode = os.environ.get("HYBRIDRAG_ACTIVE_MODE")
+    os.environ["HYBRIDRAG_PROJECT_ROOT"] = str(tmp_path)
+    os.environ["HYBRIDRAG_ACTIVE_MODE"] = "online"
+    try:
+        save_config_field("paths.source_folder", "D:/last-used/source")
+        save_config_field("paths.database", "D:/last-used/index/hybridrag.sqlite3")
+        save_config_field("paths.embeddings_cache", "D:/last-used/index")
+        save_config_field("mode", "offline")
+    finally:
+        if original_root is None:
+            os.environ.pop("HYBRIDRAG_PROJECT_ROOT", None)
+        else:
+            os.environ["HYBRIDRAG_PROJECT_ROOT"] = original_root
+        if original_active_mode is None:
+            os.environ.pop("HYBRIDRAG_ACTIVE_MODE", None)
+        else:
+            os.environ["HYBRIDRAG_ACTIVE_MODE"] = original_active_mode
+
+    config = load_config(str(tmp_path))
+
+    assert config.mode == "offline"
+    assert config.paths.source_folder == os.path.normpath("D:/last-used/source")
+    assert config.paths.database == os.path.normpath(
+        "D:/last-used/index/hybridrag.sqlite3"
+    )
+    assert config.paths.embeddings_cache == os.path.normpath("D:/last-used/index")
+
+
+def test_apply_mode_to_config_restores_runtime_paths_for_selected_mode(tmp_path):
+    cfg_dir = tmp_path / "config"
+    _write_yaml(
+        cfg_dir / "config.yaml",
+        {
+            "mode": "offline",
+            "modes": {
+                "offline": {
+                    "retrieval": {"top_k": 4, "min_score": 0.1},
+                    "ollama": {"model": "phi4-mini"},
+                    "query": {"grounding_bias": 8, "allow_open_knowledge": True},
+                    "paths": {
+                        "source_folder": "D:/offline/source",
+                        "database": "D:/offline/index/hybridrag.sqlite3",
+                        "embeddings_cache": "D:/offline/index",
+                    },
+                },
+                "online": {
+                    "retrieval": {"top_k": 6, "min_score": 0.08},
+                    "api": {"model": "gpt-4o", "deployment": "gpt-4o"},
+                    "query": {"grounding_bias": 7, "allow_open_knowledge": True},
+                    "paths": {
+                        "source_folder": "D:/shared/source",
+                        "database": "D:/shared/index/hybridrag.sqlite3",
+                        "embeddings_cache": "D:/shared/index",
+                    },
+                },
+            },
+        },
+    )
+
+    cfg = load_config(str(tmp_path))
+    apply_mode_to_config(cfg, "online", project_dir=str(tmp_path))
+
+    assert cfg.paths.source_folder == os.path.normpath("D:/shared/source")
+    assert cfg.paths.database == os.path.normpath("D:/shared/index/hybridrag.sqlite3")
 
 
 def test_profile_unchecked_values_remain_agnostic(tmp_path):

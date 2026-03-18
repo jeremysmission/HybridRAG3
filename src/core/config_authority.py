@@ -5,7 +5,12 @@ import os
 from typing import Any
 
 from .config_files import deep_merge_dict
-from .mode_config import MODE_PATH_DEFAULTS, MODE_RUNTIME_DEFAULTS, normalize_mode
+from .mode_config import (
+    MODE_PATH_DEFAULTS,
+    MODE_ROOT_FALLBACK_PATH_KEYS,
+    MODE_RUNTIME_DEFAULTS,
+    normalize_mode,
+)
 from .user_modes import apply_active_profile_overlay
 
 
@@ -36,6 +41,21 @@ def _ensure_dict(parent: dict[str, Any], key: str) -> dict[str, Any]:
         value = {}
         parent[key] = value
     return value
+
+
+def _merge_path_overrides(
+    base_paths: dict[str, Any] | None,
+    mode_paths: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Merge mode paths over root paths without letting blanks erase values."""
+    merged = _dict_or_empty(base_paths)
+    fallback_keys = set(MODE_ROOT_FALLBACK_PATH_KEYS)
+    for key, value in _dict_or_empty(mode_paths).items():
+        if value:
+            merged[key] = copy.deepcopy(value)
+        elif key not in fallback_keys:
+            merged[key] = copy.deepcopy(value)
+    return merged
 
 
 def set_runtime_active_mode(mode: str) -> str:
@@ -198,7 +218,7 @@ def canonicalize_config_dict(yaml_data: dict | None) -> dict[str, Any]:
         data.pop("retrieval", None)
 
     active_entry = _dict_or_empty(modes.get(active_mode))
-    active_paths = deep_merge_dict(root_paths, _dict_or_empty(active_entry.get("paths")))
+    active_paths = _merge_path_overrides(root_paths, active_entry.get("paths"))
     if active_paths:
         data["paths"] = active_paths
     else:
@@ -247,9 +267,9 @@ def build_runtime_config_dict(
         copy.deepcopy(MODE_RUNTIME_DEFAULTS[active_mode]["query"]),
         _dict_or_empty(active_entry.get("query")),
     )
-    runtime["paths"] = deep_merge_dict(
-        _dict_or_empty(runtime.get("paths")),
-        _dict_or_empty(active_entry.get("paths")),
+    runtime["paths"] = _merge_path_overrides(
+        runtime.get("paths"),
+        active_entry.get("paths"),
     )
     runtime.pop("retrieval_online", None)
     return runtime
@@ -290,4 +310,7 @@ def set_canonical_config_value(
             target[part] = {}
         target = target[part]
     target[parts[-1]] = copy.deepcopy(value)
+    if key.startswith("paths."):
+        root_paths = _ensure_dict(data, "paths")
+        root_paths[key.split(".", 1)[1]] = copy.deepcopy(value)
     return canonicalize_config_dict(data)

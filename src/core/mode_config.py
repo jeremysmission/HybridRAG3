@@ -88,7 +88,7 @@ MODE_TUNED_DEFAULTS = {
         "top_p": 0.90,
         "seed": 0,
         "timeout_seconds": 180,
-        "grounding_bias": 8,
+        "grounding_bias": 5,
         "allow_open_knowledge": True,
     },
     "online": {
@@ -101,7 +101,7 @@ MODE_TUNED_DEFAULTS = {
         "corrective_threshold": 0.35,
         "context_window": 128000,
         "max_tokens": 16384,
-        "temperature": 0.08,
+        "temperature": 0.15,
         "top_p": 1.0,
         "presence_penalty": 0.0,
         "frequency_penalty": 0.0,
@@ -119,6 +119,12 @@ MODE_PATH_DEFAULTS = {
     "download_folder": "",
     "transfer_source_folder": "",
 }
+MODE_ROOT_FALLBACK_PATH_KEYS = (
+    "database",
+    "embeddings_cache",
+    "source_folder",
+    "download_folder",
+)
 
 MODE_RUNTIME_DEFAULTS = {
     "offline": {
@@ -142,9 +148,10 @@ MODE_RUNTIME_DEFAULTS = {
             "timeout_seconds": 180,
         },
         "query": {
-            "grounding_bias": 8,
+            "grounding_bias": 5,
             "allow_open_knowledge": True,
         },
+        "paths": copy.deepcopy(MODE_PATH_DEFAULTS),
     },
     "online": {
         "retrieval": {
@@ -161,7 +168,7 @@ MODE_RUNTIME_DEFAULTS = {
             "deployment": "",
             "context_window": 128000,
             "max_tokens": 16384,
-            "temperature": 0.08,
+            "temperature": 0.15,
             "top_p": 1.0,
             "presence_penalty": 0.0,
             "frequency_penalty": 0.0,
@@ -172,6 +179,7 @@ MODE_RUNTIME_DEFAULTS = {
             "grounding_bias": 5,
             "allow_open_knowledge": True,
         },
+        "paths": copy.deepcopy(MODE_PATH_DEFAULTS),
     },
 }
 
@@ -285,10 +293,18 @@ def snapshot_mode_entry(config, mode: str) -> dict[str, Any]:
                     entry["ollama"][key] = getattr(ollama, key)
 
     if paths is not None:
-        entry["paths"] = copy.deepcopy(MODE_PATH_DEFAULTS)
+        # Ensure paths dict exists but preserve existing entries --
+        # never overwrite real paths with blank defaults.
+        if "paths" not in entry:
+            entry["paths"] = {}
         for key in MODE_PATH_DEFAULTS:
             if hasattr(paths, key):
-                entry["paths"][key] = getattr(paths, key)
+                val = getattr(paths, key)
+                if val:  # only overwrite if the config has a real value
+                    entry["paths"][key] = val
+                elif key not in entry["paths"]:
+                    # Initialize missing keys with empty default
+                    entry["paths"][key] = ""
 
     if query is not None:
         for key in ("grounding_bias", "allow_open_knowledge"):

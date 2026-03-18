@@ -59,12 +59,16 @@ goto parse_args
 if /I "%HYBRIDRAG_GUI_DRY_RUN%"=="1" set "DRY_RUN=1"
 if /I "%HYBRIDRAG_GUI_DETACH%"=="1" if /I "%GUI_MODE%"=="terminal" set "GUI_MODE=detached"
 
+set "LAUNCH_EXE=%VENV_PYTHON%"
+if /I "%GUI_MODE%"=="detached" set "LAUNCH_EXE=%VENV_PYTHONW%"
+
+if "%DRY_RUN%"=="1" goto dry_run
+
 if not exist "%VENV_PYTHON%" goto missing_venv
 if not exist "%GUI_SCRIPT%" goto missing_gui_script
-if "%DRY_RUN%"=="0" (
-  "%VENV_PYTHON%" -c "import sys" >nul 2>nul
-  if errorlevel 1 goto broken_venv
-)
+for %%A in ("%VENV_PYTHON%") do if %%~zA EQU 0 goto broken_venv
+"%VENV_PYTHON%" -c "import sys" >nul 2>nul
+if errorlevel 1 goto broken_venv
 
 set "PYTHONPATH=%PROJECT_ROOT%"
 set "HYBRIDRAG_PROJECT_ROOT=%PROJECT_ROOT%"
@@ -77,10 +81,7 @@ set "PYTHONUTF8=1"
 set "PYTHONIOENCODING=utf-8"
 if exist "%VENV_ACTIVATE%" call "%VENV_ACTIVATE%" >nul 2>nul
 
-set "LAUNCH_EXE=%VENV_PYTHON%"
 if /I "%GUI_MODE%"=="detached" if exist "%VENV_PYTHONW%" set "LAUNCH_EXE=%VENV_PYTHONW%"
-
-if "%DRY_RUN%"=="1" goto dry_run
 
 if /I "%GUI_MODE%"=="detached" goto launch_detached
 

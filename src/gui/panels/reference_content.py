@@ -39,7 +39,8 @@ SETUP (one-time):
   py -3.11 -m venv .venv
   .\\.venv\\Scripts\\Activate.ps1
   pip install -r requirements.txt
-  . .\\start_hybridrag.ps1   (dot-space-dot required)
+  start_rag.bat             (preferred: clean no-profile shell)
+  . .\\start_hybridrag.ps1  (dot-space-dot required)
   rag-diag                   (verify install)
 
 DAILY USE:
@@ -77,6 +78,8 @@ KEY CONFIG: chunk_size=1200, overlap=200, embedding=nomic-embed-text (768d)
 
 EMERGENCY RECOVERY:
   Delete .venv, recreate, pip install, re-source start_hybridrag.ps1.
+  If PowerShell profile errors appear, use start_rag.bat or:
+  powershell.exe -NoLogo -NoProfile -NoExit -Command ". .\\start_hybridrag.ps1"
   DB recovery: python -m src.tools.rebuild_memmap_from_sqlite
 """
 
@@ -177,7 +180,8 @@ USER GUIDE
 ==========
 
 STARTUP:
-  . .\\start_hybridrag.ps1
+  start_rag.bat
+  or: powershell.exe -NoLogo -NoProfile -NoExit -Command ". .\\start_hybridrag.ps1"
   python src/gui/launch_gui.py
 
 INDEXING:
@@ -477,7 +481,7 @@ BANNED MODELS:
   Qwen / Alibaba     -- China origin (NDAA)
   DeepSeek           -- China origin (NDAA)
   BGE / BAAI         -- China origin (NDAA)
-  Llama / Meta       -- ITAR restriction
+  Llama / Meta       -- regulatory restriction
 
 SELECTION CRITERIA:
   License must be MIT, Apache 2.0, or BSD (no AGPL, no custom EULA).
@@ -527,7 +531,7 @@ DEMO GUIDE
 BIGGEST SELLING POINTS:
   1. Hybrid search: MRR +18.5% over vector-only.
   2. Source citations: Every answer traceable to source doc.
-  3. Air-gapped / offline-first: 100% on-prem, no cloud.
+  3. offline / offline-first: 100% on-prem, no cloud.
   4. Hallucination resistance: 9-rule prompt, 100% injection refusal.
   5. Cost efficiency: $0 per offline query. No vendor lock-in.
 
@@ -547,7 +551,7 @@ DON'Ts:
 
 AUDIENCE ANGLES:
   Executives: cost savings, risk reduction, time-to-answer.
-  IT/Security: air-gapped, data sovereignty, no vendor lock-in.
+  IT/Security: offline, data sovereignty, no vendor lock-in.
   End users: speed, accuracy, familiar documents.
   Technical: hybrid search, eval methodology, prompt engineering.
 """

@@ -14,6 +14,7 @@ from src.core.config_authority import canonicalize_config_dict
 from src.core.config_files import PRIMARY_CONFIG_NAME
 from src.core.mode_config import (
     MODE_BACKEND_SECTION,
+    MODE_ROOT_FALLBACK_PATH_KEYS,
     MODE_PATH_DEFAULTS,
     MODE_LEGACY_KEY_ALIASES,
     MODE_RUNTIME_DEFAULTS,
@@ -260,8 +261,20 @@ class ModeTuningStore:
         entry = self._ensure_mode_entry(root_data, config, mode)
         paths = getattr(config, "paths", None)
         if paths is not None:
+            root_paths = root_data.get("paths", {})
+            fallback_keys = set(MODE_ROOT_FALLBACK_PATH_KEYS)
             for key, default_value in MODE_PATH_DEFAULTS.items():
-                value = copy.deepcopy(entry.get("paths", {}).get(key, default_value))
+                entry_value = copy.deepcopy(entry.get("paths", {}).get(key, ""))
+                if entry_value:
+                    value = entry_value
+                elif (
+                    key in fallback_keys
+                    and isinstance(root_paths, dict)
+                    and root_paths.get(key)
+                ):
+                    value = copy.deepcopy(root_paths[key])
+                else:
+                    value = copy.deepcopy(default_value)
                 if hasattr(paths, key):
                     setattr(paths, key, value)
         return active

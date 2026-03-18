@@ -35,6 +35,36 @@ def _looks_like_offline_memory_pressure(error_msg):
     return any(term in low for term in pressure_terms)
 
 
+def _grounding_status_banner(result, theme):
+    """Return the grounding banner text/color for a completed result."""
+    g_score = getattr(result, "grounding_score", -1.0)
+    g_blocked = getattr(result, "grounding_blocked", False)
+    details = getattr(result, "grounding_details", None) or {}
+
+    if g_blocked:
+        score_text = "{:.0%}".format(g_score) if g_score >= 0 else "n/a"
+        return "Grounding: BLOCKED (score {})".format(score_text), theme["red"]
+
+    if details.get("verification") == "skipped":
+        fallback_mode = str(details.get("fallback_mode", "") or "").strip()
+        if fallback_mode == "open_knowledge":
+            return (
+                "Grounding: UNVERIFIED (open-knowledge fallback)",
+                theme["orange"],
+            )
+        return "Grounding: UNVERIFIED", theme["orange"]
+
+    if g_score >= 0:
+        color = (
+            theme["green"] if g_score >= 0.8
+            else theme["orange"] if g_score >= 0.5
+            else theme["red"]
+        )
+        return "Grounding: {:.0%} verified".format(g_score), color
+
+    return "", theme["gray"]
+
+
 def _publish_debug_trace(self, result):
     """Push the latest query trace to the app/admin shell when available."""
     trace = getattr(result, "debug_trace", None)
@@ -128,20 +158,9 @@ def _finish_stream(self, result):
         self._show_error("[FAIL] {}".format(detail))
         return
 
-    # Display grounding status if available
-    g_score = getattr(result, "grounding_score", -1.0)
-    g_blocked = getattr(result, "grounding_blocked", False)
-    if g_blocked:
-        self.network_label.config(
-            text="Grounding: BLOCKED (score {:.0%})".format(g_score),
-            fg=t["red"],
-        )
-    elif g_score >= 0:
-        color = t["green"] if g_score >= 0.8 else t["orange"] if g_score >= 0.5 else t["red"]
-        self.network_label.config(
-            text="Grounding: {:.0%} verified".format(g_score),
-            fg=color,
-        )
+    status_text, status_color = _grounding_status_banner(result, t)
+    if status_text:
+        self.network_label.config(text=status_text, fg=status_color)
 
     if result.sources:
         source_strs = []
@@ -210,20 +229,9 @@ def _display_result_inner(self, result):
     self.answer_text.insert("1.0", answer)
     self.answer_text.config(state=tk.DISABLED)
 
-    # Display grounding status if available
-    g_score = getattr(result, "grounding_score", -1.0)
-    g_blocked = getattr(result, "grounding_blocked", False)
-    if g_blocked:
-        self.network_label.config(
-            text="Grounding: BLOCKED (score {:.0%})".format(g_score),
-            fg=t["red"],
-        )
-    elif g_score >= 0:
-        color = t["green"] if g_score >= 0.8 else t["orange"] if g_score >= 0.5 else t["red"]
-        self.network_label.config(
-            text="Grounding: {:.0%} verified".format(g_score),
-            fg=color,
-        )
+    status_text, status_color = _grounding_status_banner(result, t)
+    if status_text:
+        self.network_label.config(text=status_text, fg=status_color)
 
     # Display sources
     if result.sources:

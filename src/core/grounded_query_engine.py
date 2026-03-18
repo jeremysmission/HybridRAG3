@@ -61,7 +61,11 @@ import time
 from typing import Optional, Dict, Any, Generator
 from dataclasses import dataclass
 
-from .query_engine import QueryEngine, QueryResult, _retrieval_access_denied
+from .query_engine import (
+    QueryEngine, QueryResult, _retrieval_access_denied,
+    _decompose_query, _filter_low_relevance_chunks, _multi_query_retrieve,
+    _attempt_corrective_retrieval,
+)
 from .query_mode import apply_query_mode_to_engine
 from .config import Config
 from .vector_store import VectorStore
@@ -288,7 +292,32 @@ class GroundedQueryEngine(GroundedQueryEngineGuardMixin, QueryEngine):
         context_after_trim = ""
         prompt_preview = ""
         try:
-            search_results = self.retriever.search(user_query)
+            # ---- Full retrieval pipeline (matches base QueryEngine) ----
+            # Step 0.5: Classify query (gates conditional reranker)
+            classification = self._classifier.classify(user_query)
+
+            # Step 0.7: Acronym expansion
+            search_query = user_query
+            if getattr(self, "_query_expander", None):
+                expanded = self._query_expander.expand_keywords(user_query)
+                if expanded != user_query:
+                    search_query = expanded
+
+            # Step 1a: Query decomposition (multi-part detection)
+            sub_queries = _decompose_query(search_query)
+            if len(sub_queries) > 1:
+                search_results = _multi_query_retrieve(
+                    self.retriever, sub_queries,
+                    classification=classification)
+            else:
+                search_results = self.retriever.search(
+                    search_query, classification=classification)
+
+            # Step 1.5: Corrective retrieval (CRAG pattern)
+            search_results = _attempt_corrective_retrieval(
+                self.config, self.retriever, user_query,
+                search_results, query_expander=self._query_expander)
+
             retrieval_trace = getattr(self.retriever, "last_search_trace", None) or minimal_retrieval_trace(search_results)
             if not search_results and _retrieval_access_denied(retrieval_trace):
                 result = self._access_denied_result(start_time=start_time)
@@ -306,22 +335,23 @@ class GroundedQueryEngine(GroundedQueryEngineGuardMixin, QueryEngine):
                     },
                 )
                 return result
+
+            # Step 1.7: Chunk relevance filter (CRAG decompose pattern)
+            search_results = _filter_low_relevance_chunks(
+                user_query, search_results)
+
             gate_result = self._retrieval_gate(
                 user_query, search_results, start_time)
             if gate_result is not None:
                 if bool(getattr(self, "allow_open_knowledge", False)):
                     base_result = super().query(user_query)
-                    return GroundedQueryResult(
-                        answer=base_result.answer,
-                        sources=base_result.sources,
-                        chunks_used=base_result.chunks_used,
-                        tokens_in=base_result.tokens_in,
-                        tokens_out=base_result.tokens_out,
-                        cost_usd=base_result.cost_usd,
-                        latency_ms=base_result.latency_ms,
-                        mode=base_result.mode,
-                        error=base_result.error,
-                        debug_trace=base_result.debug_trace,
+                    return _gqe_wrap_open_knowledge_fallback_result(
+                        self,
+                        base_result,
+                        trace=trace,
+                        retrieval_trace=retrieval_trace,
+                        decision_path="open_knowledge_retrieval_gate_fallback",
+                        reason="retrieval_gate_open_knowledge_fallback_unverified",
                     )
                 attach_result_trace(
                     self,
@@ -344,17 +374,15 @@ class GroundedQueryEngine(GroundedQueryEngineGuardMixin, QueryEngine):
             if not context.strip():
                 if bool(getattr(self, "allow_open_knowledge", False)):
                     base_result = super().query(user_query)
-                    return GroundedQueryResult(
-                        answer=base_result.answer,
-                        sources=base_result.sources,
-                        chunks_used=base_result.chunks_used,
-                        tokens_in=base_result.tokens_in,
-                        tokens_out=base_result.tokens_out,
-                        cost_usd=base_result.cost_usd,
-                        latency_ms=base_result.latency_ms,
-                        mode=base_result.mode,
-                        error=base_result.error,
-                        debug_trace=base_result.debug_trace,
+                    return _gqe_wrap_open_knowledge_fallback_result(
+                        self,
+                        base_result,
+                        trace=trace,
+                        retrieval_trace=retrieval_trace,
+                        decision_path="open_knowledge_empty_context_fallback",
+                        reason="empty_context_open_knowledge_fallback_unverified",
+                        context_before_trim=context_before_trim,
+                        sources=sources,
                     )
                 result = GroundedQueryResult(
                     answer=(
@@ -516,9 +544,35 @@ def _gqe_query_stream(
     prompt_preview = ""
     try:
         yield {"phase": "searching"}
-        search_results = engine.retriever.search(user_query)
+        # ---- Full retrieval pipeline (matches base QueryEngine) ----
+        classification = engine._classifier.classify(user_query)
+
+        search_query = user_query
+        if getattr(engine, "_query_expander", None):
+            expanded = engine._query_expander.expand_keywords(user_query)
+            if expanded != user_query:
+                search_query = expanded
+
+        sub_queries = _decompose_query(search_query)
+        if len(sub_queries) > 1:
+            search_results = _multi_query_retrieve(
+                engine.retriever, sub_queries,
+                classification=classification)
+        else:
+            search_results = engine.retriever.search(
+                search_query, classification=classification)
+
+        search_results = _attempt_corrective_retrieval(
+            engine.config, engine.retriever, user_query,
+            search_results, query_expander=engine._query_expander)
+
         retrieval_ms = (time.time() - start_time) * 1000
         retrieval_trace = getattr(engine.retriever, "last_search_trace", None) or minimal_retrieval_trace(search_results)
+
+        # Chunk relevance filter
+        search_results = _filter_low_relevance_chunks(
+            user_query, search_results)
+
         if not search_results and _retrieval_access_denied(retrieval_trace):
             result = engine._access_denied_result(
                 start_time=start_time,
@@ -543,8 +597,16 @@ def _gqe_query_stream(
         gate_result = engine._retrieval_gate(user_query, search_results, start_time)
         if gate_result is not None:
             if bool(getattr(engine, "allow_open_knowledge", False)):
-                fallback = super(GroundedQueryEngine, engine).query(user_query)
-                yield {"done": True, "result": fallback}
+                # Use the streaming base path so the UI shows tokens
+                # as they arrive instead of blocking until completion.
+                yield from _gqe_stream_open_knowledge_fallback(
+                    engine,
+                    user_query,
+                    trace=trace,
+                    retrieval_trace=retrieval_trace,
+                    decision_path="open_knowledge_retrieval_gate_fallback",
+                    reason="retrieval_gate_open_knowledge_fallback_unverified",
+                )
                 return
             attach_result_trace(
                 engine,
@@ -567,8 +629,17 @@ def _gqe_query_stream(
         context_before_trim = context
         if not context.strip():
             if bool(getattr(engine, "allow_open_knowledge", False)):
-                fallback = super(GroundedQueryEngine, engine).query(user_query)
-                yield {"done": True, "result": fallback}
+                # Use streaming base path for token-by-token UI updates
+                yield from _gqe_stream_open_knowledge_fallback(
+                    engine,
+                    user_query,
+                    trace=trace,
+                    retrieval_trace=retrieval_trace,
+                    decision_path="open_knowledge_empty_context_fallback",
+                    reason="empty_context_open_knowledge_fallback_unverified",
+                    context_before_trim=context_before_trim,
+                    sources=sources,
+                )
                 return
             result = engine._make_error_result(
                 start_time, "empty_context", sources, len(search_results)
@@ -750,9 +821,12 @@ def _gqe_fallback_score(claims, source_texts, threshold):
     substring approach because GPT-4o paraphrases freely -- individual
     technical terms still match even when sentence structure differs.
 
-    A claim is SUPPORTED when >= 50% of its content tokens appear in
+    A claim is SUPPORTED when >= 30% of its content tokens appear in
     sources.  This threshold is deliberately lenient: false negatives
     (blocking good answers) are far worse than false positives here.
+    GPT-4o paraphrases heavily, so token overlap is typically 30-45%
+    even for fully grounded answers.  The previous 50% threshold
+    caused silent blocking of correct, well-written responses.
     """
     if not claims:
         return 1.0, {"method": "fallback_no_claims"}
@@ -786,21 +860,32 @@ def _gqe_fallback_score(claims, source_texts, threshold):
         source_tokens.update(_tokenize(src))
 
     supported = 0
+    trivial_count = 0
     claim_details = []
     for c in claims:
         text = c.get("text", "") if isinstance(c, dict) else str(c)
         if c.get("is_trivial", False):
-            supported += 1
+            # Trivial claims (greetings, transitions, headers) are excluded
+            # from the score denominator -- they are not factual assertions
+            # and should not inflate the grounding score.
+            trivial_count += 1
             claim_details.append({"claim": text[:80], "verdict": "TRIVIAL"})
+            continue
+        # Claims explicitly tagged as general knowledge are allowed
+        orig = c.get("original_text", text) if isinstance(c, dict) else text
+        if "[General Knowledge]" in orig or "[GENERAL KNOWLEDGE]" in orig:
+            supported += 1
+            claim_details.append({"claim": text[:80], "verdict": "OPEN_KNOWLEDGE"})
             continue
         claim_tokens = _tokenize(text)
         if not claim_tokens:
-            supported += 1
+            # No scorable tokens (e.g. all stopwords) -- exclude from denominator
+            trivial_count += 1
             claim_details.append({"claim": text[:80], "verdict": "NO_TOKENS"})
             continue
         hits = sum(1 for tok in claim_tokens if tok in source_tokens)
         overlap = hits / len(claim_tokens)
-        verdict = "SUPPORTED" if overlap >= 0.50 else "UNSUPPORTED"
+        verdict = "SUPPORTED" if overlap >= 0.30 else "UNSUPPORTED"
         if verdict == "SUPPORTED":
             supported += 1
         claim_details.append({
@@ -811,11 +896,13 @@ def _gqe_fallback_score(claims, source_texts, threshold):
             "hits": hits,
         })
 
-    total = len(claims)
-    score = supported / total if total > 0 else 0.0
+    verifiable = len(claims) - trivial_count
+    score = supported / verifiable if verifiable > 0 else 1.0
     return score, {
         "method": "fallback_token_overlap",
-        "total_claims": total,
+        "total_claims": len(claims),
+        "verifiable_claims": verifiable,
+        "trivial_claims": trivial_count,
         "supported": supported,
         "claims": claim_details,
     }
@@ -846,6 +933,31 @@ def _gqe_apply_guard_action(engine, raw_answer, score, details):
             "Please check source documents directly."
         ), True
 
+    if engine.guard_action == "flag":
+        # Annotate unsupported claims inline so the user can see which
+        # parts of the answer lack source backing.
+        claim_list = details.get("claims", [])
+        flagged = raw_answer
+        for cd in claim_list:
+            verdict = cd.get("verdict", "")
+            claim_text = cd.get("claim", "")
+            if verdict == "UNSUPPORTED" and claim_text:
+                # Try exact match first; claim_text may be truncated to 80 chars
+                if claim_text in flagged:
+                    flagged = flagged.replace(
+                        claim_text, f"[UNVERIFIED] {claim_text}", 1)
+                else:
+                    # Fuzzy: find a line containing the claim core
+                    core = claim_text[:50].rstrip()
+                    if core:
+                        for line in flagged.split("\n"):
+                            if core in line:
+                                flagged = flagged.replace(
+                                    line, f"[UNVERIFIED] {line}", 1)
+                                break
+        return flagged, False
+
+    # "warn" or unknown: return raw answer (permissive fallback)
     return raw_answer, False
 
 
@@ -898,10 +1010,19 @@ def _gqe_access_denied_result(
 
 
 def _gqe_retrieval_gate(engine, user_query, search_results, start_time):
-    if bool(getattr(engine, "allow_open_knowledge", False)):
-        return None
+    # FIXED: Previously, when allow_open_knowledge was True, this function
+    # returned None immediately (line 1), completely bypassing all retrieval
+    # quality checks.  That meant garbage low-score chunks were silently
+    # fed to GPT-4o as authoritative context instead of triggering the
+    # open-knowledge fallback in the caller.  The caller already handles
+    # the open-knowledge case: when gate_result is not None AND
+    # allow_open_knowledge is True, it falls back to super().query()
+    # which uses the relaxed prompt.  So the gate should always run its
+    # quality checks and return a blocking result when evidence is weak,
+    # regardless of open_knowledge -- the caller decides what to do.
     if not search_results:
         return engine._no_evidence_result(start_time)
+
     passing = [
         hit for hit in search_results
         if hit.score >= engine.guard_min_score
@@ -932,7 +1053,86 @@ def _gqe_log_grounded_result(engine, event_name, result, blocked, elapsed_ms):
     )
 
 
+def _gqe_wrap_open_knowledge_fallback_result(
+    engine,
+    base_result,
+    *,
+    trace: dict[str, Any],
+    retrieval_trace: dict[str, Any] | None,
+    decision_path: str,
+    reason: str,
+    context_before_trim: str = "",
+    sources: list[dict[str, Any]] | None = None,
+) -> GroundedQueryResult:
+    result = GroundedQueryResult(
+        answer=base_result.answer,
+        sources=copy.deepcopy(base_result.sources),
+        chunks_used=base_result.chunks_used,
+        tokens_in=base_result.tokens_in,
+        tokens_out=base_result.tokens_out,
+        cost_usd=base_result.cost_usd,
+        latency_ms=base_result.latency_ms,
+        mode=base_result.mode,
+        error=base_result.error,
+        grounding_score=-1.0,
+        grounding_safe=False,
+        grounding_blocked=False,
+        grounding_details={
+            "reason": reason,
+            "verification": "skipped",
+            "guard_bypassed": True,
+            "fallback_mode": "open_knowledge",
+        },
+    )
+    attach_result_trace(
+        engine,
+        result,
+        trace,
+        decision_path=decision_path,
+        retrieval_trace=retrieval_trace,
+        context_before_trim=context_before_trim,
+        sources=copy.deepcopy(sources if sources is not None else base_result.sources),
+        grounding={
+            "score": result.grounding_score,
+            "safe": result.grounding_safe,
+            "blocked": result.grounding_blocked,
+            "details": copy.deepcopy(result.grounding_details),
+        },
+    )
+    return result
+
+
+def _gqe_stream_open_knowledge_fallback(
+    engine,
+    user_query: str,
+    *,
+    trace: dict[str, Any],
+    retrieval_trace: dict[str, Any] | None,
+    decision_path: str,
+    reason: str,
+    context_before_trim: str = "",
+    sources: list[dict[str, Any]] | None = None,
+) -> Generator[Dict[str, Any], None, None]:
+    for event in super(GroundedQueryEngine, engine).query_stream(user_query):
+        if event.get("done") and "result" in event:
+            wrapped = _gqe_wrap_open_knowledge_fallback_result(
+                engine,
+                event["result"],
+                trace=trace,
+                retrieval_trace=retrieval_trace,
+                decision_path=decision_path,
+                reason=reason,
+                context_before_trim=context_before_trim,
+                sources=sources,
+            )
+            yield {"done": True, "result": wrapped}
+        else:
+            yield event
+
+
 def _gqe_build_grounded_prompt(engine, user_query: str, context: str, hits: list) -> str:
+    allow_open = bool(getattr(engine, "allow_open_knowledge", False))
+
     if engine._guard_available:
         from .llm_router import _extract_system_user
 
@@ -941,11 +1141,24 @@ def _gqe_build_grounded_prompt(engine, user_query: str, context: str, hits: list
         if not system_prompt:
             system_prompt = "You are a precise technical assistant."
 
-        trimmed_chunks = [
-            block.strip()
-            for block in context.split("\n\n---\n\n")
-            if block.strip()
-        ]
+        # Strip [Source N] headers from chunks to avoid double-wrapping
+        # (build_context adds headers, harden_prompt/open_knowledge add more)
+        trimmed_chunks = []
+        for block in context.split("\n\n---\n\n"):
+            block = block.strip()
+            if not block:
+                continue
+            _, body = _gqe_strip_source_header(block)
+            trimmed_chunks.append(body if body else block)
+
+        # When open knowledge is allowed, skip the ultra-strict hardening
+        # that forbids training data — it contradicts the relaxed prompt
+        # and makes GPT-4o over-cautious (refuses, hedges, thin answers).
+        if allow_open:
+            return _gqe_build_open_knowledge_prompt(
+                system_prompt, user_query, trimmed_chunks,
+            )
+
         hardened = engine._harden_prompt(
             system_prompt,
             user_query,
@@ -956,6 +1169,22 @@ def _gqe_build_grounded_prompt(engine, user_query: str, context: str, hits: list
             user_text = (hardened.get("user", "") or "").strip()
             return system_text + "\n\nContext:\n" + user_text + "\n\nAnswer:"
         return hardened
+
+    if allow_open:
+        return (
+            "GROUNDING RULES:\n"
+            "- Prioritize the provided context when answering\n"
+            "- When context is incomplete, you may supplement with general "
+            "domain knowledge -- prefix those parts with [General Knowledge]\n"
+            "- Cite [Source N] for claims drawn from the context\n"
+            "- Do NOT fabricate source citations\n"
+            "- Format the answer in short readable paragraphs; use bullets "
+            "for lists\n"
+            "\n"
+            f"{context}\n\n"
+            f"User Question:\n{user_query}\n\n"
+            "Answer:"
+        )
 
     return (
         "GROUNDING RULES:\n"
@@ -969,6 +1198,75 @@ def _gqe_build_grounded_prompt(engine, user_query: str, context: str, hits: list
         f"User Question:\n{user_query}\n\n"
         "Answer:"
     )
+
+
+def _gqe_strip_source_header(chunk_text: str) -> tuple:
+    """Strip the [Source N] header added by retriever.build_context().
+
+    Returns (source_label, body) where source_label is e.g.
+    '/docs/manual.txt' and body is the chunk text without the header.
+    If no header found, returns ('', original_text).
+    """
+    import re as _re
+    m = _re.match(
+        r"^\[Source\s+\d+\]\s*(.*?)\s*\(chunk\s+\d+,\s*score=[\d.]+\)\s*\n?",
+        chunk_text,
+    )
+    if m:
+        source_label = m.group(1).strip()
+        body = chunk_text[m.end():].strip()
+        return source_label, body
+    return "", chunk_text.strip()
+
+
+def _gqe_build_open_knowledge_prompt(
+    system_prompt: str, user_query: str, chunks: list,
+) -> str:
+    """Build a grounded-but-permissive prompt for open-knowledge mode.
+
+    Encourages citations and context-first answering without the
+    ultra-strict hardening that forbids all training-data usage.
+    Strips double chunk headers from retriever.build_context().
+    """
+    numbered = []
+    for i, chunk in enumerate(chunks):
+        source_label, body = _gqe_strip_source_header(chunk)
+        header = f"--- CHUNK {i + 1}"
+        if source_label:
+            fname = source_label.rsplit("\\", 1)[-1].rsplit("/", 1)[-1]
+            header += f" (from: {fname})"
+        header += " ---"
+        numbered.append(f"{header}\n{body}\n")
+    chunk_block = "\n".join(numbered)
+
+    # Build system portion (system_prompt + grounding guidelines).
+    # Build user portion (context chunks + query).
+    # Separate with "\n\nContext:\n" so _split_prompt_to_messages
+    # can split them into proper system/user roles for the chat API.
+    # Without this separator, GPT-4o receives everything as a single
+    # user message and treats instructions with lower priority.
+    system_part = (
+        f"{system_prompt}\n\n"
+        "GROUNDING GUIDELINES:\n"
+        "- Use the retrieved context as your primary source of truth.\n"
+        "- Cite [Source: chunk_N] for facts drawn from the context.\n"
+        "- If the context is incomplete or does not cover part of the "
+        "question, you may use general domain knowledge to fill gaps. "
+        "Prefix those parts with [General Knowledge].\n"
+        "- Do NOT fabricate source citations or chunk numbers.\n"
+        "- Use short readable paragraphs and bullets for lists.\n"
+        "- VERBATIM VALUES: When citing specific measurements, part "
+        "numbers, or technical values from context, reproduce notation "
+        "exactly as it appears."
+    )
+    user_part = (
+        f"=== RETRIEVED CONTEXT ({len(chunks)} chunks) ===\n"
+        f"{chunk_block}\n"
+        f"=== END CONTEXT ===\n\n"
+        f"USER QUERY:\n{user_query}\n\n"
+        "Answer:"
+    )
+    return system_part + "\n\nContext:\n" + user_part
 
 
 def _gqe_verify_response(engine, response_text: str, hits: list) -> tuple:

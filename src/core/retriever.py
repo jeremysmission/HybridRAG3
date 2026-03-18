@@ -613,7 +613,7 @@ class Retriever:
             base = float(h.get("score", 0.0))
             text = str(h.get("text", "") or "")
             # Add a small bonus if query words appear in the chunk's opening text
-            boosted = base + self._lexical_boost(text, q_terms)
+            boosted = min(base + self._lexical_boost(text, q_terms), 1.0)
             hits.append(SearchHit(
                 score=boosted,
                 source_path=str(h.get("source_path", "")),
@@ -973,7 +973,7 @@ def _apply_source_quality_score(base_score: float, record: Optional[Dict[str, An
     if tier == "suspect":
         penalty += 0.35
     elif tier == "archive":
-        penalty += 0.08
+        penalty += 0.12
 
     if int(record.get("is_saved_resource", 0) or 0):
         penalty += 0.25
@@ -983,6 +983,17 @@ def _apply_source_quality_score(base_score: float, record: Optional[Dict[str, An
         penalty += 0.20
     if int(record.get("is_boilerplate", 0) or 0):
         penalty += 0.10
+
+    # Downrank known junk sources hard so real documents outrank them
+    flags_str = str(record.get("flags_json", "[]") or "[]")
+    if "test_or_demo_artifact" in flags_str:
+        penalty += 0.30
+    if "golden_seed_file" in flags_str:
+        penalty += 0.30
+    if "temp_or_pipeline_doc" in flags_str:
+        penalty += 0.25
+    if "zip_bundle" in flags_str:
+        penalty += 0.20
 
     bonus = 0.0
     if tier == "serve" and float(record.get("quality_score", 0.0) or 0.0) >= 0.90:

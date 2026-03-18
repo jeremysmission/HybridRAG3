@@ -15,6 +15,30 @@ from pathlib import Path
 from typing import Any
 
 
+_CONTAMINATION_MARKERS = {
+    "test_or_demo_artifact": (
+        "testing_addon_pack",
+        "test_addon_pack",
+        "unanswerable_question",
+        "_demo_doc",
+        "demo_doc.",
+        ".tmp_gui_demo",
+        "smoke_test",
+        "_pipeline_test_doc",
+        "test_harness",
+        "test_fixture",
+    ),
+    "golden_seed_file": (
+        "golden_seed",
+        "golden_seeds",
+    ),
+    "zip_bundle": (
+        ".zip",
+        ".tar.gz",
+    ),
+}
+
+
 def _normalize_path(value: str) -> str:
     raw = str(value or "").strip()
     if not raw:
@@ -132,6 +156,21 @@ def detect_index_contamination(
         ):
             flags.append("temp_path")
             temp_count += 1
+        for flag_name, markers in _CONTAMINATION_MARKERS.items():
+            if any(marker in normalized_source for marker in markers):
+                flags.append(flag_name)
+        if (
+            not inside_root
+            and normalized_source
+            and (
+                "\\temp\\" in normalized_source
+                or "/temp/" in normalized_source
+                or "\\tmp\\" in normalized_source
+                or "/tmp/" in normalized_source
+            )
+            and "temp_path" not in flags
+        ):
+            flags.append("temp_or_pipeline_doc")
 
         if flags:
             suspicious_sources.append(

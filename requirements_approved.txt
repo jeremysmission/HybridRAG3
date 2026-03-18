@@ -1,7 +1,9 @@
 # ============================================================================
 # HybridRAG3 -- Approved Requirements
-# Updated: 2026-03-08
-# Changelog: 2026-03-08 -- Added access-parser==0.2.0 for .accdb/.mdb support.
+# Updated: 2026-03-17
+# Changelog: 2026-03-17 -- Fixed access-parser pin: 0.2.0 does not exist on PyPI (max available is 0.0.6).
+#                          Original pin was a typo — 0.2.0 was never published. Broke INSTALL.bat on fresh installs.
+# Changelog: 2026-03-08 -- Added access-parser==0.0.6 for .accdb/.mdb support.
 # Changelog: 2026-03-02 -- Added ocrmypdf* for scanned PDF OCR enhancement workflow
 #                          (YELLOW: pending approval/validation on work environment)
 # Changelog: 2026-03-03 -- Added missing runtime/transitive deps from requirements.txt
@@ -140,7 +142,7 @@ colorama==0.4.6                # BSD-3 -- Console color output (Windows terminal
 # These enable the specialty parsers in src/parsers/. Without them, files with
 # these extensions silently return empty text and are skipped as "no text extracted."
 # All licenses are permissive (MIT, BSD, Apache 2.0). No GPL. No China-origin.
-access-parser==0.2.0           # Apache 2.0 -- Microsoft Access .accdb/.mdb reader
+access-parser==0.0.6           # Apache 2.0 -- Microsoft Access .accdb/.mdb reader
 olefile==0.47                  # BSD -- Legacy Office binary format reader (.doc, .msg)
 ezdxf==1.4.3                   # MIT -- AutoCAD DXF reader/writer (engineering drawings)
 python-evtx==0.8.1             # Apache 2.0 -- Windows Event Log parser (.evtx, sys admin)

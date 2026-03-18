@@ -63,9 +63,9 @@ def test_scaffold_multiagent_workspace_uses_template_names_when_root_files_exist
 
 def test_scaffold_multiagent_workspace_force_overwrites_root_files(tmp_path: Path) -> None:
     agents_path = tmp_path / "AGENTS.md"
-    claude_path = tmp_path / _CL_MD
+    ai_assistant_path = tmp_path / _CL_MD
     agents_path.write_text("old agents", encoding="utf-8")
-    claude_path.write_text("old config", encoding="utf-8")
+    ai_assistant_path.write_text("old config", encoding="utf-8")
 
     report = scaffold_multiagent_workspace(
         workspace_root=tmp_path,
@@ -77,4 +77,4 @@ def test_scaffold_multiagent_workspace_force_overwrites_root_files(tmp_path: Pat
     assert "AGENTS.md" in overwritten
     assert _CL_MD in overwritten
     assert "Force Root" in agents_path.read_text(encoding="utf-8")
-    assert "Force Root" in claude_path.read_text(encoding="utf-8")
+    assert "Force Root" in ai_assistant_path.read_text(encoding="utf-8")

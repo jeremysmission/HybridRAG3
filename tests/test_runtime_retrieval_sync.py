@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from src.core.grounded_query_engine import GroundedQueryEngine
-from src.core.query_engine import QueryEngine, refresh_query_engine_runtime
+from src.core.query_engine import QueryEngine, QueryResult, refresh_query_engine_runtime
 from src.core.query_mode import apply_query_mode_to_engine, resolve_query_mode_settings
 from src.core.retriever import Retriever
 
@@ -376,6 +376,56 @@ def test_grounding_scale_matches_ui_contract_from_1_through_10():
             assert settings["guard_action"] == "block"
 
     assert thresholds == sorted(thresholds)
+
+
+def test_grounded_sync_open_knowledge_gate_fallback_marks_result_unverified():
+    cfg = _make_config(mode="online")
+    cfg.query.allow_open_knowledge = True
+    router = SimpleNamespace(
+        config=cfg,
+        ollama=SimpleNamespace(config=cfg),
+        api=SimpleNamespace(config=cfg),
+        vllm=None,
+    )
+
+    with patch("src.core.grounded_query_engine.get_app_logger", return_value=MagicMock()), \
+            patch("src.core.query_engine.Retriever") as mock_retriever_cls:
+        retriever = MagicMock()
+        retriever.config = cfg
+        retriever.search.return_value = [
+            SimpleNamespace(score=0.95, text="fact", source_path="/docs/a.txt", chunk_index=0)
+        ]
+        retriever.get_sources.return_value = [
+            {"path": "/docs/a.txt", "chunks": 1, "avg_relevance": 0.95}
+        ]
+        mock_retriever_cls.return_value = retriever
+        engine = GroundedQueryEngine(cfg, MagicMock(), MagicMock(), router)
+
+    engine.guard_enabled = True
+    engine._guard_available = True
+    engine.guard_min_chunks = 2
+    engine.guard_min_score = 0.0
+
+    with patch(
+        "src.core.query_engine.QueryEngine.query",
+        return_value=QueryResult(
+            answer="Open knowledge fallback answer.",
+            sources=[{"path": "/docs/a.txt", "chunks": 1, "avg_relevance": 0.95}],
+            chunks_used=1,
+            tokens_in=11,
+            tokens_out=7,
+            cost_usd=0.01,
+            latency_ms=12.0,
+            mode="online",
+        ),
+    ):
+        result = engine.query("Needs open knowledge fallback")
+
+    assert result.answer == "Open knowledge fallback answer."
+    assert result.grounding_safe is False
+    assert result.grounding_blocked is False
+    assert result.grounding_details["reason"] == "retrieval_gate_open_knowledge_fallback_unverified"
+    assert result.debug_trace["decision"]["path"] == "open_knowledge_retrieval_gate_fallback"
 
 
 def test_refresh_query_engine_runtime_reapplies_guard_policy_after_mode_churn():

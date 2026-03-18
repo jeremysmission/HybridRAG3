@@ -74,7 +74,7 @@ from .user_modes import load_user_modes_data
 # Guard config lives in its own file to keep config.py under 500 lines.
 # Re-exported here so callers can do: from src.core.config import HallucinationGuardConfig
 # Conditional import: guard_config.py is excluded from the educational repo
-# sync (tools/sync_to_educational.py). Without this fallback, config.py
+# sync (tools/repo sync script). Without this fallback, config.py
 # fails to import on machines running the educational copy.
 try:
     from src.core.guard_config import HallucinationGuardConfig
@@ -403,7 +403,7 @@ class QueryConfig:
     stay bound to retrieved context and whether the engine may fall back
     to open knowledge when retrieval is weak.
     """
-    grounding_bias: int = 7
+    grounding_bias: int = 5
     allow_open_knowledge: bool = True
 
 
@@ -881,6 +881,24 @@ def apply_mode_to_config(
     for key in ("grounding_bias", "allow_open_knowledge"):
         if key in q and hasattr(config.query, key):
             setattr(config.query, key, q[key])
+
+    # Paths need to follow the resolved runtime mode as well. Without this,
+    # CLI/tools can switch retrieval/backend settings but keep stale DB/source
+    # paths from the previous mode.
+    p = merged.get("paths", {})
+    if hasattr(config, "paths") and config.paths is not None:
+        for key in (
+            "database",
+            "embeddings_cache",
+            "source_folder",
+            "download_folder",
+            "transfer_source_folder",
+        ):
+            if key in p and hasattr(config.paths, key):
+                value = p[key]
+                if value:
+                    value = os.path.normpath(os.path.expandvars(str(value)))
+                setattr(config.paths, key, value)
 
     # Backend settings vary by mode
     if mode == "online":

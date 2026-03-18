@@ -1,4 +1,10 @@
+import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -49,3 +55,49 @@ def test_build_usb_deploy_bundle_prefers_repo_venv_python_by_project_root():
     assert 'function Find-Python([string]$ProjectRoot)' in content
     assert 'Join-Path $ProjectRoot ".venv\\Scripts\\python.exe"' in content
     assert '$py = Find-Python $projectRoot' in content
+
+
+def test_start_rag_bat_launches_powershell_without_loading_user_profile():
+    content = _read("start_rag.bat")
+    assert "powershell -NoLogo -NoProfile -NoExit -Command" in content
+
+
+@pytest.mark.skipif(os.name != "nt", reason="PowerShell execution test requires Windows")
+def test_start_hybridrag_ps1_executes_in_clean_no_profile_shell(tmp_path):
+    script_copy = tmp_path / "start_hybridrag.ps1"
+    shutil.copyfile(REPO_ROOT / "start_hybridrag.ps1", script_copy)
+
+    scripts_dir = tmp_path / ".venv" / "Scripts"
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+    (scripts_dir / "Activate.ps1").write_text(
+        "$env:VIRTUAL_ENV = '{}'".format(tmp_path / ".venv"),
+        encoding="utf-8",
+    )
+    shutil.copyfile(sys.executable, scripts_dir / "python.exe")
+
+    result = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoLogo",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(script_copy),
+        ],
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+    )
+
+    output = ((result.stdout or "") + (result.stderr or "")).replace("\r\n", "\n")
+
+    assert result.returncode == 0, output
+    assert (
+        "HybridRAG shell ready." in output
+        or "=== HybridRAG Startup ===" in output
+    )
+    assert (
+        "Project root: {}".format(tmp_path) in output
+        or "Project:    {}".format(tmp_path) in output
+    )

@@ -364,3 +364,51 @@ def test_apply_to_config_restores_mode_specific_paths():
             assert cfg.paths.transfer_source_folder == "D:/offline/source"
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_apply_to_config_uses_root_paths_when_mode_entry_paths_are_blank():
+    cfg = _make_config()
+    temp_root = _make_local_temp_root()
+    cfg_dir = Path(temp_root) / "config"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "config.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "mode": "offline",
+                "paths": {
+                    "source_folder": "D:/last-used/source",
+                    "database": "D:/last-used/index/hybridrag.sqlite3",
+                    "embeddings_cache": "D:/last-used/index",
+                    "download_folder": "D:/last-used/source",
+                    "transfer_source_folder": "D:/last-used/source",
+                },
+                "modes": {
+                    "offline": {
+                        "retrieval": {"top_k": 4, "min_score": 0.1},
+                        "ollama": {"model": "phi4-mini"},
+                        "query": {"grounding_bias": 8, "allow_open_knowledge": True},
+                        "paths": {
+                            "source_folder": "",
+                            "database": "",
+                            "embeddings_cache": "",
+                            "download_folder": "",
+                            "transfer_source_folder": "",
+                        },
+                    },
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        with patch.dict(os.environ, {"HYBRIDRAG_PROJECT_ROOT": temp_root}):
+            store = ModeTuningStore()
+            store.apply_to_config(cfg, "offline")
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+    assert cfg.paths.source_folder == "D:/last-used/source"
+    assert cfg.paths.database == "D:/last-used/index/hybridrag.sqlite3"
+    assert cfg.paths.embeddings_cache == "D:/last-used/index"

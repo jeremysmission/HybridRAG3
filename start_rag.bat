@@ -67,7 +67,7 @@ REM   runs it. This is NOT subject to execution policy, so it works
 REM   even when Group Policy is set to AllSigned or Restricted.
 REM   Set-ExecutionPolicy is attempted first (for dot-sourced child
 REM   scripts) but errors are suppressed -- it may fail under GP.
-powershell -NoExit -Command "Set-ExecutionPolicy -Scope Process Bypass -Force 2>$null; $p=Join-Path '%~dp0' 'start_hybridrag.ps1'; $c=[IO.File]::ReadAllText($p,[Text.Encoding]::UTF8); iex $c"
+powershell -NoLogo -NoProfile -NoExit -Command "Set-ExecutionPolicy -Scope Process Bypass -Force 2>$null; $p=Join-Path '%~dp0' 'start_hybridrag.ps1'; $c=[IO.File]::ReadAllText($p,[Text.Encoding]::UTF8); iex $c"
 if errorlevel 1 goto :fallback
 goto :end
 

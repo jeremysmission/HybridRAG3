@@ -279,7 +279,7 @@ def _eval_matrix() -> str:
 """
 
 
-def _start_here(project_name: str, agents_filename: str, claude_filename: str) -> str:
+def _start_here(project_name: str, agents_filename: str, ai_assistant_filename: str) -> str:
     return f"""# Start Here
 
 This workspace pack stages a Codex-plus-{_CL} development workflow for `{project_name}`.
@@ -304,7 +304,7 @@ This workspace pack stages a Codex-plus-{_CL} development workflow for `{project
 ## Root Instruction Files
 
 - `{agents_filename}`
-- `{claude_filename}`
+- `{ai_assistant_filename}`
 
 ## Handoff Files
 
@@ -352,7 +352,7 @@ Open items:
 """
 
 
-def _claude_prompt(role_name: str, focus: str, deliverables: Iterable[str]) -> str:
+def _ai_assistant_prompt(role_name: str, focus: str, deliverables: Iterable[str]) -> str:
     bullet_lines = "\n".join(f"- {item}" for item in deliverables)
     return f"""# {role_name}
 
@@ -422,7 +422,7 @@ def _root_agents(project_name: str) -> str:
 """
 
 
-def _root_claude(project_name: str) -> str:
+def _root_ai_assistant(project_name: str) -> str:
     return f"""# {_CL_MD}
 
 Project: {project_name}
@@ -453,7 +453,7 @@ def build_workspace_templates(
         fallback="AGENTS.multiagent.template.md",
         force=force,
     )
-    claude_filename = _pick_root_filename(
+    ai_assistant_filename = _pick_root_filename(
         workspace_root,
         preferred=_CL_MD,
         fallback=_CL.upper() + ".multiagent.template.md",
@@ -463,7 +463,7 @@ def build_workspace_templates(
         "ai_workflow/00_START_HERE.md": _start_here(
             project_name=project_name,
             agents_filename=agents_filename,
-            claude_filename=claude_filename,
+            ai_assistant_filename=ai_assistant_filename,
         ),
         "ai_workflow/01_MISSION_BRIEF.md": _mission_brief(project_name),
         "ai_workflow/02_REQUIREMENTS_PACKET.md": _requirements_packet(project_name),
@@ -475,7 +475,7 @@ def build_workspace_templates(
         "ai_workflow/08_EVAL_MATRIX.md": _eval_matrix(),
         "ai_workflow/handoff/primary_to_secondary.md": _primary_handoff(),
         "ai_workflow/handoff/ai_handoff.md": _ai_handoff(),
-        f"ai_workflow/prompts/{_CL.upper()}_PLANNER_PROMPT.md": _claude_prompt(
+        f"ai_workflow/prompts/{_CL.upper()}_PLANNER_PROMPT.md": _ai_assistant_prompt(
             role_name=f"{_CL} Planner",
             focus="turn the mission into slices, sharpen requirements, and stop weak scope before coding begins.",
             deliverables=(
@@ -484,7 +484,7 @@ def build_workspace_templates(
                 "one architecture recommendation",
             ),
         ),
-        f"ai_workflow/prompts/{_CL.upper()}_QA_PROMPT.md": _claude_prompt(
+        f"ai_workflow/prompts/{_CL.upper()}_QA_PROMPT.md": _ai_assistant_prompt(
             role_name=f"{_CL} QA",
             focus="review the changed code or docs from a fresh context and report only validated findings.",
             deliverables=(
@@ -521,7 +521,7 @@ def build_workspace_templates(
             ),
         ),
         agents_filename: _root_agents(project_name),
-        claude_filename: _root_claude(project_name),
+        ai_assistant_filename: _root_ai_assistant(project_name),
     }
 
 

@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import sys as _sys, os as _os
 _sys.path.insert(0, _os.path.dirname(__file__))
 from conftest import FakeConfig
+from src.core.query_engine import QueryResult
 
 
 def _make_engine():
@@ -152,3 +153,52 @@ def test_stream_guard_action_flag_passes_through_with_low_score():
     assert result.grounding_safe is False
     assert result.grounding_blocked is False
     assert result.answer == "System serial number is ABC123."
+
+
+def test_stream_open_knowledge_gate_fallback_marks_done_result_unverified():
+    engine, _, retriever = _make_engine()
+    engine.allow_open_knowledge = True
+    engine.config.query.allow_open_knowledge = True
+    engine.guard_enabled = True
+    engine._guard_available = True
+    engine.guard_min_chunks = 2
+    engine.guard_min_score = 0.0
+    retriever.search.return_value = [
+        SimpleNamespace(
+            score=0.91,
+            text="System serial number is ABC123.",
+            source_path="/docs/manual.txt",
+            chunk_index=0,
+        )
+    ]
+
+    fallback_events = iter(
+        [
+            {"token": "fallback "},
+            {"token": "answer"},
+            {"done": True, "result": QueryResult(
+                answer="fallback answer",
+                sources=[{"path": "/docs/manual.txt", "chunks": 1, "avg_relevance": 0.91}],
+                chunks_used=1,
+                tokens_in=4,
+                tokens_out=2,
+                cost_usd=0.0,
+                latency_ms=5.0,
+                mode="offline",
+            )},
+        ]
+    )
+
+    with patch("src.core.query_engine.QueryEngine.query_stream", return_value=fallback_events):
+        events = list(engine.query_stream("serial?"))
+
+    token_text = "".join(e["token"] for e in events if "token" in e)
+    done = [e for e in events if e.get("done")]
+
+    assert token_text == "fallback answer"
+    assert len(done) == 1
+    result = done[0]["result"]
+    assert result.grounding_safe is False
+    assert result.grounding_blocked is False
+    assert result.grounding_details["reason"] == "retrieval_gate_open_knowledge_fallback_unverified"
+    assert result.debug_trace["decision"]["path"] == "open_knowledge_retrieval_gate_fallback"

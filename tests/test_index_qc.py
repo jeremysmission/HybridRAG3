@@ -27,7 +27,7 @@ def test_detect_index_contamination_flags_temp_and_outside_root(tmp_path):
     source_root = tmp_path / "source"
     source_root.mkdir()
     good_doc = source_root / "good.docx"
-    temp_doc = Path(r"C:\Users\jerem\AppData\Local\Temp\junk.txt")
+    temp_doc = Path(r"{USER_HOME}\AppData\Local\Temp\junk.txt")
     # Use a path that is NOT inside AppData\Local\Temp so it only triggers
     # the outside-root check, not the temp-path heuristic.
     outside_doc = Path(r"D:\other\bad.pdf")
@@ -46,7 +46,46 @@ def test_detect_index_contamination_flags_temp_and_outside_root(tmp_path):
     assert result["level"] == "FAIL"
     assert result["suspicious_count"] == 2
     assert result["temp_path_count"] == 1
-    assert result["outside_root_count"] == 2
+    assert result["outside_root_count"] == 1
+
+
+def test_detect_index_contamination_flags_in_root_junk_categories(tmp_path):
+    db_path = tmp_path / "hybridrag.sqlite3"
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    junk_doc = source_root / "Testing_Addon_Pack" / "Unanswerable_Question_Bank.pdf"
+    junk_doc.parent.mkdir(parents=True, exist_ok=True)
+    good_doc = source_root / "docs" / "real_manual.pdf"
+    good_doc.parent.mkdir(parents=True, exist_ok=True)
+
+    _build_chunks_db(
+        db_path,
+        [
+            (str(junk_doc), 1),
+            (str(good_doc), 1),
+        ],
+    )
+
+    result = detect_index_contamination(db_path, source_root=str(source_root))
+
+    assert result["level"] == "FAIL"
+    assert result["suspicious_count"] == 1
+    assert result["suspicious_sources"][0]["flags"] == ["test_or_demo_artifact"]
+
+
+def test_detect_index_contamination_does_not_flag_inside_root_temp_paths_by_parent_dir(tmp_path):
+    tempish_root = tmp_path / "tmp_parent" / "source"
+    tempish_root.mkdir(parents=True)
+    db_path = tmp_path / "hybridrag.sqlite3"
+    good_doc = tempish_root / "docs" / "manual.pdf"
+    good_doc.parent.mkdir(parents=True, exist_ok=True)
+
+    _build_chunks_db(db_path, [(str(good_doc), 1)])
+
+    result = detect_index_contamination(db_path, source_root=str(tempish_root))
+
+    assert result["level"] == "PASS"
+    assert result["suspicious_count"] == 0
 
 
 def test_build_index_fingerprint_detects_changed_artifacts(tmp_path):
